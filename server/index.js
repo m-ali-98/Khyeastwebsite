@@ -11,12 +11,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
+import { createShopRouter, SHOP_SEED } from './shop.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
+const SHOP_FILE = path.join(DATA_DIR, 'shop.json');
 
 const PORT = process.env.PORT || 8787;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
@@ -28,6 +30,17 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(CONTENT_FILE)) fs.writeFileSync(CONTENT_FILE, JSON.stringify(DEFAULT_STATE, null, 2));
 if (!fs.existsSync(MESSAGES_FILE)) fs.writeFileSync(MESSAGES_FILE, JSON.stringify([], null, 2));
+if (!fs.existsSync(SHOP_FILE)) fs.writeFileSync(SHOP_FILE, JSON.stringify(SHOP_SEED(), null, 2));
+
+/* migrate: make sure content.json carries the shop section */
+try {
+  const c = JSON.parse(fs.readFileSync(CONTENT_FILE, 'utf8'));
+  if (!c.shop) {
+    c.shop = DEFAULT_STATE.shop;
+    fs.writeFileSync(CONTENT_FILE, JSON.stringify(c, null, 2));
+    console.log('[content-api] migrated content.json — added "shop" section');
+  }
+} catch {}
 
 const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const writeJSON = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
@@ -110,7 +123,7 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => res.json({ ok: true }));
 
 /* ---------------- admin: content ---------------- */
-const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
+const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts', 'shop'];
 app.put('/api/content', requireAuth, (req, res) => {
   const next = req.body;
   if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
@@ -160,6 +173,9 @@ app.delete('/api/upload', requireAuth, (req, res) => {
 });
 
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d' }));
+
+/* ---------------- online shop ---------------- */
+app.use(createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON, requireAuth }));
 
 /* ---------------- production static site ---------------- */
 const DIST = path.join(__dirname, '..', 'dist');
