@@ -12,6 +12,11 @@ import Blog from './pages/Blog';
 import PostDetail from './pages/PostDetail';
 import Contact from './pages/Contact';
 import NotFound from './pages/NotFound';
+import Shop from './pages/Shop';
+import ShopProduct from './pages/ShopProduct';
+import ShopCart from './pages/ShopCart';
+import ShopCheckout from './pages/ShopCheckout';
+import ShopOrder from './pages/ShopOrder';
 
 /* The admin panel is intentionally NOT linked anywhere on the public site.
    It is reachable only by typing its address directly. */
@@ -24,6 +29,11 @@ function PublicRoutes() {
       <Route path="/about" element={<About />} />
       <Route path="/products" element={<Products />} />
       <Route path="/products/:slug" element={<ProductDetail />} />
+      <Route path="/shop" element={<Shop />} />
+      <Route path="/shop/cart" element={<ShopCart />} />
+      <Route path="/shop/checkout" element={<ShopCheckout />} />
+      <Route path="/shop/order/:code" element={<ShopOrder />} />
+      <Route path="/shop/:slug" element={<ShopProduct />} />
       <Route path="/export" element={<Export />} />
       <Route path="/quality" element={<Quality />} />
       <Route path="/blog" element={<Blog />} />

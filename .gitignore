@@ -12,3 +12,4 @@ image-search
 server/data/messages.json
 server/uploads/*
 !server/uploads/.gitkeep
+server/data/shop.json

@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useScroll } from 'framer-motion';
 import Logo from './Logo';
-import { Icons, socialIcon, hl } from './ui';
+import { Icons, socialIcon, hl, faNum } from './ui';
 import { useContent } from '../content/ContentContext';
+import { useShop } from '../shop/ShopContext';
 
 export const NAV_LINKS = [
   { to: '/', key: 'nav.home', end: true },
   { to: '/about', key: 'nav.about' },
   { to: '/products', key: 'nav.products' },
+  { to: '/shop', key: 'nav.shop' },
   { to: '/export', key: 'nav.export' },
   { to: '/quality', key: 'nav.quality' },
   { to: '/blog', key: 'nav.blog' },
@@ -25,6 +27,7 @@ function Navbar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const { t, l, col } = useContent();
+  const { count } = useShop() || { count: 0 };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -94,6 +97,11 @@ function Navbar() {
               </NavLink>
             ))}
           </div>
+
+          <Link to="/shop/cart" className="nav__cart" aria-label={t('shop.cart.title')}>
+            <Icons.box size={20} />
+            {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
+          </Link>
 
           <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
             {t('nav.cta')}

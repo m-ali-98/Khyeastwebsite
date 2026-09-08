@@ -5,11 +5,16 @@ import Logo from '../components/Logo';
 import { Icons } from '../components/ui';
 import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, ContactTab, MessagesTab } from './tabs';
+import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab } from './shopTabs';
 import './admin.scss';
 
 const TABS = [
   { id: 'products', label: 'محصولات', icon: 'pack' },
   { id: 'posts', label: 'وبلاگ', icon: 'doc' },
+  { id: 'shop', label: 'فروشگاه — محصولات', icon: 'box' },
+  { id: 'orders', label: 'سفارش‌ها', icon: 'send' },
+  { id: 'comments', label: 'دیدگاه‌ها', icon: 'users' },
+  { id: 'payment', label: 'درگاه پرداخت', icon: 'gear' },
   { id: 'texts', label: 'متون سایت', icon: 'spark' },
   { id: 'media', label: 'تصاویر صفحات', icon: 'star' },
   { id: 'links', label: 'پیوندها', icon: 'globe' },
@@ -84,7 +89,19 @@ export default function AdminApp() {
   if (authed === null) return <div className="admin" style={{ display: 'grid', placeItems: 'center', minHeight: '100svh' }}>…</div>;
   if (!authed) return <div className="admin">{<Login onDone={() => setAuthed(true)} />}</div>;
 
-  const Tab = { products: ProductsTab, posts: PostsTab, texts: TextsTab, media: MediaTab, links: LinksTab, contact: ContactTab, messages: MessagesTab }[tab];
+  const Tab = {
+    products: ProductsTab,
+    posts: PostsTab,
+    shop: ShopProductsTab,
+    orders: ShopOrdersTab,
+    comments: ShopCommentsTab,
+    payment: ShopPaymentTab,
+    texts: TextsTab,
+    media: MediaTab,
+    links: LinksTab,
+    contact: ContactTab,
+    messages: MessagesTab,
+  }[tab];
 
   return (
     <div className="admin">
