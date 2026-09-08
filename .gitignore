@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+image-search
+.npm
+.cache
+.vscode/*
+!.vscode/extensions.json
+.idea

@@ -1,0 +1,36 @@
+{
+  "name": "khyeastwebsite",
+  "version": "1.0.0",
+  "description": "Multi-page React website for Khuzestan Yeast Co. — crimson & white, RTL Persian, rich animations.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m-ali-98/Khyeastwebsite.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/m-ali-98/Khyeastwebsite/issues"
+  },
+  "homepage": "https://github.com/m-ali-98/Khyeastwebsite#readme",
+  "dependencies": {
+    "@fontsource-variable/vazirmatn": "^5.3.0",
+    "@fontsource/vazirmatn": "^5.3.0",
+    "framer-motion": "^13.2.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "sass": "^1.104.0",
+    "sharp": "^0.35.4",
+    "vite": "^8.2.2"
+  },
+  "type": "module"
+}
