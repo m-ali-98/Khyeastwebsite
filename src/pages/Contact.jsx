@@ -1,19 +1,10 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icons, Reveal, PageHero, socialIcon } from '../components/ui';
-import { COMPANY } from '../data/site';
-
-const SUBJECTS = [
-  'استعلام قیمت و خرید عمده',
-  'همکاری در صادرات خمیرمایه',
-  'درخواست نمونه آزمایشگاهی',
-  'اخذ نمایندگی توزیع استانی',
-  'سایر امور اداری و بازرگانی',
-];
+import { useContent } from '../content/ContentContext';
 
 function OfficeCard({ office, index }) {
-  const iconMap = { tehran: 'pin', dezful: 'factory', kermanshah: 'factory' };
-  const Ic = Icons[iconMap[office.id]] || Icons.pin;
+  const Ic = Icons[office.icon] || Icons.pin;
   return (
     <Reveal delay={index * 0.1} className="card contact-card">
       <div className="contact-card__icon">
@@ -23,7 +14,7 @@ function OfficeCard({ office, index }) {
         <h3>{office.title}</h3>
         <p>{office.address}</p>
         <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-          {office.phones.map((ph) => (
+          {(office.phones || []).map((ph) => (
             <a key={ph.tel} href={`tel:${ph.tel}`}>
               <Icons.phone size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginLeft: 5 }} />
               {ph.fa}
@@ -36,20 +27,37 @@ function OfficeCard({ office, index }) {
 }
 
 function ContactForm() {
-  const [form, setForm] = useState({ name: '', phone: '', email: '', subject: SUBJECTS[0], message: '' });
+  const { t, col, backend } = useContent();
+  const subjects = col('subjects');
+  const [form, setForm] = useState({ name: '', phone: '', email: '', subject: subjects[0] || '', message: '' });
   const [sent, setSent] = useState(false);
   const [errors, setErrors] = useState({});
+  const [sending, setSending] = useState(false);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     const errs = {};
-    if (!form.name.trim()) errs.name = 'نام و نام خانوادگی الزامی است.';
-    if (!/^09\d{9}$|^0\d{10}$/.test(form.phone.replace(/\s/g, ''))) errs.phone = 'شماره تماس معتبر وارد کنید.';
-    if (!form.message.trim()) errs.message = 'متن پیام الزامی است.';
+    if (!form.name.trim()) errs.name = t('contact.form.errName');
+    if (!form.phone.trim()) errs.phone = t('contact.form.errPhone');
+    if (!form.message.trim()) errs.message = t('contact.form.errMessage');
     setErrors(errs);
-    if (Object.keys(errs).length === 0) setSent(true);
+    if (Object.keys(errs).length) return;
+    setSending(true);
+    try {
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      setSent(true);
+    } catch {
+      if (backend) setErrors({ submit: t('contact.form.errSend') });
+      else setSent(true);
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -81,53 +89,66 @@ function ContactForm() {
             >
               <Icons.check size={44} />
             </motion.div>
-            <h3 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 10px' }}>پیام شما ثبت شد</h3>
+            <h3 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 10px' }}>{t('contact.form.successTitle')}</h3>
             <p style={{ color: 'var(--muted)', maxWidth: 420, margin: '0 auto 26px' }}>
-              کارشناسان واحد بازرگانی در نخستین ساعت کاری با شما تماس می‌گیرند. سپاس از اعتمادتان.
+              {t('contact.form.successText')}
             </p>
             <button className="btn btn--outline" onClick={() => setSent(false)}>
-              ارسال پیام دیگر
+              {t('contact.form.again')}
             </button>
           </motion.div>
         ) : (
-          <motion.form key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -14 }} onSubmit={submit} noValidate>
-            <h3 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800 }}>ارسال پیام و استعلام قیمت</h3>
-            <p style={{ color: 'var(--muted)', margin: '0 0 26px', fontSize: 14.5 }}>
-              فرم زیر را تکمیل کنید؛ واحد بازرگانی خمیرمایه خوزستان در اسرع وقت پاسخ‌گوی شماست.
-            </p>
+          <motion.form
+            key="form"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, y: -14 }}
+            onSubmit={submit}
+            noValidate
+          >
+            <h3 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800 }}>{t('contact.form.title')}</h3>
+            <p style={{ color: 'var(--muted)', margin: '0 0 26px', fontSize: 14.5 }}>{t('contact.form.sub')}</p>
             <div className="form-grid">
               <div className="field">
-                <label htmlFor="name">نام و نام خانوادگی *</label>
-                <input id="name" value={form.name} onChange={set('name')} placeholder="نام کامل" />
+                <label htmlFor="name">{t('contact.form.name')}</label>
+                <input id="name" value={form.name} onChange={set('name')} />
                 {errors.name && <small style={{ color: 'var(--crimson)' }}>{errors.name}</small>}
               </div>
               <div className="field">
-                <label htmlFor="phone">شماره تماس همراه *</label>
-                <input id="phone" value={form.phone} onChange={set('phone')} placeholder="۰۹۱۲۳۴۵۶۷۸۹" inputMode="tel" />
+                <label htmlFor="phone">{t('contact.form.phone')}</label>
+                <input id="phone" value={form.phone} onChange={set('phone')} inputMode="tel" />
                 {errors.phone && <small style={{ color: 'var(--crimson)' }}>{errors.phone}</small>}
               </div>
               <div className="field">
-                <label htmlFor="email">پست الکترونیک</label>
-                <input id="email" type="email" value={form.email} onChange={set('email')} placeholder="you@company.com" dir="ltr" style={{ textAlign: 'left' }} />
+                <label htmlFor="email">{t('contact.form.email')}</label>
+                <input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={set('email')}
+                  dir="ltr"
+                  style={{ textAlign: 'left' }}
+                />
               </div>
               <div className="field">
-                <label htmlFor="subject">موضوع درخواست *</label>
+                <label htmlFor="subject">{t('contact.form.subject')}</label>
                 <select id="subject" value={form.subject} onChange={set('subject')}>
-                  {SUBJECTS.map((s) => (
+                  {subjects.map((s) => (
                     <option key={s}>{s}</option>
                   ))}
                 </select>
               </div>
               <div className="field field--full">
-                <label htmlFor="message">متن پیام یا توضیحات سفارش *</label>
-                <textarea id="message" value={form.message} onChange={set('message')} placeholder="حجم موردنیاز، نوع بسته‌بندی و مقصد سفارش را بنویسید…" />
+                <label htmlFor="message">{t('contact.form.message')}</label>
+                <textarea id="message" value={form.message} onChange={set('message')} />
                 {errors.message && <small style={{ color: 'var(--crimson)' }}>{errors.message}</small>}
               </div>
               <div className="field--full">
-                <motion.button type="submit" className="btn btn--primary" whileTap={{ scale: 0.97 }}>
-                  ارسال پیام به واحد بازرگانی
+                <motion.button type="submit" className="btn btn--primary" whileTap={{ scale: 0.97 }} disabled={sending}>
+                  {t('contact.form.submit')}
                   <Icons.send size={18} />
                 </motion.button>
+                {errors.submit && <small style={{ color: 'var(--crimson)', marginInlineStart: 14 }}>{errors.submit}</small>}
               </div>
             </div>
           </motion.form>
@@ -138,18 +159,18 @@ function ContactForm() {
 }
 
 export default function Contact() {
+  const { t, m, col } = useContent();
+  const offices = col('offices');
+  const socials = col('socials');
+
   return (
     <>
-      <PageHero
-        title="تماس با شرکت خمیر مایه خوزستان"
-        sub="برای سفارش، مشاوره فنی، همکاری در صادرات و اخذ نمایندگی، از هر مسیر که راحت‌ترید با ما در ارتباط باشید."
-        image="/assets/img/hero-wheat.jpg"
-      />
+      <PageHero title={t('contact.hero.title')} sub={t('contact.hero.sub')} image={m('contact.hero.img')} />
 
       <section className="section">
         <div className="container">
           <div className="contact-grid" style={{ marginBottom: 24 }}>
-            {COMPANY.offices.map((o, i) => (
+            {offices.map((o, i) => (
               <OfficeCard key={o.id} office={o} index={i} />
             ))}
             <Reveal delay={0.3} className="card contact-card">
@@ -157,14 +178,14 @@ export default function Contact() {
                 <Icons.whatsapp size={26} />
               </div>
               <div>
-                <h3>ارتباط سریع و شبکه‌های اجتماعی</h3>
-                <p>واحد فروش و پشتیبانی، همه‌روزه پاسخ‌گوی شماست.</p>
+                <h3>{t('contact.quick.title')}</h3>
+                <p>{t('contact.quick.text')}</p>
                 <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <a href={`mailto:${COMPANY.email}`}>
+                  <a href={`mailto:${t('global.email')}`}>
                     <Icons.mail size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginLeft: 5 }} />
-                    {COMPANY.email}
+                    {t('global.email')}
                   </a>
-                  {COMPANY.socials.map((s) => {
+                  {socials.map((s) => {
                     const Ic = socialIcon(s.id);
                     return (
                       <a key={s.id} href={s.href} target="_blank" rel="noreferrer">

@@ -1,0 +1,174 @@
+/* ==========================================================================
+   Khuzestan Yeast Co. — content API server
+   Stores: server/data/content.json (site content), server/data/messages.json
+   Uploads: server/uploads  (served at /uploads/*)
+   The admin can only change content values — never code or styling.
+   ========================================================================== */
+import express from 'express';
+import multer from 'multer';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import DEFAULT_STATE from '../shared/contentDefaults.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(__dirname, 'data');
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
+const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
+
+const PORT = process.env.PORT || 8787;
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'khyeast-1404';
+const SECRET = process.env.ADMIN_SECRET || 'khyeast-content-secret-dev';
+const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12h
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(CONTENT_FILE)) fs.writeFileSync(CONTENT_FILE, JSON.stringify(DEFAULT_STATE, null, 2));
+if (!fs.existsSync(MESSAGES_FILE)) fs.writeFileSync(MESSAGES_FILE, JSON.stringify([], null, 2));
+
+const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
+const writeJSON = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
+
+/* ---------------- auth ---------------- */
+const sign = (payload) => {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
+  return `${body}.${sig}`;
+};
+const verify = (token) => {
+  try {
+    const [body, sig] = String(token).split('.');
+    const expect = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+    if (payload.exp < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+};
+const requireAuth = (req, res, next) => {
+  const header = req.get('authorization') || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token || !verify(token)) return res.status(401).json({ error: 'unauthorized' });
+  next();
+};
+
+/* ---------------- uploads ---------------- */
+const ALLOWED = {
+  image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'],
+  video: ['.mp4', '.webm', '.mov', '.m4v'],
+};
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 },
+});
+
+const app = express();
+app.use(express.json({ limit: '8mb' }));
+
+/* ---------------- public ---------------- */
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+app.get('/api/content', (_req, res) => {
+  try {
+    res.json(readJSON(CONTENT_FILE));
+  } catch {
+    res.json(DEFAULT_STATE);
+  }
+});
+
+app.post('/api/messages', (req, res) => {
+  const { name, phone, email, subject, message } = req.body || {};
+  if (!name || !phone || !message) return res.status(400).json({ error: 'fields required' });
+  const messages = readJSON(MESSAGES_FILE);
+  const item = {
+    id: crypto.randomUUID(),
+    name: String(name).slice(0, 200),
+    phone: String(phone).slice(0, 40),
+    email: String(email || '').slice(0, 200),
+    subject: String(subject || '').slice(0, 200),
+    message: String(message).slice(0, 5000),
+    at: new Date().toISOString(),
+    read: false,
+  };
+  messages.unshift(item);
+  writeJSON(MESSAGES_FILE, messages);
+  res.json({ ok: true, id: item.id });
+});
+
+/* ---------------- auth ---------------- */
+app.post('/api/auth/login', (req, res) => {
+  const { user, pass } = req.body || {};
+  if (user !== ADMIN_USER || pass !== ADMIN_PASS) return res.status(401).json({ error: 'invalid credentials' });
+  res.json({ token: sign({ user, exp: Date.now() + TOKEN_TTL }) });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => res.json({ ok: true }));
+
+/* ---------------- admin: content ---------------- */
+const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
+app.put('/api/content', requireAuth, (req, res) => {
+  const next = req.body;
+  if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
+  for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  writeJSON(CONTENT_FILE, next);
+  res.json({ ok: true });
+});
+
+/* ---------------- admin: messages ---------------- */
+app.get('/api/messages', requireAuth, (_req, res) => res.json(readJSON(MESSAGES_FILE)));
+
+app.patch('/api/messages/:id', requireAuth, (req, res) => {
+  const messages = readJSON(MESSAGES_FILE);
+  const item = messages.find((m) => m.id === req.params.id);
+  if (!item) return res.status(404).json({ error: 'not found' });
+  Object.assign(item, { read: Boolean(req.body?.read) });
+  writeJSON(MESSAGES_FILE, messages);
+  res.json({ ok: true });
+});
+
+app.delete('/api/messages/:id', requireAuth, (req, res) => {
+  const messages = readJSON(MESSAGES_FILE).filter((m) => m.id !== req.params.id);
+  writeJSON(MESSAGES_FILE, messages);
+  res.json({ ok: true });
+});
+
+/* ---------------- admin: uploads ---------------- */
+app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'no file' });
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
+  if (!kind) return res.status(415).json({ error: 'unsupported file type' });
+  const name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
+  const dir = path.join(UPLOAD_DIR, `${kind}s`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, name), req.file.buffer);
+  res.json({ url: `/uploads/${kind}s/${name}` });
+});
+
+app.delete('/api/upload', requireAuth, (req, res) => {
+  const url = String(req.body?.url || '');
+  const m = url.match(/^\/uploads\/(images|videos)\/([\w.-]+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid url' });
+  const file = path.join(UPLOAD_DIR, m[1], m[2]);
+  if (fs.existsSync(file)) fs.unlinkSync(file);
+  res.json({ ok: true });
+});
+
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d' }));
+
+/* ---------------- production static site ---------------- */
+const DIST = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(DIST)) {
+  app.use(express.static(DIST));
+  app.get(/^\/(?!api|uploads).*/, (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
+}
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[content-api] listening on http://0.0.0.0:${PORT}`);
+  console.log(`[content-api] admin login default user: "${ADMIN_USER}" (set ADMIN_USER / ADMIN_PASS env to change)`);
+});

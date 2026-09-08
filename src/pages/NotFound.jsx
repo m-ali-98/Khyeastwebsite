@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Icons } from '../components/ui';
-import { COMPANY } from '../data/site';
+import { useContent } from '../content/ContentContext';
 
 export default function NotFound() {
+  const { t } = useContent();
   return (
     <section className="nf">
       <div>
@@ -15,14 +16,14 @@ export default function NotFound() {
           ۴۰۴
         </motion.h1>
         <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          این صفحه در تنور ما پخته نشد!
+          {t('nf.title')}
         </motion.h2>
         <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          نشانی موردنظر شما یافت نشد؛ اما داستان ما همچنان {COMPANY.slogan} است.
+          {t('nf.text')}
         </motion.p>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
           <Link to="/" className="btn btn--primary">
-            بازگشت به صفحه اصلی
+            {t('nf.btn')}
             <Icons.arrow size={18} />
           </Link>
         </motion.div>

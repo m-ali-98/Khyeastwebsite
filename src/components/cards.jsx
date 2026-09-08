@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Icons } from './ui';
-import { brandById } from '../data/products';
+import { Icons, hl } from './ui';
+import { useContent } from '../content/ContentContext';
 
 export function ProductCard({ product, index = 0 }) {
-  const brand = brandById(product.brand);
+  const { brands, t } = useContent();
+  const brand = brands.find((b) => b.id === product.brand);
   return (
     <motion.article
       className="card product-card"
@@ -26,7 +27,7 @@ export function ProductCard({ product, index = 0 }) {
         </span>
         <div className="product-card__foot">
           <Link className="link-arrow" to={`/products/${product.slug}`}>
-            مشاهده محصول
+            {t('product.view')}
             <Icons.arrow size={17} className="arr" />
           </Link>
         </div>
@@ -36,6 +37,7 @@ export function ProductCard({ product, index = 0 }) {
 }
 
 export function PostCard({ post, index = 0 }) {
+  const { t } = useContent();
   return (
     <motion.article
       className="card post-card"
@@ -55,7 +57,7 @@ export function PostCard({ post, index = 0 }) {
         <p>{post.excerpt}</p>
         <div className="post-card__foot">
           <Link className="link-arrow" to={`/blog/${post.slug}`}>
-            ادامه مطلب
+            {t('blog.readMore')}
             <Icons.arrow size={17} className="arr" />
           </Link>
         </div>

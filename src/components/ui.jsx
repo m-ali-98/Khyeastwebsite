@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, useInView, animate } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { COMPANY } from '../data/site';
+import { useContent } from '../content/ContentContext';
+import { renderHighlight } from '../content/sanitize';
+
+export const hl = renderHighlight;
 
 export const faNum = (n) => Number(n).toLocaleString('fa-IR');
 
@@ -283,11 +286,12 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
 /*  Slogan marquee band                                                */
 /* ------------------------------------------------------------------ */
 export function Marquee({ repeat = 4 }) {
+  const { t } = useContent();
   const Item = () => (
     <span className="marquee__item">
-      {COMPANY.slogan}
+      {t('global.slogan')}
       <Icons.wheat size={24} />
-      {COMPANY.nameShort}
+      {t('global.company.short')}
       <Icons.wheat size={24} />
     </span>
   );
@@ -308,7 +312,9 @@ export function Marquee({ repeat = 4 }) {
 /* ------------------------------------------------------------------ */
 /*  Inner-page hero                                                    */
 /* ------------------------------------------------------------------ */
-export function PageHero({ title, sub, image, crumb = 'صفحه اصلی' }) {
+export function PageHero({ title, sub, image, crumb }) {
+  const { t } = useContent();
+  crumb = crumb ?? t('nav.breadcrumb.home');
   return (
     <header className="page-hero">
       {image && (
@@ -351,12 +357,12 @@ export function PageHero({ title, sub, image, crumb = 'صفحه اصلی' }) {
 /* ------------------------------------------------------------------ */
 /*  CTA band                                                           */
 /* ------------------------------------------------------------------ */
-export function CTABand({
-  title = 'همین امروز با ما همراه شوید',
-  text = 'واحد بازرگانی خمیرمایه خوزستان برای استعلام قیمت، درخواست نمونه و مشاوره فنی در کنار شماست.',
-  primary = { to: '/contact', label: 'درخواست استعلام قیمت' },
-  secondary = { href: `tel:${COMPANY.phoneSales}`, label: `تماس: ${COMPANY.phoneSalesFa}` },
-}) {
+export function CTABand({ title, text, primary, secondary }) {
+  const { t, l } = useContent();
+  title = title ?? t('home.cta.title');
+  text = text ?? t('home.cta.text');
+  primary = primary ?? { to: l('home.cta.primary'), label: t('home.cta.btnPrimary') };
+  secondary = secondary ?? { href: l('sales.tel'), label: t('home.cta.btnPhone') };
   return (
     <section className="section section--tight">
       <div className="container">

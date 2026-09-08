@@ -1,16 +1,20 @@
+import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Icons, Reveal } from '../components/ui';
+import { Icons, Reveal, hl } from '../components/ui';
 import { PostCard } from '../components/cards';
-import { postBySlug, POSTS } from '../data/posts';
+import { useContent } from '../content/ContentContext';
+import { sanitizeHtml } from '../content/sanitize';
 import NotFound from './NotFound';
 
 export default function PostDetail() {
   const { slug } = useParams();
-  const post = postBySlug(slug);
-  if (!post) return <NotFound />;
+  const { t, posts } = useContent();
+  const post = posts.find((p) => p.slug === slug);
+  const safeBody = useMemo(() => (post ? sanitizeHtml(post.body) : ''), [post]);
 
-  const related = POSTS.filter((p) => p.slug !== slug).slice(0, 3);
+  if (!post) return <NotFound />;
+  const related = posts.filter((p) => p.slug !== slug).slice(0, 3);
 
   return (
     <>
@@ -25,9 +29,9 @@ export default function PostDetail() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <Link to="/">خانه</Link>
+            <Link to="/">{t('nav.breadcrumb.home')}</Link>
             <span className="sep">/</span>
-            <Link to="/blog">وبلاگ</Link>
+            <Link to="/blog">{t('nav.blog')}</Link>
             <span className="sep">/</span>
             <span>{post.category}</span>
           </motion.nav>
@@ -47,7 +51,7 @@ export default function PostDetail() {
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               <Icons.clock size={16} />
-              {post.readTime} مطالعه
+              {post.readTime} {t('blog.readMinutes')}
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               <Icons.doc size={16} />
@@ -55,7 +59,7 @@ export default function PostDetail() {
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               <Icons.users size={16} />
-              واحد تحقیق و توسعه (R&D)
+              {t('blog.meta.author')}
             </span>
           </motion.div>
         </div>
@@ -68,33 +72,18 @@ export default function PostDetail() {
           </Reveal>
 
           <article className="post-body">
-            {post.body.map((block, i) => (
-              <Reveal key={i} delay={0.04}>
-                {block.h && <h2>{block.h}</h2>}
-                {block.p && <p>{block.p}</p>}
-                {block.list && (
-                  <ul>
-                    {block.list.map((li) => (
-                      <li key={li}>{li}</li>
-                    ))}
-                  </ul>
-                )}
-              </Reveal>
-            ))}
+            <div dangerouslySetInnerHTML={{ __html: safeBody }} />
 
             <Reveal>
               <div className="post-callout">
-                <strong>🔬 واحد تحقیق و توسعه (R&D) خمیر مایه خوزستان</strong>
-                <p style={{ margin: '8px 0 0' }}>
-                  مرکز پژوهشی و کنترل کیفیت شرکت خمیر مایه خوزستان، مجهز به پیشرفته‌ترین تجهیزات
-                  آنالیز رئولوژیکی آرد و فعالیت زیستی مخمر، با نظارت آزمایشگاه VH برلین آلمان.
-                </p>
+                <strong>🔬 {t('blog.callout.title')}</strong>
+                <p style={{ margin: '8px 0 0' }}>{t('blog.callout.text')}</p>
               </div>
             </Reveal>
 
             <Reveal>
               <Link to="/blog" className="link-arrow">
-                بازگشت به فهرست مقالات
+                {t('blog.back')}
                 <Icons.arrow size={17} />
               </Link>
             </Reveal>
@@ -106,9 +95,7 @@ export default function PostDetail() {
         <section className="section section--soft">
           <div className="container">
             <Reveal className="section-head">
-              <h2 className="section-title">
-                مقالات <em>مرتبط</em>
-              </h2>
+              <h2 className="section-title">{hl(t('blog.related'))}</h2>
             </Reveal>
             <div className="posts-grid">
               {related.map((p, i) => (

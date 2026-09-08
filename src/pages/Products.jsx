@@ -2,10 +2,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icons, Reveal, PageHero, CTABand } from '../components/ui';
 import { ProductCard } from '../components/cards';
-import { BRANDS, PRODUCTS } from '../data/products';
+import { useContent } from '../content/ContentContext';
 
 export default function Products() {
   const [params, setParams] = useSearchParams();
+  const { t, m, products, brands, l } = useContent();
   const active = params.get('brand') || 'all';
 
   const setFilter = (id) => {
@@ -14,23 +15,19 @@ export default function Products() {
     setParams(params, { replace: true });
   };
 
-  const list = active === 'all' ? PRODUCTS : PRODUCTS.filter((p) => p.brand === active);
+  const list = active === 'all' ? products : products.filter((p) => p.brand === active);
 
   return (
     <>
-      <PageHero
-        title="محصولات خمیرمایه خوزستان"
-        sub="همه محصولات خمیرمایه خشک فوری با برندهای دزمایه، شتاب، ایکس پاور و نان مایه؛ از ساشه ۷۰ گرمی تا کیسه صادراتی ۲۰ کیلوگرمی."
-        image="/assets/img/bread-slicing.jpg"
-      />
+      <PageHero title={t('products.hero.title')} sub={t('products.hero.sub')} image={m('products.hero.img')} />
 
       <section className="section">
         <div className="container">
           <Reveal className="filter-bar">
             <button className={`filter-chip ${active === 'all' ? 'is-active' : ''}`} onClick={() => setFilter('all')}>
-              همه محصولات
+              {t('products.filter.all')}
             </button>
-            {BRANDS.map((b) => (
+            {brands.map((b) => (
               <button
                 key={b.id}
                 className={`filter-chip ${active === b.id ? 'is-active' : ''}`}
@@ -58,20 +55,17 @@ export default function Products() {
           <Reveal className="mt-56">
             <div className="cta-band">
               <div>
-                <h2>دانلود کاتالوگ جامع محصولات</h2>
-                <p>
-                  برای دریافت مشخصات فنی، آنالیز آزمایشگاهی و شرایط نگهداری، کاتالوگ رسمی شرکت را از
-                  واحد بازرگانی درخواست کنید.
-                </p>
+                <h2>{t('products.catalog.title')}</h2>
+                <p>{t('products.catalog.text')}</p>
               </div>
               <div className="cta-band__actions">
                 <Link to="/contact" className="btn btn--light">
-                  درخواست کاتالوگ و نمونه
+                  {t('products.catalog.btn')}
                   <Icons.arrow size={18} />
                 </Link>
-                <a className="btn btn--ghost" href="tel:02186086267">
+                <a className="btn btn--ghost" href={l('sales.tel')}>
                   <Icons.phone size={18} />
-                  تماس با واحد فروش
+                  {t('products.catalog.btnPhone')}
                 </a>
               </div>
             </div>

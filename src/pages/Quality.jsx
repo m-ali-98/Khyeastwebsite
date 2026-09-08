@@ -1,73 +1,38 @@
-import { Icons, Reveal, SectionHead, PageHero, CTABand } from '../components/ui';
-import { CERTS } from '../data/site';
-
-const QC_STEPS = [
-  { icon: 'leaf', t: 'کنترل مواد اولیه', d: 'نمونه‌برداری و آزمون هر محموله مواد اولیه پیش از ورود به خط تولید.' },
-  { icon: 'flask', t: 'پایش حین تولید', d: 'کنترل لحظه‌ای پارامترهای تخمیر، خشک‌کردن و دانه‌بندی در اتاق کنترل.' },
-  { icon: 'pack', t: 'آزمون محصول نهایی', d: 'سنجش قدرت تخمیر، رطوبت و خلوص سویه در آزمایشگاه مجهز کارخانه.' },
-  { icon: 'globe', t: 'پایش بین‌المللی VH برلین', d: 'ارسال ماهانه نمونه به انستیتو تحقیقاتی VH برلین برای آزمون مقایسه‌ای.' },
-];
+import { Icons, Reveal, SectionHead, PageHero, CTABand, hl } from '../components/ui';
+import { useContent } from '../content/ContentContext';
 
 export default function Quality() {
-  const iconMap = {
-    iso: 'shield',
-    halal: 'check',
-    haccp: 'flask',
-    iran: 'star',
-    vh: 'globe',
-    frings: 'gear',
-    lab: 'temp',
-    export: 'send',
-  };
+  const { t, m, col } = useContent();
+  const certs = col('certs');
+  const qcSteps = col('qcSteps');
+
   return (
     <>
-      <PageHero
-        title="مدیریت کیفیت و گواهینامه‌ها"
-        sub="تضمین بالاترین استانداردهای ایمنی مواد غذایی و کنترل کیفیت در هر مرحله از تولید؛ از ماده اولیه تا اولین برش نان."
-        image="/assets/img/laboratory.jpg"
-      />
+      <PageHero title={t('quality.hero.title')} sub={t('quality.hero.sub')} image={m('quality.hero.img')} />
 
       <section className="section">
         <div className="container">
           <div className="split">
             <Reveal x={40} y={0}>
               <div className="split__media">
-                <span className="badge-float">VH Berlin Member</span>
+                <span className="badge-float">{t('quality.lab.badge')}</span>
                 <div className="img-main">
-                  <img src="/assets/img/laboratory.jpg" alt="آزمایشگاه کنترل کیفیت" loading="lazy" />
+                  <img src={m('quality.lab.img')} alt={t('quality.lab.overline')} loading="lazy" />
                 </div>
               </div>
             </Reveal>
             <Reveal x={-40} y={0} delay={0.1}>
-              <span className="overline">کنترل کیفیت در هر مرحله</span>
-              <h2 className="section-title">
-                کیفیتی جهانی، <em>پایش‌شده در برلین</em>
-              </h2>
-              <p style={{ color: 'var(--muted)' }}>
-                تیم کنترل کیفیت خمیرمایه خوزستان در تلاش شبانه‌روزی در راستای دستیابی به کیفیتی
-                جهانی و شناسایی ارزش‌های رقابتی است که رضایت کامل مشتریان را فراهم می‌نماید. این تیم
-                به‌طور مستمر از کلیه مواد اولیه، مراحل تولید و محصولات نهایی نمونه‌برداری و آزمون
-                می‌کند.
-              </p>
-              <p style={{ color: 'var(--muted)' }}>
-                شرکت خمیرمایه خوزستان به منظور تأیید روش‌های آزمون و مقایسه‌های بین‌آزمایشگاهی،
-                سال‌هاست به عضویت انستیتو تحقیقات VH برلین درآمده و ماهانه نمونه‌هایی از محصولات و
-                مواد اولیه خود را به این مرکز در آلمان ارسال می‌کند؛ یکی از معتبرترین مراکز تحقیقاتی
-                دنیا در زمینه مخمر نان.
-              </p>
+              <span className="overline">{t('quality.lab.overline')}</span>
+              <h2 className="section-title">{hl(t('quality.lab.title'))}</h2>
+              <p style={{ color: 'var(--muted)' }}>{t('quality.lab.p1')}</p>
+              <p style={{ color: 'var(--muted)' }}>{t('quality.lab.p2')}</p>
               <ul className="check-list">
-                <li>
-                  <Icons.check size={20} />
-                  آزمون قدرت تخمیر هر بچ تولید پیش از خروج از کارخانه
-                </li>
-                <li>
-                  <Icons.check size={20} />
-                  پایش رطوبت، خاکستر و پروتئین مطابق استاندارد ملی ایران
-                </li>
-                <li>
-                  <Icons.check size={20} />
-                  ممیزی دوره‌ای داخلی بر پایه BS EN ISO 9001:2015
-                </li>
+                {[1, 2, 3].map((i) => (
+                  <li key={i}>
+                    <Icons.check size={20} />
+                    {t(`quality.lab.check${i}`)}
+                  </li>
+                ))}
               </ul>
             </Reveal>
           </div>
@@ -76,17 +41,10 @@ export default function Quality() {
 
       <section className="section section--soft">
         <div className="container">
-          <SectionHead
-            overline="گواهینامه‌ها و افتخارات"
-            title={
-              <>
-                مهرهای تأییدی که <em>داستان ما را امضا می‌کنند</em>
-              </>
-            }
-          />
+          <SectionHead overline={t('quality.certs.overline')} title={hl(t('quality.certs.title'))} />
           <div className="certs-grid">
-            {CERTS.map((c, i) => {
-              const Ic = Icons[iconMap[c.id]] || Icons.shield;
+            {certs.map((c, i) => {
+              const Ic = Icons[c.icon] || Icons.shield;
               return (
                 <Reveal key={c.id} delay={(i % 4) * 0.1} className="card cert-card">
                   <div className="cert-card__icon">
@@ -103,24 +61,17 @@ export default function Quality() {
 
       <section className="section">
         <div className="container">
-          <SectionHead
-            overline="چرخه پایش کیفیت"
-            title={
-              <>
-                چهار ایستگاه، <em>صفر مماشات</em>
-              </>
-            }
-          />
+          <SectionHead overline={t('quality.steps.overline')} title={hl(t('quality.steps.title'))} />
           <div className="steps">
-            {QC_STEPS.map((s, i) => {
-              const Ic = Icons[s.icon];
+            {qcSteps.map((s, i) => {
+              const Ic = Icons[s.icon] || Icons.flask;
               return (
-                <Reveal key={s.t} delay={i * 0.14} className="step">
+                <Reveal key={s.title} delay={i * 0.14} className="step">
                   <div className="step__num" style={{ fontSize: 0 }}>
                     <Ic size={34} />
                   </div>
-                  <h3>{s.t}</h3>
-                  <p>{s.d}</p>
+                  <h3>{s.title}</h3>
+                  <p>{s.text}</p>
                 </Reveal>
               );
             })}
@@ -133,17 +84,13 @@ export default function Quality() {
           <Reveal>
             <div className="cta-band">
               <div>
-                <h2>تقدیرنامه‌ها و جوایز</h2>
-                <p>
-                  تمرکز بر بازار و تعهد به ایجاد ارزش برای مشتری، ما را موفق به دریافت تقدیرنامه‌های
-                  متعددی از سازمان‌ها و وزارتخانه‌های دولتی نموده است؛ از جمله تقدیرنامه صادرکننده
-                  نمونه استانی و تقدیرنامه بانک توسعه صادرات ایران.
-                </p>
+                <h2>{t('quality.awards.title')}</h2>
+                <p>{t('quality.awards.text')}</p>
               </div>
               <div className="cta-band__actions">
-                <a className="btn btn--light" href="mailto:info@khuzestanyeast-co.com">
+                <a className="btn btn--light" href={`mailto:${t('global.email')}`}>
                   <Icons.doc size={18} />
-                  درخواست مستندات کیفی
+                  {t('quality.awards.btn')}
                 </a>
               </div>
             </div>
