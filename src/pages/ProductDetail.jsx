@@ -1,35 +1,35 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Icons, Reveal, CTABand } from '../components/ui';
+import { Icons, Reveal, CTABand, hl } from '../components/ui';
 import { ProductCard } from '../components/cards';
-import { productBySlug, brandById, PRODUCTS } from '../data/products';
-import { COMPANY } from '../data/site';
+import { useContent } from '../content/ContentContext';
 import NotFound from './NotFound';
-
-const TABS = [
-  { id: 'usage', label: 'راهنمای مصرف و کاربرد' },
-  { id: 'analysis', label: 'آنالیز آزمایشگاهی و ترکیبات' },
-  { id: 'storage', label: 'شرایط نگهداری و انبارداری' },
-];
 
 export default function ProductDetail() {
   const { slug } = useParams();
-  const product = productBySlug(slug);
+  const { t, l, products, brands } = useContent();
   const [tab, setTab] = useState('usage');
 
+  const product = products.find((p) => p.slug === slug);
   if (!product) return <NotFound />;
-  const brand = brandById(product.brand);
-  const related = PRODUCTS.filter((p) => p.slug !== product.slug).slice(0, 4);
+  const brand = brands.find((b) => b.id === product.brand);
+  const related = products.filter((p) => p.slug !== product.slug).slice(0, 4);
+
+  const TABS = [
+    { id: 'usage', label: t('product.tab.usage') },
+    { id: 'analysis', label: t('product.tab.analysis') },
+    { id: 'storage', label: t('product.tab.storage') },
+  ];
 
   return (
     <>
       <section className="section" style={{ paddingTop: 'calc(var(--nav-h) + 80px)' }}>
         <div className="container">
           <Reveal className="breadcrumb" style={{ color: 'var(--muted)' }}>
-            <Link to="/">خانه</Link>
+            <Link to="/">{t('nav.breadcrumb.home')}</Link>
             <span className="sep" style={{ color: 'var(--crimson)' }}>/</span>
-            <Link to="/products">محصولات</Link>
+            <Link to="/products">{t('nav.products')}</Link>
             <span className="sep" style={{ color: 'var(--crimson)' }}>/</span>
             <span>{product.title}</span>
           </Reveal>
@@ -47,7 +47,9 @@ export default function ProductDetail() {
             </Reveal>
 
             <Reveal x={-40} y={0} delay={0.1}>
-              <span className="overline">برند {brand?.fa} · {brand?.en}</span>
+              <span className="overline">
+                {brand?.fa} · {brand?.en}
+              </span>
               <h1 className="section-title" style={{ fontSize: 'clamp(26px, 3.4vw, 40px)' }}>
                 {product.title}
               </h1>
@@ -56,13 +58,13 @@ export default function ProductDetail() {
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '18px 0 26px' }}>
                 <span className="filter-chip is-active">{product.weight}</span>
                 <span className="filter-chip is-active">{product.pack}</span>
-                <span className="filter-chip">ماندگاری ۲۴ ماه</span>
+                <span className="filter-chip">{t('product.chipShelf')}</span>
               </div>
 
               <div className="card" style={{ overflow: 'hidden', marginBottom: 26 }}>
                 <table className="spec-table">
                   <tbody>
-                    {product.specs.map(([k, v]) => (
+                    {(product.specs || []).map(([k, v]) => (
                       <tr key={k}>
                         <th>{k}</th>
                         <td>{v}</td>
@@ -73,16 +75,20 @@ export default function ProductDetail() {
               </div>
 
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <a className="btn btn--primary" href={`tel:${COMPANY.phoneSales}`}>
+                <a className="btn btn--primary" href={l('sales.tel')}>
                   <Icons.phone size={18} />
-                  تماس برای سفارش عمده
+                  {t('product.btnOrder')}
                 </a>
-                <a className="btn btn--outline" href={COMPANY.socials[0].href} target="_blank" rel="noreferrer">
+                <a className="btn btn--outline" href={l('sales.whatsapp')} target="_blank" rel="noreferrer">
                   <Icons.whatsapp size={18} />
-                  سفارش در واتس‌اپ
+                  {t('product.btnWhatsapp')}
                 </a>
-                <Link className="btn btn--ghost" style={{ background: 'var(--bg-soft)', color: 'var(--crimson-700)', border: 'none' }} to="/contact">
-                  درخواست نمونه آزمایشگاهی
+                <Link
+                  className="btn btn--ghost"
+                  style={{ background: 'var(--bg-soft)', color: 'var(--crimson-700)', border: 'none' }}
+                  to="/contact"
+                >
+                  {t('product.btnSample')}
                 </Link>
               </div>
             </Reveal>
@@ -94,9 +100,9 @@ export default function ProductDetail() {
         <div className="container" style={{ maxWidth: 980 }}>
           <Reveal>
             <div className="tabs">
-              {TABS.map((t) => (
-                <button key={t.id} className={`tab ${tab === t.id ? 'is-active' : ''}`} onClick={() => setTab(t.id)}>
-                  {t.label}
+              {TABS.map((tb) => (
+                <button key={tb.id} className={`tab ${tab === tb.id ? 'is-active' : ''}`} onClick={() => setTab(tb.id)}>
+                  {tb.label}
                 </button>
               ))}
             </div>
@@ -114,9 +120,9 @@ export default function ProductDetail() {
             >
               {tab === 'usage' && (
                 <>
-                  <h3 style={{ marginTop: 0 }}>نحوه مصرف {product.title}:</h3>
+                  <h3 style={{ marginTop: 0 }}>{t('product.usageTitle')}</h3>
                   <ol style={{ color: 'var(--ink-2)', lineHeight: 2.3, paddingInlineStart: 22, margin: 0 }}>
-                    {product.usage.map((u) => (
+                    {(product.usage || []).map((u) => (
                       <li key={u}>{u}</li>
                     ))}
                   </ol>
@@ -125,7 +131,7 @@ export default function ProductDetail() {
               {tab === 'analysis' && (
                 <table className="spec-table">
                   <tbody>
-                    {product.analysis.map(([k, v]) => (
+                    {(product.analysis || []).map(([k, v]) => (
                       <tr key={k}>
                         <th>{k}</th>
                         <td>{v}</td>
@@ -136,7 +142,7 @@ export default function ProductDetail() {
               )}
               {tab === 'storage' && (
                 <ul style={{ color: 'var(--ink-2)', lineHeight: 2.3, paddingInlineStart: 22, margin: 0 }}>
-                  {product.storage.map((u) => (
+                  {(product.storage || []).map((u) => (
                     <li key={u}>{u}</li>
                   ))}
                 </ul>
@@ -149,9 +155,7 @@ export default function ProductDetail() {
       <section className="section">
         <div className="container">
           <Reveal className="section-head">
-            <h2 className="section-title">
-              سایر <em>محصولات</em>
-            </h2>
+            <h2 className="section-title">{hl(t('product.related'))}</h2>
           </Reveal>
           <div className="products-grid">
             {related.map((p, i) => (

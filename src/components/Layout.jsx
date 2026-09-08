@@ -2,18 +2,17 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useScroll } from 'framer-motion';
 import Logo from './Logo';
-import { Icons, socialIcon } from './ui';
-import { COMPANY } from '../data/site';
-import { BRANDS } from '../data/products';
+import { Icons, socialIcon, hl } from './ui';
+import { useContent } from '../content/ContentContext';
 
 export const NAV_LINKS = [
-  { to: '/', label: 'خانه', end: true },
-  { to: '/about', label: 'درباره ما' },
-  { to: '/products', label: 'محصولات' },
-  { to: '/export', label: 'صادرات' },
-  { to: '/quality', label: 'کیفیت و گواهینامه‌ها' },
-  { to: '/blog', label: 'وبلاگ' },
-  { to: '/contact', label: 'تماس با ما' },
+  { to: '/', key: 'nav.home', end: true },
+  { to: '/about', key: 'nav.about' },
+  { to: '/products', key: 'nav.products' },
+  { to: '/export', key: 'nav.export' },
+  { to: '/quality', key: 'nav.quality' },
+  { to: '/blog', key: 'nav.blog' },
+  { to: '/contact', key: 'nav.contact' },
 ];
 
 function ScrollProgress() {
@@ -25,6 +24,7 @@ function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const { t, l, col } = useContent();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -42,13 +42,15 @@ function Navbar() {
     };
   }, [open]);
 
+  const socials = col('socials');
+
   return (
     <>
       <nav className={`nav ${scrolled && !open ? 'is-scrolled' : ''}`}>
         <div className="nav__topbar">
           <div className="container nav__topbar-inner">
             <div className="nav__topbar-socials">
-              {COMPANY.socials.map((s) => {
+              {socials.map((s) => {
                 const Ic = socialIcon(s.id);
                 return (
                   <a key={s.id} href={s.href} target="_blank" rel="noreferrer">
@@ -59,42 +61,42 @@ function Navbar() {
               })}
             </div>
             <div style={{ display: 'flex', gap: 18 }}>
-              <a href={`mailto:${COMPANY.email}`}>
+              <a href={`mailto:${t('global.email')}`}>
                 <Icons.mail size={15} />
-                {COMPANY.email}
+                {t('global.email')}
               </a>
-              <a href={`tel:${COMPANY.phoneSales}`}>
+              <a href={l('sales.tel')}>
                 <Icons.phone size={15} />
-                {COMPANY.phoneSalesFa}
+                {t('global.sales.phone.fa')}
               </a>
             </div>
           </div>
         </div>
 
         <div className="container nav__bar">
-          <Link to="/" className="nav__logo" aria-label={COMPANY.nameFa}>
+          <Link to="/" className="nav__logo" aria-label={t('global.company.name')}>
             <Logo />
             <span className="nav__logo-text">
-              <strong>{COMPANY.nameShort}</strong>
-              <small>{COMPANY.nameEn}</small>
+              <strong>{t('global.company.short')}</strong>
+              <small>{t('global.company.en')}</small>
             </span>
           </Link>
 
           <div className="nav__links">
-            {NAV_LINKS.map((l) => (
+            {NAV_LINKS.map((link) => (
               <NavLink
-                key={l.to}
-                to={l.to}
-                end={l.end}
+                key={link.to}
+                to={link.to}
+                end={link.end}
                 className={({ isActive }) => `nav__link ${isActive ? 'active' : ''}`}
               >
-                {l.label}
+                {t(link.key)}
               </NavLink>
             ))}
           </div>
 
           <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
-            استعلام قیمت
+            {t('nav.cta')}
           </Link>
 
           <button
@@ -119,15 +121,15 @@ function Navbar() {
             exit={{ clipPath: 'circle(0% at 92% 6%)', opacity: 0 }}
             transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
           >
-            {NAV_LINKS.map((l, i) => (
+            {NAV_LINKS.map((link, i) => (
               <motion.div
-                key={l.to}
+                key={link.to}
                 initial={{ opacity: 0, x: 40 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.15 + i * 0.06, duration: 0.45 }}
               >
-                <NavLink to={l.to} end={l.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
-                  {l.label}
+                <NavLink to={link.to} end={link.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
+                  {t(link.key)}
                   <Icons.arrow size={20} />
                 </NavLink>
               </motion.div>
@@ -138,7 +140,7 @@ function Navbar() {
               transition={{ delay: 0.6 }}
               className="m-slogan"
             >
-              {COMPANY.slogan}
+              {t('global.slogan')}
             </motion.div>
           </motion.div>
         )}
@@ -173,6 +175,8 @@ function BackToTop() {
 }
 
 function Footer() {
+  const { t, l, col, brands } = useContent();
+  const socials = col('socials');
   return (
     <footer className="footer">
       <div className="container">
@@ -181,17 +185,14 @@ function Footer() {
             <Link to="/" className="nav__logo" style={{ marginBottom: 8 }}>
               <Logo size={44} />
               <span className="nav__logo-text">
-                <strong style={{ color: '#fff' }}>{COMPANY.nameShort}</strong>
-                <small>{COMPANY.nameEn}</small>
+                <strong style={{ color: '#fff' }}>{t('global.company.short')}</strong>
+                <small>{t('global.company.en')}</small>
               </span>
             </Link>
-            <p className="footer__slogan">«{COMPANY.slogan}»</p>
-            <p>
-              تولیدکننده خمیرمایه خشک فوری با برندهای دزمایه، شتاب، ایکس پاور و نان مایه؛ با بیش از سه دهه
-              سابقه و صادرات به بیش از ۵۰ کشور جهان.
-            </p>
+            <p className="footer__slogan">«{t('global.slogan')}»</p>
+            <p>{t('footer.about')}</p>
             <div className="footer__socials">
-              {COMPANY.socials.map((s) => {
+              {socials.map((s) => {
                 const Ic = socialIcon(s.id);
                 return (
                   <a key={s.id} href={s.href} target="_blank" rel="noreferrer" aria-label={s.label}>
@@ -203,13 +204,13 @@ function Footer() {
           </div>
 
           <div>
-            <h4>دسترسی سریع</h4>
+            <h4>{t('footer.quickTitle')}</h4>
             <ul>
-              {NAV_LINKS.filter((l) => l.to !== '/').map((l) => (
-                <li key={l.to}>
-                  <Link to={l.to}>
+              {NAV_LINKS.filter((link) => link.to !== '/').map((link) => (
+                <li key={link.to}>
+                  <Link to={link.to}>
                     <Icons.arrow size={14} />
-                    {l.label}
+                    {t(link.key)}
                   </Link>
                 </li>
               ))}
@@ -217,9 +218,9 @@ function Footer() {
           </div>
 
           <div>
-            <h4>برندهای ما</h4>
+            <h4>{t('footer.brandsTitle')}</h4>
             <ul>
-              {BRANDS.map((b) => (
+              {brands.map((b) => (
                 <li key={b.id}>
                   <Link to={`/products?brand=${b.id}`}>
                     <Icons.wheat size={14} />
@@ -230,42 +231,44 @@ function Footer() {
               <li>
                 <Link to="/products">
                   <Icons.pack size={14} />
-                  همه محصولات
+                  {t('footer.allProducts')}
                 </Link>
               </li>
             </ul>
           </div>
 
           <div>
-            <h4>تماس با ما</h4>
+            <h4>{t('footer.contactTitle')}</h4>
             <ul>
               <li>
-                <a href={`mailto:${COMPANY.email}`}>
+                <a href={`mailto:${t('global.email')}`}>
                   <Icons.mail size={15} />
-                  {COMPANY.email}
+                  {t('global.email')}
                 </a>
               </li>
               <li>
-                <a href={`tel:${COMPANY.phoneSales}`}>
+                <a href={l('sales.tel')}>
                   <Icons.phone size={15} />
-                  واحد فروش: {COMPANY.phoneSalesFa}
+                  {t('footer.sales')} {t('global.sales.phone.fa')}
                 </a>
               </li>
               <li style={{ lineHeight: 1.9 }}>
                 <Icons.pin size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8 }} />
-                تهران، پاسداران، خیابان اسلامی، خیابان مومن‌نژاد، پلاک ۵۵
+                {t('footer.address1')}
               </li>
               <li style={{ lineHeight: 1.9 }}>
                 <Icons.factory size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8 }} />
-                دزفول، کیلومتر ۱۲ جاده شوشتر، شهرک صنعتی یک
+                {t('footer.address2')}
               </li>
             </ul>
           </div>
         </div>
 
         <div className="footer__bottom">
-          <span>© {new Date().getFullYear().toLocaleString('fa-IR')} — شرکت خمیر مایه خوزستان. کلیه حقوق محفوظ است.</span>
-          <span>{COMPANY.sloganEn}</span>
+          <span>
+            © {new Date().getFullYear().toLocaleString('fa-IR')} {t('footer.copy')}
+          </span>
+          <span>{t('global.slogan.en')}</span>
         </div>
       </div>
     </footer>

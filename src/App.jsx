@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Layout from './components/Layout';
@@ -13,12 +13,46 @@ import PostDetail from './pages/PostDetail';
 import Contact from './pages/Contact';
 import NotFound from './pages/NotFound';
 
+/* The admin panel is intentionally NOT linked anywhere on the public site.
+   It is reachable only by typing its address directly. */
+const AdminApp = lazy(() => import('./admin/AdminApp'));
+
+function PublicRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/about" element={<About />} />
+      <Route path="/products" element={<Products />} />
+      <Route path="/products/:slug" element={<ProductDetail />} />
+      <Route path="/export" element={<Export />} />
+      <Route path="/quality" element={<Quality />} />
+      <Route path="/blog" element={<Blog />} />
+      <Route path="/blog/:slug" element={<PostDetail />} />
+      <Route path="/contact" element={<Contact />} />
+      <Route path="/dezmaye" element={<Navigate to="/products/dezmaye-gold-80" replace />} />
+      <Route path="/shetab" element={<Navigate to="/products/shetab-90" replace />} />
+      <Route path="/xpower" element={<Navigate to="/products/xpower-70" replace />} />
+      <Route path="/nanmaye" element={<Navigate to="/products/nanmaye-10" replace />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
+
 function AnimatedRoutes() {
   const location = useLocation();
+  const isAdmin = location.pathname.startsWith('/admin');
 
   useEffect(() => {
-    document.title = `${location.pathname === '/' ? '' : ''}شرکت خمیر مایه خوزستان | از مغز گندم؛ تا اولین برش نان`;
+    document.title = 'شرکت خمیر مایه خوزستان | از مغز گندم؛ تا اولین برش نان';
   }, [location.pathname]);
+
+  if (isAdmin) {
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100svh', display: 'grid', placeItems: 'center' }}>…</div>}>
+        <AdminApp />
+      </Suspense>
+    );
+  }
 
   return (
     <AnimatePresence mode="wait">
@@ -29,22 +63,9 @@ function AnimatedRoutes() {
         exit={{ opacity: 0, y: -14 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
       >
-        <Routes location={location}>
-          <Route path="/" element={<Home />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/products" element={<Products />} />
-          <Route path="/products/:slug" element={<ProductDetail />} />
-          <Route path="/export" element={<Export />} />
-          <Route path="/quality" element={<Quality />} />
-          <Route path="/blog" element={<Blog />} />
-          <Route path="/blog/:slug" element={<PostDetail />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/dezmaye" element={<Navigate to="/products/dezmaye-gold-80" replace />} />
-          <Route path="/shetab" element={<Navigate to="/products/shetab-90" replace />} />
-          <Route path="/xpower" element={<Navigate to="/products/xpower-70" replace />} />
-          <Route path="/nanmaye" element={<Navigate to="/products/nanmaye-10" replace />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Layout>
+          <PublicRoutes />
+        </Layout>
       </motion.main>
     </AnimatePresence>
   );
@@ -53,9 +74,7 @@ function AnimatedRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <AnimatedRoutes />
-      </Layout>
+      <AnimatedRoutes />
     </BrowserRouter>
   );
 }
