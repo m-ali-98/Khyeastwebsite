@@ -8,7 +8,10 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "start": "node server/index.js",
-    "images": "node scripts/optimize-images.mjs"
+    "images": "node scripts/optimize-images.mjs",
+    "images:force": "node scripts/optimize-images.mjs --force",
+    "predev": "node scripts/optimize-images.mjs",
+    "prebuild": "node scripts/optimize-images.mjs"
   },
   "repository": {
     "type": "git",
