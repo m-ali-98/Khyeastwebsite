@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Layout from './components/Layout';
 import RouteFallback from './components/RouteFallback';
 import { usePrefetchRoutes, prefetch } from './routes';
+import { currentTier } from './lib/motion';
 import { useLocale, LOCALES, localePath } from './i18n/LocaleContext';
 import { useContent } from './content/ContentContext';
 import Home from './pages/Home'; // landing page stays in the main bundle
@@ -67,14 +68,11 @@ function PublicRoutes() {
   );
 }
 
-/* Slow links / data-saver / reduced-motion visitors get a plain fade with no
-   movement and no exit delay — the page swaps as soon as its chunk lands. */
+/* Slow links, weak hardware and reduced-motion visitors get a plain fade with
+   no movement and no exit delay — the page swaps as soon as its chunk lands.
+   The tier itself is decided once in src/lib/motion.js. */
 function useLightMotion() {
-  if (typeof window === 'undefined') return false;
-  const conn = navigator.connection || {};
-  const slow = conn.saveData === true || /(^|-)2g$/.test(conn.effectiveType || '');
-  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-  return Boolean(slow || reduced);
+  return currentTier() !== 'full';
 }
 
 function AnimatedRoutes() {

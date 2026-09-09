@@ -9,6 +9,7 @@ import { ContentProvider } from './content/ContentContext';
 import { ShopProvider } from './shop/ShopContext';
 import { LocaleProvider } from './i18n/LocaleContext';
 import { loadPack } from '../shared/i18n/index.js';
+import { detectTier, applyTier, currentTier } from './lib/motion';
 import { localeFromPath } from './i18n/LocaleContext';
 
 /* The English / Arabic dictionaries are separate chunks; the Persian site
@@ -30,6 +31,11 @@ function dismissSplash() {
     });
   });
 }
+
+/* The inline script in index.html already set data-motion before first paint.
+   Re-assert it here so the two implementations can never drift apart, and so
+   the attribute is still correct if that script was stripped by a proxy. */
+if (!document.documentElement.getAttribute('data-motion')) applyTier(detectTier());
 
 loadPack(localeFromPath(window.location.pathname)).finally(() => {
   ReactDOM.createRoot(document.getElementById('root')).render(

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, useInView, animate } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useContent } from '../content/ContentContext';
+import { observeReveal, isMinimal } from '../lib/motion';
 import { renderHighlight } from '../content/sanitize';
 import { useLocale } from '../i18n/LocaleContext';
 
@@ -242,18 +243,35 @@ export const socialIcon = (id) => Icons[id] || Icons.globe;
 /* ------------------------------------------------------------------ */
 /*  Scroll reveal wrapper                                              */
 /* ------------------------------------------------------------------ */
-export function Reveal({ children, delay = 0, y = 34, x = 0, className = '', once = true, style }) {
+/* Scroll reveal.
+
+   This used to be a framer-motion component, which meant one JS animation
+   loop and one IntersectionObserver per instance — 63 of them on the longer
+   pages. It is now a plain div driven by a single shared observer that just
+   toggles a class, letting the browser run the transition on the compositor.
+   Same choreography, a fraction of the main-thread cost, and smoother
+   precisely on the devices that were struggling.
+
+   The travel distance is passed as a custom property so the stylesheet can
+   shorten or cancel it per motion tier. */
+export function Reveal({ children, delay = 0, y = 34, x = 0, className = '', style }) {
+  const ref = useRef(null);
+
+  useEffect(() => observeReveal(ref.current), []);
+
   return (
-    <motion.div
-      className={className}
-      style={style}
-      initial={{ opacity: 0, y, x }}
-      whileInView={{ opacity: 1, y: 0, x: 0 }}
-      viewport={{ once, margin: '-70px' }}
-      transition={{ duration: 0.75, delay, ease: [0.22, 1, 0.36, 1] }}
+    <div
+      ref={ref}
+      className={`reveal ${className}`.trim()}
+      style={{
+        '--rv-y': `${y}px`,
+        '--rv-x': `${x}px`,
+        '--rv-delay': delay ? `${delay}s` : '0s',
+        ...style,
+      }}
     >
       {children}
-    </motion.div>
+    </div>
   );
 }
 
@@ -287,6 +305,14 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
 
   useEffect(() => {
     if (!inView) return undefined;
+
+    /* A 2.2 s rAF tween per stat is pure decoration; on a weak device it is
+       also several hundred wasted frames. Show the final figure instead. */
+    if (isMinimal()) {
+      setVal(to);
+      return undefined;
+    }
+
     const controls = animate(0, to, {
       duration,
       ease: [0.22, 1, 0.36, 1],
