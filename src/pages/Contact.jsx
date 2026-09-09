@@ -16,7 +16,7 @@ function OfficeCard({ office, index }) {
         <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           {(office.phones || []).map((ph) => (
             <a key={ph.tel} href={`tel:${ph.tel}`}>
-              <Icons.phone size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginLeft: 5 }} />
+              <Icons.phone size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginInlineEnd: 5 }} />
               {ph.fa}
             </a>
           ))}
@@ -182,14 +182,14 @@ export default function Contact() {
                 <p>{t('contact.quick.text')}</p>
                 <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                   <a href={`mailto:${t('global.email')}`}>
-                    <Icons.mail size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginLeft: 5 }} />
+                    <Icons.mail size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginInlineEnd: 5 }} />
                     {t('global.email')}
                   </a>
                   {socials.map((s) => {
                     const Ic = socialIcon(s.id);
                     return (
                       <a key={s.id} href={s.href} target="_blank" rel="noreferrer">
-                        <Ic size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginLeft: 5 }} />
+                        <Ic size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginInlineEnd: 5 }} />
                         {s.label}
                       </a>
                     );

@@ -2,20 +2,64 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useScroll } from 'framer-motion';
 import Logo from './Logo';
-import { Icons, socialIcon, hl, faNum } from './ui';
+import { Icons, socialIcon, hl, faNum, NUM_LOCALE } from './ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
+import { useLocale } from '../i18n/LocaleContext';
 
 export const NAV_LINKS = [
   { to: '/', key: 'nav.home', end: true },
   { to: '/about', key: 'nav.about' },
   { to: '/products', key: 'nav.products' },
-  { to: '/shop', key: 'nav.shop' },
+  { to: '/shop', key: 'nav.shop', shopOnly: true },
   { to: '/export', key: 'nav.export' },
   { to: '/quality', key: 'nav.quality' },
   { to: '/blog', key: 'nav.blog' },
   { to: '/contact', key: 'nav.contact' },
 ];
+
+/* ---------------------------------------------------------------------------
+   Language switcher — a compact segmented control in the top bar and inside
+   the mobile menu. Switching is a full navigation to the other locale's URL.
+   --------------------------------------------------------------------------- */
+function LangSwitch({ block = false }) {
+  const { locale, locales, switchLocale } = useLocale();
+  return (
+    <div className={`lang-switch ${block ? 'lang-switch--block' : ''}`} role="group" aria-label="Language">
+      {locales.map((lo) => (
+        <button
+          key={lo.code}
+          type="button"
+          className={`lang-switch__btn ${lo.code === locale ? 'is-active' : ''}`}
+          onClick={() => switchLocale(lo.code)}
+          aria-current={lo.code === locale ? 'true' : undefined}
+          title={lo.label}
+        >
+          <span className="lang-switch__short">{lo.short}</span>
+          <span className="lang-switch__label">{lo.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* Dark mode: the crimson accent stays, the white canvas becomes near-black. */
+function ThemeToggle() {
+  const { isDark, toggleTheme } = useLocale();
+  return (
+    <button
+      type="button"
+      className={`theme-toggle ${isDark ? 'is-dark' : ''}`}
+      onClick={toggleTheme}
+      aria-label={isDark ? 'Light mode' : 'Dark mode'}
+      aria-pressed={isDark}
+    >
+      <span className="theme-toggle__track">
+        <span className="theme-toggle__thumb">{isDark ? <Icons.moon size={13} /> : <Icons.sun size={13} />}</span>
+      </span>
+    </button>
+  );
+}
 
 function ScrollProgress() {
   const { scrollYProgress } = useScroll();
@@ -28,6 +72,8 @@ function Navbar() {
   const location = useLocation();
   const { t, l, col } = useContent();
   const { count } = useShop() || { count: 0 };
+  const { shopEnabled } = useLocale();
+  const navLinks = NAV_LINKS.filter((link) => !link.shopOnly || shopEnabled);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -72,6 +118,8 @@ function Navbar() {
                 <Icons.phone size={15} />
                 {t('global.sales.phone.fa')}
               </a>
+              <LangSwitch />
+              <ThemeToggle />
             </div>
           </div>
         </div>
@@ -86,7 +134,7 @@ function Navbar() {
           </Link>
 
           <div className="nav__links">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
@@ -98,10 +146,12 @@ function Navbar() {
             ))}
           </div>
 
-          <Link to="/shop/cart" className="nav__cart" aria-label={t('shop.cart.title')}>
-            <Icons.box size={20} />
-            {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
-          </Link>
+          {shopEnabled && (
+            <Link to="/shop/cart" className="nav__cart" aria-label={t('shop.cart.title')}>
+              <Icons.box size={20} />
+              {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
+            </Link>
+          )}
 
           <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
             {t('nav.cta')}
@@ -110,7 +160,7 @@ function Navbar() {
           <button
             className={`nav__burger ${open ? 'is-open' : ''}`}
             onClick={() => setOpen((v) => !v)}
-            aria-label="منو"
+            aria-label={t('nav.home')}
             aria-expanded={open}
           >
             <span />
@@ -129,7 +179,7 @@ function Navbar() {
             exit={{ clipPath: 'circle(0% at 92% 6%)', opacity: 0 }}
             transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
           >
-            {NAV_LINKS.map((link, i) => (
+            {navLinks.map((link, i) => (
               <motion.div
                 key={link.to}
                 initial={{ opacity: 0, x: 40 }}
@@ -142,6 +192,15 @@ function Navbar() {
                 </NavLink>
               </motion.div>
             ))}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.55 }}
+              className="m-controls"
+            >
+              <LangSwitch block />
+              <ThemeToggle />
+            </motion.div>
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -184,6 +243,7 @@ function BackToTop() {
 
 function Footer() {
   const { t, l, col, brands } = useContent();
+  const { shopEnabled, locale } = useLocale();
   const socials = col('socials');
   return (
     <footer className="footer">
@@ -214,7 +274,7 @@ function Footer() {
           <div>
             <h4>{t('footer.quickTitle')}</h4>
             <ul>
-              {NAV_LINKS.filter((link) => link.to !== '/').map((link) => (
+              {NAV_LINKS.filter((link) => link.to !== '/' && (!link.shopOnly || shopEnabled)).map((link) => (
                 <li key={link.to}>
                   <Link to={link.to}>
                     <Icons.arrow size={14} />
@@ -232,7 +292,7 @@ function Footer() {
                 <li key={b.id}>
                   <Link to={`/products?brand=${b.id}`}>
                     <Icons.wheat size={14} />
-                    {b.fa} ({b.en})
+                    {b.fa}{locale === 'en' ? '' : ` (${b.en})`}
                   </Link>
                 </li>
               ))}
@@ -261,11 +321,11 @@ function Footer() {
                 </a>
               </li>
               <li style={{ lineHeight: 1.9 }}>
-                <Icons.pin size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8 }} />
+                <Icons.pin size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginInlineEnd: 8 }} />
                 {t('footer.address1')}
               </li>
               <li style={{ lineHeight: 1.9 }}>
-                <Icons.factory size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8 }} />
+                <Icons.factory size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginInlineEnd: 8 }} />
                 {t('footer.address2')}
               </li>
             </ul>
@@ -274,7 +334,8 @@ function Footer() {
 
         <div className="footer__bottom">
           <span>
-            © {new Date().getFullYear().toLocaleString('fa-IR')} {t('footer.copy')}
+            © {new Date().getFullYear().toLocaleString(NUM_LOCALE[locale] || 'fa-IR', { useGrouping: false })}{' '}
+            {t('footer.copy')}
           </span>
           <span>{t('global.slogan.en')}</span>
         </div>

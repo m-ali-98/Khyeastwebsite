@@ -13,7 +13,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    background: var(--white);
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     padding: 14px 16px;
@@ -62,7 +62,7 @@
     select {
       border: 1.5px solid var(--line);
       border-radius: 12px;
-      background: var(--white);
+      background: var(--surface);
       padding: 9px 12px;
       font-family: inherit;
       font-size: 13px;
@@ -84,7 +84,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -247,7 +247,7 @@
 .sp-gallery {
   position: sticky;
   top: 120px;
-  background: linear-gradient(165deg, var(--bg-soft), #fff 60%);
+  background: linear-gradient(165deg, var(--bg-soft), var(--surface) 60%);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 34px;
@@ -287,7 +287,7 @@
   }
 
   &__box {
-    background: var(--white);
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     padding: 22px;
@@ -354,7 +354,7 @@
   border: 1.5px solid var(--line);
   border-radius: 14px;
   overflow: hidden;
-  background: var(--white);
+  background: var(--surface);
 
   button {
     width: 42px;
@@ -393,7 +393,7 @@
 }
 
 .sp-specs {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 24px;
@@ -434,7 +434,7 @@
 }
 
 .sp-desc {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 26px 28px;
@@ -486,7 +486,7 @@
 }
 
 .comment {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 18px 20px;
@@ -561,7 +561,7 @@
 }
 
 .comment-form {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 24px;
@@ -598,7 +598,7 @@
       &:focus {
         outline: none;
         border-color: var(--crimson);
-        background: #fff;
+        background: var(--surface);
       }
     }
     textarea {
@@ -636,7 +636,7 @@
 }
 
 .cart-table {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -721,7 +721,7 @@
 }
 
 .cart-summary {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 24px;
@@ -816,7 +816,7 @@
 }
 
 .checkout-form {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 28px;
@@ -864,7 +864,7 @@
       &:focus {
         outline: none;
         border-color: var(--crimson);
-        background: #fff;
+        background: var(--surface);
       }
     }
     textarea {
@@ -1014,7 +1014,7 @@
       width: 44px;
       height: 44px;
       border-radius: 50%;
-      background: var(--white);
+      background: var(--surface);
       border: 3px solid var(--line);
       display: grid;
       place-items: center;
@@ -1084,7 +1084,7 @@
 }
 
 .order-card {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 24px 26px;
@@ -1148,7 +1148,7 @@
   border-radius: 13px;
   border: 1.5px solid var(--line);
   color: var(--ink-2);
-  background: var(--white);
+  background: var(--surface);
   transition: all 0.25s;
   flex: none;
 

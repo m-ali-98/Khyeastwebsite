@@ -75,6 +75,7 @@ const readContent = () => {
   }
   return {
     ...base,
+    i18n: base.i18n && typeof base.i18n === 'object' ? base.i18n : { en: {}, ar: {} },
     shop: {
       display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
       products: store.listProducts(db),
@@ -188,6 +189,8 @@ app.put('/api/content', requireAuth, (req, res) => {
   const next = req.body;
   if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
   for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  /* never let a payload without translations wipe the stored ones */
+  if (!next.i18n || typeof next.i18n !== 'object') next.i18n = readContent().i18n || {};
   writeContent(next);
   res.json({ ok: true });
 });

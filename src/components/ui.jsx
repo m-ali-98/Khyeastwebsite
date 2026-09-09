@@ -3,10 +3,19 @@ import { motion, useInView, animate } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useContent } from '../content/ContentContext';
 import { renderHighlight } from '../content/sanitize';
+import { useLocale } from '../i18n/LocaleContext';
 
 export const hl = renderHighlight;
 
+/* Persian digits — used by the shop, which is the Persian site only. */
 export const faNum = (n) => Number(n).toLocaleString('fa-IR');
+
+/* Digit shapes per language: Persian, Arabic-Indic and Latin respectively. */
+export const NUM_LOCALE = { fa: 'fa-IR', ar: 'ar-EG', en: 'en-US' };
+export const useNum = () => {
+  const { locale } = useLocale();
+  return (n) => Number(n).toLocaleString(NUM_LOCALE[locale] || 'fa-IR');
+};
 
 /* ------------------------------------------------------------------ */
 /*  Icons (inline SVG, stroke-based)                                   */
@@ -28,6 +37,17 @@ const S = ({ children, size = 22, ...rest }) => (
 );
 
 export const Icons = {
+  sun: (p) => (
+    <S {...p}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </S>
+  ),
+  moon: (p) => (
+    <S {...p}>
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+    </S>
+  ),
   wheat: (p) => (
     <S {...p}>
       <path d="M12 22V8" />
@@ -263,6 +283,7 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
   const ref = useRef(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
   const [val, setVal] = useState(0);
+  const num = useNum();
 
   useEffect(() => {
     if (!inView) return undefined;
@@ -276,7 +297,7 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
 
   return (
     <span ref={ref}>
-      {faNum(val)}
+      {num(val)}
       {suffix}
     </span>
   );
