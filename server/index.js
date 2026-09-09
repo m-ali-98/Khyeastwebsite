@@ -1,7 +1,13 @@
 /* ==========================================================================
-   Khuzestan Yeast Co. — content API server
-   Stores: server/data/content.json (site content), server/data/messages.json
-   Uploads: server/uploads  (served at /uploads/*)
+   Khuzestan Yeast Co. — content & shop API server
+   --------------------------------------------------------------------------
+   Database : server/data/khyeast.db  (SQLite / WAL — transactional)
+              → shop products, shop settings, payment credentials,
+                orders + order items, product comments, contact messages
+   File     : server/data/content.json
+              → site texts, media, links, brands, catalog products, blog posts
+   Uploads  : server/uploads  (served at /uploads/*)
+
    The admin can only change content values — never code or styling.
    ========================================================================== */
 import express from 'express';
@@ -11,14 +17,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
-import { createShopRouter, SHOP_SEED } from './shop.js';
+import { createShopRouter } from './shop.js';
+import * as store from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
-const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
-const SHOP_FILE = path.join(DATA_DIR, 'shop.json');
+const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
+const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
+const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'khyeast.db');
 
 const PORT = process.env.PORT || 8787;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
@@ -29,21 +37,64 @@ const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12h
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(CONTENT_FILE)) fs.writeFileSync(CONTENT_FILE, JSON.stringify(DEFAULT_STATE, null, 2));
-if (!fs.existsSync(MESSAGES_FILE)) fs.writeFileSync(MESSAGES_FILE, JSON.stringify([], null, 2));
-if (!fs.existsSync(SHOP_FILE)) fs.writeFileSync(SHOP_FILE, JSON.stringify(SHOP_SEED(), null, 2));
-
-/* migrate: make sure content.json carries the shop section */
-try {
-  const c = JSON.parse(fs.readFileSync(CONTENT_FILE, 'utf8'));
-  if (!c.shop) {
-    c.shop = DEFAULT_STATE.shop;
-    fs.writeFileSync(CONTENT_FILE, JSON.stringify(c, null, 2));
-    console.log('[content-api] migrated content.json — added "shop" section');
-  }
-} catch {}
 
 const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const writeJSON = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
+
+/* ---------------- database ---------------- */
+const db = store.openDB(DB_FILE);
+const seedReport = store.seedFromLegacy(db, { CONTENT_FILE, SHOP_FILE, MESSAGES_FILE });
+if (!seedReport.skipped) {
+  console.log(
+    `[db] initialised ${path.relative(process.cwd(), DB_FILE)} — ` +
+      `products: ${seedReport.products}, orders: ${seedReport.orders}, ` +
+      `comments: ${seedReport.comments}, messages: ${seedReport.messages}` +
+      (seedReport.from.length ? ` (imported from ${seedReport.from.join(', ')})` : ' (from defaults)'),
+  );
+}
+
+/* content.json no longer stores the shop section — the DB does. */
+try {
+  const c = readJSON(CONTENT_FILE);
+  if (c.shop) {
+    delete c.shop;
+    writeJSON(CONTENT_FILE, c);
+    console.log('[db] moved "shop" section out of content.json into the database');
+  }
+} catch {}
+
+/** Site content = JSON file + shop section rebuilt from the database. */
+const readContent = () => {
+  let base;
+  try {
+    base = readJSON(CONTENT_FILE);
+  } catch {
+    base = { ...DEFAULT_STATE };
+    delete base.shop;
+  }
+  return {
+    ...base,
+    shop: {
+      display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
+      products: store.listProducts(db),
+    },
+  };
+};
+
+/** Persist site content: shop → database, everything else → JSON file. */
+const writeContent = (next) => {
+  const { shop, ...rest } = next;
+  if (shop && typeof shop === 'object') {
+    if (Array.isArray(shop.products)) store.replaceProducts(db, shop.products);
+    if (shop.display && typeof shop.display === 'object')
+      store.setSetting(db, 'shop.display', {
+        ...DEFAULT_STATE.shop.display,
+        ...(store.getSetting(db, 'shop.display') || {}),
+        ...shop.display,
+      });
+  }
+  writeJSON(CONTENT_FILE, rest);
+};
 
 /* ---------------- auth ---------------- */
 const sign = (payload) => {
@@ -84,11 +135,11 @@ const app = express();
 app.use(express.json({ limit: '8mb' }));
 
 /* ---------------- public ---------------- */
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, db: 'sqlite' }));
 
 app.get('/api/content', (_req, res) => {
   try {
-    res.json(readJSON(CONTENT_FILE));
+    res.json(readContent());
   } catch {
     res.json(DEFAULT_STATE);
   }
@@ -97,7 +148,6 @@ app.get('/api/content', (_req, res) => {
 app.post('/api/messages', (req, res) => {
   const { name, phone, email, subject, message } = req.body || {};
   if (!name || !phone || !message) return res.status(400).json({ error: 'fields required' });
-  const messages = readJSON(MESSAGES_FILE);
   const item = {
     id: crypto.randomUUID(),
     name: String(name).slice(0, 200),
@@ -108,8 +158,7 @@ app.post('/api/messages', (req, res) => {
     at: new Date().toISOString(),
     read: false,
   };
-  messages.unshift(item);
-  writeJSON(MESSAGES_FILE, messages);
+  store.insertMessage(db, item);
   res.json({ ok: true, id: item.id });
 });
 
@@ -128,25 +177,21 @@ app.put('/api/content', requireAuth, (req, res) => {
   const next = req.body;
   if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
   for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
-  writeJSON(CONTENT_FILE, next);
+  writeContent(next);
   res.json({ ok: true });
 });
 
 /* ---------------- admin: messages ---------------- */
-app.get('/api/messages', requireAuth, (_req, res) => res.json(readJSON(MESSAGES_FILE)));
+app.get('/api/messages', requireAuth, (_req, res) => res.json(store.listMessages(db)));
 
 app.patch('/api/messages/:id', requireAuth, (req, res) => {
-  const messages = readJSON(MESSAGES_FILE);
-  const item = messages.find((m) => m.id === req.params.id);
-  if (!item) return res.status(404).json({ error: 'not found' });
-  Object.assign(item, { read: Boolean(req.body?.read) });
-  writeJSON(MESSAGES_FILE, messages);
+  const ok = store.updateMessage(db, req.params.id, Boolean(req.body?.read));
+  if (!ok) return res.status(404).json({ error: 'not found' });
   res.json({ ok: true });
 });
 
 app.delete('/api/messages/:id', requireAuth, (req, res) => {
-  const messages = readJSON(MESSAGES_FILE).filter((m) => m.id !== req.params.id);
-  writeJSON(MESSAGES_FILE, messages);
+  store.deleteMessage(db, req.params.id);
   res.json({ ok: true });
 });
 
@@ -175,7 +220,7 @@ app.delete('/api/upload', requireAuth, (req, res) => {
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d' }));
 
 /* ---------------- online shop ---------------- */
-app.use(createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON, requireAuth }));
+app.use(createShopRouter({ database: db, requireAuth }));
 
 /* ---------------- production static site ---------------- */
 const DIST = path.join(__dirname, '..', 'dist');
@@ -186,5 +231,15 @@ if (fs.existsSync(DIST)) {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[content-api] listening on http://0.0.0.0:${PORT}`);
+  console.log(`[content-api] database: ${DB_FILE}`);
   console.log(`[content-api] admin login default user: "${ADMIN_USER}" (set ADMIN_USER / ADMIN_PASS env to change)`);
 });
+
+const shutdown = () => {
+  try {
+    db.close();
+  } catch {}
+  process.exit(0);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

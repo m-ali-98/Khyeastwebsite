@@ -1,51 +1,17 @@
 /* ==========================================================================
-   Online shop routes — orders, comments & payment callbacks.
-   Public content (shop products / display settings) lives in content.json
-   and is editable from the admin panel like every other content.
-   Orders, comments and PAYMENT CREDENTIALS live in shop.json (server only;
-   credentials are never exposed to the public API).
+   Online shop routes — products, orders, comments & payment callbacks.
+   --------------------------------------------------------------------------
+   Storage: SQLite (server/data/khyeast.db) through server/db.js.
+   Shop products, display settings, orders, comments and payment credentials
+   all live in the database; credentials are never exposed to the public API.
    ========================================================================== */
 import express from 'express';
 import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { createPayment, verifyPayment, normalizePayment } from './payment.js';
+import * as db from './db.js';
 
-export const SHOP_SEED = () => ({
-  orders: [],
-  comments: [
-    {
-      id: 'c-demo-1',
-      slug: 'dezmaye-gold-80',
-      name: 'رضا کریمی',
-      text: 'سلام، آیا ارسال به مشهد دارید؟ کیفیت دزمایه گلد برای نانوایی فانتزی واقعاً عالیه.',
-      at: new Date(Date.now() - 4 * 864e5).toISOString(),
-      approved: true,
-      reply: 'سلام و احترام؛ بله، ارسال به سراسر ایران داریم. سپاس از همراهی شما — واحد فروش خمیرمایه خوزستان',
-      replyAt: new Date(Date.now() - 3 * 864e5).toISOString(),
-    },
-    {
-      id: 'c-demo-2',
-      slug: 'xpower-70',
-      name: 'مریم احمدی',
-      text: 'ایکس پاور برای نان باگت و شیرینی‌های تخمیری تفاوت محسوسی ایجاد کرد. ممنون از تیم کیفیت.',
-      at: new Date(Date.now() - 2 * 864e5).toISOString(),
-      approved: true,
-      reply: null,
-      replyAt: null,
-    },
-    {
-      id: 'c-demo-3',
-      slug: 'nanmaye-10',
-      name: 'نانوایی صنعتی برکت',
-      text: 'برای سفارش عمده کارتن ۱۰ کیلویی، امکان هماهنگی باربری و فاکتور رسمی وجود دارد؟',
-      at: new Date(Date.now() - 1 * 864e5).toISOString(),
-      approved: true,
-      reply: 'بله؛ لطفاً با واحد فروش (۰۲۱-۲۲۵۸۲۹۷۷) هماهنگ بفرمایید تا پیش‌فاکتور رسمی صادر شود.',
-      replyAt: new Date(Date.now() - 20 * 36e5).toISOString(),
-    },
-  ],
-  payment: { provider: 'offline', zarinpalMerchant: '', idpayApiKey: '', idpaySandbox: true, callbackBase: '' },
-});
+export { SHOP_SEED } from './seed.js';
 
 const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancelled'];
 const rand = (n) => crypto.randomBytes(n).toString('hex');
@@ -61,66 +27,54 @@ function rateLimited(ip) {
   return arr.length > 5;
 }
 
-export function createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON, requireAuth }) {
+export function createShopRouter({ database, requireAuth }) {
   const r = express.Router();
-  const shopFile = () => readJSON(SHOP_FILE);
-  const saveShopFile = (v) => writeJSON(SHOP_FILE, v);
-  const content = () => {
-    try {
-      return readJSON(CONTENT_FILE);
-    } catch {
-      return DEFAULT_STATE;
-    }
-  };
-  const shopContent = () => content().shop || DEFAULT_STATE.shop;
-  const publicOrder = (o) => {
-    const { token, ...rest } = o;
-    return rest;
-  };
+  const D = database;
+
+  const display = () => ({ ...DEFAULT_STATE.shop.display, ...(db.getSetting(D, 'shop.display') || {}) });
+  const payment = () => normalizePayment(db.getSetting(D, 'shop.payment') || {});
 
   /* ---------------- public ---------------- */
   r.get('/api/shop-public', (_req, res) => {
-    const sf = shopFile();
-    const shop = shopContent();
     res.json({
-      display: shop.display || DEFAULT_STATE.shop.display,
-      paymentProvider: normalizePayment(sf.payment).provider,
-      comments: (sf.comments || [])
-        .filter((c) => c.approved)
-        .map(({ id, slug, name, text, at, reply, replyAt }) => ({ id, slug, name, text, at, reply, replyAt })),
+      display: display(),
+      paymentProvider: payment().provider,
+      comments: db.listApprovedComments(D),
     });
+  });
+
+  /** Public product catalogue (shop products live in the DB now). */
+  r.get('/api/shop-products', (_req, res) => {
+    res.json({ products: db.listProducts(D).filter((p) => p.active) });
   });
 
   r.post('/api/shop-public/comments', (req, res) => {
     if (rateLimited(req.ip)) return res.status(429).json({ error: 'rate limited' });
     const { slug, name, text } = req.body || {};
     if (!slug || !name || !text) return res.status(400).json({ error: 'fields required' });
-    const shop = shopContent();
-    const product = (shop.products || []).find((p) => p.slug === String(slug));
+    const product = db.getProduct(D, slug);
     if (!product || !product.active) return res.status(404).json({ error: 'product not found' });
-    if (!shop.display?.commentsEnabled || product.commentsLocked)
-      return res.status(403).json({ error: 'comments closed' });
-    const sf = shopFile();
+    const d = display();
+    if (!d.commentsEnabled || product.commentsLocked) return res.status(403).json({ error: 'comments closed' });
     const item = {
       id: `c-${rand(6)}`,
       slug: product.slug,
       name: String(name).slice(0, 120),
       text: String(text).slice(0, 1500),
       at: new Date().toISOString(),
-      approved: !shop.display?.commentsRequireApproval,
+      approved: !d.commentsRequireApproval,
       reply: null,
       replyAt: null,
     };
-    sf.comments.unshift(item);
-    saveShopFile(sf);
+    db.insertComment(D, item);
     res.json({ ok: true, id: item.id, pending: !item.approved });
   });
 
   r.post('/api/shop-public/orders', async (req, res) => {
     if (rateLimited(req.ip)) return res.status(429).json({ error: 'rate limited' });
     const { items, customer } = req.body || {};
-    const shop = shopContent();
-    if (!shop.display?.enabled) return res.status(403).json({ error: 'shop disabled' });
+    const d = display();
+    if (!d.enabled) return res.status(403).json({ error: 'shop disabled' });
     if (!Array.isArray(items) || !items.length || items.length > 50)
       return res.status(400).json({ error: 'invalid items' });
     const c = customer || {};
@@ -137,7 +91,7 @@ export function createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON,
     const lines = [];
     let subtotal = 0;
     for (const it of items) {
-      const product = (shop.products || []).find((p) => p.slug === String(it?.slug));
+      const product = db.getProduct(D, it?.slug);
       if (!product || !product.active) return res.status(400).json({ error: `unknown product: ${it?.slug}` });
       const qty = Math.max(1, Math.min(999, parseInt(it?.qty, 10) || 1));
       if (Number(product.stock) >= 0 && qty > Number(product.stock))
@@ -146,10 +100,16 @@ export function createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON,
       lines.push({ slug: product.slug, title: product.title, unit: product.unit || '', price, qty, sum: price * qty });
       subtotal += price * qty;
     }
-    const d = shop.display;
     const freeOver = Number(d.freeShippingOver) || 0;
     const shipping = freeOver > 0 && subtotal >= freeOver ? 0 : Math.max(0, Math.round(Number(d.shippingCost) || 0));
     const total = subtotal + shipping;
+
+    /* atomic stock check + decrement (transaction) */
+    const reserved = db.reserveStock(D, lines);
+    if (!reserved.ok) {
+      const status = reserved.error === 'insufficient stock' ? 409 : 400;
+      return res.status(status).json({ error: reserved.error });
+    }
 
     const order = {
       id: crypto.randomUUID(),
@@ -176,22 +136,13 @@ export function createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON,
       paidAt: null,
     };
 
-    /* decrement stock */
-    const doc = content();
-    for (const line of order.items) {
-      const product = doc.shop.products.find((p) => p.slug === line.slug);
-      if (product && Number(product.stock) >= 0) product.stock = Math.max(0, Number(product.stock) - line.qty);
-    }
-    writeJSON(CONTENT_FILE, doc);
-
     /* payment */
-    const sf = shopFile();
-    const payment = normalizePayment(sf.payment);
-    const origin = payment.callbackBase || `${req.protocol}://${req.get('host')}`;
+    const pm = payment();
+    const origin = pm.callbackBase || `${req.protocol}://${req.get('host')}`;
     let pay = { provider: 'offline', ref: null, payUrl: null };
-    if (payment.provider !== 'offline') {
+    if (pm.provider !== 'offline') {
       try {
-        pay = await createPayment(payment, order, { origin });
+        pay = await createPayment(pm, order, { origin });
       } catch (e) {
         console.error('[shop] gateway error:', e.message);
         pay = { provider: 'offline', ref: null, payUrl: null, gatewayError: true };
@@ -200,8 +151,7 @@ export function createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON,
     order.provider = pay.provider;
     order.payRef = pay.ref;
 
-    sf.orders.unshift(order);
-    saveShopFile(sf);
+    db.insertOrder(D, order);
     res.json({
       ok: true,
       order: { code: order.code, token: order.token, total: order.total, status: order.status, provider: order.provider },
@@ -211,117 +161,122 @@ export function createShopRouter({ CONTENT_FILE, SHOP_FILE, readJSON, writeJSON,
 
   /* retry payment for a pending order */
   r.post('/api/shop-public/orders/:code/pay', async (req, res) => {
-    const sf = shopFile();
-    const order = sf.orders.find((o) => o.code === req.params.code);
+    const order = db.getOrderByCode(D, req.params.code);
     if (!order) return res.status(404).json({ error: 'not found' });
     if (req.body?.token !== order.token) return res.status(403).json({ error: 'invalid token' });
     if (order.status !== 'pending_payment') return res.status(409).json({ error: 'order already processed' });
-    const payment = normalizePayment(sf.payment);
-    if (payment.provider === 'offline') return res.status(409).json({ error: 'online payment disabled' });
-    const origin = payment.callbackBase || `${req.protocol}://${req.get('host')}`;
+    const pm = payment();
+    if (pm.provider === 'offline') return res.status(409).json({ error: 'online payment disabled' });
+    const origin = pm.callbackBase || `${req.protocol}://${req.get('host')}`;
     try {
-      const pay = await createPayment(payment, order, { origin });
-      order.provider = pay.provider;
-      order.payRef = pay.ref;
-      saveShopFile(sf);
+      const pay = await createPayment(pm, order, { origin });
+      db.updateOrder(D, order.id, { provider: pay.provider, payRef: pay.ref });
       res.json({ ok: true, payment: { provider: pay.provider, payUrl: pay.payUrl } });
-    } catch (e) {
+    } catch {
       res.status(502).json({ error: 'gateway error' });
     }
   });
 
   /* order tracking (needs the private order token) */
   r.get('/api/shop-public/orders/:code', (req, res) => {
-    const sf = shopFile();
-    const order = sf.orders.find((o) => o.code === req.params.code);
+    const order = db.getOrderByCode(D, req.params.code);
     if (!order || req.query.token !== order.token) return res.status(404).json({ error: 'not found' });
-    res.json({ order: publicOrder(order) });
+    const { token, ...rest } = order;
+    res.json({ order: rest });
   });
 
   /* ---------------- gateway callbacks ---------------- */
   r.get('/api/shop-pay/:provider/callback', async (req, res) => {
-    const sf = shopFile();
     const provider = req.params.provider;
     if (!['zarinpal', 'idpay'].includes(provider)) return res.status(404).send('unknown gateway');
     const code = provider === 'zarinpal' ? String(req.query.code || '') : String(req.query.order_id || '');
-    const order = sf.orders.find((o) => o.code === code);
+    const order = db.getOrderByCode(D, code);
     if (!order) return res.status(404).send('unknown order');
     let ok = false;
     let ref = '';
     try {
-      const out = await verifyPayment(sf.payment, provider, req.query);
+      const out = await verifyPayment(payment(), provider, req.query);
       ok = out.ok;
       ref = out.ref;
     } catch (e) {
       console.error('[shop] verify error:', e.message);
     }
     if (ok && order.status === 'pending_payment') {
-      order.status = 'paid';
-      order.provider = provider;
-      order.payRef = ref || order.payRef;
-      order.paidAt = new Date().toISOString();
-      saveShopFile(sf);
+      db.updateOrder(D, order.id, {
+        status: 'paid',
+        provider,
+        payRef: ref || order.payRef,
+        paidAt: new Date().toISOString(),
+      });
     }
     res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=${ok ? 'ok' : 'fail'}`);
   });
 
   /* ---------------- admin ---------------- */
   r.get('/api/shop-admin', requireAuth, (_req, res) => {
-    const sf = shopFile();
-    res.json({ orders: sf.orders || [], comments: sf.comments || [] });
+    res.json({ orders: db.listOrders(D), comments: db.listComments(D) });
+  });
+
+  /* products + display settings (admin panel) */
+  r.get('/api/shop-admin/products', requireAuth, (_req, res) => {
+    res.json({ products: db.listProducts(D), display: display() });
+  });
+
+  r.put('/api/shop-admin/products', requireAuth, (req, res) => {
+    const b = req.body || {};
+    if (Array.isArray(b.products)) db.replaceProducts(D, b.products);
+    if (b.display && typeof b.display === 'object')
+      db.setSetting(D, 'shop.display', { ...display(), ...b.display });
+    res.json({ ok: true, products: db.listProducts(D), display: display() });
   });
 
   r.patch('/api/shop-admin/comments/:id', requireAuth, (req, res) => {
-    const sf = shopFile();
-    const item = sf.comments.find((c) => c.id === req.params.id);
+    const item = db.getComment(D, req.params.id);
     if (!item) return res.status(404).json({ error: 'not found' });
     const b = req.body || {};
-    if ('approved' in b) item.approved = Boolean(b.approved);
+    const patch = {};
+    if ('approved' in b) patch.approved = Boolean(b.approved);
     if ('reply' in b) {
-      item.reply = b.reply === null || String(b.reply).trim() === '' ? null : String(b.reply).slice(0, 2000);
-      item.replyAt = item.reply ? new Date().toISOString() : null;
+      const reply = b.reply === null || String(b.reply).trim() === '' ? null : String(b.reply).slice(0, 2000);
+      patch.reply = reply;
+      patch.replyAt = reply ? new Date().toISOString() : null;
     }
-    saveShopFile(sf);
+    db.updateComment(D, item.id, patch);
     res.json({ ok: true });
   });
 
   r.delete('/api/shop-admin/comments/:id', requireAuth, (req, res) => {
-    const sf = shopFile();
-    sf.comments = (sf.comments || []).filter((c) => c.id !== req.params.id);
-    saveShopFile(sf);
+    db.deleteComment(D, req.params.id);
     res.json({ ok: true });
   });
 
   r.patch('/api/shop-admin/orders/:id', requireAuth, (req, res) => {
-    const sf = shopFile();
-    const order = sf.orders.find((o) => o.id === req.params.id);
+    const order = db.getOrderById(D, req.params.id);
     if (!order) return res.status(404).json({ error: 'not found' });
     const b = req.body || {};
+    const patch = {};
     if ('status' in b && ORDER_STATUS.includes(b.status)) {
-      order.status = b.status;
-      if (b.status === 'paid' && !order.paidAt) order.paidAt = new Date().toISOString();
+      patch.status = b.status;
+      if (b.status === 'paid' && !order.paidAt) patch.paidAt = new Date().toISOString();
+      /* cancelling a not-yet-cancelled order returns the reserved stock */
+      if (b.status === 'cancelled' && order.status !== 'cancelled') db.restoreStock(D, order.items);
     }
-    if ('adminNote' in b) order.adminNote = String(b.adminNote || '').slice(0, 1000);
-    saveShopFile(sf);
+    if ('adminNote' in b) patch.adminNote = String(b.adminNote || '').slice(0, 1000);
+    db.updateOrder(D, order.id, patch);
     res.json({ ok: true });
   });
 
   r.delete('/api/shop-admin/orders/:id', requireAuth, (req, res) => {
-    const sf = shopFile();
-    sf.orders = (sf.orders || []).filter((o) => o.id !== req.params.id);
-    saveShopFile(sf);
+    db.deleteOrder(D, req.params.id);
     res.json({ ok: true });
   });
 
-  r.get('/api/shop-admin/payment', requireAuth, (_req, res) => {
-    res.json(normalizePayment(shopFile().payment));
-  });
+  r.get('/api/shop-admin/payment', requireAuth, (_req, res) => res.json(payment()));
 
   r.put('/api/shop-admin/payment', requireAuth, (req, res) => {
-    const sf = shopFile();
-    sf.payment = normalizePayment(req.body || {});
-    saveShopFile(sf);
-    res.json({ ok: true, payment: sf.payment });
+    const next = normalizePayment(req.body || {});
+    db.setSetting(D, 'shop.payment', next);
+    res.json({ ok: true, payment: next });
   });
 
   return r;
