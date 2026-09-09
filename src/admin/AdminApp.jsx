@@ -9,6 +9,7 @@ import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab } from 
 import { TranslationsTab } from './i18nTab';
 import { ProductsTransTab, PostsTransTab } from './entityTrans';
 import { AdminLocaleProvider, useAdminLocale } from './adminLocale';
+import { useLocale } from '../i18n/LocaleContext';
 import { loadAllPacks } from '../../shared/i18n/index.js';
 import './admin.scss';
 
@@ -30,6 +31,27 @@ const TABS = [
   { id: 'contact', label: 'اطلاعات تماس', icon: 'phone', base: true },
   { id: 'messages', label: 'پیام‌های مردم', icon: 'mail' },
 ];
+
+/* Light / dark switch for the panel. Shares the site-wide theme, so whichever
+   the admin picks here is also what they see on the public site. */
+function AdminThemeBar() {
+  const { theme, setTheme } = useLocale();
+  return (
+    <div className="admin__themebar">
+      <span>نمای پنل</span>
+      <div className="admin__themebtns">
+        <button type="button" className={theme === 'light' ? 'is-active' : ''} onClick={() => setTheme('light')}>
+          <Icons.sun size={14} />
+          روشن
+        </button>
+        <button type="button" className={theme === 'dark' ? 'is-active' : ''} onClick={() => setTheme('dark')}>
+          <Icons.moon size={14} />
+          تاریک
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /* Language selector for the panel itself. */
 function AdminLangBar() {
@@ -54,6 +76,7 @@ function AdminLangBar() {
 }
 
 function Login({ onDone }) {
+  const { isDark, toggleTheme } = useLocale();
   const [user, setUser] = useState('');
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
@@ -76,6 +99,17 @@ function Login({ onDone }) {
 
   return (
     <div className="admin__login">
+      {/* the sidebar toggle is not mounted yet, so the login screen carries
+          its own so the panel can be opened straight into the right theme */}
+      <button
+        type="button"
+        className="admin__login-theme"
+        onClick={toggleTheme}
+        aria-label={isDark ? 'نمای روشن' : 'نمای تاریک'}
+        title={isDark ? 'نمای روشن' : 'نمای تاریک'}
+      >
+        {isDark ? <Icons.sun size={17} /> : <Icons.moon size={17} />}
+      </button>
       <motion.form className="admin__login-card" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} onSubmit={submit}>
         <div style={{ display: 'grid', placeItems: 'center' }}>
           <Logo size={54} />
@@ -166,6 +200,7 @@ function AdminShell() {
             </div>
           </div>
           <AdminLangBar />
+          <AdminThemeBar />
           {visibleTabs.map((tb) => {
             const Ic = Icons[tb.icon];
             return (

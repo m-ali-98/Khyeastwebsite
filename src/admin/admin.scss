@@ -1,7 +1,18 @@
-/* ---------- Admin panel (isolated styles; public site untouched) ---------- */
+/* ---------- Admin panel (isolated styles; public site untouched) ----------
+   The panel follows the same light/dark theme as the public site: it reads
+   the shared tokens plus a few admin-only ones defined here, so the dark
+   palette below only has to restate what actually differs. */
 .admin {
+  --admin-bg: #f4f1f0;
+  --admin-side: linear-gradient(180deg, #20070c, #160409);
+  --admin-side-fg: #ffffff;
+  --admin-ok: #17843f;
+  --admin-ok-soft: rgba(23, 132, 63, 0.1);
+  --admin-warn: #9a6d10;
+  --admin-warn-soft: rgba(217, 164, 65, 0.16);
+
   min-height: 100svh;
-  background: #f4f1f0;
+  background: var(--admin-bg);
   color: var(--ink);
   direction: rtl;
 }
@@ -11,12 +22,12 @@
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(80% 60% at 50% 0%, rgba(220, 20, 60, 0.12), transparent 60%),
-    #fff;
+    radial-gradient(80% 60% at 50% 0%, var(--crimson-soft), transparent 60%),
+    var(--surface);
 }
 .admin__login-card {
   width: min(420px, 100%);
-  background: #fff;
+  background: var(--surface);
   border-radius: 24px;
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -31,8 +42,8 @@
 
 .admin__shell { display: grid; grid-template-columns: 250px 1fr; min-height: 100svh; }
 .admin__side {
-  background: linear-gradient(180deg, #20070c, #160409);
-  color: #fff;
+  background: var(--admin-side);
+  color: var(--admin-side-fg);
   padding: 26px 18px;
   display: flex;
   flex-direction: column;
@@ -70,7 +81,7 @@
 .admin__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; flex-wrap: wrap; }
 .admin__head h1 { margin: 0; font-size: 24px; font-weight: 900; }
 .admin__head p { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
-.admin__panel { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 26px; box-shadow: var(--shadow-sm); }
+.admin__panel { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 26px; box-shadow: var(--shadow-sm); }
 .admin__grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .admin__row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .admin__list { display: grid; gap: 12px; }
@@ -82,7 +93,7 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px;
-  background: #fff;
+  background: var(--surface);
 }
 .admin__item img { width: 72px; height: 52px; object-fit: cover; border-radius: 8px; background: var(--bg-softer); }
 .admin__item b { font-size: 14.5px; display: block; }
@@ -90,7 +101,7 @@
 .admin__actions { display: flex; gap: 8px; }
 .admin__iconbtn {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface);
   border-radius: 10px;
   width: 36px;
   height: 36px;
@@ -113,7 +124,8 @@
   font-size: 14px;
   font-family: inherit;
   outline: none;
-  background: #fff;
+  background: var(--surface);
+  color: var(--ink);
 }
 .admin__text-row textarea:focus, .admin__text-row input:focus { border-color: var(--crimson); }
 .admin__search { margin-bottom: 18px; }
@@ -121,11 +133,11 @@
 .admin__search input:focus { border-color: var(--crimson); }
 
 /* rich editor */
-.rte { border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
+.rte { border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
 .rte__bar { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px; background: var(--bg-soft); border-bottom: 1px solid var(--line); }
 .rte__bar button {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface);
   border-radius: 8px;
   min-width: 34px;
   height: 32px;
@@ -143,9 +155,9 @@
 .rte__hint { font-size: 12px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--line); background: var(--bg-soft); }
 
 /* messages */
-.msg { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #fff; }
+.msg { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .msg + .msg { margin-top: 12px; }
-.msg__head { display: flex; gap: 12px; align-items: center; padding: 14px 18px; cursor: pointer; background: #fff; }
+.msg__head { display: flex; gap: 12px; align-items: center; padding: 14px 18px; cursor: pointer; background: var(--surface); }
 .msg__head.unread { background: var(--crimson-soft); }
 .msg__head b { font-size: 14.5px; }
 .msg__head small { color: var(--muted); }
@@ -156,7 +168,7 @@
 .admin__savebar {
   position: sticky;
   bottom: 0;
-  background: rgba(255,255,255,.92);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--line);
   padding: 12px 38px;
@@ -229,8 +241,8 @@
   align-self: center;
   font-size: 13px;
   font-weight: 800;
-  color: #17843f;
-  background: rgba(23, 132, 63, 0.1);
+  color: var(--admin-ok);
+  background: var(--admin-ok-soft);
   padding: 6px 14px;
   border-radius: 999px;
 }
@@ -369,8 +381,8 @@
   color: var(--muted);
   white-space: nowrap;
 
-  &.ok { background: rgba(23, 132, 63, 0.12); color: #17843f; }
-  &.warn { background: rgba(217, 164, 65, 0.16); color: #9a6d10; }
+  &.ok { background: var(--admin-ok-soft); color: var(--admin-ok); }
+  &.warn { background: var(--admin-warn-soft); color: var(--admin-warn); }
 }
 
 /* one translated field: Persian reference + input side by side */
@@ -492,4 +504,142 @@
 @media (max-width: 900px) {
   .admin__tf-body,
   .admin__tf-pair { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================================
+   Admin panel — dark mode
+   --------------------------------------------------------------------------
+   The panel already consumes the shared tokens (--surface, --ink, --line…),
+   which the [data-theme='dark'] block in global.scss re-points. What is left
+   here is the handful of admin-only surfaces and the places where a control
+   was drawn for a light canvas.
+   ========================================================================== */
+[data-theme='dark'] .admin {
+  --admin-bg: #0e0709;
+  /* the sidebar stays the darkest plane so it still reads as a sidebar */
+  --admin-side: linear-gradient(180deg, #1a0a0e, #0b0406);
+  --admin-ok: #4ade80;
+  --admin-ok-soft: rgba(74, 222, 128, 0.14);
+  --admin-warn: #e9b949;
+  --admin-warn-soft: rgba(233, 185, 73, 0.16);
+
+  /* every text control inside the panel */
+  input,
+  textarea,
+  select {
+    background: var(--surface-2);
+    color: var(--ink);
+    border-color: var(--line);
+  }
+  input::placeholder,
+  textarea::placeholder { color: var(--muted); }
+  select option { background: var(--surface-2); color: var(--ink); }
+
+  /* checkboxes / radios render as light chrome unless told otherwise */
+  input[type='checkbox'],
+  input[type='radio'] { accent-color: var(--crimson); }
+
+  .admin__panel { border-color: var(--line); }
+
+  .admin__item,
+  .msg,
+  .rte,
+  .admin__iconbtn { background: var(--surface-2); }
+
+  .msg__head { background: var(--surface-2); }
+  .msg__head.unread { background: var(--crimson-soft); }
+
+  .rte__bar,
+  .rte__hint { background: var(--bg-softer); }
+  .rte__bar button { background: var(--surface-2); }
+
+  .admin__text-row code { background: var(--bg-softer); }
+
+  /* the reference chip sits on top of the muted reference box */
+  .admin__tf-reftag { background: var(--surface); }
+
+  /* uploaded-image thumbnails and product shots are cut out on white */
+  .admin__item img { background: var(--bg-softer); }
+
+  .admin__savebar { background: color-mix(in srgb, var(--surface) 92%, transparent); }
+
+  /* the sticky edit header must hide the content scrolling under it */
+  .admin__head--sticky { background: var(--surface); }
+
+  .filter-chip {
+    background: var(--surface-2);
+    border-color: var(--line);
+    color: var(--ink-2);
+
+    &.is-active { background: var(--crimson); color: #fff; border-color: var(--crimson); }
+  }
+}
+
+/* The login screen is its own full-page surface. */
+[data-theme='dark'] .admin__login {
+  background:
+    radial-gradient(80% 60% at 50% 0%, var(--crimson-soft), transparent 60%),
+    var(--bg-soft);
+}
+[data-theme='dark'] .admin__login-card {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+/* ---------- theme switch inside the panel sidebar ---------- */
+.admin__themebar {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  > span {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    opacity: 0.65;
+    margin-bottom: 8px;
+  }
+}
+.admin__themebtns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+
+  button {
+    all: unset;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 7px 4px;
+    border-radius: 9px;
+    transition: background 0.22s, color 0.22s;
+
+    &:hover { background: rgba(255, 255, 255, 0.1); }
+    &.is-active { background: var(--crimson); color: #fff; }
+  }
+}
+
+.admin__login { position: relative; }
+.admin__login-theme {
+  position: absolute;
+  top: 22px;
+  inset-inline-end: 22px;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  transition: border-color 0.25s, color 0.25s, background 0.25s;
+
+  &:hover { border-color: var(--crimson); color: var(--crimson); }
 }

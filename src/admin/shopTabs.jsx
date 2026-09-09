@@ -520,7 +520,7 @@ export function ShopPaymentTab() {
             <button className="btn btn--primary" onClick={saveCfg} disabled={busy}>
               ذخیره تنظیمات درگاه
             </button>
-            {ok && <span style={{ color: '#187a3c', fontWeight: 800, fontSize: 13 }}>✓ ذخیره شد</span>}
+            {ok && <span style={{ color: 'var(--admin-ok)', fontWeight: 800, fontSize: 13 }}>✓ ذخیره شد</span>}
           </div>
 
           <div style={{ background: 'var(--bg-soft)', borderRadius: 14, padding: '16px 20px', marginTop: 22, fontSize: 13, lineHeight: 2.3 }}>
