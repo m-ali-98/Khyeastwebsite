@@ -47,6 +47,20 @@ const run = async (args) => {
   await pexec(bin, args, { timeout: 60_000, maxBuffer: 1024 * 1024 });
 };
 
+/** Pixel width of an image, or null when it cannot be read. */
+export async function imageWidth(file) {
+  try {
+    const bin = imagickBin();
+    if (!bin) return null;
+    const probe = bin === 'magick' ? ['identify', '-format', '%w', file] : ['-format', '%w', file];
+    const { stdout } = await pexec(bin === 'magick' ? 'magick' : 'identify', probe, { timeout: 20_000 });
+    const n = parseInt(String(stdout).trim(), 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 /** name.jpg → name.webp (leaves .webp/.svg/.gif untouched) */
 export const webpPath = (file) => file.replace(SOURCE_RE, '.webp');
 /** name.webp → name-768.webp */
@@ -91,6 +105,7 @@ export async function optimizeFile(src, { quality = 82, smallQuality = 78, small
     webp,
     small: fs.existsSync(small) ? small : null,
     lqip: blur,
+    width: await imageWidth(webp),
     bytesBefore,
     bytesAfter: fs.existsSync(webp) ? fs.statSync(webp).size : bytesBefore,
   };

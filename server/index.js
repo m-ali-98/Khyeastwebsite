@@ -250,7 +250,7 @@ app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => 
       const out = await optimizeFile(abs);
       const webpName = path.basename(webpPath(abs));
       const webpUrl = `/uploads/images/${webpName}`;
-      if (out.lqip) lqipWrite({ ...lqipRead(), [webpUrl]: out.lqip });
+      if (out.lqip) lqipWrite({ ...lqipRead(), [webpUrl]: { lqip: out.lqip, width: out.width || null } });
       /* the original PNG/JPEG is no longer referenced — drop it */
       if (out.bytesAfter > 0 && fs.existsSync(webpPath(abs)) && webpPath(abs) !== abs) fs.unlinkSync(abs);
       url = webpUrl;

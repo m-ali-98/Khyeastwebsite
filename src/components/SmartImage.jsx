@@ -12,7 +12,7 @@
      build time → src/assets/blurhash.json   (public/assets/**)
      runtime    → GET /api/uploads-lqip      (admin uploads)
    ========================================================================== */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BLUR from '../assets/blurhash.json';
 
 /* --------- runtime placeholders for admin uploads (fetched once) --------- */
@@ -52,6 +52,24 @@ export default function SmartImage({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [, bump] = useState(0);
+  const imgRef = useRef(null);
+
+  /* A preloaded or browser-cached image can finish BEFORE React attaches the
+     onLoad handler — the event then never fires and the image would stay at
+     opacity 0 forever. Checking `complete` on mount covers that case. */
+  const markLoaded = useCallback(() => setLoaded(true), []);
+  const attach = useCallback(
+    (node) => {
+      imgRef.current = node;
+      if (node && node.complete) markLoaded();
+    },
+    [markLoaded],
+  );
+
+  useEffect(() => {
+    const node = imgRef.current;
+    if (node && node.complete) markLoaded();
+  }, [src, markLoaded]);
 
   /* subscribe to the upload placeholder map, but only when we need it */
   const needsUploadMap = typeof src === 'string' && src.startsWith('/uploads/');
@@ -65,17 +83,25 @@ export default function SmartImage({
 
   const { webp, srcSet, blur } = useMemo(() => {
     const w = toWebp(src);
-    const managed = isManaged(w);
-    const small = managed ? w.replace(/\.webp$/i, '-768.webp') : null;
+    /* manifest entries are { lqip, width }; older builds stored a bare string */
+    const meta = BLUR[w] || uploadBlur[w] || null;
+    const lqip = typeof meta === 'string' ? meta : meta?.lqip || null;
+    const fullWidth = typeof meta === 'object' ? meta?.width : null;
+
+    /* Only advertise a srcset when we know the real intrinsic width — a wrong
+       descriptor makes the browser pick the low-res file on wide screens. */
+    const small = isManaged(w) && fullWidth && fullWidth > 768 ? w.replace(/\.webp$/i, '-768.webp') : null;
+
     return {
       webp: w,
-      srcSet: small ? `${small} 768w, ${w} 1600w` : undefined,
-      blur: BLUR[w] || uploadBlur[w] || null,
+      srcSet: small ? `${small} 768w, ${w} ${fullWidth}w` : undefined,
+      blur: lqip,
     };
   }, [src, needsUploadMap && uploadBlur[toWebp(src)]]);
 
   return (
     <img
+      ref={attach}
       src={webp}
       srcSet={srcSet}
       sizes={srcSet ? sizes : undefined}
@@ -83,8 +109,8 @@ export default function SmartImage({
       loading={priority ? 'eager' : 'lazy'}
       decoding={priority ? 'sync' : 'async'}
       fetchPriority={priority ? 'high' : 'auto'}
-      onLoad={() => setLoaded(true)}
-      onError={() => setLoaded(true)}
+      onLoad={markLoaded}
+      onError={markLoaded}
       className={`smart-img ${loaded ? 'is-loaded' : ''} ${className}`.trim()}
       style={
         blur && !loaded

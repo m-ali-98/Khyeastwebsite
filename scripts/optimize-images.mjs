@@ -58,14 +58,16 @@ for (const src of walk(ASSETS).sort()) {
     !FORCE &&
     fs.existsSync(out) &&
     fs.statSync(out).mtimeMs >= fs.statSync(src).mtimeMs &&
-    typeof existing[url] === 'string';
+    existing[url] &&
+    typeof existing[url] === 'object' &&
+    existing[url].width;
   if (fresh) {
     skipped++;
     continue;
   }
 
   const r = await optimizeFile(src);
-  if (r.lqip) entries[url] = r.lqip;
+  if (r.lqip) entries[url] = { lqip: r.lqip, width: r.width || null };
   saved += r.bytesBefore - r.bytesAfter;
   processed++;
   console.log(
