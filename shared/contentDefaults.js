@@ -14,7 +14,7 @@ export const TEXTS = {
   'global.slogan': 'از مغز گندم؛ تا اولین برش نان',
   'global.slogan.en': 'From the heart of wheat; to the first slice of bread',
   'global.email': 'info@khuzestanyeast-co.com',
-  'global.sales.phone.fa': '۰۲۱-۸۶۰۸۶۲۶۷',
+  'global.sales.phone.fa': '۰۲۱-۲۲۵۸۲۹۷۷',
 
   /* ---------- home ---------- */
   'home.hero.badge': 'بیش از سه دهه پیشگام در صنعت بیوتکنولوژی و مخمر نان کشور',
@@ -341,7 +341,7 @@ export const MEDIA = {
 };
 
 export const LINKS = {
-  'sales.tel': 'tel:02186086267',
+  'sales.tel': 'tel:02122582977',
   'sales.whatsapp': 'http://wa.me/+989912214091',
   'sales.telegram': 'http://t.me/+989912214091',
   'social.facebook': 'https://www.facebook.com/khuzestannyeast/',
@@ -722,7 +722,7 @@ export const SHOP = {
     freeShippingOver: 20000000,
     commentsEnabled: true,
     commentsRequireApproval: true,
-    supportPhone: '۰۲۱-۸۶۰۸۶۲۶۷',
+    supportPhone: '۰۲۱-۲۲۵۸۲۹۷۷',
   },
   products: [
     {
