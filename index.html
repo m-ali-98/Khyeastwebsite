@@ -27,14 +27,24 @@
         position: fixed; inset: 0; display: grid; place-content: center;
         justify-items: center; gap: 18px; background: #fbf6f5; z-index: 9999;
       }
-      .boot-splash__mark {
-        width: 54px; height: 54px; border-radius: 50%;
-        border: 3px solid rgba(220, 20, 60, 0.18); border-top-color: #dc143c;
-        animation: boot-spin 0.9s linear infinite;
+      /* the company mark, drawing itself in while the bundle loads */
+      .boot-splash__mark { width: 72px; height: auto; overflow: visible; }
+      .boot-splash__mark path {
+        stroke-dasharray: 1400;
+        stroke-dashoffset: 1400;
+        animation: boot-draw 1.5s ease-in-out infinite alternate;
       }
+      .boot-splash__mark path:nth-child(2) { animation-delay: 0.08s; }
+      .boot-splash__mark path:nth-child(3) { animation-delay: 0.16s; }
+      .boot-splash__mark path:nth-child(4) { animation-delay: 0.24s; }
+      .boot-splash__mark path:nth-child(5) { animation-delay: 0.32s; }
+      .boot-splash__mark path:nth-child(6) { animation-delay: 0.40s; }
+      .boot-splash__mark path:nth-child(7) { animation-delay: 0.48s; }
       .boot-splash__text { margin: 0; color: #7c6a6e; font-size: 14px; }
-      @keyframes boot-spin { to { transform: rotate(360deg); } }
-      @media (prefers-reduced-motion: reduce) { .boot-splash__mark { animation-duration: 3s; } }
+      @keyframes boot-draw { to { stroke-dashoffset: 0; } }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-splash__mark path { animation: none; stroke-dashoffset: 0; }
+      }
       /* dark splash when dark mode is the active theme */
       html[data-theme='dark'] { background: #120a0d; }
       html[data-theme='dark'] #boot-splash { background: #120a0d; }
@@ -70,7 +80,24 @@
     <div id="root">
       <!-- First-paint splash: replaced by React as soon as it mounts. -->
       <div id="boot-splash">
-        <div class="boot-splash__mark"></div>
+        <svg class="boot-splash__mark" viewBox="0 0 1210 1280" aria-hidden="true">
+          <defs>
+            <linearGradient id="boot-g" x1="0" y1="0" x2="0.25" y2="1">
+              <stop offset="0%" stop-color="#F2660A" />
+              <stop offset="45%" stop-color="#D8390C" />
+              <stop offset="100%" stop-color="#8A0F0B" />
+            </linearGradient>
+          </defs>
+          <g fill="none" stroke="url(#boot-g)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M92 148 H420" />
+            <path d="M92 148 L405 548" />
+            <path d="M512 296 L403 520" />
+            <path d="M680 148 H1068" />
+            <path d="M680 148 L214 1178" />
+            <path d="M214 1178 H614" />
+            <path d="M898 676 L762 958 L1158 1190" />
+          </g>
+        </svg>
         <p class="boot-splash__text">در حال بارگذاری…</p>
       </div>
     </div>

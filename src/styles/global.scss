@@ -339,6 +339,7 @@ input, select, textarea { font-family: inherit; }
 }
 .nav.is-scrolled .nav__link { color: var(--ink-2); }
 .nav.is-scrolled .nav__logo-text small { color: var(--muted); }
+.nav.is-scrolled .nav__logo-mark { color: var(--crimson); }
 
 .nav__bar {
   height: var(--nav-h);
@@ -351,9 +352,15 @@ input, select, textarea { font-family: inherit; }
 
 .nav__logo { display: flex; align-items: center; gap: 12px; }
 .nav__logo-mark {
-  width: 46px; height: 46px;
+  /* the mark is taller than it is wide — let the width follow the height
+     instead of forcing it into a square */
+  height: 46px;
+  width: auto;
   flex: none;
-  filter: drop-shadow(0 6px 14px rgba(220, 20, 60, 0.35));
+  /* the solid variant strokes with currentColor: white over the transparent
+     hero, brand crimson once the bar turns light on scroll */
+  color: #fff;
+  transition: color 0.4s;
 }
 .nav__logo-text { line-height: 1.35; }
 .nav__logo-text strong {
