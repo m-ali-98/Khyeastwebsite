@@ -351,10 +351,10 @@ input, select, textarea { font-family: inherit; }
 
 .nav__logo { display: flex; align-items: center; gap: 12px; }
 .nav__logo-mark {
-  /* the mark is taller than it is wide — let the width follow the height
-     instead of forcing it into a square */
-  height: 46px;
-  width: auto;
+  /* Sizing comes from the Logo component's `size` prop, which renders real
+     width/height attributes. Setting either here would override the prop and
+     make every call site render at the same size, so only non-sizing
+     properties belong in this rule. */
   flex: none;
   object-fit: contain;
   user-select: none;
