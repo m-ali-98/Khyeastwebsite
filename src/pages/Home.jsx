@@ -4,34 +4,25 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, Marquee, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
-import { currentTier } from '../lib/motion';
 
 function Hero() {
   const ref = useRef(null);
   const { t, m } = useContent();
-  /* Hero parallax runs a JS transform on every scroll frame. That is the
-     single most expensive thing on the page for a low-end phone, so the two
-     lower tiers opt out and the hero simply scrolls with the document. */
-  const tier = currentTier();
-  const lightMotion = tier !== 'full';
-
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
   const y = useTransform(scrollYProgress, [0, 1], [0, 180]);
   const opacity = useTransform(scrollYProgress, [0, 0.85], [1, 0]);
 
   const sloganWords = t('global.slogan').split(' ');
 
-  /* 22 always-animating nodes are wasted work when CSS is going to hide the
-     container anyway — do not even build them below the top tier. */
   const particles = useMemo(
     () =>
-      Array.from({ length: lightMotion ? 0 : 22 }).map((_, i) => ({
+      Array.from({ length: 14 }).map((_, i) => ({
         right: `${(i * 37 + 13) % 100}%`,
         size: 3 + ((i * 7) % 6),
         delay: `${(i * 0.9) % 12}s`,
         duration: `${11 + ((i * 3) % 9)}s`,
       })),
-    [lightMotion]
+    []
   );
 
   return (
@@ -56,7 +47,7 @@ function Hero() {
         ))}
       </div>
 
-      <motion.div className="hero__inner" style={lightMotion ? undefined : { y, opacity }}>
+      <motion.div className="hero__inner" style={{ y, opacity }}>
         <div className="container">
           <motion.span
             className="hero__badge"

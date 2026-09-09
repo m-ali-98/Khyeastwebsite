@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Layout from './components/Layout';
 import RouteFallback from './components/RouteFallback';
 import { usePrefetchRoutes, prefetch } from './routes';
-import { currentTier } from './lib/motion';
 import { useLocale, LOCALES, localePath } from './i18n/LocaleContext';
 import { useContent } from './content/ContentContext';
 import Home from './pages/Home'; // landing page stays in the main bundle
@@ -68,19 +67,11 @@ function PublicRoutes() {
   );
 }
 
-/* Slow links, weak hardware and reduced-motion visitors get a plain fade with
-   no movement and no exit delay — the page swaps as soon as its chunk lands.
-   The tier itself is decided once in src/lib/motion.js. */
-function useLightMotion() {
-  return currentTier() !== 'full';
-}
-
 function AnimatedRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
   const { t } = useContent();
   const { locale } = useLocale();
-  const light = useLightMotion();
   usePrefetchRoutes();
 
   /* Title, description, canonical and hreflang alternates per locale — search
@@ -139,10 +130,13 @@ function AnimatedRoutes() {
       <AnimatePresence mode="popLayout" initial={false}>
         <motion.main
           key={location.pathname}
-          initial={light ? { opacity: 0 } : { opacity: 0, y: 12 }}
+          /* Short, compositor-only (opacity + transform) and asymmetric: the
+             outgoing page leaves faster than the incoming one arrives, which
+             reads as responsive rather than sluggish. */
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={light ? { opacity: 0 } : { opacity: 0, y: -8 }}
-          transition={{ duration: light ? 0.12 : 0.28, ease: [0.22, 1, 0.36, 1] }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.26, ease: EASE_OUT }}
         >
           <Suspense fallback={<RouteFallback />}>
             <PublicRoutes />
