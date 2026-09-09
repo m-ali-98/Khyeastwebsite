@@ -67,6 +67,10 @@ function PublicRoutes() {
   );
 }
 
+/* Route transition easing — mirrors --ease-out in src/styles/global.scss so
+   JS-driven page transitions and CSS transitions share one curve. */
+const EASE_OUT = [0.16, 1, 0.3, 1];
+
 function AnimatedRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
