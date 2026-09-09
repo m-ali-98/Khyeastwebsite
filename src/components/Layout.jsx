@@ -75,11 +75,33 @@ function Navbar() {
   const { shopEnabled } = useLocale();
   const navLinks = NAV_LINKS.filter((link) => !link.shopOnly || shopEnabled);
 
+  /* The scroll listener fires dozens of times a second, but the navbar only
+     has two states. Read the scroll position inside rAF (so it is never a
+     forced synchronous layout mid-scroll) and only call setState when the
+     boolean actually flips — otherwise every scroll event re-rendered the
+     whole navbar, its links, socials and cart badge. */
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    onScroll();
+    let frame = 0;
+    let last = window.scrollY > 40;
+    setScrolled(last);
+
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const next = window.scrollY > 40;
+        if (next !== last) {
+          last = next;
+          setScrolled(next);
+        }
+      });
+    };
+
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   useEffect(() => setOpen(false), [location.pathname]);

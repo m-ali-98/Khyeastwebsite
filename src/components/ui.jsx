@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, useInView, animate } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useContent } from '../content/ContentContext';
-import { observeReveal, isMinimal } from '../lib/motion';
+import { observeReveal } from '../lib/motion';
 import { renderHighlight } from '../content/sanitize';
 import { useLocale } from '../i18n/LocaleContext';
 
@@ -254,10 +254,18 @@ export const socialIcon = (id) => Icons[id] || Icons.globe;
 
    The travel distance is passed as a custom property so the stylesheet can
    shorten or cancel it per motion tier. */
-export function Reveal({ children, delay = 0, y = 34, x = 0, className = '', style }) {
+/* Stagger delays are handed in per item (delay={i * 0.12}), which reads well
+   for three or four cards but turns a twelve-item grid into a second and a
+   half of drip-feed. Cap it: past this point every remaining item shares the
+   last slot, so long lists stay lively. */
+const MAX_STAGGER = 0.32;
+
+export function Reveal({ children, delay = 0, y = 26, x = 0, className = '', style }) {
   const ref = useRef(null);
 
   useEffect(() => observeReveal(ref.current), []);
+
+  const d = Math.min(delay, MAX_STAGGER);
 
   return (
     <div
@@ -266,7 +274,7 @@ export function Reveal({ children, delay = 0, y = 34, x = 0, className = '', sty
       style={{
         '--rv-y': `${y}px`,
         '--rv-x': `${x}px`,
-        '--rv-delay': delay ? `${delay}s` : '0s',
+        '--rv-delay': d ? `${d}s` : '0s',
         ...style,
       }}
     >
@@ -305,13 +313,6 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
 
   useEffect(() => {
     if (!inView) return undefined;
-
-    /* A 2.2 s rAF tween per stat is pure decoration; on a weak device it is
-       also several hundred wasted frames. Show the final figure instead. */
-    if (isMinimal()) {
-      setVal(to);
-      return undefined;
-    }
 
     const controls = animate(0, to, {
       duration,

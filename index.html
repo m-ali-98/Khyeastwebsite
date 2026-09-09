@@ -108,22 +108,6 @@
         }
         el.setAttribute('data-theme', theme);
 
-        /* Motion tier, decided before the first paint so the stylesheet can
-           switch off continuous animations without JS ever running.
-           Mirrors detectTier() in src/lib/motion.js — keep the two in sync. */
-        var tier = 'full';
-        try {
-          var c = navigator.connection || {};
-          var mem = navigator.deviceMemory;
-          var cores = navigator.hardwareConcurrency;
-          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) tier = 'minimal';
-          else if (c.saveData === true) tier = 'minimal';
-          else if (/(^|-)2g$/.test(c.effectiveType || '')) tier = 'minimal';
-          else if ((typeof mem === 'number' && mem <= 2) || (typeof cores === 'number' && cores <= 2)) tier = 'minimal';
-          else if ((typeof mem === 'number' && mem <= 4) || (typeof cores === 'number' && cores <= 4)) tier = 'reduced';
-          else if (c.effectiveType === '3g') tier = 'reduced';
-        } catch (e) {}
-        el.setAttribute('data-motion', tier);
         var splash = document.getElementById('boot-splash');
         var msg = { fa: 'در حال بارگذاری…', en: 'Loading…', ar: 'جارٍ التحميل…' }[loc];
         document.addEventListener('DOMContentLoaded', function () {

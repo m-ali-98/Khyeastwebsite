@@ -108,7 +108,7 @@
   display: grid;
   place-items: center;
   color: var(--ink-2);
-  transition: all 0.25s;
+  transition: background-color 0.25s, border-color 0.25s, color 0.25s;
 }
 .admin__iconbtn:hover { border-color: var(--crimson); color: var(--crimson); }
 .admin__iconbtn.danger:hover { background: var(--crimson); color: #fff; border-color: var(--crimson); }
