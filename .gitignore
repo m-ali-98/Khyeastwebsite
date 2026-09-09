@@ -13,3 +13,8 @@ server/data/messages.json
 server/uploads/*
 !server/uploads/.gitkeep
 server/data/shop.json
+
+# SQLite database (runtime data: orders, comments, messages, shop products)
+server/data/*.db
+server/data/*.db-wal
+server/data/*.db-shm
