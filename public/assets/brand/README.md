@@ -1,52 +1,44 @@
 # Brand assets
 
-## `logo.png` — the official company mark
+The official company mark. `logo.png` is the source of truth — every surface of
+the site points at it, so replacing that one file updates the logo everywhere.
 
-**This file is currently a transparent placeholder. Replace it with the real
-logo.**
+## Files
 
-The build sandbox has no outbound network access beyond the npm registry, so
-the official artwork could not be downloaded automatically. Every part of the
-site already points at this path — drop the real file here and the logo appears
-everywhere at once, with no code changes:
+| File | Size | Used for |
+| --- | --- | --- |
+| `logo.png` | 837x800 | the mark itself, everywhere on the site |
+| `apple-touch-icon.png` | 188x180 | iOS home screen |
+| `favicon-64.png` | 67x64 | browser tab |
+| `favicon-32.png` | 33x32 | browser tab, smaller displays |
 
-```
-public/assets/brand/logo.png
-```
+All four are transparent RGBA PNGs, trimmed so there is no padding baked in
+around the mark.
 
-### Where it is used
+## Where the mark appears
 
 | Location | Rendering |
 | --- | --- |
-| Navbar (`src/components/Layout.jsx`) | knocked out to white over the hero, full colour once the bar turns light on scroll |
-| Footer (`src/components/Layout.jsx`) | knocked out to white |
+| Navbar (`src/components/Layout.jsx`) | white over the hero, full colour once the bar turns light on scroll |
+| Footer (`src/components/Layout.jsx`) | white |
 | Admin login card (`src/admin/AdminApp.jsx`) | full colour |
-| Admin sidebar (`src/admin/AdminApp.jsx`) | knocked out to white |
-| Browser tab + iOS home screen (`index.html`) | full colour |
-| First-paint boot splash (`index.html`) | full colour, white in dark mode |
+| Admin sidebar (`src/admin/AdminApp.jsx`) | white |
+| Boot splash (`index.html`) | full colour, white in dark mode |
+| Browser tab / iOS (`index.html`) | full colour |
 
-### Requirements for the file
+## Replacing the logo
 
-- **PNG with a transparent background.** The white-knockout used on dark
-  grounds is a `brightness(0) invert(1)` filter, which only works if the
-  background is actually transparent — a white box would turn into a black box.
-- **Trimmed**, with no baked-in padding around the mark, or it will look
-  undersized next to the wordmark.
-- Around **600–800 px tall** is plenty. The largest on-screen use is 78 px, so
-  that covers 3× retina with room to spare.
+Drop a new PNG at `public/assets/brand/logo.png`. Two requirements:
 
-### If the aspect ratio is not 1210 × 1280
+- **Transparent background.** The white rendering on dark grounds is a
+  `brightness(0) invert(1)` filter, which only touches inked pixels. A white
+  box behind the mark would become a black box.
+- **Trimmed**, with no surrounding padding, or it will look undersized next to
+  the wordmark.
 
-Update `RATIO` at the top of `src/components/Logo.jsx`. It only reserves the
-correct box before the image decodes, so the navbar does not reflow on load —
-it does not stretch the artwork (`object-fit: contain` guards that).
+If the new artwork has a different aspect ratio, update `RATIO` at the top of
+`src/components/Logo.jsx` to match. It only reserves the correct box so the
+navbar does not reflow while the image decodes; `object-fit: contain` prevents
+any stretching regardless.
 
-### Optional: a crisper tab icon
-
-A raster favicon at small sizes is acceptable but not ideal. If a vector
-version of the mark exists, save it as `public/favicon.svg` and restore the
-icon link in `index.html` to:
-
-```html
-<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-```
+Regenerate the icon files from the new artwork at the sizes in the table above.
