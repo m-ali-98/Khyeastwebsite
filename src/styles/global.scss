@@ -1227,6 +1227,14 @@ input, select, textarea { font-family: inherit; }
   background-color: var(--bg-softer);
   &.is-loaded { opacity: 1; }
 }
+
+/* Safety net: if JS never marks the image as loaded (preloaded/cached image,
+   hydration hiccup, script error) the picture must still be visible. */
+.no-js .smart-img,
+.smart-img:not(.is-loaded) {
+  animation: smart-img-reveal 0s linear 1.2s forwards;
+}
+@keyframes smart-img-reveal { to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .smart-img { transition: none; opacity: 1; }
 }
