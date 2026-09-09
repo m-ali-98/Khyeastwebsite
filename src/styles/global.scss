@@ -1509,3 +1509,99 @@ input, select, textarea { font-family: inherit; }
 
 /* The footer ground is always dark, so its mark stays knocked out to white. */
 .footer .nav__logo-mark.is-solid { filter: brightness(0) invert(1); }
+
+
+/* ==========================================================================
+   Motion tiers
+   --------------------------------------------------------------------------
+   <html data-motion="full | reduced | minimal">, set before first paint by
+   the inline script in index.html. Everything continuous or GPU-heavy is
+   switched off here rather than in JS, so a weak device never even starts
+   the work.
+   ========================================================================== */
+
+/* ---------- scroll reveal (replaces the per-element framer-motion) -------- */
+.reveal {
+  opacity: 0;
+  transform: translate3d(var(--rv-x, 0), var(--rv-y, 34px), 0);
+  transition:
+    opacity 0.62s cubic-bezier(0.22, 1, 0.36, 1) var(--rv-delay, 0s),
+    transform 0.62s cubic-bezier(0.22, 1, 0.36, 1) var(--rv-delay, 0s);
+}
+.reveal.is-in {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+/* Shorter travel reads as calmer and costs less to composite. */
+[data-motion='reduced'] .reveal {
+  transform: translate3d(0, calc(var(--rv-y, 34px) * 0.45), 0);
+  transition-duration: 0.42s;
+  /* staggered delays turn into a slow cascade on a slow device */
+  transition-delay: 0s;
+}
+
+/* Opacity is the one property that is essentially free to animate. */
+[data-motion='minimal'] .reveal {
+  transform: none;
+  transition: opacity 0.28s linear;
+  transition-delay: 0s;
+}
+
+/* Failsafe: if the observer never fires (JS error, exotic browser), this
+   class is set by the watchdog in src/lib/motion.js so content can never be
+   left stranded at opacity 0. */
+.reveal-failsafe .reveal { opacity: 1; transform: none; }
+
+/* ---------- continuous animations ---------- */
+/* These never stop, so they keep a device's GPU and CPU awake for as long as
+   the page is open — the single biggest battery cost on a phone. */
+[data-motion='reduced'] .hero__bg img,
+[data-motion='minimal'] .hero__bg img { animation: none; }
+
+[data-motion='reduced'] .hero__particles,
+[data-motion='minimal'] .hero__particles { display: none; }
+
+[data-motion='minimal'] .marquee__track { animation: none; }
+[data-motion='reduced'] .marquee__track { animation-duration: 44s; }
+
+/* the scroll-hint wheel inside the hero mouse glyph */
+[data-motion='reduced'] .hero__scroll .mouse::after,
+[data-motion='minimal'] .hero__scroll .mouse::after { animation: none; }
+
+[data-motion='minimal'] .split__media .badge-float { animation: none; }
+[data-motion='minimal'] .hero__badge i { animation: none; }
+
+/* ---------- backdrop-filter ----------
+   A blurred backdrop forces the compositor to re-sample everything behind the
+   element on every frame it changes. Six of them, one of which sits on a
+   sticky navbar that transitions on scroll, is a lot to ask of a cheap GPU.
+   Fall back to a solid-ish surface, which is visually very close. */
+[data-motion='minimal'] .nav.is-scrolled .nav__bar,
+[data-motion='minimal'] .lang-switch,
+[data-motion='minimal'] .admin__savebar,
+[data-motion='minimal'] .shop-bar,
+[data-motion='minimal'] .chip {
+  backdrop-filter: none;
+}
+[data-motion='minimal'] .nav.is-scrolled .nav__bar { background: var(--surface); }
+
+/* ---------- transition budget ----------
+   Hover/idle flourishes stay, but snappy. Deliberately NOT a blanket
+   `* { transition: none }`: instant state changes feel broken, and it would
+   also flatten the reveal above. */
+[data-motion='minimal'] .card,
+[data-motion='minimal'] .btn,
+[data-motion='minimal'] .nav__link,
+[data-motion='minimal'] .product-card,
+[data-motion='minimal'] .shop-card {
+  transition-duration: 0.14s;
+}
+
+/* `transition: all` re-evaluates every animatable property on every change;
+   at minimal tier restrict it to the two cheap ones. */
+[data-motion='minimal'] .stat-card { transition-property: opacity, transform; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
