@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Icons, Reveal, CTABand, hl } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
+import { usePageMeta } from '../hooks/usePageMeta';
 import NotFound from './NotFound';
 
 export default function ProductDetail() {
@@ -12,6 +13,11 @@ export default function ProductDetail() {
   const [tab, setTab] = useState('usage');
 
   const product = products.find((p) => p.slug === slug);
+  /* Hooks must run unconditionally, so this sits above the early return. */
+  usePageMeta(
+    product ? `${product.title} | ${t('global.company.name')}` : '',
+    product ? String(product.summary || product.desc || '').slice(0, 160) : ''
+  );
   if (!product) return <NotFound />;
   const brand = brands.find((b) => b.id === product.brand);
   const related = products.filter((p) => p.slug !== product.slug).slice(0, 4);

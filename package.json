@@ -7,7 +7,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "test": "vite build && node scripts/test/run.mjs",
+    "smoke": "vite build && node scripts/test/run.mjs"
   },
   "repository": {
     "type": "git",
@@ -34,6 +36,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.1",
+    "linkedom": "^0.18.13",
     "sass": "^1.104.0",
     "sharp": "^0.35.4",
     "vite": "^8.2.2"

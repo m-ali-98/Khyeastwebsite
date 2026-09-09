@@ -5,10 +5,19 @@ const Ctx = createContext(null);
 const CART_KEY = 'ky_shop_cart_v1';
 const ORDERS_KEY = 'ky_shop_orders_v1';
 
+/* Read JSON from localStorage, falling back whenever the stored value cannot
+   be used as-is. The parsed value must be a plain object: the literal string
+   "null" parses to null, and `null` / arrays / primitives all break the
+   `{ ...cart }` spreads and Object.entries() calls downstream. A single
+   corrupted key would otherwise take down the whole site, and the visitor has
+   no way to clear it. */
 const readLS = (key, fallback) => {
   try {
     const v = localStorage.getItem(key);
-    return v ? JSON.parse(v) : fallback;
+    if (!v) return fallback;
+    const parsed = JSON.parse(v);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+    return parsed;
   } catch {
     return fallback;
   }

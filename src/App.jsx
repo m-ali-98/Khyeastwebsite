@@ -71,6 +71,10 @@ function PublicRoutes() {
    JS-driven page transitions and CSS transitions share one curve. */
 const EASE_OUT = [0.16, 1, 0.3, 1];
 
+/* Routes whose <title> is set by the page itself (from the product or post it
+   loaded), so the app-level effect must leave it alone. */
+const HAS_OWN_TITLE = /^\/(products|blog|shop)\/[^/]+$/;
+
 function AnimatedRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
@@ -80,8 +84,37 @@ function AnimatedRoutes() {
 
   /* Title, description, canonical and hreflang alternates per locale — search
      engines see three properly-linked language versions of every page. */
+  /* Per-page <title> and description. Every page previously shared the site
+     title, so search results listed a dozen identical entries and neither
+     users nor crawlers could tell them apart. Each key already exists in all
+     three languages, so the titles translate with the rest of the site. */
   useEffect(() => {
-    document.title = `${t('global.company.name')} | ${t('global.slogan')}`;
+    const HERO_KEY = {
+      '/': 'home.hero.title',
+      '/about': 'about.hero.title',
+      '/products': 'products.hero.title',
+      '/export': 'export.hero.title',
+      '/quality': 'quality.hero.title',
+      '/blog': 'blog.hero.title',
+      '/contact': 'contact.hero.title',
+      '/shop': 'shop.hero.title',
+    };
+    const site = t('global.company.name');
+    const key = HERO_KEY[location.pathname];
+    /* Strip the [[…]] highlight markers used by the visual headings. */
+    const plain = (s) => String(s || '').replace(/\[\[(.+?)\]\]/g, '$1').trim();
+    const pageTitle = key ? plain(t(key)) : '';
+    /* Detail pages (product, post) set their own title from the entity via
+       usePageMeta. React runs child effects BEFORE parent effects, so writing
+       document.title unconditionally here would clobber theirs on every
+       render. Only claim the title for routes this table actually knows. */
+    const ownsTitle = key || !HAS_OWN_TITLE.test(location.pathname);
+    if (ownsTitle) {
+      document.title =
+        location.pathname === '/' || !pageTitle
+          ? `${site} | ${plain(t('global.slogan'))}`
+          : `${pageTitle} | ${site}`;
+    }
 
     const setMeta = (attr, key, content) => {
       let el = document.head.querySelector(`meta[${attr}="${key}"]`);
@@ -109,9 +142,14 @@ function AnimatedRoutes() {
       link.setAttribute('data-i18n-alt', '');
       document.head.appendChild(link);
     };
-    add('canonical', localePath(locale, path));
-    LOCALES.forEach((lo) => add('alternate', localePath(lo.code, path), lo.htmlLang));
-    add('alternate', localePath('fa', path), 'x-default');
+    /* Canonical and hreflang must be absolute URLs — Google ignores relative
+       hreflang values, which meant the three language versions were never
+       actually linked to each other. */
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const url = (code) => `${origin}${localePath(code, path)}`;
+    add('canonical', url(locale));
+    LOCALES.forEach((lo) => add('alternate', url(lo.code), lo.htmlLang));
+    add('alternate', url('fa'), 'x-default');
   }, [location.pathname, locale, t]);
 
   useEffect(() => {

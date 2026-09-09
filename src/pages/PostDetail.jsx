@@ -5,6 +5,7 @@ import { Icons, Reveal, hl } from '../components/ui';
 import { PostCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
+import { usePageMeta } from '../hooks/usePageMeta';
 import NotFound from './NotFound';
 
 export default function PostDetail() {
@@ -12,6 +13,10 @@ export default function PostDetail() {
   const { t, posts } = useContent();
   const post = posts.find((p) => p.slug === slug);
   const safeBody = useMemo(() => (post ? sanitizeHtml(post.body) : ''), [post]);
+  usePageMeta(
+    post ? `${post.title} | ${t('global.company.name')}` : '',
+    post ? String(post.excerpt || '').slice(0, 160) : ''
+  );
 
   if (!post) return <NotFound />;
   const related = posts.filter((p) => p.slug !== slug).slice(0, 3);

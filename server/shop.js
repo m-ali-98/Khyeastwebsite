@@ -18,14 +18,26 @@ const rand = (n) => crypto.randomBytes(n).toString('hex');
 const orderCode = () => `KY-${Date.now().toString(36).slice(-5).toUpperCase()}${rand(2).toUpperCase()}`;
 
 /* tiny in-memory rate limit: max 5 public writes / 10 min / ip */
+const RL_WINDOW = 10 * 60 * 1000;
 const hits = new Map();
 function rateLimited(ip) {
   const now = Date.now();
-  const arr = (hits.get(ip) || []).filter((t) => now - t < 10 * 60 * 1000);
+  const arr = (hits.get(ip) || []).filter((t) => now - t < RL_WINDOW);
   arr.push(now);
   hits.set(ip, arr);
   return arr.length > 5;
 }
+
+/* Sweep expired entries — otherwise every IP that ever posted stays in memory
+   for the lifetime of the process. */
+setInterval(() => {
+  const cut = Date.now() - RL_WINDOW;
+  for (const [ip, times] of hits) {
+    const keep = times.filter((t) => t > cut);
+    if (keep.length) hits.set(ip, keep);
+    else hits.delete(ip);
+  }
+}, RL_WINDOW).unref();
 
 export function createShopRouter({ database, requireAuth }) {
   const r = express.Router();
