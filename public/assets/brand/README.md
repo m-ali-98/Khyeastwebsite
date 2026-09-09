@@ -11,9 +11,28 @@ the site points at it, so replacing that one file updates the logo everywhere.
 | `apple-touch-icon.png` | 188x180 | iOS home screen |
 | `favicon-64.png` | 67x64 | browser tab |
 | `favicon-32.png` | 33x32 | browser tab, smaller displays |
+| `logo-original.png` | 837x800 | the untouched supplied artwork, kept for reference |
 
-All four are transparent RGBA PNGs, trimmed so there is no padding baked in
-around the mark.
+All are transparent RGBA PNGs, trimmed so there is no padding baked in around
+the mark.
+
+## Colour
+
+The supplied artwork runs orange (`#f86100`) to dark maroon (`#770101`), which
+read as a different brand next to the site accent. `logo.png` is therefore a
+recoloured version, mapped onto the site crimson ramp top to bottom:
+
+| Position | Colour |
+| --- | --- |
+| 0% | `#e92044` |
+| 42% | `#c91134` |
+| 78% | `#8d0a25` |
+| 100% | `#5c0618` |
+
+The recolour preserves per-pixel shading rather than flattening the mark: each
+pixel keeps its brightness *relative to* the artwork's own gradient at that
+height, so antialiased edges stay smooth. `logo-original.png` is the unmodified
+file if the original palette is ever wanted back.
 
 ## Where the mark appears
 
