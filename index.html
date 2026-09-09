@@ -27,23 +27,58 @@
       body { margin: 0; font-family: 'Vazirmatn Variable', 'Vazirmatn', Tahoma, sans-serif; }
       #boot-splash {
         position: fixed; inset: 0; display: grid; place-content: center;
-        justify-items: center; gap: 18px; background: #fbf6f5; z-index: 9999;
+        justify-items: center; gap: 22px; background: #fbf6f5; z-index: 9999;
       }
-      /* the real company mark, breathing gently while the bundle loads */
+      /* a soft crimson glow behind the mark, breathing out of phase with it:
+         reads as "working" without a spinner competing with the logo */
       .boot-splash__mark {
-        width: 78px; height: auto;
-        animation: boot-pulse 1.5s ease-in-out infinite alternate;
+        position: relative;
+        display: grid;
+        place-items: center;
+        animation: boot-float 2.4s ease-in-out infinite alternate;
       }
-      .boot-splash__text { margin: 0; color: #7c6a6e; font-size: 14px; }
-      @keyframes boot-pulse {
-        from { opacity: 0.45; transform: scale(0.96); }
-        to   { opacity: 1;    transform: scale(1); }
+      .boot-splash__mark::before {
+        content: '';
+        position: absolute;
+        inset: -40px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(220, 20, 60, 0.34), transparent 68%);
+        animation: boot-glow 2.4s ease-in-out infinite alternate;
       }
+      .boot-splash__mark img { position: relative; width: 72px; height: auto; display: block; }
+      .boot-splash__bar {
+        width: 180px; height: 3px; border-radius: 999px;
+        background: rgba(120, 80, 90, 0.16); overflow: hidden;
+      }
+      .boot-splash__bar span {
+        display: block; width: 42%; height: 100%; border-radius: inherit;
+        background: linear-gradient(90deg, transparent, #dc143c, transparent);
+        animation: boot-sweep 1.25s ease-in-out infinite;
+      }
+      .boot-splash__text {
+        margin: 0; color: #7c6a6e; font-size: 13.5px;
+        animation: boot-fade 2.4s ease-in-out infinite alternate;
+      }
+      @keyframes boot-float { from { transform: translateY(3px); } to { transform: translateY(-3px); } }
+      @keyframes boot-glow  { from { opacity: .16; transform: scale(.92); } to { opacity: .42; transform: scale(1.06); } }
+      @keyframes boot-sweep { from { transform: translateX(-115%); } to { transform: translateX(275%); } }
+      @keyframes boot-fade  { from { opacity: .55; } to { opacity: 1; } }
       @media (prefers-reduced-motion: reduce) {
-        .boot-splash__mark { animation: none; opacity: 1; }
+        .boot-splash__mark,
+        .boot-splash__mark::before,
+        .boot-splash__bar span,
+        .boot-splash__text { animation: none; }
+        .boot-splash__bar span { width: 100%; }
       }
       /* the artwork fades into the dark splash, so knock it out to white */
-      html[data-theme='dark'] .boot-splash__mark { filter: brightness(0) invert(1); }
+      html[data-theme='dark'] .boot-splash__mark img { filter: brightness(0) invert(1); }
+      html[data-theme='dark'] .boot-splash__mark::before {
+        background: radial-gradient(circle, rgba(239, 43, 82, 0.4), transparent 68%);
+      }
+      html[data-theme='dark'] .boot-splash__bar { background: rgba(255, 255, 255, 0.1); }
+      html[data-theme='dark'] .boot-splash__bar span {
+        background: linear-gradient(90deg, transparent, #ef2b52, transparent);
+      }
       /* dark splash when dark mode is the active theme */
       html[data-theme='dark'] { background: #120a0d; }
       html[data-theme='dark'] #boot-splash { background: #120a0d; }
@@ -79,7 +114,10 @@
     <div id="root">
       <!-- First-paint splash: replaced by React as soon as it mounts. -->
       <div id="boot-splash">
-        <img class="boot-splash__mark" src="/assets/brand/logo.png" alt="" aria-hidden="true" />
+        <div class="boot-splash__mark">
+          <img src="/assets/brand/logo.png" alt="" aria-hidden="true" />
+        </div>
+        <div class="boot-splash__bar"><span></span></div>
         <p class="boot-splash__text">در حال بارگذاری…</p>
       </div>
     </div>

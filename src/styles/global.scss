@@ -1361,12 +1361,17 @@ input, select, textarea { font-family: inherit; }
 }
 
 .sk {
-  --sk-a: #f1e7e6;
-  --sk-b: #fbf6f5;
+  /* tinted off the theme surface rather than hardcoded, so the shimmer does
+     not glow white against the dark palette */
+  --sk-a: var(--bg-softer);
+  --sk-b: var(--bg-soft);
   border-radius: var(--radius-sm);
-  background: linear-gradient(100deg, var(--sk-a) 20%, var(--sk-b) 40%, var(--sk-a) 60%);
+  background: linear-gradient(100deg, var(--sk-a) 18%, var(--sk-b) 38%, var(--sk-a) 58%);
   background-size: 220% 100%;
-  animation: sk-shimmer 1.5s var(--ease) infinite;
+  animation: sk-shimmer 1.6s var(--ease) infinite;
+  /* stagger the rows so the sweep travels down the page instead of every
+     block flashing in unison */
+  animation-delay: calc(var(--sk-i, 0) * 90ms);
 
   &--overline { width: 140px; height: 14px; margin-bottom: 22px; }
   &--title    { width: min(560px, 90%); height: 42px; margin-bottom: 26px; border-radius: var(--radius); }
@@ -1375,13 +1380,24 @@ input, select, textarea { font-family: inherit; }
   &--card     { height: 260px; border-radius: var(--radius); }
 }
 
+/* The whole skeleton eases in, so a slow chunk does not snap into view. */
+.route-skeleton {
+  animation: sk-enter 0.45s var(--ease) both;
+}
+@keyframes sk-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
 @keyframes sk-shimmer {
   from { background-position: 200% 0; }
   to   { background-position: -40% 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk { animation: none; background: var(--bg-softer); }
+  .sk,
+  .route-skeleton { animation: none; }
+  .sk { background: var(--bg-softer); }
 }
 
 
