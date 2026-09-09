@@ -75,6 +75,23 @@ function AdminLangBar() {
   );
 }
 
+/* Shown while the session check and the translation dictionaries resolve.
+   Uses the same mark and rhythm as the login card so the panel does not appear
+   to jump between two unrelated screens. */
+function AdminLoading() {
+  return (
+    <div className="admin">
+      <div className="admin__boot" role="status" aria-live="polite" aria-busy="true">
+        <div className="admin__boot-mark">
+          <Logo size={44} className="admin__logo-mark" />
+        </div>
+        <div className="admin__boot-bar"><span /></div>
+        <p>در حال آماده‌سازی پنل…</p>
+      </div>
+    </div>
+  );
+}
+
 function Login({ onDone }) {
   const { isDark, toggleTheme } = useLocale();
   const [user, setUser] = useState('');
@@ -112,7 +129,7 @@ function Login({ onDone }) {
       </button>
       <motion.form className="admin__login-card" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} onSubmit={submit}>
         <div style={{ display: 'grid', placeItems: 'center' }}>
-          <Logo size={54} className="admin__logo-mark" />
+          <Logo size={38} className="admin__logo-mark" />
         </div>
         <h1>پنل مدیریت محتوا</h1>
         <p>شرکت خمیر مایه خوزستان — دسترسی مخصوص مدیر محتوا</p>
@@ -164,8 +181,7 @@ function AdminShell() {
       });
   }, []);
 
-  if (authed === null || !packsReady)
-    return <div className="admin" style={{ display: 'grid', placeItems: 'center', minHeight: '100svh' }}>…</div>;
+  if (authed === null || !packsReady) return <AdminLoading />;
   if (!authed) return <div className="admin">{<Login onDone={() => setAuthed(true)} />}</div>;
 
   const visibleTabs = TABS.filter((tb) => (isBase ? !tb.transOnly : !tb.faOnly && !tb.base));
