@@ -20,5 +20,20 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 900,
+    cssCodeSplit: true,
+    /* Slow connections: keep the first paint payload small and let long-lived
+       vendor code be cached separately from our frequently-changing app code. */
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('framer-motion') || id.includes('motion-dom') || id.includes('motion-utils'))
+            return 'motion';
+          if (id.includes('react-router')) return 'router';
+          if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('scheduler')) return 'react';
+          return 'vendor';
+        },
+      },
+    },
   },
 });

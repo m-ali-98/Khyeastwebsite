@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, Marquee, hl } from '../components/ui';
 import { useContent } from '../content/ContentContext';
+import SmartImage from '../components/SmartImage';
 
 function Mission() {
   const { t } = useContent();
@@ -67,10 +68,10 @@ export default function About() {
               <div className="split__media">
                 <span className="badge-float">{t('about.story.badge')}</span>
                 <div className="img-main">
-                  <img src={m('about.story.imgMain')} alt={t('about.story.overline')} loading="lazy" />
+                  <SmartImage src={m('about.story.imgMain')} alt={t('about.story.overline')} />
                 </div>
                 <div className="img-float">
-                  <img src={m('about.story.imgFloat')} alt={t('global.slogan')} loading="lazy" />
+                  <SmartImage src={m('about.story.imgFloat')} alt={t('global.slogan')} />
                 </div>
               </div>
             </Reveal>
@@ -134,7 +135,7 @@ export default function About() {
               <div className="split__media">
                 <span className="badge-float">{t('about.factory.badge')}</span>
                 <div className="img-main">
-                  <img src={m('about.factory.img')} alt={t('about.factory.overline')} loading="lazy" />
+                  <SmartImage src={m('about.factory.img')} alt={t('about.factory.overline')} />
                 </div>
               </div>
             </Reveal>

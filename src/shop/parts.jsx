@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Icons, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from './ShopContext';
+import SmartImage from '../components/SmartImage';
 
 /* ---------------- quantity stepper ---------------- */
 export function QtyStepper({ value, onChange, max = 999, min = 1 }) {
@@ -49,7 +50,7 @@ export function ShopCard({ p, index = 0 }) {
     >
       <div className="shop-card__img">
         <Link to={`/shop/${p.slug}`} aria-label={p.title}>
-          <img src={p.image} alt={p.title} loading="lazy" />
+          <SmartImage src={p.image} alt={p.title} />
         </Link>
         <div className="shop-card__badges">
           {off > 0 && <span className="badge-off">{faNum(off)}٪ {t('shop.card.off')}</span>}

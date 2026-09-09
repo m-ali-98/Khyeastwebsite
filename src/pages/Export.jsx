@@ -18,7 +18,7 @@ export default function Export() {
       <PageHero title={t('export.hero.title')} sub={t('export.hero.sub')} image={m('export.hero.img')} />
 
       <section ref={ref} style={{ position: 'relative', height: '52vh', minHeight: 380, overflow: 'hidden' }}>
-        <motion.img className="parallax-img" src={m('export.banner.img')} alt={t('export.hero.title')} style={{ y, scale: 1.15 }} loading="lazy" />
+        <motion.img className="parallax-img" src={m('export.banner.img')} alt={t('export.hero.title')} style={{ y, scale: 1.15 }} loading="lazy" decoding="async" />
         <div
           style={{
             position: 'absolute',

@@ -11,6 +11,7 @@
    The admin can only change content values — never code or styling.
    ========================================================================== */
 import express from 'express';
+import compression from 'compression';
 import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,7 +43,7 @@ const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const writeJSON = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
 
 /* ---------------- database ---------------- */
-const db = store.openDB(DB_FILE);
+const db = await store.openDB(DB_FILE);
 const seedReport = store.seedFromLegacy(db, { CONTENT_FILE, SHOP_FILE, MESSAGES_FILE });
 if (!seedReport.skipped) {
   console.log(
@@ -132,6 +133,16 @@ const upload = multer({
 });
 
 const app = express();
+
+/* gzip/deflate every text response — the single biggest win on slow links
+   (HTML/JS/CSS/JSON shrink ~70%). Images are already compressed, so skipped. */
+app.use(
+  compression({
+    threshold: 512,
+    filter: (req, res) => (req.headers['x-no-compression'] ? false : compression.filter(req, res)),
+  }),
+);
+
 app.use(express.json({ limit: '8mb' }));
 
 /* ---------------- public ---------------- */
@@ -225,13 +236,28 @@ app.use(createShopRouter({ database: db, requireAuth }));
 /* ---------------- production static site ---------------- */
 const DIST = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(DIST)) {
-  app.use(express.static(DIST));
-  app.get(/^\/(?!api|uploads).*/, (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
+  /* Content-hashed files never change → cache them for a year.
+     index.html must always be revalidated so deploys are picked up. */
+  app.use(
+    express.static(DIST, {
+      etag: true,
+      setHeaders: (res, filePath) => {
+        if (/[.-][0-9a-zA-Z_-]{8,}\.(js|css|woff2?|png|jpe?g|webp|svg|avif)$/.test(filePath))
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        else if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+        else res.setHeader('Cache-Control', 'public, max-age=86400');
+      },
+    }),
+  );
+  app.get(/^\/(?!api|uploads).*/, (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(DIST, 'index.html'));
+  });
 }
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[content-api] listening on http://0.0.0.0:${PORT}`);
-  console.log(`[content-api] database: ${DB_FILE}`);
+  console.log(`[content-api] database: ${DB_FILE} (${db.driver})`);
   console.log(`[content-api] admin login default user: "${ADMIN_USER}" (set ADMIN_USER / ADMIN_PASS env to change)`);
 });
 

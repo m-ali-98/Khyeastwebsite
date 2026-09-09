@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#DC143C" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Slow connections: start the two critical fetches before the JS bundle
+         has even been parsed, and paint a branded screen instead of white. -->
+    <link rel="preload" as="fetch" href="/api/content" crossorigin />
+    <link rel="preload" as="image" href="/assets/img/hero-wheat.webp" fetchpriority="high" />
     <title>شرکت خمیر مایه خوزستان | از مغز گندم؛ تا اولین برش نان</title>
     <meta
       name="description"
@@ -14,9 +19,32 @@
     <meta property="og:description" content="از مغز گندم؛ تا اولین برش نان — تولیدکننده خمیرمایه خشک فوری با بیش از سه دهه سابقه و صادرات به بیش از ۵۰ کشور" />
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="fa_IR" />
+    <style>
+      /* Critical inline CSS — renders before the stylesheet arrives */
+      html { background: #fbf6f5; }
+      body { margin: 0; font-family: 'Vazirmatn Variable', 'Vazirmatn', Tahoma, sans-serif; }
+      #boot-splash {
+        position: fixed; inset: 0; display: grid; place-content: center;
+        justify-items: center; gap: 18px; background: #fbf6f5; z-index: 9999;
+      }
+      .boot-splash__mark {
+        width: 54px; height: 54px; border-radius: 50%;
+        border: 3px solid rgba(220, 20, 60, 0.18); border-top-color: #dc143c;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      .boot-splash__text { margin: 0; color: #7c6a6e; font-size: 14px; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .boot-splash__mark { animation-duration: 3s; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- First-paint splash: replaced by React as soon as it mounts. -->
+      <div id="boot-splash">
+        <div class="boot-splash__mark"></div>
+        <p class="boot-splash__text">در حال بارگذاری…</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
