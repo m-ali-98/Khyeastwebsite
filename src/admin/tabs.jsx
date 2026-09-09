@@ -3,8 +3,62 @@ import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
 import { Field, UploadButton, StringListEditor, PairListEditor, RichEditor } from './editors';
+import { getPack, LOCALES } from '../../shared/i18n/index.js';
+
+/* Badge shown on Persian list rows: which other languages still fall back to
+   Persian for this item, so a newly added product/post is never quietly left
+   untranslated on /en and /ar. */
+function TransStatus({ bucket, slug, state }) {
+  const pending = LOCALES.filter((lo) => lo.code !== 'fa').filter((lo) => {
+    const override = state.i18n?.[lo.code]?.[bucket]?.[slug];
+    const shipped = getPack(lo.code)?.[bucket]?.[slug];
+    return !override && !shipped;
+  });
+  if (!pending.length) return null;
+  return (
+    <span className="admin__badge warn" title="این مورد در این زبان‌ها هنوز ترجمه نشده و متن فارسی نمایش داده می‌شود">
+      بدون ترجمه: {pending.map((lo) => lo.short).join(' / ')}
+    </span>
+  );
+}
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
+
+/* Deleting a product/post must also drop its translations, otherwise a stale
+   override lingers in the database and would silently re-attach itself if the
+   same slug were ever reused for a different item. */
+/* Renaming a slug must carry the translations across with it, otherwise they
+   would be stranded under the old key. */
+const renameTranslations = (i18n, bucket, from, to) => {
+  if (!i18n || typeof i18n !== 'object' || from === to) return i18n;
+  const next = {};
+  for (const [loc, data] of Object.entries(i18n)) {
+    if (!data || typeof data !== 'object' || !data[bucket]?.[from]) {
+      next[loc] = data;
+      continue;
+    }
+    const bucketData = { ...data[bucket] };
+    bucketData[to] = bucketData[from];
+    delete bucketData[from];
+    next[loc] = { ...data, [bucket]: bucketData };
+  }
+  return next;
+};
+
+const dropTranslations = (i18n, bucket, slug) => {
+  if (!i18n || typeof i18n !== 'object') return i18n;
+  const next = {};
+  for (const [loc, data] of Object.entries(i18n)) {
+    if (!data || typeof data !== 'object' || !data[bucket]?.[slug]) {
+      next[loc] = data;
+      continue;
+    }
+    const bucketData = { ...data[bucket] };
+    delete bucketData[slug];
+    next[loc] = { ...data, [bucket]: bucketData };
+  }
+  return next;
+};
 const slugify = (s) =>
   String(s)
     .trim()
@@ -36,26 +90,45 @@ export function ProductsTab() {
     });
 
   const saveDraft = () => {
-    const clean = { ...draft, body: undefined };
+    const { _orig, ...rest } = draft;
+    const clean = { ...rest, body: undefined };
     clean.specs = (clean.specs || []).filter(([k, v]) => k || v);
     clean.usage = (clean.usage || []).filter((u) => u);
     clean.analysis = (clean.analysis || []).filter(([k, v]) => k || v);
     clean.storage = (clean.storage || []).filter((u) => u);
-    const exists = state.products.some((p) => p.slug === clean.slug);
-    commit(exists ? state.products.map((p) => (p.slug === clean.slug ? clean : p)) : [clean, ...state.products]);
+
+    /* `_orig` is the slug the form was opened with: it tells a rename apart
+       from a brand-new product, so editing the slug updates the existing item
+       (and moves its translations) instead of silently cloning it. */
+    const editing = _orig && state.products.some((p) => p.slug === _orig);
+    const next = editing
+      ? state.products.map((p) => (p.slug === _orig ? clean : p))
+      : state.products.some((p) => p.slug === clean.slug)
+        ? state.products.map((p) => (p.slug === clean.slug ? clean : p))
+        : [clean, ...state.products];
+
+    save({
+      ...state,
+      products: next,
+      i18n: editing ? renameTranslations(state.i18n, 'products', _orig, clean.slug) : state.i18n,
+    });
     setDraft(null);
   };
 
   const remove = (slug) => {
-    if (!window.confirm('این محصول حذف شود؟')) return;
-    commit(state.products.filter((p) => p.slug !== slug));
+    if (!window.confirm('این محصول حذف شود؟ ترجمه‌های انگلیسی و عربی آن نیز حذف می‌شود.')) return;
+    save({
+      ...state,
+      products: state.products.filter((p) => p.slug !== slug),
+      i18n: dropTranslations(state.i18n, 'products', slug),
+    });
   };
 
   if (draft) {
     return (
       <div className="admin__panel">
         <div className="admin__head">
-          <h1>{state.products.some((p) => p.slug === draft.slug) ? 'ویرایش محصول' : 'محصول جدید'}</h1>
+          <h1>{draft._orig ? 'ویرایش محصول' : 'محصول جدید'}</h1>
         </div>
         <div className="admin__grid2">
           <Field label="عنوان محصول" value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} />
@@ -134,7 +207,8 @@ export function ProductsTab() {
               </small>
             </div>
             <div className="admin__actions">
-              <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft(clone(p))}>
+              <TransStatus bucket="products" slug={p.slug} state={state} />
+              <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft({ ...clone(p), _orig: p.slug })}>
                 ✎
               </button>
               <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>
@@ -168,22 +242,38 @@ export function PostsTab() {
     });
 
   const saveDraft = () => {
-    const clean = { ...draft, body: sanitizeHtml(draft.body) };
-    const exists = state.posts.some((p) => p.slug === clean.slug);
-    commit(exists ? state.posts.map((p) => (p.slug === clean.slug ? clean : p)) : [clean, ...state.posts]);
+    const { _orig, ...rest } = draft;
+    const clean = { ...rest, body: sanitizeHtml(rest.body) };
+
+    const editing = _orig && state.posts.some((p) => p.slug === _orig);
+    const next = editing
+      ? state.posts.map((p) => (p.slug === _orig ? clean : p))
+      : state.posts.some((p) => p.slug === clean.slug)
+        ? state.posts.map((p) => (p.slug === clean.slug ? clean : p))
+        : [clean, ...state.posts];
+
+    save({
+      ...state,
+      posts: next,
+      i18n: editing ? renameTranslations(state.i18n, 'posts', _orig, clean.slug) : state.i18n,
+    });
     setDraft(null);
   };
 
   const remove = (slug) => {
-    if (!window.confirm('این مقاله حذف شود؟')) return;
-    commit(state.posts.filter((p) => p.slug !== slug));
+    if (!window.confirm('این مقاله حذف شود؟ ترجمه‌های انگلیسی و عربی آن نیز حذف می‌شود.')) return;
+    save({
+      ...state,
+      posts: state.posts.filter((p) => p.slug !== slug),
+      i18n: dropTranslations(state.i18n, 'posts', slug),
+    });
   };
 
   if (draft) {
     return (
       <div className="admin__panel">
         <div className="admin__head">
-          <h1>{state.posts.some((p) => p.slug === draft.slug) ? 'ویرایش مقاله' : 'مقاله جدید'}</h1>
+          <h1>{draft._orig ? 'ویرایش مقاله' : 'مقاله جدید'}</h1>
         </div>
         <Field label="عنوان مقاله" value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} />
         <div className="admin__grid2" style={{ marginTop: 12 }}>
@@ -244,7 +334,8 @@ export function PostsTab() {
               </small>
             </div>
             <div className="admin__actions">
-              <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft(clone(p))}>
+              <TransStatus bucket="posts" slug={p.slug} state={state} />
+              <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft({ ...clone(p), _orig: p.slug })}>
                 ✎
               </button>
               <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>
