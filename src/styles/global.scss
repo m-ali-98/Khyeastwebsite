@@ -376,7 +376,11 @@ input, select, textarea { font-family: inherit; }
 .hero__bg {
   position: absolute;
   inset: 0;
-  z-index: -2;
+  /* Positive z-index on purpose: the page is wrapped in an animated
+     motion.main, which creates a stacking context. A negative z-index would
+     push this layer behind that wrapper's background and hide the image. */
+  z-index: 0;
+  overflow: hidden;
 }
 .hero__bg img {
   width: 100%; height: 100%;
@@ -390,7 +394,7 @@ input, select, textarea { font-family: inherit; }
 .hero__overlay {
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: 1;
   background:
     linear-gradient(to top, rgba(27, 4, 10, 0.92), rgba(27, 4, 10, 0.35) 45%, rgba(77, 5, 20, 0.55)),
     radial-gradient(120% 90% at 85% 10%, rgba(220, 20, 60, 0.28), transparent 60%);
@@ -398,6 +402,8 @@ input, select, textarea { font-family: inherit; }
 .hero__inner {
   padding: calc(var(--nav-h) + 90px) 0 120px;
   width: 100%;
+  position: relative;
+  z-index: 3; /* above the background image and the gradient overlay */
 }
 .hero__badge {
   display: inline-flex;
@@ -494,6 +500,12 @@ input, select, textarea { font-family: inherit; }
   100% { transform: translateY(0); opacity: 0; }
 }
 
+.hero__particles {
+  position: absolute;
+  inset: 0;
+  z-index: 2; /* between the gradient overlay and the hero copy */
+  pointer-events: none;
+}
 .hero__particles span {
   position: absolute;
   border-radius: 50%;
