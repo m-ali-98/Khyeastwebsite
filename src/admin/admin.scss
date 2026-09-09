@@ -643,3 +643,6 @@
 
   &:hover { border-color: var(--crimson); color: var(--crimson); }
 }
+
+/* The mark keeps its own aspect ratio; it is not a square badge. */
+.admin__logo-mark { height: auto; width: auto; flex: none; }

@@ -112,7 +112,7 @@ function Login({ onDone }) {
       </button>
       <motion.form className="admin__login-card" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} onSubmit={submit}>
         <div style={{ display: 'grid', placeItems: 'center' }}>
-          <Logo size={54} />
+          <Logo size={54} className="admin__logo-mark" />
         </div>
         <h1>پنل مدیریت محتوا</h1>
         <p>شرکت خمیر مایه خوزستان — دسترسی مخصوص مدیر محتوا</p>
@@ -193,7 +193,7 @@ function AdminShell() {
       <div className="admin__shell">
         <aside className="admin__side">
           <div className="admin__side-brand">
-            <Logo size={40} />
+            <Logo size={40} variant="solid" className="admin__logo-mark" />
             <div>
               <strong>{t('global.company.short')}</strong>
               <small>CONTENT ADMIN</small>

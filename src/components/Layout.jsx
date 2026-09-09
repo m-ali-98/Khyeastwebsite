@@ -126,7 +126,7 @@ function Navbar() {
 
         <div className="container nav__bar">
           <Link to="/" className="nav__logo" aria-label={t('global.company.name')}>
-            <Logo />
+            <Logo variant="solid" />
             <span className="nav__logo-text">
               <strong>{t('global.company.short')}</strong>
               <small>{t('global.company.en')}</small>
@@ -251,7 +251,7 @@ function Footer() {
         <div className="footer__grid">
           <div>
             <Link to="/" className="nav__logo" style={{ marginBottom: 8 }}>
-              <Logo size={44} />
+              <Logo size={44} variant="solid" />
               <span className="nav__logo-text">
                 <strong style={{ color: '#fff' }}>{t('global.company.short')}</strong>
                 <small>{t('global.company.en')}</small>
