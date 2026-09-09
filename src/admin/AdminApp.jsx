@@ -129,7 +129,7 @@ function Login({ onDone }) {
       </button>
       <motion.form className="admin__login-card" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} onSubmit={submit}>
         <div style={{ display: 'grid', placeItems: 'center' }}>
-          <Logo size={38} className="admin__logo-mark" />
+          <Logo size={30} className="admin__logo-mark" />
         </div>
         <h1>پنل مدیریت محتوا</h1>
         <p>شرکت خمیر مایه خوزستان — دسترسی مخصوص مدیر محتوا</p>

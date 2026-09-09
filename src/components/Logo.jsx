@@ -31,6 +31,11 @@ export default function Logo({ size = 46, variant = 'gradient', className = 'nav
       aria-hidden="true"
       width={Math.round(size * RATIO)}
       height={size}
+      /* Belt and braces: the width/height attributes above are easily
+         clobbered by a stylesheet rule on the class, which silently makes
+         every call site render at the intrinsic size. Pinning it inline keeps
+         `size` authoritative wherever the mark is used. */
+      style={{ height: size, width: 'auto' }}
       decoding="async"
       /* the mark is above the fold in the navbar — never lazy-load it */
       loading="eager"
