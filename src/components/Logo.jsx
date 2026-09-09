@@ -1,68 +1,40 @@
 /*
   Official company mark — Khuzestan Yeast.
 
-  Drawn as vector geometry rather than a bitmap so it stays sharp at every
-  size, keeps a transparent background, and can be recoloured per context
-  (the footer and the dark nav need a solid light version of it).
+  This renders the real artwork from public/assets/brand/logo.png rather than a
+  hand-traced approximation, so the mark on screen is exactly the file the
+  company signed off on.
 
-  Geometry is authored in a 1210x1280 space to match the source artwork's
-  proportions; `size` scales the height and the width follows.
+  Contexts differ in what they need from it:
+    - `gradient` (default) paints the artwork as-is, for light backgrounds.
+    - `solid` knocks it out to a single flat colour via a brightness/invert
+      filter. The dark navbar and footer need this: the artwork fades into a
+      near-black ground at its maroon end, so tinting it to plain white keeps
+      the whole mark legible instead of losing its lower half.
+
+  The source PNG has a transparent background, which is what makes the filter
+  trick work — it only ever touches the inked pixels.
 */
 
-const W = 1210;
-const H = 1280;
-
-/* The three strokes of the monogram, in drawing order. */
-const STROKES = [
-  /* upper-left: the horizontal bar and the long V that drops from it */
-  'M92 148 H420',
-  'M92 148 L405 548',
-  'M512 296 L403 520',
-  /* the spine: top-right bar, the long diagonal down to the baseline,
-     and the foot that runs back to the right */
-  'M680 148 H1068',
-  'M680 148 L214 1178',
-  'M214 1178 H614',
-  /* lower-right chevron */
-  'M898 676 L762 958 L1158 1190',
-];
+/* Intrinsic proportions of the artwork, used to reserve the right box before
+   the image decodes so the navbar never reflows on load. */
+const RATIO = 1210 / 1280;
 
 export default function Logo({ size = 46, variant = 'gradient', className = 'nav__logo-mark' }) {
-  /* `solid` paints the mark in the inherited text colour, which is what the
-     dark navbar and the footer need; `gradient` is the brand rendering. */
   const solid = variant === 'solid';
-  const gid = 'ky-logo-grad';
 
   return (
-    <svg
-      className={className}
-      width={(size * W) / H}
-      height={size}
-      viewBox={`0 0 ${W} ${H}`}
-      role="img"
+    <img
+      className={`${className}${solid ? ' is-solid' : ''}`}
+      src="/assets/brand/logo.png"
+      alt=""
       aria-hidden="true"
-      focusable="false"
-    >
-      {!solid && (
-        <defs>
-          <linearGradient id={gid} x1="0" y1="0" x2="0.25" y2="1">
-            <stop offset="0%" stopColor="#F2660A" />
-            <stop offset="45%" stopColor="#D8390C" />
-            <stop offset="100%" stopColor="#8A0F0B" />
-          </linearGradient>
-        </defs>
-      )}
-      <g
-        fill="none"
-        stroke={solid ? 'currentColor' : `url(#${gid})`}
-        strokeWidth="52"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {STROKES.map((d) => (
-          <path key={d} d={d} />
-        ))}
-      </g>
-    </svg>
+      width={Math.round(size * RATIO)}
+      height={size}
+      decoding="async"
+      /* the mark is above the fold in the navbar — never lazy-load it */
+      loading="eager"
+      draggable="false"
+    />
   );
 }

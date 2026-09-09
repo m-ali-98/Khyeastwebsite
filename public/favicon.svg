@@ -1,20 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="0.25" y2="1">
-      <stop offset="0%" stop-color="#F2660A"/>
-      <stop offset="45%" stop-color="#D8390C"/>
-      <stop offset="100%" stop-color="#8A0F0B"/>
-    </linearGradient>
-  </defs>
-  <rect width="1400" height="1400" rx="300" fill="#ffffff"/>
-  <g transform="translate(95,60)" fill="none" stroke="url(#g)" stroke-width="52"
-     stroke-linecap="round" stroke-linejoin="round">
-    <path d="M92 148 H420"/>
-    <path d="M92 148 L405 548"/>
-    <path d="M512 296 L403 520"/>
-    <path d="M680 148 H1068"/>
-    <path d="M680 148 L214 1178"/>
-    <path d="M214 1178 H614"/>
-    <path d="M898 676 L762 958 L1158 1190"/>
-  </g>
+<!-- Wraps the official raster mark so the tab icon is the real artwork rather
+     than a redrawing of it. Replaced automatically by favicon.png if present. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#ffffff"/>
+  <image href="/assets/brand/logo.png" xlink:href="/assets/brand/logo.png"
+         x="9" y="6" width="46" height="52" preserveAspectRatio="xMidYMid meet"/>
 </svg>
