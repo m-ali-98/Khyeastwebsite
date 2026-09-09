@@ -124,9 +124,36 @@ const requireAuth = (req, res, next) => {
 };
 
 /* ---------------- uploads ---------------- */
+/* SVG is deliberately NOT accepted. An .svg is an XML document that may carry
+   <script> and event handlers, and it is served from our own origin — so an
+   uploaded SVG becomes stored XSS able to read the admin token out of
+   localStorage. Raster formats cannot execute. */
 const ALLOWED = {
-  image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'],
+  image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif'],
   video: ['.mp4', '.webm', '.mov', '.m4v'],
+};
+
+/* Trust the bytes, not the filename: an attacker controls the extension, so a
+   .png that is really HTML would still be sniffed as a document by some
+   browsers. Each signature is checked against the file's magic number. */
+const MAGIC = [
+  { ext: '.png', test: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { ext: '.jpg', test: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { ext: '.gif', test: (b) => b.subarray(0, 6).toString('latin1').match(/^GIF8[79]a$/) },
+  { ext: '.webp', test: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP' },
+  { ext: '.avif', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
+  { ext: '.mp4', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
+  { ext: '.m4v', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
+  { ext: '.mov', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
+  { ext: '.webm', test: (b) => b.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) },
+];
+
+/** Does the file's content actually match the extension it claims? */
+const contentMatchesExt = (buf, ext) => {
+  if (!buf || buf.length < 12) return false;
+  const key = ext === '.jpeg' ? '.jpg' : ext;
+  const sigs = MAGIC.filter((m) => m.ext === key);
+  return sigs.length ? sigs.some((m) => Boolean(m.test(buf))) : false;
 };
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -175,9 +202,46 @@ app.post('/api/messages', (req, res) => {
 });
 
 /* ---------------- auth ---------------- */
+/* Throttle password guessing. Without this the admin password can be brute
+   forced at network speed; the panel is protected by a single credential, so
+   this is the only thing standing between a guesser and full content control.
+   Entries are swept so the map cannot grow without bound. */
+const LOGIN_WINDOW = 15 * 60 * 1000;
+const LOGIN_MAX = 8;
+const loginHits = new Map();
+
+setInterval(() => {
+  const cut = Date.now() - LOGIN_WINDOW;
+  for (const [ip, times] of loginHits) {
+    const keep = times.filter((t) => t > cut);
+    if (keep.length) loginHits.set(ip, keep);
+    else loginHits.delete(ip);
+  }
+}, LOGIN_WINDOW).unref();
+
 app.post('/api/auth/login', (req, res) => {
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  const recent = (loginHits.get(ip) || []).filter((t) => now - t < LOGIN_WINDOW);
+  if (recent.length >= LOGIN_MAX) {
+    res.setHeader('Retry-After', Math.ceil(LOGIN_WINDOW / 1000));
+    return res.status(429).json({ error: 'too many attempts, try again later' });
+  }
+
   const { user, pass } = req.body || {};
-  if (user !== ADMIN_USER || pass !== ADMIN_PASS) return res.status(401).json({ error: 'invalid credentials' });
+  /* Compare in constant time so response latency cannot reveal how much of
+     the credential was correct. */
+  const eq = (a, b) => {
+    const ba = Buffer.from(String(a ?? ''));
+    const bb = Buffer.from(String(b ?? ''));
+    return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+  };
+  if (!eq(user, ADMIN_USER) || !eq(pass, ADMIN_PASS)) {
+    loginHits.set(ip, [...recent, now]);
+    return res.status(401).json({ error: 'invalid credentials' });
+  }
+
+  loginHits.delete(ip); // successful login clears the counter
   res.json({ token: sign({ user, exp: Date.now() + TOKEN_TTL }) });
 });
 
@@ -215,6 +279,8 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
   const ext = path.extname(req.file.originalname).toLowerCase();
   const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
   if (!kind) return res.status(415).json({ error: 'unsupported file type' });
+  if (!contentMatchesExt(req.file.buffer, ext))
+    return res.status(415).json({ error: 'file content does not match its extension' });
   const name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
   const dir = path.join(UPLOAD_DIR, `${kind}s`);
   fs.mkdirSync(dir, { recursive: true });
@@ -231,7 +297,20 @@ app.delete('/api/upload', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d' }));
+/* Defence in depth for anything already on disk (including files uploaded
+   before the signature check existed): never let the browser sniff a
+   different type than we declare, and forbid scripts outright so an HTML or
+   SVG document served from here cannot execute. */
+app.use(
+  '/uploads',
+  express.static(UPLOAD_DIR, {
+    maxAge: '30d',
+    setHeaders: (res) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; sandbox");
+    },
+  }),
+);
 
 /* ---------------- online shop ---------------- */
 app.use(createShopRouter({ database: db, requireAuth }));

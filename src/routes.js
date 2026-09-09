@@ -31,8 +31,12 @@ const LOADERS = {
   '/contact': () => import('./pages/Contact'),
 };
 
-/* Pages worth having ready before the user asks for them, in priority order. */
-const IDLE_ORDER = ['/products', '/shop', '/about', '/contact', '/shop/:slug', '/products/:slug', '/blog'];
+/* Pages worth having ready before the user asks for them, in priority order.
+   Deliberately short: hover/touch prefetch already covers intent within
+   ~100-300 ms, and every speculative chunk here competes for bandwidth with
+   the page the visitor is actually reading. Warming seven pages cost ~44 KB
+   and seven requests to save a chunk fetch most visitors never needed. */
+const IDLE_ORDER = ['/products', '/about'];
 
 /* What people usually open next from each page. */
 const NEIGHBOURS = {

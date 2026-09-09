@@ -1,0 +1,107 @@
+/* ==========================================================================
+   Full test suite.
+
+     npm test          (runs vite build first, then this)
+
+   Why it exists: `vite build` only proves the code parses. It cannot catch a
+   ReferenceError thrown during render, which blanks the whole site while the
+   build still reports success — that is exactly how an undefined easing
+   constant once shipped a white page to production.
+
+   So every check here executes the real built bundle against a real DOM, or
+   talks to a real running server. Each route boots in its own child process
+   because module state (React's registry, the route prefetch cache) leaks
+   between boots inside one process and produces false failures.
+   ========================================================================== */
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const run = promisify(execFile);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+const ROUTES = [
+  '/', '/about', '/products', '/products/dezmaye-gold-80', '/products/shetab-90',
+  '/products/xpower-70', '/products/nanmaye-10', '/shop', '/shop/cart',
+  '/shop/checkout', '/shop/dezmaye-gold-80', '/export', '/quality', '/blog',
+  '/blog/reduce-bread-production-costs', '/contact',
+  '/en', '/en/about', '/en/products', '/en/blog', '/en/contact', '/en/shop',
+  '/ar', '/ar/about', '/ar/products', '/ar/contact', '/ar/shop',
+  '/dezmaye', '/shetab', '/nonexistent-page',
+];
+
+/* Values a corrupted or hostile localStorage could hold. The literal string
+   "null" is the important one: it is truthy, so a naive `v ? JSON.parse(v)`
+   guard passes it straight through and every `{ ...cart }` spread then throws,
+   killing the entire site with no way for the visitor to recover. */
+const CART_STATES = [
+  '{}', 'null', '{not json', '42', '"hello"', '[{"slug":"x"}]',
+  '{"dezmaye-gold-80":2}', '{"dezmaye-gold-80":"abc"}', '{"dezmaye-gold-80":-5}',
+  '{"dezmaye-gold-80":1000000000}', '{"dezmaye-gold-80":null}', '{"no-such":2}',
+  '{"__proto__":{"polluted":1},"dezmaye-gold-80":1}',
+];
+
+let pass = 0;
+let fail = 0;
+const failures = [];
+
+const record = (ok, label, detail = '') => {
+  if (ok) { pass++; return; }
+  fail++;
+  failures.push(`${label}${detail ? ' — ' + detail : ''}`);
+};
+
+async function child(script, arg) {
+  const { stdout } = await run('node', [path.join(HERE, script), arg], { cwd: HERE, timeout: 40000 });
+  return JSON.parse(stdout.trim().split('\n').pop());
+}
+
+console.log('\nRoutes — every page must mount and render real content');
+for (const route of ROUTES) {
+  try {
+    const r = await child('route-one.mjs', route);
+    const ok = r.chars > 40 && !r.errors.length;
+    record(ok, `route ${route}`, r.errors[0]?.slice(0, 90) || `${r.chars} chars`);
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${route.padEnd(38)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 60) || ''}`);
+  } catch (e) {
+    record(false, `route ${route}`, String(e.message).split('\n')[0].slice(0, 90));
+    console.log(`  FAIL ${route.padEnd(38)} harness error`);
+  }
+}
+
+console.log('\nCart — a corrupted localStorage must never take the site down');
+for (const state of CART_STATES) {
+  try {
+    const r = await child('cart-one.mjs', state);
+    const ok = r.chars > 40 && !r.errors.length;
+    record(ok, `cart ${state}`, r.errors[0]?.slice(0, 90));
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${state.slice(0, 46).padEnd(48)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 50) || ''}`);
+  } catch (e) {
+    record(false, `cart ${state}`, String(e.message).slice(0, 90));
+    console.log(`  FAIL ${state.slice(0, 46).padEnd(48)} harness error`);
+  }
+}
+
+console.log('\nSanitizer — admin-authored HTML must never execute or restyle');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'sanitizer.mjs')], { cwd: HERE, timeout: 40000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'sanitizer', leaks.join('; ').slice(0, 120));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line}`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'sanitizer', String(e.message).slice(0, 90));
+  console.log('  FAIL sanitizer harness error');
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+if (fail) {
+  console.log('\nFailures:');
+  failures.forEach((f) => console.log('  • ' + f));
+  process.exit(1);
+}
+console.log('All checks passed.\n');
