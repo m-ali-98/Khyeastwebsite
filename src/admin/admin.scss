@@ -338,3 +338,158 @@
 @media (max-width: 780px) {
   .admin__trans-row { grid-template-columns: 1fr; }
 }
+
+/* ==========================================================================
+   Translated entity editors (products / blog in EN & AR)
+   ========================================================================== */
+.admin__head--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+  padding-block: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin__kicker {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--crimson);
+}
+
+.admin__badge {
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-softer);
+  color: var(--muted);
+  white-space: nowrap;
+
+  &.ok { background: rgba(23, 132, 63, 0.12); color: #17843f; }
+  &.warn { background: rgba(217, 164, 65, 0.16); color: #9a6d10; }
+}
+
+/* one translated field: Persian reference + input side by side */
+.admin__tf { margin-bottom: 14px; }
+
+.admin__tf-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+.admin__tf-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.admin__tf-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.admin__tf-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: stretch;
+
+  input,
+  textarea {
+    width: 100%;
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 13px;
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.9;
+    outline: none;
+    resize: vertical;
+
+    &:focus { border-color: var(--crimson); }
+  }
+}
+
+.admin__tf-ref {
+  position: relative;
+  font-size: 13.5px;
+  line-height: 1.9;
+  color: var(--muted);
+  background: var(--bg-softer);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  padding: 10px 13px 10px 13px;
+
+  em { opacity: 0.6; }
+}
+.admin__tf-reftag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--crimson);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-inline-end: 7px;
+  vertical-align: 1px;
+}
+
+.admin__tf-group {
+  margin: 26px 0;
+  padding-top: 18px;
+  border-top: 2px solid var(--line);
+
+  > h3 {
+    margin: 0 0 12px;
+    font-size: 16px;
+  }
+}
+
+.admin__tf-pair {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.admin__shared {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--bg-softer);
+  border-radius: 14px;
+  padding: 13px 16px;
+  margin-bottom: 22px;
+
+  svg { flex: none; margin-top: 3px; color: var(--crimson); }
+  strong { font-size: 13.5px; }
+  p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.9; }
+}
+
+/* the Persian article shown beside the translation editor */
+.admin__fa-body {
+  max-height: 340px;
+  overflow-y: auto;
+  background: var(--bg-softer);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 2;
+  color: var(--ink-2);
+
+  h2, h3 { font-size: 15.5px; margin: 16px 0 6px; color: var(--ink); }
+  p { margin: 0 0 12px; }
+  ul { padding-inline-start: 20px; margin: 0 0 12px; }
+  img, video { max-width: 100%; border-radius: 10px; }
+}
+
+@media (max-width: 900px) {
+  .admin__tf-body,
+  .admin__tf-pair { grid-template-columns: 1fr; }
+}

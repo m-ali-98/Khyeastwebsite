@@ -35,12 +35,6 @@ const GROUPS = [
   ['footer', 'فوتر'],
 ];
 
-/* Fields that carry human language, per entity type. */
-const PRODUCT_TEXT = ['title', 'weight', 'pack', 'short'];
-const PRODUCT_LIST = ['usage', 'storage'];
-const PRODUCT_PAIRS = ['specs', 'analysis'];
-const POST_TEXT = ['title', 'excerpt', 'category', 'date', 'readTime'];
-
 const LABELS = {
   title: 'عنوان',
   weight: 'وزن / اندازه',
@@ -83,46 +77,6 @@ function TransRow({ base, shipped, value, onChange, label, long }) {
         placeholder={shipped || ''}
         onChange={(e) => onChange(e.target.value)}
       />
-    </div>
-  );
-}
-
-/** Edit a translated list of plain strings. */
-function ListTrans({ base = [], shipped = [], value, onChange, label }) {
-  const list = value || [];
-  const set = (i, v) => {
-    const next = [...(value || [])];
-    while (next.length < base.length) next.push('');
-    next[i] = v;
-    onChange(next.some((x) => x) ? next : undefined);
-  };
-  return (
-    <div className="admin__trans-block">
-      <h4>{label}</h4>
-      {base.map((b, i) => (
-        <TransRow key={i} base={b} shipped={shipped[i]} value={list[i]} onChange={(v) => set(i, v)} />
-      ))}
-    </div>
-  );
-}
-
-/** Edit a translated list of [key, value] pairs. */
-function PairTrans({ base = [], shipped = [], value, onChange, label }) {
-  const list = value || [];
-  const set = (i, col, v) => {
-    const next = base.map((b, idx) => [...(list[idx] || ['', ''])]);
-    next[i][col] = v;
-    onChange(next.some(([a, b]) => a || b) ? next : undefined);
-  };
-  return (
-    <div className="admin__trans-block">
-      <h4>{label}</h4>
-      {base.map(([bk, bv], i) => (
-        <div className="admin__grid2" key={i} style={{ gap: 8 }}>
-          <TransRow base={bk} shipped={shipped[i]?.[0]} value={list[i]?.[0]} onChange={(v) => set(i, 0, v)} />
-          <TransRow base={bv} shipped={shipped[i]?.[1]} value={list[i]?.[1]} onChange={(v) => set(i, 1, v)} />
-        </div>
-      ))}
     </div>
   );
 }
@@ -189,8 +143,6 @@ export function TranslationsTab() {
   const SECTIONS = [
     ['texts', 'متون صفحات'],
     ['collections', 'فهرست‌ها'],
-    ['products', 'محصولات'],
-    ['posts', 'مقالات'],
     ['brands', 'برندها'],
   ];
 
@@ -198,10 +150,12 @@ export function TranslationsTab() {
     <div className="admin__panel">
       <div className="admin__head">
         <div>
-          <h1>ترجمه‌ها — {locale === 'en' ? 'English' : 'العربية'}</h1>
+          <h1>متون و فهرست‌ها — {locale === 'en' ? 'English' : 'العربية'}</h1>
           <p>
-            متن فارسی در سمت راست هر ردیف نمایش داده می‌شود. اگر کادر را خالی بگذارید، ترجمه پیش‌فرض سایت
-            (که همین حالا نمایش داده می‌شود) استفاده می‌گردد. تغییرات خودکار ذخیره می‌شود.
+            متن فارسی کنار هر ردیف به‌عنوان مرجع نمایش داده می‌شود و کادر ورودی، ترجمه فعلی سایت را نشان
+            می‌دهد؛ اگر آن را خالی بگذارید همان ترجمه پیش‌فرض باقی می‌ماند. تغییرات خودکار ذخیره می‌شود.
+            <br />
+            ترجمه محصولات و مقالات در تب‌های «محصولات» و «وبلاگ» انجام می‌شود.
           </p>
         </div>
         {saved && <span className="admin__saved">ذخیره شد ✓</span>}
@@ -276,75 +230,7 @@ export function TranslationsTab() {
           </div>
         ))}
 
-      {section === 'products' &&
-        (base.products || []).map((p) => (
-          <div className="admin__trans-group" key={p.slug}>
-            <h3>
-              {p.title} <code>{p.slug}</code>
-            </h3>
-            {PRODUCT_TEXT.map((f) => (
-              <TransRow
-                key={f}
-                label={LABELS[f]}
-                base={p[f]}
-                shipped={pack.products?.[p.slug]?.[f]}
-                value={draft.products?.[p.slug]?.[f]}
-                onChange={(v) => setIn(['products', p.slug, f], v)}
-              />
-            ))}
-            {PRODUCT_PAIRS.map((f) => (
-              <PairTrans
-                key={f}
-                label={LABELS[f]}
-                base={p[f] || []}
-                shipped={pack.products?.[p.slug]?.[f] || []}
-                value={draft.products?.[p.slug]?.[f]}
-                onChange={(v) => setIn(['products', p.slug, f], v)}
-              />
-            ))}
-            {PRODUCT_LIST.map((f) => (
-              <ListTrans
-                key={f}
-                label={LABELS[f]}
-                base={p[f] || []}
-                shipped={pack.products?.[p.slug]?.[f] || []}
-                value={draft.products?.[p.slug]?.[f]}
-                onChange={(v) => setIn(['products', p.slug, f], v)}
-              />
-            ))}
-          </div>
-        ))}
 
-      {section === 'posts' &&
-        (base.posts || []).map((p) => (
-          <div className="admin__trans-group" key={p.slug}>
-            <h3>
-              {p.title} <code>{p.slug}</code>
-            </h3>
-            {POST_TEXT.map((f) => (
-              <TransRow
-                key={f}
-                label={LABELS[f]}
-                base={p[f]}
-                shipped={pack.posts?.[p.slug]?.[f]}
-                value={draft.posts?.[p.slug]?.[f]}
-                onChange={(v) => setIn(['posts', p.slug, f], v)}
-              />
-            ))}
-            <div className="admin__trans-block">
-              <h4>{LABELS.body}</h4>
-              <p className="admin__hint">متن کامل مقاله به‌صورت HTML ساده (پاراگراف، سرتیتر و فهرست).</p>
-              <textarea
-                className="admin__trans-html"
-                rows={14}
-                dir={locale === 'ar' ? 'rtl' : 'ltr'}
-                placeholder={pack.posts?.[p.slug]?.body || ''}
-                value={draft.posts?.[p.slug]?.body ?? ''}
-                onChange={(e) => setIn(['posts', p.slug, 'body'], e.target.value)}
-              />
-            </div>
-          </div>
-        ))}
 
       {section === 'brands' &&
         (base.brands || []).map((b) => (

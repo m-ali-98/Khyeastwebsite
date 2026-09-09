@@ -7,6 +7,7 @@ import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, ContactTab, MessagesTab } from './tabs';
 import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab } from './shopTabs';
 import { TranslationsTab } from './i18nTab';
+import { ProductsTransTab, PostsTransTab } from './entityTrans';
 import { AdminLocaleProvider, useAdminLocale } from './adminLocale';
 import { loadAllPacks } from '../../shared/i18n/index.js';
 import './admin.scss';
@@ -16,14 +17,14 @@ import './admin.scss';
    editor, while the language-neutral tabs (images, links, orders, messages)
    stay available. */
 const TABS = [
-  { id: 'products', label: 'محصولات', icon: 'pack', base: true },
-  { id: 'posts', label: 'وبلاگ', icon: 'doc', base: true },
+  { id: 'products', label: 'محصولات', icon: 'pack' },
+  { id: 'posts', label: 'وبلاگ', icon: 'doc' },
   { id: 'shop', label: 'فروشگاه — محصولات', icon: 'box', faOnly: true },
   { id: 'orders', label: 'سفارش‌ها', icon: 'send', faOnly: true },
   { id: 'comments', label: 'دیدگاه‌ها', icon: 'users', faOnly: true },
   { id: 'payment', label: 'درگاه پرداخت', icon: 'gear', faOnly: true },
   { id: 'texts', label: 'متون سایت', icon: 'spark', base: true },
-  { id: 'translations', label: 'ترجمه‌ها', icon: 'globe', transOnly: true },
+  { id: 'translations', label: 'متون و فهرست‌ها', icon: 'globe', transOnly: true },
   { id: 'media', label: 'تصاویر صفحات', icon: 'star' },
   { id: 'links', label: 'پیوندها', icon: 'globe' },
   { id: 'contact', label: 'اطلاعات تماس', icon: 'phone', base: true },
@@ -128,10 +129,12 @@ function AdminShell() {
   const visibleTabs = TABS.filter((tb) => (isBase ? !tb.transOnly : !tb.faOnly && !tb.base));
   const activeTab = visibleTabs.some((tb) => tb.id === tab) ? tab : visibleTabs[0].id;
 
+  /* Products and Blog exist in all three languages, but the Persian tabs edit
+     the base content while the other languages edit the translation layer. */
   const Tab = {
-    products: ProductsTab,
+    products: isBase ? ProductsTab : ProductsTransTab,
+    posts: isBase ? PostsTab : PostsTransTab,
     translations: TranslationsTab,
-    posts: PostsTab,
     shop: ShopProductsTab,
     orders: ShopOrdersTab,
     comments: ShopCommentsTab,
