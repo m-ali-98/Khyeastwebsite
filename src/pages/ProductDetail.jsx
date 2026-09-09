@@ -5,7 +5,6 @@ import { Icons, Reveal, CTABand, hl } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import NotFound from './NotFound';
-import SmartImage from '../components/SmartImage';
 
 export default function ProductDetail() {
   const { slug } = useParams();
@@ -43,7 +42,7 @@ export default function ProductDetail() {
                 animate={{ y: [0, -12, 0] }}
                 transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
               >
-                <SmartImage src={product.image} alt={product.title} style={{ height: 440, objectFit: 'cover' }} />
+                <img src={product.image} alt={product.title} style={{ height: 440, objectFit: 'cover' }} loading="lazy" />
               </motion.div>
             </Reveal>
 

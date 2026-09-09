@@ -9,14 +9,7 @@
     <!-- Slow connections: start the two critical fetches before the JS bundle
          has even been parsed, and paint a branded screen instead of white. -->
     <link rel="preload" as="fetch" href="/api/content" crossorigin />
-    <link
-      rel="preload"
-      as="image"
-      href="/assets/img/hero-wheat.webp"
-      imagesrcset="/assets/img/hero-wheat-768.webp 768w, /assets/img/hero-wheat.webp 1584w"
-      imagesizes="100vw"
-      fetchpriority="high"
-    />
+    <link rel="preload" as="image" href="/assets/img/hero-wheat.jpg" fetchpriority="high" />
     <title>شرکت خمیر مایه خوزستان | از مغز گندم؛ تا اولین برش نان</title>
     <meta
       name="description"

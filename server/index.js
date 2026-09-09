@@ -19,7 +19,6 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { createShopRouter } from './shop.js';
-import { canOptimize, optimizeFile, SOURCE_RE, webpPath } from './imagePipeline.js';
 import * as store from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -208,61 +207,16 @@ app.delete('/api/messages/:id', requireAuth, (req, res) => {
 });
 
 /* ---------------- admin: uploads ---------------- */
-/* Every image the admin uploads is optimised automatically: it is converted to
-   WebP, given a 768w variant for phones and a blurred placeholder, exactly like
-   the build-time assets. The admin does not have to do anything. */
-const LQIP_FILE = path.join(DATA_DIR, 'uploads-lqip.json');
-const lqipRead = () => {
-  try {
-    return JSON.parse(fs.readFileSync(LQIP_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
-};
-const lqipWrite = (map) => {
-  try {
-    fs.writeFileSync(LQIP_FILE, JSON.stringify(map, null, 2));
-  } catch {}
-};
-
-app.get('/api/uploads-lqip', (_req, res) => {
-  res.set('Cache-Control', 'public, max-age=60');
-  res.json(lqipRead());
-});
-
-app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
+app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no file' });
   const ext = path.extname(req.file.originalname).toLowerCase();
   const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
   if (!kind) return res.status(415).json({ error: 'unsupported file type' });
-
   const name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
   const dir = path.join(UPLOAD_DIR, `${kind}s`);
   fs.mkdirSync(dir, { recursive: true });
-  const abs = path.join(dir, name);
-  fs.writeFileSync(abs, req.file.buffer);
-
-  let url = `/uploads/${kind}s/${name}`;
-
-  /* optimise images (never videos); on any failure keep the original file */
-  if (kind === 'image' && SOURCE_RE.test(name) && canOptimize()) {
-    try {
-      const out = await optimizeFile(abs);
-      const webpName = path.basename(webpPath(abs));
-      const webpUrl = `/uploads/images/${webpName}`;
-      if (out.lqip) lqipWrite({ ...lqipRead(), [webpUrl]: { lqip: out.lqip, width: out.width || null } });
-      /* the original PNG/JPEG is no longer referenced — drop it */
-      if (out.bytesAfter > 0 && fs.existsSync(webpPath(abs)) && webpPath(abs) !== abs) fs.unlinkSync(abs);
-      url = webpUrl;
-      console.log(
-        `[upload] ${name} → ${webpName}  ${(out.bytesBefore / 1024).toFixed(0)} KB → ${(out.bytesAfter / 1024).toFixed(0)} KB`,
-      );
-    } catch (e) {
-      console.warn('[upload] optimisation skipped:', e.message);
-    }
-  }
-
-  res.json({ url });
+  fs.writeFileSync(path.join(dir, name), req.file.buffer);
+  res.json({ url: `/uploads/${kind}s/${name}` });
 });
 
 app.delete('/api/upload', requireAuth, (req, res) => {
@@ -271,18 +225,10 @@ app.delete('/api/upload', requireAuth, (req, res) => {
   if (!m) return res.status(400).json({ error: 'invalid url' });
   const file = path.join(UPLOAD_DIR, m[1], m[2]);
   if (fs.existsSync(file)) fs.unlinkSync(file);
-  /* remove the generated companions too */
-  const small = file.replace(/\.webp$/i, '-768.webp');
-  if (small !== file && fs.existsSync(small)) fs.unlinkSync(small);
-  const map = lqipRead();
-  if (map[url]) {
-    delete map[url];
-    lqipWrite(map);
-  }
   res.json({ ok: true });
 });
 
-app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true }));
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d' }));
 
 /* ---------------- online shop ---------------- */
 app.use(createShopRouter({ database: db, requireAuth }));

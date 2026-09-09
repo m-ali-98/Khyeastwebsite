@@ -1232,28 +1232,6 @@ input, select, textarea { font-family: inherit; }
   border: 0;
 }
 
-/* --- SmartImage: blurred placeholder fades into the real image -----------
-   The reveal is driven by `opacity` + a delayed transition, NEVER by an
-   `animation`: several images (the hero ken-burns, parallax banners) already
-   own the `animation` property, and a second rule here would silently
-   override theirs and leave them stuck at opacity 0.
-   The 1.2s delay is the safety net — if JS never adds `.is-loaded` (preloaded
-   or cached image, hydration hiccup, script error) the picture still appears. */
-.smart-img {
-  opacity: 0;
-  transition: opacity 0.45s var(--ease) 1.2s;
-  background-color: var(--bg-softer);
-
-  &.is-loaded {
-    opacity: 1;
-    transition-delay: 0s; /* loaded normally → fade in immediately */
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .smart-img { transition: none; opacity: 1; }
-}
-
 /* --- Route skeleton (page chunk still downloading) ----------------------- */
 .route-skeleton__hold { min-height: 60svh; }
 
