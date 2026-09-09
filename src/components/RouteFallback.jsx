@@ -1,22 +1,30 @@
 /* ==========================================================================
    RouteFallback — skeleton shown while a page chunk is still downloading.
-   Mirrors the real page rhythm (hero + cards) so the layout does not jump,
-   and appears only after 180 ms to avoid a flash on fast connections.
+
+   Mirrors the real page rhythm (hero + cards) so the layout does not jump.
+
+   It is deliberately reluctant to appear:
+     • if the chunk is already in memory (prefetched on hover or idle), the
+       page resolves synchronously and the skeleton never mounts at all
+     • otherwise the delay before showing is derived from the connection,
+       not a fixed guess — ~60 ms on 2G where the wait is certain, ~220 ms on
+       4G where the content usually wins the race
 
    Each block carries a --sk-i index; the stylesheet turns that into a small
    animation delay so the shimmer sweeps down the page instead of every block
    pulsing in unison.
    ========================================================================== */
-import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import useLoadingGate from '../hooks/useLoadingGate';
+import { isWarm } from '../routes';
 
 export default function RouteFallback() {
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    const id = setTimeout(() => setShow(true), 180);
-    return () => clearTimeout(id);
-  }, []);
+  const { pathname } = useLocation();
 
-  if (!show) return <div className="route-skeleton__hold" aria-hidden="true" />;
+  /* A prefetched chunk needs no indicator — showing one would be a flash. */
+  const state = useLoadingGate(true, { skip: isWarm(pathname) });
+
+  if (state === 'hidden') return <div className="route-skeleton__hold" aria-hidden="true" />;
 
   return (
     <div className="route-skeleton" role="status" aria-live="polite" aria-busy="true">

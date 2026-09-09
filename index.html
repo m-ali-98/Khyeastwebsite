@@ -28,7 +28,13 @@
       #boot-splash {
         position: fixed; inset: 0; display: grid; place-content: center;
         justify-items: center; gap: 22px; background: #fbf6f5; z-index: 9999;
+        transition: opacity .25s ease, visibility .25s ease;
       }
+      /* set by main.jsx once React has painted its first frame */
+      #boot-splash.is-done { opacity: 0; visibility: hidden; pointer-events: none; }
+      /* The splash covers the very first paint, when there is nothing else to
+         look at, so it appears immediately. Everything AFTER boot is gated on
+         connection speed instead — see src/hooks/useLoadingGate.js. */
       /* a soft crimson glow behind the mark, breathing out of phase with it:
          reads as "working" without a spinner competing with the logo */
       .boot-splash__mark {
