@@ -35,7 +35,36 @@
       .boot-splash__text { margin: 0; color: #7c6a6e; font-size: 14px; }
       @keyframes boot-spin { to { transform: rotate(360deg); } }
       @media (prefers-reduced-motion: reduce) { .boot-splash__mark { animation-duration: 3s; } }
+      /* dark splash when dark mode is the active theme */
+      html[data-theme='dark'] { background: #120a0d; }
+      html[data-theme='dark'] #boot-splash { background: #120a0d; }
+      html[data-theme='dark'] .boot-splash__text { color: #9d8e92; }
     </style>
+
+    <!-- Set language, direction and theme before the first paint so the page
+         never flashes the wrong script direction or a white screen in dark
+         mode. Mirrors the logic in src/i18n/LocaleContext.jsx. -->
+    <script>
+      (function () {
+        var seg = location.pathname.split('/')[1];
+        var loc = seg === 'en' || seg === 'ar' ? seg : 'fa';
+        var el = document.documentElement;
+        el.lang = loc;
+        el.dir = loc === 'en' ? 'ltr' : 'rtl';
+        var theme;
+        try { theme = localStorage.getItem('ky_theme'); } catch (e) {}
+        if (theme !== 'dark' && theme !== 'light') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        el.setAttribute('data-theme', theme);
+        var splash = document.getElementById('boot-splash');
+        var msg = { fa: 'در حال بارگذاری…', en: 'Loading…', ar: 'جارٍ التحميل…' }[loc];
+        document.addEventListener('DOMContentLoaded', function () {
+          var p = document.querySelector('.boot-splash__text');
+          if (p) p.textContent = msg;
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root">

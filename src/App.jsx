@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Layout from './components/Layout';
 import RouteFallback from './components/RouteFallback';
 import { usePrefetchRoutes, prefetch } from './routes';
+import { useLocale, LOCALES, localePath } from './i18n/LocaleContext';
+import { useContent } from './content/ContentContext';
 import Home from './pages/Home'; // landing page stays in the main bundle
 
 /* ---------------------------------------------------------------------------
@@ -32,17 +34,25 @@ const ShopOrder = lazy(() => import('./pages/ShopOrder'));
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 
 function PublicRoutes() {
+  /* The online shop is an Iran-facing feature (rial pricing, Iranian payment
+     gateway), so it exists on the Persian site only. On /en and /ar its routes
+     are simply not mounted and fall through to the 404 page. */
+  const { shopEnabled } = useLocale();
   return (
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/about" element={<About />} />
       <Route path="/products" element={<Products />} />
       <Route path="/products/:slug" element={<ProductDetail />} />
-      <Route path="/shop" element={<Shop />} />
-      <Route path="/shop/cart" element={<ShopCart />} />
-      <Route path="/shop/checkout" element={<ShopCheckout />} />
-      <Route path="/shop/order/:code" element={<ShopOrder />} />
-      <Route path="/shop/:slug" element={<ShopProduct />} />
+      {shopEnabled && (
+        <>
+          <Route path="/shop" element={<Shop />} />
+          <Route path="/shop/cart" element={<ShopCart />} />
+          <Route path="/shop/checkout" element={<ShopCheckout />} />
+          <Route path="/shop/order/:code" element={<ShopOrder />} />
+          <Route path="/shop/:slug" element={<ShopProduct />} />
+        </>
+      )}
       <Route path="/export" element={<Export />} />
       <Route path="/quality" element={<Quality />} />
       <Route path="/blog" element={<Blog />} />
@@ -70,12 +80,46 @@ function useLightMotion() {
 function AnimatedRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
+  const { t } = useContent();
+  const { locale } = useLocale();
   const light = useLightMotion();
   usePrefetchRoutes();
 
+  /* Title, description, canonical and hreflang alternates per locale — search
+     engines see three properly-linked language versions of every page. */
   useEffect(() => {
-    document.title = 'شرکت خمیر مایه خوزستان | از مغز گندم؛ تا اولین برش نان';
-  }, [location.pathname]);
+    document.title = `${t('global.company.name')} | ${t('global.slogan')}`;
+
+    const setMeta = (attr, key, content) => {
+      let el = document.head.querySelector(`meta[${attr}="${key}"]`);
+      if (!el) {
+        el = document.createElement('meta');
+        el.setAttribute(attr, key);
+        document.head.appendChild(el);
+      }
+      el.setAttribute('content', content);
+    };
+
+    const desc = `${t('footer.about')} ${t('global.slogan')}`.trim();
+    setMeta('name', 'description', desc);
+    setMeta('property', 'og:title', t('global.company.name'));
+    setMeta('property', 'og:description', t('global.slogan'));
+    setMeta('property', 'og:locale', { fa: 'fa_IR', en: 'en_US', ar: 'ar_AE' }[locale] || 'fa_IR');
+
+    const path = location.pathname; // already locale-relative thanks to basename
+    document.head.querySelectorAll('link[data-i18n-alt]').forEach((n) => n.remove());
+    const add = (rel, href, hreflang) => {
+      const link = document.createElement('link');
+      link.rel = rel;
+      link.href = href;
+      if (hreflang) link.hreflang = hreflang;
+      link.setAttribute('data-i18n-alt', '');
+      document.head.appendChild(link);
+    };
+    add('canonical', localePath(locale, path));
+    LOCALES.forEach((lo) => add('alternate', localePath(lo.code, path), lo.htmlLang));
+    add('alternate', localePath('fa', path), 'x-default');
+  }, [location.pathname, locale, t]);
 
   useEffect(() => {
     prefetch(location.pathname); // warm neighbours of the current page
@@ -112,8 +156,12 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
+  /* Persian lives at the site root and English/Arabic under /en and /ar.
+     Handing the prefix to the router as a `basename` means every <Link to="…">
+     in the app stays locale-relative with no changes to the page components. */
+  const { meta } = useLocale();
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={meta.prefix || undefined}>
       <AnimatedRoutes />
     </BrowserRouter>
   );

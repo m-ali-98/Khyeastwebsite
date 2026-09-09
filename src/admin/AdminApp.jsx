@@ -6,21 +6,51 @@ import { Icons } from '../components/ui';
 import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, ContactTab, MessagesTab } from './tabs';
 import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab } from './shopTabs';
+import { TranslationsTab } from './i18nTab';
+import { AdminLocaleProvider, useAdminLocale } from './adminLocale';
+import { loadAllPacks } from '../../shared/i18n/index.js';
 import './admin.scss';
 
+/* `base: true` = tab edits the Persian source content. When the admin is
+   editing English or Arabic, those tabs are replaced by the translation
+   editor, while the language-neutral tabs (images, links, orders, messages)
+   stay available. */
 const TABS = [
-  { id: 'products', label: 'محصولات', icon: 'pack' },
-  { id: 'posts', label: 'وبلاگ', icon: 'doc' },
-  { id: 'shop', label: 'فروشگاه — محصولات', icon: 'box' },
-  { id: 'orders', label: 'سفارش‌ها', icon: 'send' },
-  { id: 'comments', label: 'دیدگاه‌ها', icon: 'users' },
-  { id: 'payment', label: 'درگاه پرداخت', icon: 'gear' },
-  { id: 'texts', label: 'متون سایت', icon: 'spark' },
+  { id: 'products', label: 'محصولات', icon: 'pack', base: true },
+  { id: 'posts', label: 'وبلاگ', icon: 'doc', base: true },
+  { id: 'shop', label: 'فروشگاه — محصولات', icon: 'box', faOnly: true },
+  { id: 'orders', label: 'سفارش‌ها', icon: 'send', faOnly: true },
+  { id: 'comments', label: 'دیدگاه‌ها', icon: 'users', faOnly: true },
+  { id: 'payment', label: 'درگاه پرداخت', icon: 'gear', faOnly: true },
+  { id: 'texts', label: 'متون سایت', icon: 'spark', base: true },
+  { id: 'translations', label: 'ترجمه‌ها', icon: 'globe', transOnly: true },
   { id: 'media', label: 'تصاویر صفحات', icon: 'star' },
   { id: 'links', label: 'پیوندها', icon: 'globe' },
-  { id: 'contact', label: 'اطلاعات تماس', icon: 'phone' },
+  { id: 'contact', label: 'اطلاعات تماس', icon: 'phone', base: true },
   { id: 'messages', label: 'پیام‌های مردم', icon: 'mail' },
 ];
+
+/* Language selector for the panel itself. */
+function AdminLangBar() {
+  const { locale, setLocale, locales } = useAdminLocale();
+  return (
+    <div className="admin__langbar">
+      <span>زبان محتوا</span>
+      <div className="admin__langbtns">
+        {locales.map((lo) => (
+          <button
+            key={lo.code}
+            className={locale === lo.code ? 'is-active' : ''}
+            onClick={() => setLocale(lo.code)}
+            type="button"
+          >
+            {lo.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function Login({ onDone }) {
   const [user, setUser] = useState('');
@@ -71,10 +101,16 @@ function Login({ onDone }) {
   );
 }
 
-export default function AdminApp() {
+function AdminShell() {
   const { backend, t } = useContent();
+  const { locale, isBase } = useAdminLocale();
   const [authed, setAuthed] = useState(null); // null = checking
   const [tab, setTab] = useState('products');
+
+  /* the translation editor needs both dictionaries in memory */
+  useEffect(() => {
+    loadAllPacks();
+  }, []);
 
   useEffect(() => {
     if (!tokenGet()) return setAuthed(false);
@@ -89,8 +125,12 @@ export default function AdminApp() {
   if (authed === null) return <div className="admin" style={{ display: 'grid', placeItems: 'center', minHeight: '100svh' }}>…</div>;
   if (!authed) return <div className="admin">{<Login onDone={() => setAuthed(true)} />}</div>;
 
+  const visibleTabs = TABS.filter((tb) => (isBase ? !tb.transOnly : !tb.faOnly && !tb.base));
+  const activeTab = visibleTabs.some((tb) => tb.id === tab) ? tab : visibleTabs[0].id;
+
   const Tab = {
     products: ProductsTab,
+    translations: TranslationsTab,
     posts: PostsTab,
     shop: ShopProductsTab,
     orders: ShopOrdersTab,
@@ -101,7 +141,7 @@ export default function AdminApp() {
     links: LinksTab,
     contact: ContactTab,
     messages: MessagesTab,
-  }[tab];
+  }[activeTab];
 
   return (
     <div className="admin">
@@ -114,18 +154,19 @@ export default function AdminApp() {
               <small>CONTENT ADMIN</small>
             </div>
           </div>
-          {TABS.map((tb) => {
+          <AdminLangBar />
+          {visibleTabs.map((tb) => {
             const Ic = Icons[tb.icon];
             return (
-              <button key={tb.id} className={tab === tb.id ? 'is-active' : ''} onClick={() => setTab(tb.id)}>
+              <button key={tb.id} className={activeTab === tb.id ? 'is-active' : ''} onClick={() => setTab(tb.id)}>
                 <Ic size={18} />
                 {tb.label}
               </button>
             );
           })}
           <div className="spacer" />
-          <Link to="/" target="_blank">
-            <Icons.globe size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginLeft: 6 }} />
+          <Link to={locale === 'fa' ? '/' : `/${locale}`} target="_blank">
+            <Icons.globe size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginInlineEnd: 6 }} />
             مشاهده وب‌سایت
           </Link>
           <a
@@ -136,7 +177,7 @@ export default function AdminApp() {
               setAuthed(false);
             }}
           >
-            <Icons.arrow size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginLeft: 6 }} />
+            <Icons.arrow size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginInlineEnd: 6 }} />
             خروج از پنل
           </a>
         </aside>
@@ -146,9 +187,23 @@ export default function AdminApp() {
               سرور محتوا در دسترس نیست؛ تغییرات ذخیره نخواهد شد. (سرور Node را اجرا کنید: npm run server)
             </p>
           )}
+          {!isBase && (
+            <p className="admin__locale-note">
+              در حال ویرایش نسخه {locale === 'en' ? 'انگلیسی' : 'عربی'} سایت. محتوای فارسی پایه است و از تب‌های
+              معمولی ویرایش می‌شود؛ در این بخش فقط ترجمه‌ها را وارد یا اصلاح می‌کنید.
+            </p>
+          )}
           <Tab />
         </main>
       </div>
     </div>
+  );
+}
+
+export default function AdminApp() {
+  return (
+    <AdminLocaleProvider>
+      <AdminShell />
+    </AdminLocaleProvider>
   );
 }

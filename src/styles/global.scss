@@ -17,9 +17,15 @@
   --ink-2: #38262b;
   --muted: #7c6a6e;
   --white: #ffffff;
+  /* --surface is the "paper" of the site: white in light mode, near-black in
+     dark mode. Every card / nav / panel uses it, so the accent scheme flips
+     from crimson-on-white to crimson-on-black with no other change. */
+  --surface: #ffffff;
+  --surface-2: #ffffff;
   --bg-soft: #fbf6f5;
   --bg-softer: #f5eceb;
   --line: rgba(27, 17, 20, 0.09);
+  --img-dim: none;
 
   --gold: #d9a441;
 
@@ -37,6 +43,95 @@
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* ==========================================================================
+   Dark mode — crimson + black.
+   Only the neutral tokens move; the crimson accent is deliberately unchanged
+   (slightly brightened for contrast against a dark canvas).
+   ========================================================================== */
+[data-theme='dark'] {
+  --crimson: #ef2b52;
+  --crimson-bright: #ff5c79;
+  --crimson-600: #d81a41;
+  --crimson-700: #b31334;
+  --crimson-800: #8c0e28;
+  --crimson-900: #55081a;
+  --crimson-soft: rgba(239, 43, 82, 0.14);
+  --crimson-glow: rgba(239, 43, 82, 0.4);
+
+  --ink: #f6eef0;
+  --ink-2: #d9c9cd;
+  --muted: #9d8e92;
+  --white: #12090c;
+  --surface: #170e11;
+  --surface-2: #1f1418;
+  --bg-soft: #120a0d;
+  --bg-softer: #1c1216;
+  --line: rgba(246, 238, 240, 0.12);
+
+  --shadow-sm: 0 6px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+  --shadow-lg: 0 40px 90px -30px rgba(0, 0, 0, 0.9);
+
+  /* product shots are cut out on white — take the edge off on a dark canvas */
+  --img-dim: brightness(0.92) contrast(1.02);
+
+  color-scheme: dark;
+}
+
+/* Latin script gets Inter; Vazirmatn stays for Persian and reads well for
+   Arabic too, so only the English site swaps its family. */
+:root[lang='en'] {
+  --font: 'Inter Variable', 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* --------------------------------------------------------------------------
+   LTR (English) mirroring.
+   The design was authored RTL-first, so a handful of components pin things to
+   the physical right edge. These rules flip exactly those, leaving everything
+   built on logical properties (margin-inline, padding-inline) untouched.
+   -------------------------------------------------------------------------- */
+[dir='ltr'] {
+  .scroll-progress { transform-origin: 0% 50%; }
+
+  .hero__scroll { right: auto; left: 50%; transform: translateX(-50%); }
+  .hero__scroll .mouse::after { right: auto; left: 50%; margin-right: 0; margin-left: -2px; }
+
+  .product-card__brand,
+  .post-card__date { right: auto; left: 14px; }
+
+  .split__media .img-float { left: auto; right: -28px; }
+  .split__media .badge-float { right: auto; left: -18px; }
+
+  .timeline::before { right: auto; left: 50%; margin-right: 0; margin-left: -1.5px; }
+  .tl-item { padding: 0 0 52px 44px; }
+  .tl-item:nth-child(even) { margin-right: 0; margin-left: 50%; padding: 0 44px 52px 0; }
+  .tl-item::after { left: auto; right: -8px; }
+  .tl-item:nth-child(even)::after { right: auto; left: -8px; }
+
+  .spec-table th,
+  .spec-table td { text-align: left; }
+
+  .post-body ul { padding-right: 0; padding-left: 22px; }
+  .post-callout { border-right: 0; border-left: 4px solid var(--crimson); }
+
+  .footer::before { right: auto; left: -140px; }
+  .footer h4::after { right: auto; left: auto; }
+
+  .to-top { left: auto; right: 28px; }
+
+  .to-top svg { transform: rotate(-90deg) !important; }
+}
+
+@media (max-width: 860px) {
+  [dir='ltr'] {
+    .timeline::before { right: auto; left: 12px; }
+    .tl-item,
+    .tl-item:nth-child(even) { margin-left: 0; }
+    .tl-item::after,
+    .tl-item:nth-child(even)::after { left: 5px; right: auto; }
+  }
+}
+
 * { box-sizing: border-box; }
 
 html {
@@ -47,8 +142,9 @@ html {
 body {
   margin: 0;
   font-family: var(--font);
+  transition: background-color 0.35s var(--ease), color 0.35s var(--ease);
   color: var(--ink);
-  background: var(--white);
+  background: var(--surface);
   line-height: 1.9;
   font-size: 16px;
   overflow-x: hidden;
@@ -176,7 +272,7 @@ input, select, textarea { font-family: inherit; }
 .btn--outline:hover { background: var(--crimson-soft); }
 
 .btn--light {
-  background: #fff;
+  background: var(--surface);
   color: var(--crimson-700);
   box-shadow: 0 14px 34px -14px rgba(0, 0, 0, 0.4);
 }
@@ -197,7 +293,7 @@ input, select, textarea { font-family: inherit; }
 
 /* ---------- Cards ---------- */
 .card {
-  background: #fff;
+  background: var(--surface);
   border-radius: var(--radius);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
@@ -311,7 +407,8 @@ input, select, textarea { font-family: inherit; }
   place-items: center;
   transition: border-color 0.3s, background 0.3s;
 }
-.nav.is-scrolled .nav__burger { border-color: var(--line); background: #fff; }
+.nav.is-scrolled .nav__burger { border-color: var(--line); background: var(--surface); }
+.nav.is-scrolled .nav__burger span { background: var(--ink); }
 .nav__burger span {
   display: block;
   width: 20px; height: 2px;
@@ -598,7 +695,7 @@ input, select, textarea { font-family: inherit; }
 .product-card__media {
   position: relative;
   aspect-ratio: 4 / 3;
-  background: radial-gradient(90% 90% at 50% 40%, #fff 30%, var(--bg-softer));
+  background: radial-gradient(90% 90% at 50% 40%, var(--surface) 30%, var(--bg-softer));
   overflow: hidden;
 }
 .product-card__media img {
@@ -666,7 +763,7 @@ input, select, textarea { font-family: inherit; }
   width: 88px; height: 88px;
   margin: 0 auto 20px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--surface);
   border: 3px solid var(--crimson);
   display: grid;
   place-items: center;
@@ -739,7 +836,7 @@ input, select, textarea { font-family: inherit; }
   width: 46%;
   border-radius: var(--radius);
   overflow: hidden;
-  border: 6px solid #fff;
+  border: 6px solid var(--surface);
   box-shadow: var(--shadow);
 }
 .split__media .img-float img { height: 200px; width: 100%; object-fit: cover; }
@@ -828,7 +925,7 @@ input, select, textarea { font-family: inherit; }
   width: 16px; height: 16px;
   border-radius: 50%;
   background: var(--crimson);
-  border: 4px solid #fff;
+  border: 4px solid var(--surface);
   box-shadow: 0 0 0 4px rgba(220, 20, 60, 0.18);
 }
 .tl-item:nth-child(even)::after { left: auto; right: -8px; }
@@ -891,7 +988,7 @@ input, select, textarea { font-family: inherit; }
 .field label { font-size: 14px; font-weight: 700; color: var(--ink-2); }
 .field input, .field select, .field textarea {
   border: 1.5px solid var(--line);
-  background: #fff;
+  background: var(--surface);
   border-radius: var(--radius-sm);
   padding: 14px 18px;
   font-size: 15px;
@@ -992,7 +1089,7 @@ input, select, textarea { font-family: inherit; }
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: #fff;
+  background: var(--surface);
   border: 2px solid rgba(220, 20, 60, 0.25);
   color: var(--crimson);
   transition: transform 0.5s var(--ease), background 0.35s, color 0.35s;
@@ -1100,7 +1197,7 @@ input, select, textarea { font-family: inherit; }
   padding: 120px 24px;
   background:
     radial-gradient(80% 60% at 50% 0%, var(--crimson-soft), transparent 60%),
-    #fff;
+    var(--surface);
 }
 .nf h1 { font-size: clamp(80px, 16vw, 160px); font-weight: 900; color: var(--crimson); line-height: 1; margin: 0; }
 .nf h2 { font-size: 26px; font-weight: 800; margin: 10px 0; }
@@ -1138,7 +1235,7 @@ input, select, textarea { font-family: inherit; }
 }
 .filter-chip {
   border: 1.5px solid var(--line);
-  background: #fff;
+  background: var(--surface);
   color: var(--ink-2);
   border-radius: 999px;
   padding: 10px 24px;
@@ -1270,4 +1367,111 @@ input, select, textarea { font-family: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .sk { animation: none; background: var(--bg-softer); }
+}
+
+
+/* ==========================================================================
+   Language switcher + dark-mode toggle
+   ========================================================================== */
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+.lang-switch__btn {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  line-height: 1.7;
+  transition: background 0.25s var(--ease), color 0.25s var(--ease);
+}
+.lang-switch__btn:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.lang-switch__btn.is-active { background: #fff; color: var(--crimson-700); }
+.lang-switch__label { display: none; }
+
+.theme-toggle {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+}
+.theme-toggle__track {
+  width: 42px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  transition: background 0.3s var(--ease);
+}
+.theme-toggle__thumb {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--crimson-700);
+  display: grid;
+  place-items: center;
+  transition: transform 0.35s var(--ease), color 0.3s;
+}
+.theme-toggle.is-dark .theme-toggle__track { background: rgba(0, 0, 0, 0.45); }
+.theme-toggle.is-dark .theme-toggle__thumb { color: #1b1114; }
+/* the knob always travels toward the "end" of the track, in either direction */
+[dir='rtl'] .theme-toggle.is-dark .theme-toggle__thumb { transform: translateX(-20px); }
+[dir='ltr'] .theme-toggle.is-dark .theme-toggle__thumb { transform: translateX(20px); }
+
+/* inside the mobile menu */
+.m-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 22px 4px 6px;
+}
+.lang-switch--block { gap: 4px; }
+.lang-switch--block .lang-switch__btn { padding: 7px 14px; font-size: 13px; }
+.lang-switch--block .lang-switch__short { display: none; }
+.lang-switch--block .lang-switch__label { display: inline; }
+
+@media (max-width: 900px) {
+  .nav__topbar .lang-switch,
+  .nav__topbar .theme-toggle { display: none; }
+}
+
+/* ==========================================================================
+   Dark-mode corrections for surfaces that were hard-coded to a light canvas
+   ========================================================================== */
+[data-theme='dark'] {
+  .nav.is-scrolled .nav__bar {
+    background: rgba(23, 14, 17, 0.88);
+    box-shadow: 0 10px 40px -18px rgba(0, 0, 0, 0.8);
+  }
+  .section--soft { background: var(--bg-softer); }
+  ::-webkit-scrollbar-track { background: #0d0709; }
+
+  /* cut-out product photography on a dark canvas */
+  .product-card__media img,
+  .shop-card__media img,
+  .brand-card img { filter: var(--img-dim); }
+
+  /* form controls */
+  input, select, textarea {
+    background: var(--surface-2);
+    color: var(--ink);
+    border-color: var(--line);
+  }
+  input::placeholder, textarea::placeholder { color: var(--muted); }
+  select option { background: var(--surface-2); color: var(--ink); }
 }

@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
+import { localizeState } from '../../shared/i18n/index.js';
+import { useLocale } from '../i18n/LocaleContext';
 
 const Ctx = createContext(null);
 
@@ -63,6 +65,7 @@ const cacheWrite = (data) => {
 };
 
 export function ContentProvider({ children }) {
+  const { locale } = useLocale();
   const cached = typeof window !== 'undefined' ? cacheRead() : null;
   const [state, setState] = useState(() => (cached ? mergeState(DEFAULT_STATE, cached) : clone(DEFAULT_STATE)));
   const [ready, setReady] = useState(Boolean(cached));
@@ -91,21 +94,28 @@ export function ContentProvider({ children }) {
     await api('/api/content', { method: 'PUT', body: next, auth: true });
   }, []);
 
+  /* Persian is the base language; English and Arabic are overlays applied on
+     top of it (shipped translation first, admin-edited overrides second), so
+     an untranslated key still renders instead of vanishing. */
+  const view = useMemo(() => localizeState(state, locale), [state, locale]);
+  const fallback = useMemo(() => localizeState(DEFAULT_STATE, locale), [locale]);
+
   const value = useMemo(
     () => ({
       state,
+      locale,
       ready,
       backend,
       save,
-      t: (k) => state.texts?.[k] ?? DEFAULT_STATE.texts[k] ?? '',
-      m: (k) => state.media?.[k] ?? DEFAULT_STATE.media[k] ?? '',
-      l: (k) => state.links?.[k] ?? DEFAULT_STATE.links[k] ?? '#',
-      col: (k) => state.collections?.[k] ?? DEFAULT_STATE.collections[k] ?? [],
-      products: state.products ?? [],
-      posts: state.posts ?? [],
-      brands: state.brands ?? DEFAULT_STATE.brands,
+      t: (k) => view.texts?.[k] ?? fallback.texts[k] ?? '',
+      m: (k) => view.media?.[k] ?? fallback.media[k] ?? '',
+      l: (k) => view.links?.[k] ?? fallback.links[k] ?? '#',
+      col: (k) => view.collections?.[k] ?? fallback.collections[k] ?? [],
+      products: view.products ?? [],
+      posts: view.posts ?? [],
+      brands: view.brands ?? fallback.brands,
     }),
-    [state, ready, backend, save]
+    [state, view, fallback, locale, ready, backend, save]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

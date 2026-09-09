@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { Icons, Reveal, SectionHead, Counter, Marquee, CTABand, hl } from '../components/ui';
+import { Icons, Reveal, SectionHead, Counter, Marquee, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 
@@ -204,6 +204,7 @@ function FeaturedProducts() {
 
 function Process() {
   const { t, col } = useContent();
+  const num = useNum();
   return (
     <section className="section section--soft" style={{ overflow: 'hidden' }}>
       <div className="container">
@@ -211,7 +212,7 @@ function Process() {
         <div className="steps">
           {col('process').map((s, i) => (
             <Reveal key={s.title} delay={i * 0.14} className="step">
-              <div className="step__num">{(i + 1).toLocaleString('fa-IR')}</div>
+              <div className="step__num">{num(i + 1)}</div>
               <h3>{s.title}</h3>
               <p>{s.text}</p>
             </Reveal>

@@ -1,9 +1,10 @@
 import { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl } from '../components/ui';
+import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl, useNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 
 export default function Export() {
+  const num = useNum();
   const { t, m, l, col } = useContent();
   const regions = col('regions');
   const steps = col('exportSteps');
@@ -82,7 +83,7 @@ export default function Export() {
           <div className="steps">
             {steps.map((s, i) => (
               <Reveal key={s.title} delay={i * 0.14} className="step">
-                <div className="step__num">{(i + 1).toLocaleString('fa-IR')}</div>
+                <div className="step__num">{num(i + 1)}</div>
                 <h3>{s.title}</h3>
                 <p>{s.text}</p>
               </Reveal>
