@@ -50,26 +50,14 @@ export default function SmartImage({
   style,
   ...rest
 }) {
-  const [loaded, setLoaded] = useState(false);
   const [, bump] = useState(0);
   const imgRef = useRef(null);
 
-  /* A preloaded or browser-cached image can finish BEFORE React attaches the
-     onLoad handler — the event then never fires and the image would stay at
-     opacity 0 forever. Checking `complete` on mount covers that case. */
-  const markLoaded = useCallback(() => setLoaded(true), []);
-  const attach = useCallback(
-    (node) => {
-      imgRef.current = node;
-      if (node && node.complete) markLoaded();
-    },
-    [markLoaded],
-  );
-
-  useEffect(() => {
-    const node = imgRef.current;
-    if (node && node.complete) markLoaded();
-  }, [src, markLoaded]);
+  /* `loaded` is keyed by the resolved URL. Keeping the URL (instead of a
+     boolean) means a new src — e.g. the admin replacing the hero image — is
+     considered "not loaded yet" automatically, and the stale `true` from the
+     previous picture can never leave the new one stuck. */
+  const [loadedSrc, setLoadedSrc] = useState(null);
 
   /* subscribe to the upload placeholder map, but only when we need it */
   const needsUploadMap = typeof src === 'string' && src.startsWith('/uploads/');
@@ -98,6 +86,33 @@ export default function SmartImage({
       blur: lqip,
     };
   }, [src, needsUploadMap && uploadBlur[toWebp(src)]]);
+
+  const loaded = loadedSrc === webp;
+  const markLoaded = useCallback(() => setLoadedSrc(webp), [webp]);
+
+  /* A preloaded or cached image can finish decoding BEFORE React attaches the
+     onLoad handler, so the event never fires. Reading `complete` covers that,
+     both when the node mounts and whenever the resolved URL changes (the
+     srcset arriving with the upload manifest counts as a change). */
+  const attach = useCallback(
+    (node) => {
+      imgRef.current = node;
+      if (node?.complete && node.naturalWidth > 0) setLoadedSrc(webp);
+    },
+    [webp],
+  );
+
+  useEffect(() => {
+    const node = imgRef.current;
+    if (node?.complete && node.naturalWidth > 0) setLoadedSrc(webp);
+    /* Some browsers do not re-fire `load` when srcset is added to an <img>
+       that is already showing `src`; poll once on the next frame as a guard. */
+    const id = requestAnimationFrame(() => {
+      const n = imgRef.current;
+      if (n?.complete && n.naturalWidth > 0) setLoadedSrc(webp);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [webp, srcSet]);
 
   return (
     <img
