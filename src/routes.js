@@ -49,6 +49,18 @@ const NEIGHBOURS = {
 
 const done = new Set();
 
+/* Chunks that have finished downloading. `done` is set optimistically when a
+   load *starts*, so it cannot answer "is this instant?" — this one can. */
+const ready = new Set();
+
+/** Has this route's chunk already been fetched? If so, Suspense will resolve
+ *  synchronously and any loading indicator would be a pure flash. */
+export function isWarm(pathname) {
+  const keys = keysFor(pathname);
+  const key = keys.length ? keys[0] : pathname;
+  return ready.has(key) || !LOADERS[key]; // unknown route => no chunk to wait on
+}
+
 export const isSaving = () => {
   if (typeof navigator === 'undefined') return false;
   const c = navigator.connection || {};
@@ -60,7 +72,10 @@ export function warm(key) {
   const load = LOADERS[key];
   if (!load || done.has(key)) return;
   done.add(key);
-  load().catch(() => done.delete(key));
+  load().then(
+    () => ready.add(key),
+    () => done.delete(key)
+  );
 }
 
 /** Map a real pathname to the closest loader keys. */

@@ -14,11 +14,24 @@ import { localeFromPath } from './i18n/LocaleContext';
 /* The English / Arabic dictionaries are separate chunks; the Persian site
    never downloads them. Wait for the active one before the first render so
    the page never flashes Persian on the way to another language. */
-loadPack(localeFromPath(window.location.pathname)).finally(() => {
-  /* Remove the inline boot splash as soon as React takes over the DOM. */
+/* Fade the inline splash out rather than yanking it, and only once the first
+   real frame is on screen — removing it the instant render() returns can
+   expose an unpainted page for a frame on a slow device. */
+function dismissSplash() {
   const splash = document.getElementById('boot-splash');
-  if (splash) splash.remove();
+  if (!splash) return;
 
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      splash.classList.add('is-done');
+      /* match the CSS transition; remove() rather than display:none so the
+         element stops costing anything at all */
+      setTimeout(() => splash.remove(), 260);
+    });
+  });
+}
+
+loadPack(localeFromPath(window.location.pathname)).finally(() => {
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
       <LocaleProvider>
@@ -30,4 +43,6 @@ loadPack(localeFromPath(window.location.pathname)).finally(() => {
       </LocaleProvider>
     </React.StrictMode>
   );
+
+  dismissSplash();
 });

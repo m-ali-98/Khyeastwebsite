@@ -10,6 +10,7 @@ import { TranslationsTab } from './i18nTab';
 import { ProductsTransTab, PostsTransTab } from './entityTrans';
 import { AdminLocaleProvider, useAdminLocale } from './adminLocale';
 import { useLocale } from '../i18n/LocaleContext';
+import useLoadingGate from '../hooks/useLoadingGate';
 import { loadAllPacks } from '../../shared/i18n/index.js';
 import './admin.scss';
 
@@ -79,6 +80,13 @@ function AdminLangBar() {
    Uses the same mark and rhythm as the login card so the panel does not appear
    to jump between two unrelated screens. */
 function AdminLoading() {
+  /* Both the session check and the dictionaries usually resolve in a few
+     milliseconds from cache. Rendering a boot screen for that is a flash, so
+     hold it back until the wait is real — how long "real" means is derived
+     from the connection rather than fixed. */
+  const state = useLoadingGate(true);
+  if (state === 'hidden') return <div className="admin" />;
+
   return (
     <div className="admin">
       <div className="admin__boot" role="status" aria-live="polite" aria-busy="true">
