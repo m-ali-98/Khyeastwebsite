@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Icons, Reveal, PageHero } from '../components/ui';
 import { PostCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
+import SmartImage from '../components/SmartImage';
 
 export default function Blog() {
   const { t, m, posts } = useContent();
@@ -17,11 +18,11 @@ export default function Blog() {
             <Reveal>
               <Link to={`/blog/${featuredPost.slug}`} className="card featured-post" style={{ overflow: 'hidden', marginBottom: 44 }}>
                 <div style={{ position: 'relative', minHeight: 320 }}>
-                  <img
+                  <SmartImage
                     src={featuredPost.image}
                     alt={featuredPost.title}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                    loading="lazy"
+                    
                   />
                 </div>
                 <div style={{ padding: '40px 40px' }}>

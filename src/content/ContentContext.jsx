@@ -36,9 +36,36 @@ function mergeState(base, remote) {
   return out;
 }
 
+/* -------------------------------------------------------------------------
+   Offline-first content cache.
+   On a slow connection the /api/content round-trip is what makes the first
+   screen wait. We render the last known content from localStorage instantly
+   ("stale-while-revalidate") and quietly swap in the fresh copy when it lands.
+   ------------------------------------------------------------------------- */
+const CACHE_KEY = 'ky_content_cache_v1';
+const CACHE_TTL = 24 * 60 * 60 * 1000; // keep for a day
+
+const cacheRead = () => {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { at, data } = JSON.parse(raw);
+    if (!data || Date.now() - at > CACHE_TTL) return null;
+    return data;
+  } catch {
+    return null;
+  }
+};
+const cacheWrite = (data) => {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), data }));
+  } catch {}
+};
+
 export function ContentProvider({ children }) {
-  const [state, setState] = useState(() => clone(DEFAULT_STATE));
-  const [ready, setReady] = useState(false);
+  const cached = typeof window !== 'undefined' ? cacheRead() : null;
+  const [state, setState] = useState(() => (cached ? mergeState(DEFAULT_STATE, cached) : clone(DEFAULT_STATE)));
+  const [ready, setReady] = useState(Boolean(cached));
   const [backend, setBackend] = useState(false);
 
   useEffect(() => {
@@ -49,6 +76,7 @@ export function ContentProvider({ children }) {
         if (!alive) return;
         setState(mergeState(DEFAULT_STATE, data));
         setBackend(true);
+        cacheWrite(data);
       })
       .catch(() => {})
       .finally(() => alive && setReady(true));
@@ -59,6 +87,7 @@ export function ContentProvider({ children }) {
 
   const save = useCallback(async (next) => {
     setState(next);
+    cacheWrite(next);
     await api('/api/content', { method: 'PUT', body: next, auth: true });
   }, []);
 

@@ -4,6 +4,7 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, Marquee, CTABand, hl } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
+import SmartImage from '../components/SmartImage';
 
 function Hero() {
   const ref = useRef(null);
@@ -28,7 +29,7 @@ function Hero() {
   return (
     <section className="hero" ref={ref}>
       <div className="hero__bg">
-        <img src={m('home.hero.bg')} alt={t('global.company.name')} />
+        <SmartImage src={m('home.hero.bg')} alt={t('global.company.name')} priority sizes="100vw" />
       </div>
       <div className="hero__overlay" />
       <div className="hero__particles" aria-hidden="true">
@@ -127,10 +128,10 @@ function Intro() {
             <div className="split__media">
               <span className="badge-float">{t('home.intro.badge')}</span>
               <div className="img-main">
-                <img src={m('home.intro.imgMain')} alt={t('home.intro.overline')} loading="lazy" />
+                <SmartImage src={m('home.intro.imgMain')} alt={t('home.intro.overline')} />
               </div>
               <div className="img-float">
-                <img src={m('home.intro.imgFloat')} alt={t('home.intro.btnQuality')} loading="lazy" />
+                <SmartImage src={m('home.intro.imgFloat')} alt={t('home.intro.btnQuality')} />
               </div>
             </div>
           </Reveal>
@@ -331,7 +332,7 @@ function BreadBanner() {
   return (
     <section className="section" style={{ padding: 0 }} ref={ref}>
       <div style={{ position: 'relative', height: '62vh', minHeight: 420, overflow: 'hidden' }}>
-        <motion.img className="parallax-img" src={m('home.banner.bg')} alt={t('global.slogan')} style={{ y, scale: 1.15 }} loading="lazy" />
+        <motion.img className="parallax-img" src={m('home.banner.bg')} alt={t('global.slogan')} style={{ y, scale: 1.15 }} />
         <div
           style={{
             position: 'absolute',

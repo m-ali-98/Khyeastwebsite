@@ -4,6 +4,7 @@ import { Icons, Reveal, PageHero, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
 import { QtyStepper } from '../shop/parts';
+import SmartImage from '../components/SmartImage';
 
 export default function ShopCart() {
   const { t } = useContent();
@@ -52,7 +53,7 @@ export default function ShopCart() {
                         transition={{ duration: 0.35 }}
                       >
                         <div className="cart-table__item">
-                          <img src={r.product.image} alt="" />
+                          <SmartImage src={r.product.image} alt="" />
                           <div>
                             <b>
                               <Link to={`/shop/${r.product.slug}`}>{r.product.title}</Link>

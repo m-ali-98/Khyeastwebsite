@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Khuzestan Yeast Co. — SQLite data layer (better-sqlite3)
+   Khuzestan Yeast Co. — SQLite data layer
    --------------------------------------------------------------------------
    Single file database: server/data/khyeast.db  (WAL mode, transactional)
 
@@ -12,7 +12,7 @@
    The public/admin HTTP contract is IDENTICAL to the previous JSON storage —
    objects are converted back to the same shapes on read.
    ========================================================================== */
-import Database from 'better-sqlite3';
+import { createDatabase } from './sqlite.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -20,9 +20,9 @@ import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { SHOP_SEED } from './seed.js';
 
 /* ------------------------------------------------------------------ open */
-export function openDB(file) {
+export async function openDB(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
+  const db = await createDatabase(file);
   db.pragma('journal_mode = WAL'); // safe concurrent readers + one writer
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
