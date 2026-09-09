@@ -1,6 +1,5 @@
 import { Icons, Reveal, SectionHead, PageHero, CTABand, hl } from '../components/ui';
 import { useContent } from '../content/ContentContext';
-import SmartImage from '../components/SmartImage';
 
 export default function Quality() {
   const { t, m, col } = useContent();
@@ -18,7 +17,7 @@ export default function Quality() {
               <div className="split__media">
                 <span className="badge-float">{t('quality.lab.badge')}</span>
                 <div className="img-main">
-                  <SmartImage src={m('quality.lab.img')} alt={t('quality.lab.overline')} />
+                  <img src={m('quality.lab.img')} alt={t('quality.lab.overline')} loading="lazy" />
                 </div>
               </div>
             </Reveal>

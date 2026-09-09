@@ -3,7 +3,6 @@ import { motion, useInView, animate } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useContent } from '../content/ContentContext';
 import { renderHighlight } from '../content/sanitize';
-import SmartImage from './SmartImage';
 
 export const hl = renderHighlight;
 
@@ -320,7 +319,7 @@ export function PageHero({ title, sub, image, crumb }) {
     <header className="page-hero">
       {image && (
         <div className="page-hero__img">
-          <SmartImage src={image} alt="" />
+          <img src={image} alt="" loading="lazy" />
         </div>
       )}
       <div className="container">

@@ -6,7 +6,6 @@ import { PostCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
 import NotFound from './NotFound';
-import SmartImage from '../components/SmartImage';
 
 export default function PostDetail() {
   const { slug } = useParams();
@@ -21,7 +20,7 @@ export default function PostDetail() {
     <>
       <header className="page-hero">
         <div className="page-hero__img">
-          <SmartImage src={post.image} alt="" />
+          <img src={post.image} alt="" loading="lazy" />
         </div>
         <div className="container">
           <motion.nav
@@ -69,7 +68,7 @@ export default function PostDetail() {
       <section className="section">
         <div className="container">
           <Reveal className="gallery-img" style={{ maxWidth: 900, margin: '0 auto 44px' }}>
-            <SmartImage src={post.image} alt={post.title} style={{ height: 400 }} />
+            <img src={post.image} alt={post.title} style={{ height: 400 }} loading="lazy" />
           </Reveal>
 
           <article className="post-body">

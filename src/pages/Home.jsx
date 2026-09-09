@@ -4,7 +4,6 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, Marquee, CTABand, hl } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
-import SmartImage from '../components/SmartImage';
 
 function Hero() {
   const ref = useRef(null);
@@ -29,7 +28,7 @@ function Hero() {
   return (
     <section className="hero" ref={ref}>
       <div className="hero__bg">
-        <SmartImage src={m('home.hero.bg')} alt={t('global.company.name')} priority sizes="100vw" />
+        <img src={m('home.hero.bg')} alt={t('global.company.name')} />
       </div>
       <div className="hero__overlay" />
       <div className="hero__particles" aria-hidden="true">
@@ -128,10 +127,10 @@ function Intro() {
             <div className="split__media">
               <span className="badge-float">{t('home.intro.badge')}</span>
               <div className="img-main">
-                <SmartImage src={m('home.intro.imgMain')} alt={t('home.intro.overline')} />
+                <img src={m('home.intro.imgMain')} alt={t('home.intro.overline')} loading="lazy" />
               </div>
               <div className="img-float">
-                <SmartImage src={m('home.intro.imgFloat')} alt={t('home.intro.btnQuality')} />
+                <img src={m('home.intro.imgFloat')} alt={t('home.intro.btnQuality')} loading="lazy" />
               </div>
             </div>
           </Reveal>
