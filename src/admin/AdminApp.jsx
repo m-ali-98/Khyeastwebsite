@@ -107,10 +107,17 @@ function AdminShell() {
   const { locale, isBase } = useAdminLocale();
   const [authed, setAuthed] = useState(null); // null = checking
   const [tab, setTab] = useState('products');
+  const [packsReady, setPacksReady] = useState(false);
 
-  /* the translation editor needs both dictionaries in memory */
+  /* The panel edits every language, so it needs both dictionaries in memory —
+     the translation editors read them for their placeholders and the Persian
+     tabs read them to work out which items are still untranslated. */
   useEffect(() => {
-    loadAllPacks();
+    let alive = true;
+    loadAllPacks().finally(() => alive && setPacksReady(true));
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -123,7 +130,8 @@ function AdminShell() {
       });
   }, []);
 
-  if (authed === null) return <div className="admin" style={{ display: 'grid', placeItems: 'center', minHeight: '100svh' }}>…</div>;
+  if (authed === null || !packsReady)
+    return <div className="admin" style={{ display: 'grid', placeItems: 'center', minHeight: '100svh' }}>…</div>;
   if (!authed) return <div className="admin">{<Login onDone={() => setAuthed(true)} />}</div>;
 
   const visibleTabs = TABS.filter((tb) => (isBase ? !tb.transOnly : !tb.faOnly && !tb.base));
