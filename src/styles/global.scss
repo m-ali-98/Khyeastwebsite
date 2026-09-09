@@ -339,7 +339,6 @@ input, select, textarea { font-family: inherit; }
 }
 .nav.is-scrolled .nav__link { color: var(--ink-2); }
 .nav.is-scrolled .nav__logo-text small { color: var(--muted); }
-.nav.is-scrolled .nav__logo-mark { color: var(--crimson); }
 
 .nav__bar {
   height: var(--nav-h);
@@ -357,11 +356,20 @@ input, select, textarea { font-family: inherit; }
   height: 46px;
   width: auto;
   flex: none;
-  /* the solid variant strokes with currentColor: white over the transparent
-     hero, brand crimson once the bar turns light on scroll */
-  color: #fff;
-  transition: color 0.4s;
+  object-fit: contain;
+  user-select: none;
 }
+/* Over the transparent hero the artwork sits on a dark ground and its maroon
+   end disappears, so knock the mark out to flat white. `brightness(0)` first
+   flattens every inked pixel to black regardless of its original hue, then
+   `invert(1)` lifts the whole thing to white in one pass. */
+.nav__logo-mark.is-solid {
+  filter: brightness(0) invert(1);
+  transition: filter 0.4s;
+}
+/* Once the bar turns light, drop the knockout and let the real brand colours
+   show again. */
+.nav.is-scrolled .nav__logo-mark.is-solid { filter: none; }
 .nav__logo-text { line-height: 1.35; }
 .nav__logo-text strong {
   display: block;
@@ -1482,3 +1490,6 @@ input, select, textarea { font-family: inherit; }
   input::placeholder, textarea::placeholder { color: var(--muted); }
   select option { background: var(--surface-2); color: var(--ink); }
 }
+
+/* The footer ground is always dark, so its mark stays knocked out to white. */
+.footer .nav__logo-mark.is-solid { filter: brightness(0) invert(1); }

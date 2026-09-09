@@ -645,4 +645,7 @@
 }
 
 /* The mark keeps its own aspect ratio; it is not a square badge. */
-.admin__logo-mark { height: auto; width: auto; flex: none; }
+.admin__logo-mark { height: auto; width: auto; flex: none; object-fit: contain; }
+/* The sidebar ground is near-black and the artwork's maroon end vanishes into
+   it, so knock that copy of the mark out to flat white. */
+.admin__logo-mark.is-solid { filter: brightness(0) invert(1); }
