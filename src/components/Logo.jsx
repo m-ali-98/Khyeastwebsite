@@ -16,9 +16,9 @@
   trick work — it only ever touches the inked pixels.
 */
 
-/* Intrinsic proportions of the artwork, used to reserve the right box before
-   the image decodes so the navbar never reflows on load. */
-const RATIO = 1210 / 1280;
+/* Intrinsic proportions of the trimmed artwork, used to reserve the right box
+   before the image decodes so the navbar never reflows on load. */
+const RATIO = 837 / 800;
 
 export default function Logo({ size = 46, variant = 'gradient', className = 'nav__logo-mark' }) {
   const solid = variant === 'solid';
