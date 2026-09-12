@@ -33,18 +33,28 @@ async function zarinpalCreate(cfg, order, callbackUrl) {
   return { ref: authority, payUrl: `${payBase}/pg/StartPay/${authority}` };
 }
 
-async function zarinpalVerify(cfg, params) {
+async function zarinpalVerify(cfg, params, expectedRial) {
   if (String(params.Status || '').toUpperCase() !== 'OK') return { ok: false };
   const sandbox = String(cfg.zarinpalMerchant || '').startsWith('test');
   const base = sandbox ? 'https://sandbox.zarinpal.com' : 'https://api.zarinpal.com';
+  /* ZarinPal requires the amount on verify and fails the call if it does not
+     match what was authorised, which is the primary defence. We still compare
+     the echoed amount ourselves so a wrong-priced settlement can never be
+     recorded as paid. */
+  const expected = toToman(expectedRial);
   const res = await fetch(`${base}/pg/v4/payment/verify.json`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ merchant_id: cfg.zarinpalMerchant, authority: params.Authority }),
+    body: JSON.stringify({ merchant_id: cfg.zarinpalMerchant, authority: params.Authority, amount: expected }),
   });
   const json = await res.json().catch(() => ({}));
   const ok = json?.data?.code === 100;
-  return { ok, ref: ok ? String(json.data.ref_id) : String(params.Authority || '') };
+  if (!ok) return { ok: false, ref: String(params.Authority || '') };
+  const paid = Number(json?.data?.amount);
+  if (Number.isFinite(paid) && paid !== expected) {
+    return { ok: false, ref: String(params.Authority || ''), amountMismatch: { paid, expected } };
+  }
+  return { ok: true, ref: String(json.data.ref_id) };
 }
 
 /* ---------- IDPay (v1.1) ---------- */
@@ -72,7 +82,7 @@ async function idpayCreate(cfg, order, callbackUrl) {
   return { ref: json.id, payUrl: json.link };
 }
 
-async function idpayVerify(cfg, params) {
+async function idpayVerify(cfg, params, expectedRial) {
   // statuses: 200 = paid, 150 = settled/paid-at-gateway — treat both as success candidates
   const status = Number(params.status || 0);
   if (![200, 150].includes(status)) return { ok: false, ref: String(params.id || '') };
@@ -87,7 +97,16 @@ async function idpayVerify(cfg, params) {
     body: JSON.stringify({ id: params.id, order_id: params.order_id }),
   });
   const json = await res.json().catch(() => ({}));
-  return { ok: [150, 200].includes(Number(json?.status)), ref: String(params.id || '') };
+  const ok = [150, 200].includes(Number(json?.status));
+  if (!ok) return { ok: false, ref: String(params.id || '') };
+  /* IDPay echoes the settled amount; refuse anything that is not what the
+     order actually costs. */
+  const expected = toToman(expectedRial);
+  const paid = Number(json?.amount);
+  if (Number.isFinite(paid) && paid !== expected) {
+    return { ok: false, ref: String(params.id || ''), amountMismatch: { paid, expected } };
+  }
+  return { ok: true, ref: String(params.id || '') };
 }
 
 /* ---------- public helpers ---------- */
@@ -121,9 +140,13 @@ export async function createPayment(payment, order, { origin }) {
 }
 
 /* returns { ok, ref } */
-export async function verifyPayment(payment, provider, params) {
+/** Confirm a gateway callback.
+ *  @param expectedRial the order total, in RIAL. Required: a callback that
+ *  settled for a different amount than the order costs must NOT be accepted,
+ *  otherwise an order can be marked paid for a fraction of its value. */
+export async function verifyPayment(payment, provider, params, expectedRial) {
   const cfg = normalizePayment(payment);
-  if (provider === 'zarinpal') return zarinpalVerify(cfg, params);
-  if (provider === 'idpay') return idpayVerify(cfg, params);
+  if (provider === 'zarinpal') return zarinpalVerify(cfg, params, expectedRial);
+  if (provider === 'idpay') return idpayVerify(cfg, params, expectedRial);
   return { ok: false, ref: '' };
 }

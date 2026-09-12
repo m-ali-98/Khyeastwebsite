@@ -207,9 +207,15 @@ export function createShopRouter({ database, requireAuth }) {
     let ok = false;
     let ref = '';
     try {
-      const out = await verifyPayment(payment(), provider, req.query);
+      const out = await verifyPayment(payment(), provider, req.query, order.total);
       ok = out.ok;
       ref = out.ref;
+      if (out.amountMismatch) {
+        console.error(
+          `[shop] REJECTED payment for ${order.code}: gateway settled ` +
+            `${out.amountMismatch.paid} toman but the order is ${out.amountMismatch.expected} toman`,
+        );
+      }
     } catch (e) {
       console.error('[shop] verify error:', e.message);
     }

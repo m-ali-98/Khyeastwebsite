@@ -123,7 +123,12 @@ function overlayCollections(base, ...overs) {
 /** Overlay entities addressed by a key (slug / id) rather than by position. */
 function overlayEntities(base, keyName, ...overs) {
   if (!Array.isArray(base)) return base;
-  return base.map((item) => {
+  /* Drop entries that are not usable objects. A null or primitive in this
+     array reaches every consumer — cards read .slug, .featured, .image — and
+     one bad row would otherwise blank the entire site rather than hide a
+     single product. content.json is editable by hand and by the admin panel,
+     so this is reachable without any attacker. */
+  return base.filter(isObj).map((item) => {
     const id = item?.[keyName];
     let out = { ...item };
     for (const over of overs) {

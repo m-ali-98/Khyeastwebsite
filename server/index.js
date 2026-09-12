@@ -184,7 +184,32 @@ app.get('/api/content', (_req, res) => {
   }
 });
 
+/* The contact form is public and unauthenticated, so without a limit anyone
+   can flood the inbox — burying real enquiries and growing the database
+   until the disk fills. Generous enough that a person correcting a typo and
+   resubmitting is never blocked. */
+const MSG_WINDOW = 10 * 60 * 1000;
+const MSG_MAX = 5;
+const msgHits = new Map();
+
+setInterval(() => {
+  const cut = Date.now() - MSG_WINDOW;
+  for (const [ip, times] of msgHits) {
+    const keep = times.filter((t) => t > cut);
+    if (keep.length) msgHits.set(ip, keep);
+    else msgHits.delete(ip);
+  }
+}, MSG_WINDOW).unref();
+
 app.post('/api/messages', (req, res) => {
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  const recent = (msgHits.get(ip) || []).filter((t) => now - t < MSG_WINDOW);
+  if (recent.length >= MSG_MAX) {
+    res.setHeader('Retry-After', Math.ceil(MSG_WINDOW / 1000));
+    return res.status(429).json({ error: 'too many messages, please try again later' });
+  }
+  msgHits.set(ip, [...recent, now]);
   const { name, phone, email, subject, message } = req.body || {};
   if (!name || !phone || !message) return res.status(400).json({ error: 'fields required' });
   const item = {

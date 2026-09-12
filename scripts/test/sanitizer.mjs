@@ -36,6 +36,14 @@ const CASES = [
   ['video onerror',           '<video src="/a.mp4" onerror="alert(1)"></video>'],
   ['formaction',              '<button formaction="javascript:alert(1)">x</button>'],
   ['a target no rel',         '<a href="https://x.com">x</a>'],
+  ['script inside disallowed', '<span><script>alert(1)</script></span>'],
+  ['nested unwrap w/ script',  '<div><span><b><script>alert(1)</script></b></span></div>'],
+  ['onerror inside unwrap',    '<span><img src="/a.png" onerror="alert(1)"></span>'],
+  ['deep unwrap + handler',    '<span>'.repeat(20)+'<img src=x onerror=alert(1)>'+'</span>'.repeat(20)],
+  ['iframe inside span',       '<span><iframe src="//evil"></iframe></span>'],
+  ['js href inside unwrap',    '<span><a href="javascript:alert(1)">x</a></span>'],
+  ['bad src removes img',      '<span><img src="data:text/html,<script>alert(1)</script>"></span>'],
+  ['table unwrap keeps text',  '<table><tr><td>text</td></tr></table>'],
   ['legit content',           '<p>سلام <strong>دنیا</strong> <a href="/products">لینک</a></p>'],
 ];
 const BAD = /on\w+\s*=|<script|<iframe|<style|<object|<embed|<form|<meta|<base|javascript:|data:text|data:image\/svg|srcset|formaction|style=|class=/i;

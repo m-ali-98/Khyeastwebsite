@@ -46,11 +46,20 @@ function ContactForm() {
     if (Object.keys(errs).length) return;
     setSending(true);
     try {
-      await fetch('/api/messages', {
+      /* The response status must be checked. fetch() only rejects on a
+         network failure, so a 400/429/500 used to fall through to the success
+         screen and the visitor believed their enquiry had been sent when the
+         server had discarded it. */
+      const res = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
+        signal: AbortSignal.timeout(15000),
       });
+      if (!res.ok) {
+        setErrors({ submit: t('contact.form.errSend') });
+        return;
+      }
       setSent(true);
     } catch {
       if (backend) setErrors({ submit: t('contact.form.errSend') });
