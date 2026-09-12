@@ -150,6 +150,21 @@ try {
   console.log('  FAIL auth harness error');
 }
 
+console.log('\nHardening — headers, error leakage, exposed files');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'hardening.mjs')], { cwd: HERE, timeout: 60000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'hardening', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} transport-level checks`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'hardening', String(e.message).slice(0, 90));
+  console.log('  FAIL hardening harness error');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) {
   console.log('\nFailures:');
