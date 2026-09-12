@@ -83,6 +83,28 @@ for (const state of CART_STATES) {
   }
 }
 
+console.log('\nContent — a malformed API payload must not blank the site');
+const CONTENT_CASES = [
+  'texts is string', 'products is object', 'products null', 'product missing slug',
+  'product is null', 'posts is string', 'shop missing', 'shop.products null',
+  'deeply empty', 'array at root', 'null at root', 'number at root', 'huge nesting',
+];
+for (const name of CONTENT_CASES) {
+  for (const route of ['/', '/products', '/shop']) {
+    try {
+      const { stdout } = await run('node', [path.join(HERE, 'content-one.mjs'), name, route], { cwd: HERE, timeout: 40000 });
+      const r = JSON.parse(stdout.trim().split('\n').pop());
+      const ok = r.chars > 40 && !r.errors.length;
+      record(ok, `content ${name} @ ${route}`, r.errors[0]?.slice(0, 80));
+      if (!ok) console.log(`  FAIL ${name.padEnd(22)} ${route.padEnd(11)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 50) || ''}`);
+    } catch (e) {
+      record(false, `content ${name} @ ${route}`, String(e.message).slice(0, 80));
+      console.log(`  FAIL ${name.padEnd(22)} ${route.padEnd(11)} harness error`);
+    }
+  }
+}
+console.log(`  ${CONTENT_CASES.length * 3} malformed payloads checked`);
+
 console.log('\nSanitizer — admin-authored HTML must never execute or restyle');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'sanitizer.mjs')], { cwd: HERE, timeout: 40000 });

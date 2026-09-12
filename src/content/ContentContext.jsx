@@ -24,6 +24,14 @@ export const api = async (path, { method = 'GET', body, auth = false, formData }
   return res.json();
 };
 
+/* Entity arrays are rendered by components that dereference fields directly
+   (card.slug, card.featured, card.image). A null or primitive row therefore
+   throws during render and blanks the entire site rather than hiding one
+   item. content.json is hand-editable and admin-writable, so a malformed row
+   is reachable without an attacker — drop them at the boundary. */
+const ENTITY_ARRAYS = ['products', 'posts', 'brands'];
+const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
 /* deep-merge remote state over defaults (arrays & primitives replaced) */
 function mergeState(base, remote) {
   const out = clone(base);
@@ -34,6 +42,9 @@ function mergeState(base, remote) {
     if (Array.isArray(out[key])) out[key] = Array.isArray(rv) ? rv : out[key];
     else if (out[key] && typeof out[key] === 'object') out[key] = { ...out[key], ...rv };
     else out[key] = rv;
+  }
+  for (const key of ENTITY_ARRAYS) {
+    if (Array.isArray(out[key])) out[key] = out[key].filter(isPlainObject);
   }
   return out;
 }
