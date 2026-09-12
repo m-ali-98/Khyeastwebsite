@@ -46,7 +46,14 @@ export default function ShopCheckout() {
         }),
       });
       if (!res.ok) {
-        const msg = res.status === 409 ? t('shop.checkout.errStock') : res.status === 400 ? t('shop.checkout.errFields') : t('shop.checkout.errServer');
+        const msg =
+          res.status === 409
+            ? t('shop.checkout.errStock')
+            : res.status === 400
+              ? t('shop.checkout.errFields')
+              : res.status === 429
+                ? t('form.errRateLimited')
+                : t('shop.checkout.errServer');
         throw Object.assign(new Error(msg), { handled: true });
       }
       const data = await res.json();

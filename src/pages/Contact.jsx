@@ -57,7 +57,9 @@ function ContactForm() {
         signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
-        setErrors({ submit: t('contact.form.errSend') });
+        /* 429 needs its own wording: "try again" is useless advice when the
+           server is asking the visitor to wait. */
+        setErrors({ submit: t(res.status === 429 ? 'form.errRateLimited' : 'contact.form.errSend') });
         return;
       }
       setSent(true);
