@@ -299,7 +299,30 @@ export function createShopRouter({ database, requireAuth }) {
 
   r.put('/api/shop-admin/products', requireAuth, (req, res) => {
     const b = req.body || {};
-    if (Array.isArray(b.products)) db.replaceProducts(D, b.products);
+    if (Array.isArray(b.products)) {
+      /* Validate the WHOLE list before touching the database. replaceProducts
+         deletes every row and re-inserts, skipping any entry without a usable
+         slug — so a single mistyped slug used to delete that product and still
+         answer 200. Rejecting up front means a bad save changes nothing and
+         the admin is told exactly which row is wrong.
+
+         The duplicate check matters just as much: the slug is the primary key
+         and the URL, so two rows sharing one makes the second unreachable.
+         It also used to hit a UNIQUE constraint and surface as HTTP 500. */
+      const problems = [];
+      const seen = new Set();
+      b.products.forEach((p, i) => {
+        const slug = typeof p?.slug === 'string' ? p.slug.trim() : '';
+        const where = `ردیف ${i + 1}`;
+        if (!slug) problems.push(`${where}: شناسه (slug) خالی است`);
+        else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+          problems.push(`${where}: شناسه «${slug}» باید فقط حروف کوچک انگلیسی، عدد و خط تیره باشد`);
+        else if (seen.has(slug)) problems.push(`${where}: شناسه «${slug}» تکراری است`);
+        else seen.add(slug);
+      });
+      if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
+      db.replaceProducts(D, b.products);
+    }
     if (b.display && typeof b.display === 'object')
       db.setSetting(D, 'shop.display', { ...display(), ...b.display });
     res.json({ ok: true, products: db.listProducts(D), display: display() });

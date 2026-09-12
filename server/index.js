@@ -483,6 +483,23 @@ app.put('/api/content', requireAuth, (req, res) => {
   const next = req.body;
   if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
   for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  /* The slug is both the primary key and the URL for catalogue products and
+     blog posts. A blank one produces /products/ (which collides with the index
+     route) and a duplicate makes the second entity permanently unreachable,
+     because every lookup is a .find() that stops at the first match. Neither
+     is recoverable from the public site, so refuse the save instead. */
+  for (const bucket of ['products', 'posts', 'brands']) {
+    const list = next[bucket];
+    if (!Array.isArray(list)) continue;
+    const key = bucket === 'brands' ? 'id' : 'slug';
+    const seen = new Set();
+    for (let i = 0; i < list.length; i += 1) {
+      const id = typeof list[i]?.[key] === 'string' ? list[i][key].trim() : '';
+      if (!id) return res.status(400).json({ error: `${bucket}[${i}]: missing ${key}` });
+      if (seen.has(id)) return res.status(400).json({ error: `${bucket}[${i}]: duplicate ${key} "${id}"` });
+      seen.add(id);
+    }
+  }
   /* never let a payload without translations wipe the stored ones */
   if (!next.i18n || typeof next.i18n !== 'object') next.i18n = readContent().i18n || {};
   writeContent(next);

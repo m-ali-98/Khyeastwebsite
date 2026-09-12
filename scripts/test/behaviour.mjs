@@ -239,6 +239,46 @@ try {
   const gu = await fetch(`${BASE}/api/upload`, { method: 'POST', headers: auth, body: good });
   check(gu.ok, 'a valid upload still succeeds', `got ${gu.status}`);
 
+  /* --- slug integrity -------------------------------------------------
+     replaceProducts deletes every row then re-inserts, skipping entries
+     without a usable slug, so one blank slug used to delete that product and
+     still answer 200. Duplicates hit a UNIQUE constraint and surfaced as 500.
+     The catalogue must be byte-identical after every rejected save. */
+  const catalogue = async () =>
+    ((await (await fetch(`${BASE}/api/shop-products`)).json()).products || [])
+      .map((p) => p.slug)
+      .join(',');
+
+  const seed = [
+    { slug: 'keep-a', title: 'A', price: 1000, stock: -1, active: true },
+    { slug: 'keep-b', title: 'B', price: 1000, stock: -1, active: true },
+  ];
+  const putRaw = (products) =>
+    fetch(`${BASE}/api/shop-admin/products`, {
+      method: 'PUT',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ products }),
+    });
+
+  await putRaw(seed);
+  const before = await catalogue();
+  check(before.includes('keep-a') && before.includes('keep-b'), 'slug fixture seeded', before);
+
+  const bad = {
+    'blank slug': [seed[0], { ...seed[1], slug: '' }],
+    'duplicate slug': [seed[0], { ...seed[1], slug: 'keep-a' }],
+    'slug with slash': [{ ...seed[0], slug: 'sl/ash' }],
+    'slug with space': [{ ...seed[0], slug: 'has space' }],
+    'null slug': [{ ...seed[0], slug: null }],
+  };
+  for (const [name, list] of Object.entries(bad)) {
+    const res = await putRaw(list);
+    check(res.status === 400, `${name} is rejected with 400`, `got ${res.status}`);
+    check((await catalogue()) === before, `${name} leaves the catalogue untouched`);
+  }
+  const okRes = await putRaw(seed);
+  check(okRes.ok, 'a valid catalogue save still succeeds', `got ${okRes.status}`);
+
 } catch (e) {
   check(false, 'behaviour harness', String(e.message).slice(0, 140));
 } finally {
