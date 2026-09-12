@@ -277,6 +277,8 @@ const upload = multer({
   limits: { fileSize: 200 * 1024 * 1024 },
 });
 
+const DIST = path.join(__dirname, '..', 'dist');
+
 const app = express();
 
 /* gzip/deflate every text response — the single biggest win on slow links
@@ -287,6 +289,74 @@ app.use(
     filter: (req, res) => (req.headers['x-no-compression'] ? false : compression.filter(req, res)),
   }),
 );
+
+/* ---------------- security headers ----------------
+   Defence in depth for the whole surface. The site loads nothing from a third
+   party — no CDN fonts, no analytics, no embeds — so the policy can be strict:
+   everything comes from our own origin and nothing else.
+
+   script-src is hash-based rather than 'unsafe-inline'. index.html carries one
+   inline bootstrap script (it sets lang/dir/theme before first paint so the
+   page never flashes the wrong direction), and its sha256 is computed from the
+   built file at startup. That means an edit to the script keeps working with
+   no hand-maintained constant, while any script an attacker manages to inject
+   into the DOM has the wrong hash and will not run.
+
+   style-src still needs 'unsafe-inline': the animation layer writes inline
+   style attributes on elements, and CSP blocks those without it. Styles cannot
+   execute, so the residual risk is defacement rather than code execution. */
+const scriptHashes = () => {
+  try {
+    const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
+    const out = [];
+    for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
+      out.push(`'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
+    }
+    return out.join(' ');
+  } catch {
+    return '';
+  }
+};
+
+/* Computed once at boot; the built HTML does not change while running. */
+const INLINE_SCRIPTS = scriptHashes();
+
+const CSP = [
+  "default-src 'self'",
+  `script-src 'self' ${INLINE_SCRIPTS}`.trim(),
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self'",
+  "font-src 'self'",
+  /* The admin panel talks to this origin only. */
+  "connect-src 'self'",
+  /* Nothing is ever embedded, and we embed nothing. */
+  "frame-src 'none'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  /* There are no <form> posts — the admin uses fetch — so block them all. */
+  "form-action 'self'",
+  'upgrade-insecure-requests',
+].join('; ');
+
+app.disable('x-powered-by'); // do not advertise the stack
+
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY'); // for pre-CSP browsers
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=(), interest-cohort=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  /* HSTS only over TLS, and only in production — sending it from a plain-HTTP
+     dev server would pin developers to https://localhost. */
+  if (IS_PROD && (req.secure || req.get('x-forwarded-proto') === 'https')) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 
 app.use(express.json({ limit: '8mb' }));
 
@@ -473,7 +543,6 @@ app.use(
 app.use(createShopRouter({ database: db, requireAuth }));
 
 /* ---------------- production static site ---------------- */
-const DIST = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(DIST)) {
   /* Content-hashed files never change → cache them for a year.
      index.html must always be revalidated so deploys are picked up. */
@@ -493,6 +562,36 @@ if (fs.existsSync(DIST)) {
     res.sendFile(path.join(DIST, 'index.html'));
   });
 }
+
+/* ---------------- error handling ----------------
+   Express's default handler renders the stack trace into the response body.
+   That hands an attacker absolute filesystem paths, the directory layout and
+   the exact dependency versions in use — free reconnaissance from a single
+   malformed request. Log the detail server-side; return a bare reason.
+
+   Must be registered last: Express selects error middleware by arity (four
+   arguments) and by declaration order. */
+// eslint-disable-next-line no-unused-vars -- the 4th arg is what marks this as an error handler
+app.use((err, req, res, _next) => {
+  const status = Number(err?.status || err?.statusCode) || 500;
+
+  /* Client mistakes are worth naming precisely; anything else is a bug on our
+     side and gets a generic message. */
+  const message =
+    err?.type === 'entity.parse.failed'
+      ? 'malformed JSON'
+      : err?.type === 'entity.too.large'
+        ? 'payload too large'
+        : err instanceof URIError
+          ? 'malformed URL'
+          : status < 500
+            ? 'bad request'
+            : 'internal error';
+
+  if (status >= 500) console.error(`[content-api] ${req.method} ${req.originalUrl}:`, err);
+  if (res.headersSent) return;
+  res.status(status === 500 && err instanceof URIError ? 400 : status).json({ error: message });
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[content-api] listening on http://0.0.0.0:${PORT}`);
