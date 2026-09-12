@@ -70,3 +70,37 @@
 <IfModule mod_mime.c>
   AddType font/woff2 .woff2
 </IfModule>
+
+# --- Security headers ------------------------------------------------------
+# The Node server sets these itself. They are repeated here because a static
+# cPanel deploy (dist/ uploaded to public_html, no Node app) never runs that
+# code, and would otherwise ship with no protection at all.
+#
+# NOTE: script-src uses 'unsafe-inline' here, unlike the Node server, which
+# pins the sha256 of the inline boot script. Apache cannot compute that hash,
+# and a wrong one blocks the script that sets language/direction/theme before
+# first paint. If you run the Node server, its stricter policy applies instead.
+<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self'; font-src 'self'; connect-src 'self'; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  # Enable once HTTPS is confirmed working, otherwise the browser will refuse
+  # plain HTTP for a year:
+  # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>
+
+# --- Block access to sensitive files ---------------------------------------
+# If the Node app is ever uploaded next to the static build, these must not be
+# downloadable.
+<FilesMatch "^\.env|\.db$|\.sqlite3?$|^\.git">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
