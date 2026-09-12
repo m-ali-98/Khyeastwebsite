@@ -66,6 +66,21 @@ const slugify = (s) =>
     .replace(/[^a-z0-9\u0600-\u06FF]+/g, '-')
     .replace(/^-+|-+$/g, '') || `item-${Date.now()}`;
 
+/* The slug is the URL and the lookup key. A blank one produces /products/ ,
+   which collides with the index route, and a duplicate makes the second item
+   permanently unreachable because every lookup is a .find() that stops at the
+   first match. Both are rejected here so the admin sees why, rather than
+   having the save bounced by the server. */
+const checkSlug = (list, slug, orig, what) => {
+  const clean = String(slug || '').trim();
+  if (!clean) return `شناسه (slug) نمی‌تواند خالی باشد.`;
+  if (!/^[a-z0-9\u0600-\u06FF]+(?:-[a-z0-9\u0600-\u06FF]+)*$/.test(clean))
+    return `شناسه «${clean}» معتبر نیست؛ فقط حروف، عدد و خط تیره مجاز است (بدون فاصله و اسلش).`;
+  if (list.some((p) => p.slug === clean && p.slug !== orig))
+    return `${what} دیگری با شناسه «${clean}» وجود دارد؛ شناسه باید یکتا باشد.`;
+  return '';
+};
+
 /* ================= products ================= */
 export function ProductsTab() {
   const { state, save, brands } = useContent();
@@ -96,6 +111,10 @@ export function ProductsTab() {
     clean.usage = (clean.usage || []).filter((u) => u);
     clean.analysis = (clean.analysis || []).filter(([k, v]) => k || v);
     clean.storage = (clean.storage || []).filter((u) => u);
+
+    const slugErr = checkSlug(state.products, clean.slug, _orig, 'محصول');
+    if (slugErr) return window.alert(slugErr);
+    clean.slug = String(clean.slug).trim();
 
     /* `_orig` is the slug the form was opened with: it tells a rename apart
        from a brand-new product, so editing the slug updates the existing item
@@ -247,6 +266,10 @@ export function PostsTab() {
   const saveDraft = () => {
     const { _orig, ...rest } = draft;
     const clean = { ...rest, body: sanitizeHtml(rest.body) };
+
+    const slugErr = checkSlug(state.posts, clean.slug, _orig, 'مقاله');
+    if (slugErr) return window.alert(slugErr);
+    clean.slug = String(clean.slug).trim();
 
     const editing = _orig && state.posts.some((p) => p.slug === _orig);
     const next = editing
