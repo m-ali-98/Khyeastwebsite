@@ -11,6 +11,31 @@ import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { createPayment, verifyPayment, normalizePayment } from './payment.js';
 import * as db from './db.js';
 
+/* ---------------------------------------------------------------------------
+   Trusted origin for payment callback URLs.
+
+   `req.get('host')` is whatever the client sent. An attacker can point the
+   gateway's return URL at a host they control, which leaks the order token in
+   the callback query string. So: prefer the admin-configured callbackBase,
+   then PUBLIC_ORIGIN from the environment, and only fall back to the request
+   host when it is in the allowlist (or when no allowlist is configured, which
+   is the local-development case).
+--------------------------------------------------------------------------- */
+const PUBLIC_ORIGIN = String(process.env.PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
+const TRUSTED_HOSTS = String(process.env.TRUSTED_HOSTS || '')
+  .split(',')
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+function safeOrigin(req, configuredBase) {
+  if (configuredBase) return configuredBase;
+  if (PUBLIC_ORIGIN) return PUBLIC_ORIGIN;
+  const host = String(req.get('host') || '').toLowerCase();
+  if (TRUSTED_HOSTS.length && !TRUSTED_HOSTS.includes(host)) return '';
+  if (!/^[a-z0-9.\-]+(:\d+)?$/.test(host)) return '';
+  return `${req.protocol}://${host}`;
+}
+
 export { SHOP_SEED } from './seed.js';
 
 const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancelled'];
@@ -150,7 +175,7 @@ export function createShopRouter({ database, requireAuth }) {
 
     /* payment */
     const pm = payment();
-    const origin = pm.callbackBase || `${req.protocol}://${req.get('host')}`;
+    const origin = safeOrigin(req, pm.callbackBase);
     let pay = { provider: 'offline', ref: null, payUrl: null };
     if (pm.provider !== 'offline') {
       try {
@@ -179,7 +204,7 @@ export function createShopRouter({ database, requireAuth }) {
     if (order.status !== 'pending_payment') return res.status(409).json({ error: 'order already processed' });
     const pm = payment();
     if (pm.provider === 'offline') return res.status(409).json({ error: 'online payment disabled' });
-    const origin = pm.callbackBase || `${req.protocol}://${req.get('host')}`;
+    const origin = safeOrigin(req, pm.callbackBase);
     try {
       const pay = await createPayment(pm, order, { origin });
       db.updateOrder(D, order.id, { provider: pay.provider, payRef: pay.ref });

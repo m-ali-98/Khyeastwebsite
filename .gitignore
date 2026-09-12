@@ -19,3 +19,8 @@ server/data/*.db
 server/data/*.db-wal
 server/data/*.db-shm
 
+
+# Secrets — ADMIN_PASS / ADMIN_SECRET live here, never in the repository
+.env
+.env.*
+!.env.example

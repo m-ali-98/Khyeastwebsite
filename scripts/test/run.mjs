@@ -120,6 +120,21 @@ try {
   console.log('  FAIL sanitizer harness error');
 }
 
+console.log('\nPayment — the money path must fail closed');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'payment.mjs')], { cwd: HERE, timeout: 40000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'payment', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} amount + callback-origin cases`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'payment', String(e.message).slice(0, 90));
+  console.log('  FAIL payment harness error');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) {
   console.log('\nFailures:');

@@ -29,10 +29,69 @@ const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — import
 const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
 const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'khyeast.db');
 
+/* Load server/.env or ./.env if present, without adding a dependency.
+   Real environment variables always win, so a host's own settings are never
+   overridden by a stale file. */
+for (const envPath of [path.join(__dirname, '.env'), path.join(__dirname, '..', '.env')]) {
+  if (!fs.existsSync(envPath)) continue;
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/i);
+    if (!m) continue;
+    const key = m[1];
+    let val = m[2].trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
+      val = val.slice(1, -1);
+    if (val && process.env[key] === undefined) process.env[key] = val;
+  }
+}
+
 const PORT = process.env.PORT || 8787;
+
+/* --------------------------------------------------------------------------
+   Credentials.
+
+   The dev fallbacks below are published in this repository, so on a public
+   server they are equivalent to having no password at all: ADMIN_SECRET signs
+   the session tokens, and anyone who knows it can mint a valid admin token
+   without ever touching the login endpoint — no password, and the rate limit
+   never applies because the login route is never called.
+
+   Production therefore refuses to start until real values are supplied.
+   Set them in the host's environment (never in a committed file):
+
+     ADMIN_USER=...  ADMIN_PASS=...  ADMIN_SECRET=...
+     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   -------------------------------------------------------------------------- */
+const DEV_PASS = 'khyeast-1404';
+const DEV_SECRET = 'khyeast-content-secret-dev';
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASS = process.env.ADMIN_PASS || 'khyeast-1404';
-const SECRET = process.env.ADMIN_SECRET || 'khyeast-content-secret-dev';
+const ADMIN_PASS = process.env.ADMIN_PASS || DEV_PASS;
+const SECRET = process.env.ADMIN_SECRET || DEV_SECRET;
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+if (IS_PROD) {
+  const problems = [];
+  if (ADMIN_PASS === DEV_PASS) problems.push('ADMIN_PASS is still the published default');
+  if (SECRET === DEV_SECRET) problems.push('ADMIN_SECRET is still the published default');
+  if (ADMIN_PASS.length < 12) problems.push('ADMIN_PASS is shorter than 12 characters');
+  if (SECRET.length < 32) problems.push('ADMIN_SECRET is shorter than 32 characters');
+  if (!process.env.PUBLIC_ORIGIN && !process.env.TRUSTED_HOSTS) {
+    problems.push(
+      'neither PUBLIC_ORIGIN nor TRUSTED_HOSTS is set — payment callback URLs ' +
+        "would be built from the client's Host header",
+    );
+  }
+  if (problems.length) {
+    console.error('\n[content-api] REFUSING TO START — insecure configuration:');
+    for (const p of problems) console.error('  • ' + p);
+    console.error('\n  Fix these in the environment. Generate a secret with:');
+    console.error('    node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n');
+    process.exit(1);
+  }
+} else if (ADMIN_PASS === DEV_PASS || SECRET === DEV_SECRET) {
+  console.warn('[content-api] WARNING: using published development credentials — never deploy this way.');
+}
+
 const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12h
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
