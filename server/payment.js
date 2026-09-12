@@ -33,6 +33,17 @@ async function zarinpalCreate(cfg, order, callbackUrl) {
   return { ref: authority, payUrl: `${payBase}/pg/StartPay/${authority}` };
 }
 
+/* Coerce a gateway-supplied amount to a number, but only from a genuine number
+   or numeric string. `Number([91000])` is 91000 and `Number([])` is 0, so
+   passing the raw value to Number() would let an array-shaped response satisfy
+   an equality check it should never satisfy. Anything else yields NaN, which
+   callers treat as a failed verification. */
+function parseAmount(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && v.trim() !== '') return Number(v);
+  return NaN;
+}
+
 async function zarinpalVerify(cfg, params, expectedRial) {
   if (String(params.Status || '').toUpperCase() !== 'OK') return { ok: false };
   const sandbox = String(cfg.zarinpalMerchant || '').startsWith('test');
@@ -50,8 +61,11 @@ async function zarinpalVerify(cfg, params, expectedRial) {
   const json = await res.json().catch(() => ({}));
   const ok = json?.data?.code === 100;
   if (!ok) return { ok: false, ref: String(params.Authority || '') };
-  const paid = Number(json?.data?.amount);
-  if (Number.isFinite(paid) && paid !== expected) {
+  /* The amount must be present AND equal. Treating a missing or unparseable
+     amount as "no mismatch" would let a gateway response that omits the field
+     settle any order for any sum. */
+  const paid = parseAmount(json?.data?.amount);
+  if (!Number.isFinite(paid) || paid !== expected) {
     return { ok: false, ref: String(params.Authority || ''), amountMismatch: { paid, expected } };
   }
   return { ok: true, ref: String(json.data.ref_id) };
@@ -102,8 +116,8 @@ async function idpayVerify(cfg, params, expectedRial) {
   /* IDPay echoes the settled amount; refuse anything that is not what the
      order actually costs. */
   const expected = toToman(expectedRial);
-  const paid = Number(json?.amount);
-  if (Number.isFinite(paid) && paid !== expected) {
+  const paid = parseAmount(json?.amount);
+  if (!Number.isFinite(paid) || paid !== expected) {
     return { ok: false, ref: String(params.id || ''), amountMismatch: { paid, expected } };
   }
   return { ok: true, ref: String(params.id || '') };
