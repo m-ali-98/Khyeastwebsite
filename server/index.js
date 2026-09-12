@@ -573,6 +573,13 @@ if (fs.existsSync(DIST)) {
         if (/[.-][0-9a-zA-Z_-]{8,}\.(js|css|woff2?|png|jpe?g|webp|svg|avif)$/.test(filePath))
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         else if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+        /* Brand and product artwork in /assets keeps a stable, unhashed name,
+           so it cannot be marked immutable — a redesign would be invisible to
+           anyone holding the old copy. A week with stale-while-revalidate lets
+           a repeat visitor paint from cache instantly while the browser
+           refreshes it in the background, instead of re-fetching every day. */
+        else if (/\.(png|jpe?g|webp|svg|avif|ico|woff2?)$/.test(filePath))
+          res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         else res.setHeader('Cache-Control', 'public, max-age=86400');
       },
     }),
