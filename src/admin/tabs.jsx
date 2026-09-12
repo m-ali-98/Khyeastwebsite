@@ -80,7 +80,7 @@ export function ProductsTab() {
       title: '',
       weight: '',
       pack: '',
-      image: '/assets/products/dezmaye-gold.png',
+      image: '/assets/products/dezmaye-gold.webp',
       featured: false,
       short: '',
       specs: [['وزن خالص', '']],
@@ -236,7 +236,7 @@ export function PostsTab() {
       excerpt: '',
       date: new Date().toLocaleDateString('fa-IR'),
       category: 'دسته‌بندی نشده',
-      image: '/assets/img/bread-slicing.jpg',
+      image: '/assets/img/bread-slicing.webp',
       readTime: '۵',
       body: '<p></p>',
     });
