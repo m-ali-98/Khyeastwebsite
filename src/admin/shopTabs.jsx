@@ -43,7 +43,7 @@ export function ShopProductsTab() {
       brand: brands[0]?.id,
       productSlug: '',
       unit: '',
-      image: '/assets/products/dezmaye-gold.png',
+      image: '/assets/products/dezmaye-gold.webp',
       price: 0,
       oldPrice: null,
       stock: 10,

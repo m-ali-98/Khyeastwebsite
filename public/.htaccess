@@ -30,10 +30,20 @@
 </IfModule>
 
 # --- Caching --------------------------------------------------------------
+# Some shared hosts still ship a mime.types without webp/avif; without this
+# they are sent as application/octet-stream and the browser downloads them
+# instead of rendering them.
+<IfModule mod_mime.c>
+  AddType image/webp .webp
+  AddType image/avif .avif
+</IfModule>
+
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType image/jpeg "access plus 1 year"
   ExpiresByType image/png  "access plus 1 year"
+  ExpiresByType image/webp "access plus 1 year"
+  ExpiresByType image/avif "access plus 1 year"
   ExpiresByType image/svg+xml "access plus 1 year"
   ExpiresByType font/woff2 "access plus 1 year"
   ExpiresByType text/css "access plus 1 year"
@@ -47,7 +57,7 @@
   <FilesMatch "\-[0-9a-zA-Z_\-]{8,}\.(js|css|woff2?)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
-  <FilesMatch "\.(jpe?g|png|svg|woff2)$">
+  <FilesMatch "\.(jpe?g|png|webp|avif|svg|woff2)$">
     Header set Cache-Control "public, max-age=31536000"
   </FilesMatch>
   <FilesMatch "\.html$">
