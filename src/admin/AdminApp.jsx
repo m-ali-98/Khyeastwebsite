@@ -243,8 +243,15 @@ function AdminShell() {
             href="#logout"
             onClick={(e) => {
               e.preventDefault();
-              tokenSet('');
-              setAuthed(false);
+              /* Tell the server first so the token is revoked, not merely
+                 forgotten by this browser. The local state is cleared either
+                 way — a failed call must never trap the admin in the panel. */
+              api('/api/auth/logout', { method: 'POST', auth: true })
+                .catch(() => {})
+                .finally(() => {
+                  tokenSet('');
+                  setAuthed(false);
+                });
             }}
           >
             <Icons.arrow size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginInlineEnd: 6 }} />

@@ -158,6 +158,54 @@ const writeContent = (next) => {
 };
 
 /* ---------------- auth ---------------- */
+/* Tokens are signed and carry an expiry, but a signature alone cannot be taken
+   back: until this session store existed, logging out only dropped the token
+   from the browser's localStorage, and a copy captured in the meantime stayed
+   valid for the rest of its 12 hours with no way to stop it.
+ 
+   So every token also carries a session id, and a session is only accepted
+   while it is listed here. Logging out removes the entry, which makes every
+   copy of that token dead immediately. The list is an allowlist rather than a
+   blocklist of revoked ids: entries can be pruned once they expire without
+   ever reviving a token, and a session the server has no record of is refused
+   by default.
+ 
+   It lives in the settings table so it survives a restart — otherwise every
+   deploy would silently sign the admin out. */
+const SESSION_KEY = 'auth.sessions';
+
+const loadSessions = () => {
+  const raw = store.getSetting(db, SESSION_KEY, {});
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+};
+
+/* Drop expired ids on every write so the row cannot grow without bound. */
+const saveSessions = (sessions) => {
+  const now = Date.now();
+  const live = {};
+  for (const [sid, exp] of Object.entries(sessions)) {
+    if (typeof exp === 'number' && exp > now) live[sid] = exp;
+  }
+  store.setSetting(db, SESSION_KEY, live);
+  return live;
+};
+
+const sessionStart = (exp) => {
+  const sid = crypto.randomBytes(16).toString('hex');
+  saveSessions({ ...loadSessions(), [sid]: exp });
+  return sid;
+};
+
+const sessionEnd = (sid) => {
+  const sessions = loadSessions();
+  if (!(sid in sessions)) return false;
+  delete sessions[sid];
+  saveSessions(sessions);
+  return true;
+};
+
+const sessionEndAll = () => store.setSetting(db, SESSION_KEY, {});
+
 const sign = (payload) => {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
@@ -170,15 +218,25 @@ const verify = (token) => {
     if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
     if (payload.exp < Date.now()) return null;
+    /* A correctly signed token whose session has been ended — or which predates
+       session tracking entirely — is no longer usable. */
+    if (typeof payload.sid !== 'string') return null;
+    const exp = loadSessions()[payload.sid];
+    if (typeof exp !== 'number' || exp <= Date.now()) return null;
     return payload;
   } catch {
     return null;
   }
 };
-const requireAuth = (req, res, next) => {
+const bearer = (req) => {
   const header = req.get('authorization') || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  if (!token || !verify(token)) return res.status(401).json({ error: 'unauthorized' });
+  return header.startsWith('Bearer ') ? header.slice(7) : null;
+};
+const requireAuth = (req, res, next) => {
+  const token = bearer(req);
+  const payload = token && verify(token);
+  if (!payload) return res.status(401).json({ error: 'unauthorized' });
+  req.session = payload;
   next();
 };
 
@@ -326,10 +384,25 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   loginHits.delete(ip); // successful login clears the counter
-  res.json({ token: sign({ user, exp: Date.now() + TOKEN_TTL }) });
+  const exp = Date.now() + TOKEN_TTL;
+  res.json({ token: sign({ user, exp, sid: sessionStart(exp) }) });
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => res.json({ ok: true }));
+
+/* Ending the session server-side is what actually revokes the token; clearing
+   localStorage in the browser only hides it. */
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  sessionEnd(req.session.sid);
+  res.json({ ok: true });
+});
+
+/* Escape hatch for a token believed to be stolen: invalidates every session,
+   including the caller's, so the admin can lock everyone out and log back in. */
+app.post('/api/auth/logout-all', requireAuth, (_req, res) => {
+  sessionEndAll();
+  res.json({ ok: true });
+});
 
 /* ---------------- admin: content ---------------- */
 const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts', 'shop'];

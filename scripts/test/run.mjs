@@ -135,6 +135,21 @@ try {
   console.log('  FAIL payment harness error');
 }
 
+console.log('\nAuth — logging out must revoke the token, not just forget it');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'auth.mjs')], { cwd: HERE, timeout: 60000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'auth', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} session / revocation cases`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'auth', String(e.message).slice(0, 90));
+  console.log('  FAIL auth harness error');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) {
   console.log('\nFailures:');
