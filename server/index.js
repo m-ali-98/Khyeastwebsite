@@ -396,9 +396,12 @@ app.post('/api/messages', (req, res) => {
     res.setHeader('Retry-After', Math.ceil(MSG_WINDOW / 1000));
     return res.status(429).json({ error: 'too many messages, please try again later' });
   }
-  msgHits.set(ip, [...recent, now]);
   const { name, phone, email, subject, message } = req.body || {};
   if (!name || !phone || !message) return res.status(400).json({ error: 'fields required' });
+  /* Count the attempt only once it is known to be a real submission. Charging
+     the quota before validation meant a visitor who mistyped their phone five
+     times was locked out for ten minutes without ever sending a message. */
+  msgHits.set(ip, [...recent, now]);
   const item = {
     id: crypto.randomUUID(),
     name: String(name).slice(0, 200),
@@ -573,6 +576,23 @@ if (fs.existsSync(DIST)) {
    arguments) and by declaration order. */
 // eslint-disable-next-line no-unused-vars -- the 4th arg is what marks this as an error handler
 app.use((err, req, res, _next) => {
+  /* Multer reports upload problems as errors, not as a rejected request. Left
+     to the generic branch they surfaced as HTTP 500 "internal error", so an
+     admin uploading a too-large video was told the server had broken. */
+  if (err?.name === 'MulterError') {
+    const MULTER = {
+      LIMIT_FILE_SIZE: [413, 'file too large (max 200MB)'],
+      LIMIT_UNEXPECTED_FILE: [400, 'unexpected file field'],
+      LIMIT_FILE_COUNT: [400, 'too many files'],
+      LIMIT_PART_COUNT: [400, 'too many parts'],
+      LIMIT_FIELD_KEY: [400, 'field name too long'],
+      LIMIT_FIELD_VALUE: [400, 'field value too long'],
+      LIMIT_FIELD_COUNT: [400, 'too many fields'],
+    };
+    const [code, message] = MULTER[err.code] || [400, 'upload rejected'];
+    return res.status(code).json({ error: message });
+  }
+
   const status = Number(err?.status || err?.statusCode) || 500;
 
   /* Client mistakes are worth naming precisely; anything else is a bug on our

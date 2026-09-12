@@ -188,6 +188,7 @@ export const TEXTS = {
   'contact.form.errPhone': 'يرجى إدخال رقم هاتف صحيح.',
   'contact.form.errMessage': 'نص الرسالة مطلوب.',
   'contact.form.errSend': 'تعذر إرسال الرسالة؛ يرجى المحاولة مجددًا أو الاتصال بنا هاتفيًا.',
+  'form.errRateLimited': 'عدد الطلبات من هذا الاتصال كبير جدًا؛ يرجى الانتظار بضع دقائق ثم المحاولة مرة أخرى.',
 
   /* ---------- footer / 404 / nav ---------- */
   'footer.about':

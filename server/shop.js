@@ -42,27 +42,57 @@ const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancel
 const rand = (n) => crypto.randomBytes(n).toString('hex');
 const orderCode = () => `KY-${Date.now().toString(36).slice(-5).toUpperCase()}${rand(2).toUpperCase()}`;
 
-/* tiny in-memory rate limit: max 5 public writes / 10 min / ip */
+/* Tiny in-memory rate limit, per IP.
+
+   Two things here are deliberate and were both bugs before:
+
+   1. Orders and comments get SEPARATE buckets. Sharing one counter meant a
+      shopper who asked five questions on product pages could no longer place
+      an order at all — the checkout answered "rate limited" with no
+      explanation.
+   2. `check()` only reports; `record()` is called by the route *after* the
+      request is known to be valid. Counting on entry meant five mistyped
+      phone numbers locked a real customer out of checkout for ten minutes.
+
+   Limits differ by intent: comments are chatter, orders are revenue, so
+   ordering is far more permissive. */
 const RL_WINDOW = 10 * 60 * 1000;
-const hits = new Map();
-function rateLimited(ip) {
+const RL_MAX = { comment: 5, order: 12 };
+const hits = { comment: new Map(), order: new Map() };
+
+const recentFor = (kind, ip) => {
   const now = Date.now();
-  const arr = (hits.get(ip) || []).filter((t) => now - t < RL_WINDOW);
-  arr.push(now);
-  hits.set(ip, arr);
-  return arr.length > 5;
+  return (hits[kind].get(ip) || []).filter((t) => now - t < RL_WINDOW);
+};
+
+/** True when this IP has already used up the bucket. Does not consume it. */
+function rateLimited(kind, ip) {
+  return recentFor(kind, ip).length >= RL_MAX[kind];
+}
+
+/** Consume one slot. Call only for requests that actually did something. */
+function recordHit(kind, ip) {
+  hits[kind].set(ip, [...recentFor(kind, ip), Date.now()]);
 }
 
 /* Sweep expired entries — otherwise every IP that ever posted stays in memory
    for the lifetime of the process. */
 setInterval(() => {
   const cut = Date.now() - RL_WINDOW;
-  for (const [ip, times] of hits) {
-    const keep = times.filter((t) => t > cut);
-    if (keep.length) hits.set(ip, keep);
-    else hits.delete(ip);
+  for (const map of Object.values(hits)) {
+    for (const [ip, times] of map) {
+      const keep = times.filter((t) => t > cut);
+      if (keep.length) map.set(ip, keep);
+      else map.delete(ip);
+    }
   }
 }, RL_WINDOW).unref();
+
+/* Tell the client how long to wait instead of showing a generic failure. */
+const tooMany = (res) => {
+  res.setHeader('Retry-After', Math.ceil(RL_WINDOW / 1000));
+  return res.status(429).json({ error: 'rate limited', retryAfter: Math.ceil(RL_WINDOW / 1000) });
+};
 
 export function createShopRouter({ database, requireAuth }) {
   const r = express.Router();
@@ -86,7 +116,7 @@ export function createShopRouter({ database, requireAuth }) {
   });
 
   r.post('/api/shop-public/comments', (req, res) => {
-    if (rateLimited(req.ip)) return res.status(429).json({ error: 'rate limited' });
+    if (rateLimited('comment', req.ip)) return tooMany(res);
     const { slug, name, text } = req.body || {};
     if (!slug || !name || !text) return res.status(400).json({ error: 'fields required' });
     const product = db.getProduct(D, slug);
@@ -104,11 +134,12 @@ export function createShopRouter({ database, requireAuth }) {
       replyAt: null,
     };
     db.insertComment(D, item);
+    recordHit('comment', req.ip);
     res.json({ ok: true, id: item.id, pending: !item.approved });
   });
 
   r.post('/api/shop-public/orders', async (req, res) => {
-    if (rateLimited(req.ip)) return res.status(429).json({ error: 'rate limited' });
+    if (rateLimited('order', req.ip)) return tooMany(res);
     const { items, customer } = req.body || {};
     const d = display();
     if (!d.enabled) return res.status(403).json({ error: 'shop disabled' });
@@ -189,6 +220,7 @@ export function createShopRouter({ database, requireAuth }) {
     order.payRef = pay.ref;
 
     db.insertOrder(D, order);
+    recordHit('order', req.ip);
     res.json({
       ok: true,
       order: { code: order.code, token: order.token, total: order.total, status: order.status, provider: order.provider },
@@ -310,6 +342,15 @@ export function createShopRouter({ database, requireAuth }) {
   });
 
   r.delete('/api/shop-admin/orders/:id', requireAuth, (req, res) => {
+    /* Deleting an order that still holds stock has to release it, exactly as
+       cancelling does. Without this, tidying up the order list quietly
+       destroys sellable inventory: the units were deducted when the order was
+       placed and nothing ever gives them back.
+
+       Cancelled orders have already been credited, so they are skipped —
+       otherwise deleting one would mint stock that never existed. */
+    const order = db.getOrderById(D, req.params.id);
+    if (order && order.status !== 'cancelled') db.restoreStock(D, order.items);
     db.deleteOrder(D, req.params.id);
     res.json({ ok: true });
   });

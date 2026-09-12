@@ -193,6 +193,7 @@ export const TEXTS = {
   'contact.form.errPhone': 'Please enter a valid phone number.',
   'contact.form.errMessage': 'A message is required.',
   'contact.form.errSend': 'The message could not be sent. Please try again or call us instead.',
+  'form.errRateLimited': 'Too many requests from this connection. Please wait a few minutes and try again.',
 
   /* ---------- footer / 404 / nav ---------- */
   'footer.about':

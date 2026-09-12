@@ -234,7 +234,10 @@ export function PostsTab() {
       slug: `post-${Date.now()}`,
       title: '',
       excerpt: '',
-      date: new Date().toLocaleDateString('fa-IR'),
+      /* Match the long form the shipped posts use ("۲۵ مرداد ۱۴۰۵") rather
+         than the numeric default ("۱۴۰۵/۶/۲۱"), so a new post does not look
+         different from the existing ones in the blog list. */
+      date: new Date().toLocaleDateString('fa-IR', { day: 'numeric', month: 'long', year: 'numeric' }),
       category: 'دسته‌بندی نشده',
       image: '/assets/img/bread-slicing.webp',
       readTime: '۵',

@@ -25,14 +25,19 @@ function CommentForm({ slug, onDone }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, name: name.trim(), text: text.trim() }),
       });
-      if (!res.ok) throw new Error('fail');
+      /* Carry the status out of the try block so a rate-limited poster is told
+         to wait rather than being shown a generic server error. */
+      if (!res.ok) throw Object.assign(new Error('fail'), { status: res.status });
       const data = await res.json();
       setNote({ kind: 'ok', msg: data.pending ? t('shop.comments.pending') : t('shop.comments.ok') });
       setName('');
       setText('');
       onDone?.(data);
-    } catch {
-      setNote({ kind: 'err', msg: t('shop.checkout.errServer') });
+    } catch (err) {
+      setNote({
+        kind: 'err',
+        msg: t(err?.status === 429 ? 'form.errRateLimited' : 'shop.checkout.errServer'),
+      });
     } finally {
       setBusy(false);
     }
