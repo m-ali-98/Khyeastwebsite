@@ -252,7 +252,21 @@ export function ShopOrdersTab() {
   }, []);
 
   const patch = async (id, body, method = 'PATCH') => {
-    await api(`/api/shop-admin/orders/${id}`, { method, body, auth: true });
+    setErr('');
+    try {
+      await api(`/api/shop-admin/orders/${id}`, { method, body, auth: true });
+    } catch (e) {
+      /* Taking an order out of «لغو شده» re-reserves its stock, which the
+         server refuses with 409 when the units are no longer available. The
+         select would otherwise just snap back with no explanation. */
+      setErr(
+        e.status === 409
+          ? e.detail || 'موجودی برای بازگرداندن این سفارش کافی نیست؛ ابتدا موجودی محصول را افزایش دهید.'
+          : e.status === 401
+            ? 'نشست مدیر منقضی شده؛ دوباره وارد شوید.'
+            : 'تغییر وضعیت سفارش ممکن نشد.',
+      );
+    }
     load();
   };
 
