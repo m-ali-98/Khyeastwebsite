@@ -43,15 +43,10 @@ const TARGETS = [
 ];
 
 /* Product shots are displayed in a 1:1 frame on /products and the product
-   detail page, so they are cropped square from the centre and emitted at
-   several widths. A card is ~280 CSS px on desktop and ~590 on a phone, so
-   one large file would waste most of its bytes.
-
-   Keep HAS_VARIANTS in src/lib/productImage.js in sync with whatever lands
-   here: that module only builds a srcset for names it knows exist, because
-   guessing at a missing variant would 404 and blank the card. */
-const SQUARE_WIDTHS = [360, 540, 720, 1080];
-const SQUARE_BASE = 720; // what `<name>.webp` itself is written at
+   detail page, so they are cropped square from the centre. The masters are
+   1408x768, so without this the packaging was cropped top and bottom by the
+   card's object-fit instead. */
+const SQUARE = 720;
 
 const kb = (n) => (n / 1024).toFixed(0) + 'K';
 const rows = [];
@@ -69,20 +64,10 @@ for (const { dir, out: outDir, match, opts } of TARGETS) {
     const out = path.join(absOut, `${base}.webp`);
     const srcSize = statSync(src).size;
 
-    const render = (width) => {
-      const p = sharp(src);
-      return square ? p.resize(width, width, { fit: 'cover', position: 'centre' }).webp(opts) : p.webp(opts);
-    };
-
-    const buf = await render(SQUARE_BASE).toBuffer();
-
-    /* Responsive variants, alongside the base file. */
-    if (square && !DRY) {
-      for (const w of SQUARE_WIDTHS) {
-        const vb = await render(w).toBuffer();
-        writeFileSync(path.join(absOut, `${base}-${w}.webp`), vb);
-      }
-    }
+    const pipeline = square
+      ? sharp(src).resize(SQUARE, SQUARE, { fit: 'cover', position: 'centre' })
+      : sharp(src);
+    const buf = await pipeline.webp(opts).toBuffer();
 
     /* Only keep the WebP if it is actually smaller — a already-optimised JPEG
        can encode larger, and shipping a bigger file would defeat the point. */

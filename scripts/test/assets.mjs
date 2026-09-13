@@ -82,12 +82,10 @@ check(heavyImages.length === 0, 'no oversized image ships in the build', heavyIm
 const SRC = path.join(ROOT, 'assets-src');
 check(fs.existsSync(SRC), 'assets-src/ archive of originals still present');
 
-/* ---- product photography must stay square with a complete variant set ----
-   /products and the product detail page render these in a 1:1 frame with
-   `object-fit: contain`, so a non-square file would letterbox. Every width
-   named in src/lib/productImage.js must exist on disk: that module builds the
-   srcset by string concatenation, so a missing file is a 404 and a blank card
-   on exactly the viewport that picks it. */
+/* ---- product photography must stay square --------------------------------
+   /products and the product detail page render these in a 1:1 frame. The
+   masters are 1408x768, so if a shot is ever regenerated without the square
+   crop the packaging silently gets cropped top and bottom again. */
 const webpSize = (file) => {
   const d = fs.readFileSync(file);
   if (d.slice(0, 4).toString() !== 'RIFF') return null;
@@ -104,44 +102,19 @@ const webpSize = (file) => {
   return null;
 };
 
-const imgSrc = fs.readFileSync(path.join(ROOT, 'src/lib/productImage.js'), 'utf8');
-const bases = [...imgSrc.matchAll(/'([a-z0-9-]+)'/g)]
-  .map((m) => m[1])
-  .filter((n) => fs.existsSync(path.join(ROOT, 'public/assets/products', `${n}.webp`)));
-const widths = (imgSrc.match(/PRODUCT_WIDTHS = \[([^\]]+)\]/) || [, ''])[1]
-  .split(',')
-  .map((x) => Number(x.trim()))
-  .filter(Boolean);
-
-check(bases.length === 4, 'all four product shots are known to the srcset helper', bases.join(' '));
-check(widths.length >= 3, 'PRODUCT_WIDTHS is populated', widths.join(' '));
-
+const shotDir = path.join(ROOT, 'public/assets/products');
+const shots = fs.readdirSync(shotDir).filter((f) => f.endsWith('.webp'));
 const notSquare = [];
-const missingVariant = [];
-for (const base of bases) {
-  for (const w of [null, ...widths]) {
-    const rel = `public/assets/products/${base}${w ? `-${w}` : ''}.webp`;
-    const abs = path.join(ROOT, rel);
-    if (!fs.existsSync(abs)) {
-      missingVariant.push(`${base}-${w}`);
-      continue;
-    }
-    const dim = webpSize(abs);
-    if (!dim || dim[0] !== dim[1]) notSquare.push(`${rel} ${dim ? dim.join('x') : '?'}`);
-    else if (w && dim[0] !== w) notSquare.push(`${rel} is ${dim[0]}px, expected ${w}`);
-  }
+for (const f of shots) {
+  const dim = webpSize(path.join(shotDir, f));
+  if (!dim || dim[0] !== dim[1]) notSquare.push(`${f} ${dim ? dim.join('x') : '?'}`);
 }
-check(missingVariant.length === 0, 'every declared srcset width exists on disk', missingVariant.join(' '));
-check(notSquare.length === 0, 'every product image is square at its declared width', notSquare.slice(0, 4).join(' '));
-
-/* The card must reserve the square box, and must not invent variants for
-   admin-uploaded images (that would 404 and blank the card). */
-const cardsSrc = fs.readFileSync(path.join(ROOT, 'src/components/cards.jsx'), 'utf8');
-const scssSrc = fs.readFileSync(path.join(ROOT, 'src/styles/global.scss'), 'utf8');
-check(/width=\{720\}/.test(cardsSrc) && /height=\{720\}/.test(cardsSrc), 'product card reserves the image box');
-check(/productImgProps\(product\.image/.test(cardsSrc), 'product card uses the responsive helper');
+check(shots.length === 4, 'the four product shots are present', shots.join(' '));
+check(notSquare.length === 0, 'every product photo is square', notSquare.join(' '));
 check(
-  /\.product-card__media \{[^}]*aspect-ratio:\s*1\s*\/\s*1/s.test(scssSrc),
+  /\.product-card__media \{[^}]*aspect-ratio:\s*1\s*\/\s*1/s.test(
+    fs.readFileSync(path.join(ROOT, 'src/styles/global.scss'), 'utf8'),
+  ),
   'the card media frame is square in CSS',
 );
 
