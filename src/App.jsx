@@ -79,7 +79,7 @@ function AnimatedRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
   const { t } = useContent();
-  const { locale } = useLocale();
+  const { locale, shopEnabled } = useLocale();
   usePrefetchRoutes();
 
   /* Title, description, canonical and hreflang alternates per locale — search
@@ -153,8 +153,10 @@ function AnimatedRoutes() {
   }, [location.pathname, locale, t]);
 
   useEffect(() => {
-    prefetch(location.pathname); // warm neighbours of the current page
-  }, [location.pathname]);
+    /* warm neighbours of the current page — but not the shop chunks on /en
+       and /ar, where those routes are not mounted at all */
+    prefetch(location.pathname, shopEnabled);
+  }, [location.pathname, shopEnabled]);
 
   if (isAdmin) {
     return (
