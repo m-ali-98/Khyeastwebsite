@@ -142,11 +142,22 @@ const readContent = () => {
   };
 };
 
-/** Persist site content: shop → database, everything else → JSON file. */
+/** Persist site content: shop → database, everything else → JSON file.
+ *
+ *  Stock is deliberately NOT taken from this payload. The admin panel loads
+ *  /api/content once when it mounts and then holds that snapshot; meanwhile
+ *  customer orders and order-status changes move stock in the database. Saving
+ *  any unrelated edit (a price, a description) used to write the stale
+ *  snapshot back over the live figures, silently undoing every sale made since
+ *  the page was opened — a customer's order would vanish from inventory.
+ *
+ *  The shop tab has no stock field for existing products, so the payload never
+ *  carries a deliberate stock change: the live value always wins. A genuinely
+ *  new product still gets the stock it was created with. */
 const writeContent = (next) => {
   const { shop, ...rest } = next;
   if (shop && typeof shop === 'object') {
-    if (Array.isArray(shop.products)) store.replaceProducts(db, shop.products);
+    if (Array.isArray(shop.products)) store.replaceProducts(db, shop.products, { preserveStock: true });
     if (shop.display && typeof shop.display === 'object')
       store.setSetting(db, 'shop.display', {
         ...DEFAULT_STATE.shop.display,

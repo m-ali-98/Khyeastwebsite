@@ -98,6 +98,19 @@ export function ContentProvider({ children }) {
   const [ready, setReady] = useState(Boolean(cached));
   const [backend, setBackend] = useState(false);
 
+  /* Re-read the server copy on demand. Stock changes constantly (every order,
+     every order-status change), so the snapshot taken at page load goes stale
+     while the admin works. This backs the refresh button on the shop tab. */
+  const reload = useCallback(async () => {
+    const r = await fetch('/api/content', { cache: 'no-store' });
+    if (!r.ok) throw Object.assign(new Error('no api'), { status: r.status });
+    const data = await r.json();
+    setState(mergeState(DEFAULT_STATE, data));
+    setBackend(true);
+    cacheWrite(data);
+    return data;
+  }, []);
+
   useEffect(() => {
     let alive = true;
     fetch('/api/content')
@@ -134,6 +147,7 @@ export function ContentProvider({ children }) {
       ready,
       backend,
       save,
+      reload,
       t: (k) => view.texts?.[k] ?? fallback.texts[k] ?? '',
       m: (k) => view.media?.[k] ?? fallback.media[k] ?? '',
       l: (k) => view.links?.[k] ?? fallback.links[k] ?? '#',
@@ -142,7 +156,7 @@ export function ContentProvider({ children }) {
       posts: view.posts ?? [],
       brands: view.brands ?? fallback.brands,
     }),
-    [state, view, fallback, locale, ready, backend, save]
+    [state, view, fallback, locale, ready, backend, save, reload]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
