@@ -82,4 +82,81 @@ check(heavyImages.length === 0, 'no oversized image ships in the build', heavyIm
 const SRC = path.join(ROOT, 'assets-src');
 check(fs.existsSync(SRC), 'assets-src/ archive of originals still present');
 
+/* ---- speculative prefetch must respect the locale ----------------------
+   React Router strips the /en and /ar prefix with `basename`, so
+   location.pathname is plain "/" in all three languages. The neighbour table
+   therefore cannot tell them apart on its own, and prefetch() used to warm
+   the shop chunks for English and Arabic visitors — routes that are never
+   mounted outside Persian. The shopOn flag is what prevents that, so assert
+   both that it is still threaded through and that it actually filters. */
+const routesSrc = fs.readFileSync(path.join(ROOT, 'src/routes.js'), 'utf8');
+const appSrc = fs.readFileSync(path.join(ROOT, 'src/App.jsx'), 'utf8');
+
+check(
+  /export function prefetch\(pathname, shopOn/.test(routesSrc),
+  'prefetch() still takes the shop/locale flag',
+);
+check(
+  /if \(!shopOn && key\.startsWith\('\/shop'\)\) return;/.test(routesSrc),
+  'prefetch() filters shop chunks when the shop is off',
+);
+check(
+  /prefetch\(location\.pathname, shopEnabled\)/.test(appSrc),
+  'App passes shopEnabled into prefetch',
+);
+check(
+  /const \{ locale, shopEnabled \} = useLocale\(\)/.test(appSrc),
+  'shopEnabled is actually in scope where prefetch is called',
+);
+
+/* Behavioural check on the REAL prefetch(), not a copy of it: re-implementing
+   the filter here would pass even if src/routes.js were reverted. The module
+   imports React, so it cannot simply be imported in Node — instead slice the
+   pure parts out of the source and evaluate them with the dynamic imports
+   stubbed, recording which chunks would be requested. */
+const slice = (name) => {
+  const i = routesSrc.indexOf(`const ${name}`);
+  const j = routesSrc.indexOf('\n};', i);
+  return routesSrc.slice(i, j + 3);
+};
+const prefetchSrc = routesSrc.slice(
+  routesSrc.indexOf('export function prefetch'),
+  routesSrc.indexOf('const onIdle'),
+);
+const keysForSrc = routesSrc.slice(
+  routesSrc.indexOf('function keysFor'),
+  routesSrc.indexOf('/** Prefetch the neighbours'),
+);
+
+const harness = `
+  ${slice('LOADERS').replace(/\(\) => import\([^)]*\)/g, '() => {}')}
+  ${slice('NEIGHBOURS')}
+  const isSaving = () => false;
+  const warmed = [];
+  const warm = (k) => warmed.push(k);
+  ${keysForSrc}
+  ${prefetchSrc.replace('export function', 'function')}
+  return (path, shopOn) => { warmed.length = 0; prefetch(path, shopOn); return warmed.slice(); };
+`;
+// eslint-disable-next-line no-new-func
+const runPrefetch = new Function(harness)();
+
+const faWarm = runPrefetch('/', true);
+const enWarm = runPrefetch('/', false);
+check(faWarm.includes('/shop'), 'Persian home still warms the shop chunk', faWarm.join(' '));
+check(
+  !enWarm.some((k) => k.startsWith('/shop')),
+  'English/Arabic home warms no shop chunk',
+  enWarm.join(' '),
+);
+check(
+  enWarm.includes('/products') && enWarm.includes('/about'),
+  'non-shop neighbours are still warmed for every locale',
+  enWarm.join(' '),
+);
+check(
+  !runPrefetch('/products', false).some((k) => k.startsWith('/shop')),
+  'the products page also skips the shop chunk outside Persian',
+);
+
 console.log(`${pass}/${pass + fail}`);

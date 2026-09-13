@@ -92,11 +92,21 @@ function keysFor(pathname) {
   return [];
 }
 
-/** Prefetch the neighbours of a pathname (called on every route change). */
-export function prefetch(pathname) {
+/** Prefetch the neighbours of a pathname (called on every route change).
+ *
+ *  `shopOn` reflects the current locale. React Router strips the /en and /ar
+ *  prefix via `basename`, so pathname is plain "/" in all three languages and
+ *  the neighbour table alone cannot tell them apart. Without this flag an
+ *  English or Arabic visitor speculatively downloaded the shop chunks, which
+ *  are never mounted outside Persian — bandwidth spent on a route they can
+ *  physically never reach. */
+export function prefetch(pathname, shopOn = true) {
   if (isSaving()) return;
   const base = keysFor(pathname)[0] || pathname;
-  (NEIGHBOURS[base] || []).forEach(warm);
+  (NEIGHBOURS[base] || []).forEach((key) => {
+    if (!shopOn && key.startsWith('/shop')) return;
+    warm(key);
+  });
 }
 
 const onIdle = (fn) =>
