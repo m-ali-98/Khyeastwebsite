@@ -722,13 +722,18 @@ input, select, textarea { font-family: inherit; }
 }
 .product-card__media {
   position: relative;
-  aspect-ratio: 4 / 3;
+  /* Square: the product photography is shot 1:1, so any other ratio would
+     crop the packaging. The browser reserves the exact box before the image
+     arrives, so the grid never reflows as photos load. */
+  aspect-ratio: 1 / 1;
   background: radial-gradient(90% 90% at 50% 40%, var(--surface) 30%, var(--bg-softer));
   overflow: hidden;
 }
 .product-card__media img {
   width: 100%; height: 100%;
-  object-fit: cover;
+  /* `contain` rather than `cover`: the source is already square and framed,
+     so scaling it to fit shows the whole pack instead of trimming its edges. */
+  object-fit: contain;
   transition: transform 0.8s var(--ease);
 }
 .product-card:hover .product-card__media img { transform: scale(1.09) rotate(-1deg); }
@@ -1283,6 +1288,15 @@ input, select, textarea { font-family: inherit; }
 
 .gallery-img { border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
 .gallery-img img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Product photography is square and already framed, so it is shown whole
+   rather than cropped to the container. Scoped to a modifier because
+   .gallery-img is shared with the blog, where cover is correct. */
+.gallery-img--square img {
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
 
 .icon-badge {
   width: 54px; height: 54px;

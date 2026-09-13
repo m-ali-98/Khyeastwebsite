@@ -35,25 +35,54 @@ const PHOTO = { quality: 82, effort: 6 };
    nothing is lost when the encoder drops it. */
 const PRODUCT = { quality: 86, effort: 6 };
 
+/* Masters live in assets-src/ (outside the build, see assets-src/README.md);
+   the webp the site actually serves is written into public/assets/. */
 const TARGETS = [
-  { dir: 'public/assets/products', match: /\.png$/i, opts: PRODUCT },
-  { dir: 'public/assets/img', match: /\.(jpe?g)$/i, opts: PHOTO },
+  { dir: 'assets-src/products', out: 'public/assets/products', match: /\.png$/i, opts: PRODUCT },
+  { dir: 'assets-src/img', out: 'public/assets/img', match: /\.(jpe?g)$/i, opts: PHOTO },
 ];
+
+/* Product shots are displayed in a 1:1 frame on /products and the product
+   detail page, so they are cropped square from the centre and emitted at
+   several widths. A card is ~280 CSS px on desktop and ~590 on a phone, so
+   one large file would waste most of its bytes.
+
+   Keep HAS_VARIANTS in src/lib/productImage.js in sync with whatever lands
+   here: that module only builds a srcset for names it knows exist, because
+   guessing at a missing variant would 404 and blank the card. */
+const SQUARE_WIDTHS = [360, 540, 720, 1080];
+const SQUARE_BASE = 720; // what `<name>.webp` itself is written at
 
 const kb = (n) => (n / 1024).toFixed(0) + 'K';
 const rows = [];
 let before = 0;
 let after = 0;
 
-for (const { dir, match, opts } of TARGETS) {
+for (const { dir, out: outDir, match, opts } of TARGETS) {
   const abs = path.join(ROOT, dir);
+  const absOut = path.join(ROOT, outDir);
   if (!existsSync(abs)) continue;
+  const square = dir.endsWith('products');
   for (const file of readdirSync(abs).filter((f) => match.test(f))) {
     const src = path.join(abs, file);
-    const out = src.replace(/\.(png|jpe?g)$/i, '.webp');
+    const base = file.replace(/\.(png|jpe?g)$/i, '');
+    const out = path.join(absOut, `${base}.webp`);
     const srcSize = statSync(src).size;
 
-    const buf = await sharp(src).webp(opts).toBuffer();
+    const render = (width) => {
+      const p = sharp(src);
+      return square ? p.resize(width, width, { fit: 'cover', position: 'centre' }).webp(opts) : p.webp(opts);
+    };
+
+    const buf = await render(SQUARE_BASE).toBuffer();
+
+    /* Responsive variants, alongside the base file. */
+    if (square && !DRY) {
+      for (const w of SQUARE_WIDTHS) {
+        const vb = await render(w).toBuffer();
+        writeFileSync(path.join(absOut, `${base}-${w}.webp`), vb);
+      }
+    }
 
     /* Only keep the WebP if it is actually smaller — a already-optimised JPEG
        can encode larger, and shipping a bigger file would defeat the point. */

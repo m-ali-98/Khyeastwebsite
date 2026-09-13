@@ -82,6 +82,69 @@ check(heavyImages.length === 0, 'no oversized image ships in the build', heavyIm
 const SRC = path.join(ROOT, 'assets-src');
 check(fs.existsSync(SRC), 'assets-src/ archive of originals still present');
 
+/* ---- product photography must stay square with a complete variant set ----
+   /products and the product detail page render these in a 1:1 frame with
+   `object-fit: contain`, so a non-square file would letterbox. Every width
+   named in src/lib/productImage.js must exist on disk: that module builds the
+   srcset by string concatenation, so a missing file is a 404 and a blank card
+   on exactly the viewport that picks it. */
+const webpSize = (file) => {
+  const d = fs.readFileSync(file);
+  if (d.slice(0, 4).toString() !== 'RIFF') return null;
+  const fmt = d.slice(12, 16).toString();
+  if (fmt === 'VP8X') return [d.readUIntLE(24, 3) + 1, d.readUIntLE(27, 3) + 1];
+  if (fmt === 'VP8 ') {
+    const i = d.indexOf(Buffer.from([0x9d, 0x01, 0x2a]));
+    return [d.readUInt16LE(i + 3) & 0x3fff, d.readUInt16LE(i + 5) & 0x3fff];
+  }
+  if (fmt === 'VP8L') {
+    const b = d.readUInt32LE(21);
+    return [(b & 0x3fff) + 1, ((b >> 14) & 0x3fff) + 1];
+  }
+  return null;
+};
+
+const imgSrc = fs.readFileSync(path.join(ROOT, 'src/lib/productImage.js'), 'utf8');
+const bases = [...imgSrc.matchAll(/'([a-z0-9-]+)'/g)]
+  .map((m) => m[1])
+  .filter((n) => fs.existsSync(path.join(ROOT, 'public/assets/products', `${n}.webp`)));
+const widths = (imgSrc.match(/PRODUCT_WIDTHS = \[([^\]]+)\]/) || [, ''])[1]
+  .split(',')
+  .map((x) => Number(x.trim()))
+  .filter(Boolean);
+
+check(bases.length === 4, 'all four product shots are known to the srcset helper', bases.join(' '));
+check(widths.length >= 3, 'PRODUCT_WIDTHS is populated', widths.join(' '));
+
+const notSquare = [];
+const missingVariant = [];
+for (const base of bases) {
+  for (const w of [null, ...widths]) {
+    const rel = `public/assets/products/${base}${w ? `-${w}` : ''}.webp`;
+    const abs = path.join(ROOT, rel);
+    if (!fs.existsSync(abs)) {
+      missingVariant.push(`${base}-${w}`);
+      continue;
+    }
+    const dim = webpSize(abs);
+    if (!dim || dim[0] !== dim[1]) notSquare.push(`${rel} ${dim ? dim.join('x') : '?'}`);
+    else if (w && dim[0] !== w) notSquare.push(`${rel} is ${dim[0]}px, expected ${w}`);
+  }
+}
+check(missingVariant.length === 0, 'every declared srcset width exists on disk', missingVariant.join(' '));
+check(notSquare.length === 0, 'every product image is square at its declared width', notSquare.slice(0, 4).join(' '));
+
+/* The card must reserve the square box, and must not invent variants for
+   admin-uploaded images (that would 404 and blank the card). */
+const cardsSrc = fs.readFileSync(path.join(ROOT, 'src/components/cards.jsx'), 'utf8');
+const scssSrc = fs.readFileSync(path.join(ROOT, 'src/styles/global.scss'), 'utf8');
+check(/width=\{720\}/.test(cardsSrc) && /height=\{720\}/.test(cardsSrc), 'product card reserves the image box');
+check(/productImgProps\(product\.image/.test(cardsSrc), 'product card uses the responsive helper');
+check(
+  /\.product-card__media \{[^}]*aspect-ratio:\s*1\s*\/\s*1/s.test(scssSrc),
+  'the card media frame is square in CSS',
+);
+
 /* ---- speculative prefetch must respect the locale ----------------------
    React Router strips the /en and /ar prefix with `basename`, so
    location.pathname is plain "/" in all three languages. The neighbour table
