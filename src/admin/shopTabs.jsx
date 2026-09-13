@@ -28,11 +28,29 @@ const STATUS_FA = {
 
 /* ================= shop products ================= */
 export function ShopProductsTab() {
-  const { state, save, brands, products: catalog } = useContent();
+  const { state, save, reload, brands, products: catalog } = useContent();
   const shop = state.shop || { display: {}, products: [] };
   const items = shop.products || [];
   const display = shop.display || {};
   const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+
+  /* Stock moves on its own: every customer order and every order-status change
+     in the orders tab changes it. This page loads once, so the numbers below
+     age while the admin works — the button pulls the live figures back in. */
+  const refresh = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await reload();
+      setNote({ text: 'موجودی و اطلاعات محصولات بروزرسانی شد.' });
+    } catch {
+      setNote({ text: 'بروزرسانی ممکن نشد؛ اتصال را بررسی کنید.', bad: true });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const commitShop = (next) => save({ ...state, shop: { ...shop, ...next } });
 
@@ -164,10 +182,18 @@ export function ShopProductsTab() {
           <h1>فروشگاه — محصولات</h1>
           <p>افزودن، ویرایش، قیمت‌گذاری و حذف محصولات فروشگاه اینترنتی</p>
         </div>
-        <button className="btn btn--primary" onClick={startNew}>
-          + محصول جدید
-        </button>
+        <div className="admin__row" style={{ gap: 8 }}>
+          <button className="btn btn--outline" onClick={refresh} disabled={busy}>
+            {busy ? '… در حال بروزرسانی' : '⟳ بروزرسانی'}
+          </button>
+          <button className="btn btn--primary" onClick={startNew}>
+            + محصول جدید
+          </button>
+        </div>
       </div>
+      {note && (
+        <p style={{ color: note.bad ? 'var(--crimson)' : 'var(--muted)', marginTop: -4 }}>{note.text}</p>
+      )}
       <div className="admin__list">
         {items.map((p) => (
           <div className="admin__item" key={p.slug}>

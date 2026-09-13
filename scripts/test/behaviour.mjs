@@ -174,6 +174,43 @@ try {
     await fetch(`${BASE}/api/shop-admin/orders/${tid}`, { method: 'DELETE', headers: auth });
   }
 
+  /* Saving the CONTENT panel must never write stock. That page loads once and
+     then holds its snapshot; orders keep moving stock in the database. Writing
+     the snapshot back erased every sale made since the page was opened — a
+     customer's order simply vanished from inventory. */
+  await setStock(10);
+  const snapshot = await (await fetch(`${BASE}/api/content`)).json();
+  const cOrder = await jpost('/api/shop-public/orders', {
+    items: [{ slug: SLUG, qty: 4 }],
+    customer: CUSTOMER,
+  });
+  if (cOrder.ok) {
+    check((await stockOf()) === 6, 'content-panel fixture: ordering 4 of 10 leaves 6');
+    /* the admin edits only a price, using the stale snapshot */
+    const edited = JSON.parse(JSON.stringify(snapshot));
+    const target = (edited.shop?.products || []).find((p) => p.slug === SLUG);
+    if (target) target.price = 123456;
+    const put = await fetch(`${BASE}/api/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify(edited),
+    });
+    check(put.ok, 'content save with a stale shop snapshot is accepted', `got ${put.status}`);
+    check((await stockOf()) === 6, 'saving the content panel does not resurrect sold stock');
+    const after = await (await fetch(`${BASE}/api/shop-products`)).json();
+    check(
+      after.products.find((p) => p.slug === SLUG)?.price === 123456,
+      'the price edit itself still takes effect',
+    );
+    const cid = await orderIdFor((await cOrder.json()).order.code);
+    await fetch(`${BASE}/api/shop-admin/orders/${cid}`, { method: 'DELETE', headers: auth });
+  }
+
+  /* The shop tab is the one place stock is edited on purpose, so that path
+     must still be able to set it. */
+  await setStock(42);
+  check((await stockOf()) === 42, 'the shop products endpoint can still set stock deliberately');
+
   /* Deleting an order must also return its stock, otherwise tidying the admin
      order list silently destroys sellable inventory. */
   await setStock(10);

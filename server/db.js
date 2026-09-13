@@ -191,14 +191,26 @@ const productIn = (p, pos) => ({
   specs: JSON.stringify(Array.isArray(p.specs) ? p.specs : []),
 });
 
-/** Replace the whole product list (admin saves the full array). */
-export function replaceProducts(db, products) {
+/** Replace the whole product list (admin saves the full array).
+ *
+ *  With `preserveStock`, the stock column of every product that already exists
+ *  is kept at its live database value instead of being overwritten by the
+ *  caller's copy. The content panel holds a snapshot from page load, so its
+ *  stock figures go stale the moment an order is placed; writing them back
+ *  would erase real sales. Products that are new in this payload keep the
+ *  stock they were created with. */
+export function replaceProducts(db, products, { preserveStock = false } = {}) {
   const ins = insertProduct(db);
+  const live = preserveStock
+    ? new Map(db.prepare('SELECT slug, stock FROM products').all().map((r) => [r.slug, r.stock]))
+    : null;
   const run = db.transaction((list) => {
     db.prepare('DELETE FROM products').run();
     list.forEach((p, i) => {
       const row = productIn(p, i);
-      if (row.slug) ins.run(row);
+      if (!row.slug) return;
+      if (live && live.has(row.slug)) row.stock = live.get(row.slug);
+      ins.run(row);
     });
   });
   run(Array.isArray(products) ? products : []);
