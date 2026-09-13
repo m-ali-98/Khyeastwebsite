@@ -136,6 +136,44 @@ try {
   await setStatus(id, 'cancelled');
   check((await stockOf()) === 10, 'cancelling twice does not inflate stock');
 
+  /* Un-cancelling must RE-RESERVE. Restoring stock on cancel while never
+     taking it back made the status a lie: the order was live again but its
+     units counted as sellable, so the shop could oversell them. Deleting that
+     order then credited the same units a second time (10 -> 13). */
+  await setStatus(id, 'pending_payment');
+  check((await stockOf()) === 7, 'un-cancelling an order re-reserves its stock');
+  await setStatus(id, 'paid');
+  check((await stockOf()) === 7, 'moving between live statuses does not touch stock');
+  await setStatus(id, 'cancelled');
+  check((await stockOf()) === 10, 're-cancelling returns the stock again');
+  await setStatus(id, 'delivered');
+  check((await stockOf()) === 7, 'reviving a cancelled order as delivered also re-reserves');
+  await fetch(`${BASE}/api/shop-admin/orders/${id}`, { method: 'DELETE', headers: auth });
+  check((await stockOf()) === 10, 'deleting a revived order credits its units exactly once');
+
+  /* Re-reserving can fail: the units may have sold while the order sat
+     cancelled. The change must be refused rather than driving stock negative
+     or silently flipping the status. */
+  await setStock(5);
+  const tight = await jpost('/api/shop-public/orders', {
+    items: [{ slug: SLUG, qty: 4 }],
+    customer: CUSTOMER,
+  });
+  if (tight.ok) {
+    const tid = await orderIdFor((await tight.json()).order.code);
+    await setStatus(tid, 'cancelled');
+    await setStock(2); // admin lowers the catalogue while the order is cancelled
+    const refused = await setStatus(tid, 'paid');
+    check(refused.status === 409, 'un-cancelling without stock is refused with 409', `got ${refused.status}`);
+    check((await stockOf()) === 2, 'a refused revival leaves stock untouched');
+    const admin = await (await fetch(`${BASE}/api/shop-admin`, { headers: auth })).json();
+    check(
+      admin.orders.find((o) => o.id === tid)?.status === 'cancelled',
+      'a refused revival leaves the order cancelled',
+    );
+    await fetch(`${BASE}/api/shop-admin/orders/${tid}`, { method: 'DELETE', headers: auth });
+  }
+
   /* Deleting an order must also return its stock, otherwise tidying the admin
      order list silently destroys sellable inventory. */
   await setStock(10);

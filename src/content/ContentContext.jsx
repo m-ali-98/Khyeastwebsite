@@ -20,7 +20,23 @@ export const api = async (path, { method = 'GET', body, auth = false, formData }
     body: formData || (body ? JSON.stringify(body) : undefined),
   });
   if (res.status === 401) throw Object.assign(new Error('unauthorized'), { status: 401 });
-  if (!res.ok) throw new Error(`api error ${res.status}`);
+  if (!res.ok) {
+    /* Carry the status and the server's explanation onto the error. Callers
+       need them to tell a refusal apart from a failure — a 409 when stock is
+       too low to re-reserve a cancelled order is something the admin can act
+       on, and it used to surface as a generic "api error 409" with the real
+       message discarded. */
+    let payload = null;
+    try {
+      payload = await res.json();
+    } catch {
+      /* non-JSON error body */
+    }
+    throw Object.assign(new Error(payload?.error || `api error ${res.status}`), {
+      status: res.status,
+      detail: payload?.detail || '',
+    });
+  }
   return res.json();
 };
 

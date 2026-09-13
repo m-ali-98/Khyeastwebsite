@@ -354,10 +354,33 @@ export function createShopRouter({ database, requireAuth }) {
     const b = req.body || {};
     const patch = {};
     if ('status' in b && ORDER_STATUS.includes(b.status)) {
+      /* The invariant: an order holds its reserved stock for as long as it is
+         not cancelled. Only the transition ACROSS that line may move stock, and
+         it has to move in both directions.
+
+         Restoring on cancel but never re-reserving on un-cancel let an admin
+         mint inventory: cancel (stock back) then set the order live again and
+         the units are counted as sellable while still owed to a real customer.
+         Deleting that order then credited them a second time, because DELETE
+         judges by the current status — so 10 units became 13. */
+      const wasHolding = order.status !== 'cancelled';
+      const willHold = b.status !== 'cancelled';
+
+      if (wasHolding && !willHold) db.restoreStock(D, order.items);
+      else if (!wasHolding && willHold) {
+        /* Re-reserving can legitimately fail: the units may have been sold
+           while the order sat cancelled. Refuse the change rather than let the
+           catalogue go negative or oversell — the admin gets a clear 409. */
+        const again = db.reserveStock(D, order.items);
+        if (!again.ok)
+          return res.status(409).json({
+            error: 'insufficient stock',
+            detail: 'موجودی برای بازگرداندن این سفارش کافی نیست؛ ابتدا موجودی محصول را افزایش دهید.',
+          });
+      }
+
       patch.status = b.status;
       if (b.status === 'paid' && !order.paidAt) patch.paidAt = new Date().toISOString();
-      /* cancelling a not-yet-cancelled order returns the reserved stock */
-      if (b.status === 'cancelled' && order.status !== 'cancelled') db.restoreStock(D, order.items);
     }
     if ('adminNote' in b) patch.adminNote = String(b.adminNote || '').slice(0, 1000);
     db.updateOrder(D, order.id, patch);
@@ -371,7 +394,12 @@ export function createShopRouter({ database, requireAuth }) {
        placed and nothing ever gives them back.
 
        Cancelled orders have already been credited, so they are skipped —
-       otherwise deleting one would mint stock that never existed. */
+       otherwise deleting one would mint stock that never existed.
+
+       This is only correct because PATCH keeps "not cancelled" and "holds
+       stock" in lockstep. When un-cancelling did not re-reserve, the status
+       lied: a resurrected order looked like it held stock it had already
+       given back, and deleting it credited the same units twice. */
     const order = db.getOrderById(D, req.params.id);
     if (order && order.status !== 'cancelled') db.restoreStock(D, order.items);
     db.deleteOrder(D, req.params.id);
