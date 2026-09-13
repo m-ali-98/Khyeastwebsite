@@ -5,6 +5,7 @@ import { Icons, Reveal, CTABand, hl } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { productImgProps } from '../lib/productImage';
 import NotFound from './NotFound';
 
 export default function ProductDetail() {
@@ -43,12 +44,24 @@ export default function ProductDetail() {
           <div className="split" style={{ marginTop: 30 }}>
             <Reveal x={40} y={0}>
               <motion.div
-                className="gallery-img"
+                className="gallery-img gallery-img--square"
                 style={{ background: 'radial-gradient(90% 90% at 50% 35%, #fff 30%, var(--bg-softer))' }}
                 animate={{ y: [0, -12, 0] }}
                 transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
               >
-                <img src={product.image} alt={product.title} style={{ height: 440, objectFit: 'cover' }} loading="lazy" />
+                {/* Square to match the 1:1 source: a fixed 440px height with
+                    `cover` cropped the top and bottom off the packaging. This
+                    is the page's main image, so it loads eagerly with a high
+                    priority rather than being deferred. */}
+                <img
+                  {...productImgProps(product.image, '(max-width: 900px) calc(100vw - 48px), 560px')}
+                  alt={product.title}
+                  width={720}
+                  height={720}
+                  loading="eager"
+                  fetchPriority="high"
+                  decoding="async"
+                />
               </motion.div>
             </Reveal>
 
