@@ -143,10 +143,13 @@ npm run test:e2e:update           # پذیرفتن ظاهر فعلی به‌عن
 ├── scripts/
 │   ├── test/                # مجموعه تست (اجرا با npm test)
 │   ├── to-webp.mjs          # تبدیل تصاویر به WebP
+│   ├── responsive-img.mjs   # ساخت نسخه‌های کوچک‌تر عکس‌ها برای srcset
+│   ├── logo-webp.mjs        # ساخت logo.webp از فایل اصلی لوگو
 │   └── rebrand-packs.mjs    # یکدست‌سازی تصاویر بسته‌بندی
 └── src/
     ├── main.jsx / App.jsx   # ورودی + مسیریابی و ترنزیشن صفحات
     ├── lib/motion.js        # موتور انیمیشن مشترک (observer + CSS transitions)
+    ├── lib/img.js           # ساخت srcset/sizes از روی shared/imgVariants.json
     ├── hooks/               # useLoadingGate (زمان‌بندی هوشمند لودینگ)، usePageMeta
     ├── styles/              # global.scss (سیستم طراحی) + shop.scss (فروشگاه)
     ├── content/             # ContentContext (store محتوا) + پاک‌ساز HTML
@@ -357,6 +360,19 @@ npm run build      # در تولید، همان سرور Node پوشه dist را
 **۸. تصاویر WebP**
 تصاویر سایت به WebP تبدیل شده‌اند: مجموعاً از ۵۵۰۴ به ۸۱۶ کیلوبایت (**۸۵٪ کاهش**) بدون
 افت محسوس کیفیت. اسکریپت `scripts/to-webp.mjs`.
+
+**۹. تصاویر واکنش‌گرا (srcset)**
+عکس‌های تمام‌عرض برای نمایشگر دسکتاپ در عرض ~۱۴۰۰ پیکسل ساخته شده‌اند، اما موبایل
+همان فایل را در عرض ~۳۹۰ پیکسل می‌کشید و هزینهٔ تمام پیکسل‌ها را می‌داد. اسکریپت
+`scripts/responsive-img.mjs` از هر عکس چند نسخهٔ کوچک‌تر (`<name>-480.webp` و …)
+می‌سازد و عرض‌های موجود را در `shared/imgVariants.json` ثبت می‌کند؛ `src/lib/img.js`
+هنگام رندر از روی همین فهرست `srcset`/`sizes` را می‌سازد. نتیجه برای عکس‌های صفحهٔ
+نخست: **۶۸۶ کیلوبایت روی دسکتاپ در برابر ۱۵۴ تا ۲۸۶ کیلوبایت روی موبایل**.
+
+نکته: این اسکریپت فقط روی فایل‌های داخل مخزن اجرا می‌شود و هیچ ربطی به پنل مدیریت
+ندارد؛ تصویری که مدیر بارگذاری می‌کند دست‌نخورده سرو می‌شود. اگر عکسی را در
+`public/assets/img` یا `public/assets/products` عوض کردید،
+`node scripts/responsive-img.mjs` را اجرا کنید و نسخه‌های جدید را commit کنید.
 
 ## 🖼 درباره تصاویر محصولات
 

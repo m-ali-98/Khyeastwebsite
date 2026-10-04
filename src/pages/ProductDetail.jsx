@@ -6,6 +6,7 @@ import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 import NotFound from './NotFound';
+import { imgProps, SIZES } from '../lib/img';
 
 export default function ProductDetail() {
   const { slug } = useParams();
@@ -50,7 +51,7 @@ export default function ProductDetail() {
               >
                 {/* Square to match the 1:1 source: the old fixed 440px height
                     with `cover` cropped the top and bottom off the packaging. */}
-                <img src={product.image} alt={product.title} width={720} height={720} loading="lazy" />
+                <img {...imgProps(product.image, SIZES.detail)} alt={product.title} width={720} height={720} loading="lazy" />
               </mo.div>
             </Reveal>
 

@@ -6,6 +6,7 @@ import { useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
 import { useShop } from '../shop/ShopContext';
 import { ShopCard, QtyStepper } from '../shop/parts';
+import { imgProps, SIZES } from '../lib/img';
 
 function CommentForm({ slug, onDone }) {
   const { t } = useContent();
@@ -194,7 +195,7 @@ export default function ShopProduct() {
             <div className="sp-gallery">
               <mo.img
                 key={p.slug}
-                src={p.image}
+                {...imgProps(p.image, SIZES.detail)}
                 alt={p.title}
                 initial={{ opacity: 0, scale: 0.92 }}
                 animate={{ opacity: 1, scale: 1 }}

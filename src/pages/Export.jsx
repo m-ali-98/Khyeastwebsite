@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { m as mo, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl, useNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
+import { imgProps, SIZES } from '../lib/img';
 
 export default function Export() {
   const num = useNum();
@@ -21,7 +22,7 @@ export default function Export() {
       <PageHero title={t('export.hero.title')} sub={t('export.hero.sub')} image={m('export.hero.img')} />
 
       <section ref={ref} style={{ position: 'relative', height: '52vh', minHeight: 380, overflow: 'hidden' }}>
-        <mo.img className="parallax-img" src={m('export.banner.img')} alt={t('export.hero.title')} style={{ y, scale: 1.15 }} loading="lazy" decoding="async" />
+        <mo.img className="parallax-img" {...imgProps(m('export.banner.img'), SIZES.full)} alt={t('export.hero.title')} style={{ y, scale: 1.15 }} loading="lazy" decoding="async" />
         <div
           style={{
             position: 'absolute',

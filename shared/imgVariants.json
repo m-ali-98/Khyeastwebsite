@@ -1,0 +1,53 @@
+{
+  "/assets/img/bread-slicing.webp": [
+    480,
+    768,
+    1024,
+    1408
+  ],
+  "/assets/img/export.webp": [
+    480,
+    768,
+    1024,
+    1376
+  ],
+  "/assets/img/factory.webp": [
+    480,
+    768,
+    1024,
+    1408
+  ],
+  "/assets/img/hero-wheat.webp": [
+    480,
+    768,
+    1024,
+    1280,
+    1584
+  ],
+  "/assets/img/laboratory.webp": [
+    480,
+    768,
+    1024,
+    1408
+  ],
+  "/assets/products/dezmaye-gold.webp": [
+    360,
+    540,
+    720
+  ],
+  "/assets/products/nanmaye.webp": [
+    360,
+    540,
+    720
+  ],
+  "/assets/products/shetab.webp": [
+    360,
+    540,
+    720
+  ],
+  "/assets/products/xpower.webp": [
+    360,
+    540,
+    720
+  ]
+}

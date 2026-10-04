@@ -4,6 +4,7 @@ import { useContent } from '../content/ContentContext';
 import { observeReveal } from '../lib/motion';
 import { renderHighlight } from '../content/sanitize';
 import { useLocale } from '../i18n/LocaleContext';
+import { imgProps, SIZES } from '../lib/img';
 
 export const hl = renderHighlight;
 
@@ -366,7 +367,7 @@ export function PageHero({ title, sub, image, crumb }) {
     <header className="page-hero">
       {image && (
         <div className="page-hero__img">
-          <img src={image} alt="" loading="lazy" />
+          <img {...imgProps(image, SIZES.full)} alt="" loading="lazy" />
         </div>
       )}
       <div className="container">

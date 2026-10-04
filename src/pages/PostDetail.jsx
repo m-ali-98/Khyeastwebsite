@@ -7,6 +7,7 @@ import { useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
 import { usePageMeta } from '../hooks/usePageMeta';
 import NotFound from './NotFound';
+import { imgProps, SIZES } from '../lib/img';
 
 export default function PostDetail() {
   const { slug } = useParams();
@@ -25,7 +26,7 @@ export default function PostDetail() {
     <>
       <header className="page-hero">
         <div className="page-hero__img">
-          <img src={post.image} alt="" loading="lazy" />
+          <img {...imgProps(post.image, SIZES.full)} alt="" loading="lazy" />
         </div>
         <div className="container">
           <mo.nav
@@ -73,7 +74,7 @@ export default function PostDetail() {
       <section className="section">
         <div className="container">
           <Reveal className="gallery-img" style={{ maxWidth: 900, margin: '0 auto 44px' }}>
-            <img src={post.image} alt={post.title} style={{ height: 400 }} loading="lazy" />
+            <img {...imgProps(post.image, SIZES.full)} alt={post.title} style={{ height: 400 }} loading="lazy" />
           </Reveal>
 
           <article className="post-body">

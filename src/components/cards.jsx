@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Icons, Reveal, hl } from './ui';
 import { useContent } from '../content/ContentContext';
+import { imgProps, SIZES } from '../lib/img';
 
 /* These cards use Reveal rather than framer's whileInView: the shared
    observer already watches the viewport for every other section on the page,
@@ -15,7 +16,7 @@ export function ProductCard({ product, index = 0 }) {
         {/* 720x720 square source. The intrinsic size is declared so the
             browser reserves the box and the grid does not jump as photos
             load. */}
-        <img src={product.image} alt={product.title} width={720} height={720} loading="lazy" />
+        <img {...imgProps(product.image, SIZES.card)} alt={product.title} width={720} height={720} loading="lazy" />
         <span className="product-card__brand">{brand?.fa}</span>
       </Link>
       <div className="product-card__body">
@@ -43,7 +44,7 @@ export function PostCard({ post, index = 0 }) {
   return (
     <Reveal as="article" className="card post-card" y={40} delay={(index % 3) * 0.12}>
       <Link to={`/blog/${post.slug}`} className="post-card__media" aria-label={post.title}>
-        <img src={post.image} alt={post.title} loading="lazy" />
+        <img {...imgProps(post.image, SIZES.card)} alt={post.title} loading="lazy" />
         <span className="post-card__date">{post.date}</span>
       </Link>
       <div className="post-card__body">
@@ -66,7 +67,7 @@ export function BrandCard({ brand, index = 0 }) {
   return (
     <Reveal className="card brand-card" y={36} delay={index * 0.1}>
       <div className="brand-card__img">
-        <img src={brand.image} alt={brand.fa} loading="lazy" />
+        <img {...imgProps(brand.image, SIZES.card)} alt={brand.fa} loading="lazy" />
       </div>
       <h2>{brand.fa}</h2>
       <p>

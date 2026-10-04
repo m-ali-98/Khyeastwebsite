@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl } from '../components/ui';
 import { useContent } from '../content/ContentContext';
+import { imgProps, SIZES } from '../lib/img';
 
 function Mission() {
   const { t } = useContent();
@@ -66,10 +67,10 @@ export default function About() {
               <div className="split__media">
                 <span className="badge-float">{t('about.story.badge')}</span>
                 <div className="img-main">
-                  <img src={m('about.story.imgMain')} alt={t('about.story.overline')} loading="lazy" />
+                  <img {...imgProps(m('about.story.imgMain'), SIZES.half)} alt={t('about.story.overline')} loading="lazy" />
                 </div>
                 <div className="img-float">
-                  <img src={m('about.story.imgFloat')} alt={t('global.slogan')} loading="lazy" />
+                  <img {...imgProps(m('about.story.imgFloat'), SIZES.inset)} alt={t('global.slogan')} loading="lazy" />
                 </div>
               </div>
             </Reveal>
@@ -133,7 +134,7 @@ export default function About() {
               <div className="split__media">
                 <span className="badge-float">{t('about.factory.badge')}</span>
                 <div className="img-main">
-                  <img src={m('about.factory.img')} alt={t('about.factory.overline')} loading="lazy" />
+                  <img {...imgProps(m('about.factory.img'), SIZES.half)} alt={t('about.factory.overline')} loading="lazy" />
                 </div>
               </div>
             </Reveal>

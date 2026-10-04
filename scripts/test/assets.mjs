@@ -104,7 +104,10 @@ const webpSize = (file) => {
 };
 
 const shotDir = path.join(ROOT, 'public/assets/products');
-const shots = fs.readdirSync(shotDir).filter((f) => f.endsWith('.webp'));
+/* scripts/responsive-img.mjs writes <base>-<width>.webp next to each
+   original; those are not separate products. */
+const VARIANT = /-\d+\.webp$/;
+const shots = fs.readdirSync(shotDir).filter((f) => f.endsWith('.webp') && !VARIANT.test(f));
 const notSquare = [];
 for (const f of shots) {
   const dim = webpSize(path.join(shotDir, f));
@@ -118,6 +121,48 @@ check(
   ),
   'the card media frame is square in CSS',
 );
+
+
+/* ---- responsive image variants ----------------------------------------
+   src/lib/img.js builds a srcset straight from shared/imgVariants.json and
+   never invents a filename, because a 404 inside a srcset is a broken image
+   rather than a fallback. So the manifest has to describe reality: every
+   width it lists must exist on disk, and the last entry must be the real
+   intrinsic width of the original. */
+const variants = JSON.parse(fs.readFileSync(path.join(ROOT, 'shared/imgVariants.json'), 'utf8'));
+const missingVariant = [];
+const badVariantWidth = [];
+for (const [url, widths] of Object.entries(variants)) {
+  const file = path.join(ROOT, 'public', url.replace(/^\//, ''));
+  if (!fs.existsSync(file)) { missingVariant.push(url); continue; }
+
+  const full = webpSize(file);
+  if (full && full[0] !== widths[widths.length - 1]) badVariantWidth.push(`${url} ${full[0]} != ${widths[widths.length - 1]}`);
+
+  const base = file.slice(0, -'.webp'.length);
+  for (const w of widths.slice(0, -1)) {
+    if (!fs.existsSync(`${base}-${w}.webp`)) missingVariant.push(`${url} @${w}`);
+  }
+  const sorted = [...widths].sort((a, b) => a - b);
+  if (widths.join() !== sorted.join() || new Set(widths).size !== widths.length) {
+    badVariantWidth.push(`${url} widths not ascending/unique`);
+  }
+}
+check(Object.keys(variants).length > 0, 'the responsive variant manifest is not empty');
+check(missingVariant.length === 0, 'every width in the manifest exists on disk', missingVariant.join(' '));
+check(badVariantWidth.length === 0, 'the largest manifest width is the original', badVariantWidth.join(' '));
+
+/* A smaller variant that is not actually smaller is pure waste. */
+const notSmaller = [];
+for (const [url, widths] of Object.entries(variants)) {
+  const file = path.join(ROOT, 'public', url.replace(/^\//, ''));
+  const fullBytes = fs.statSync(file).size;
+  const base = file.slice(0, -'.webp'.length);
+  for (const w of widths.slice(0, -1)) {
+    if (fs.statSync(`${base}-${w}.webp`).size >= fullBytes) notSmaller.push(`${url} @${w}`);
+  }
+}
+check(notSmaller.length === 0, 'every variant is smaller than its original', notSmaller.join(' '));
 
 /* ---- speculative prefetch must respect the locale ----------------------
    React Router strips the /en and /ar prefix with `basename`, so

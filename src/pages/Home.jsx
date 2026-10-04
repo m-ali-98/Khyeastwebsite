@@ -4,6 +4,7 @@ import { m as mo, useReducedMotion, useScroll, useTransform } from 'framer-motio
 import { Icons, Reveal, SectionHead, Counter, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
+import { imgProps, SIZES } from '../lib/img';
 
 function Hero() {
   const ref = useRef(null);
@@ -34,7 +35,7 @@ function Hero() {
   return (
     <section className="hero" ref={ref}>
       <div className="hero__bg">
-        <img src={m('home.hero.bg')} alt={t('global.company.name')} />
+        <img {...imgProps(m('home.hero.bg'), SIZES.full)} alt={t('global.company.name')} fetchPriority="high" />
       </div>
       <div className="hero__overlay" />
       <div className="hero__particles" aria-hidden="true">
@@ -133,10 +134,10 @@ function Intro() {
             <div className="split__media">
               <span className="badge-float">{t('home.intro.badge')}</span>
               <div className="img-main">
-                <img src={m('home.intro.imgMain')} alt={t('home.intro.overline')} loading="lazy" />
+                <img {...imgProps(m('home.intro.imgMain'), SIZES.half)} alt={t('home.intro.overline')} loading="lazy" />
               </div>
               <div className="img-float">
-                <img src={m('home.intro.imgFloat')} alt={t('home.intro.btnQuality')} loading="lazy" />
+                <img {...imgProps(m('home.intro.imgFloat'), SIZES.inset)} alt={t('home.intro.btnQuality')} loading="lazy" />
               </div>
             </div>
           </Reveal>
@@ -340,7 +341,7 @@ function BreadBanner() {
   return (
     <section className="section" style={{ padding: 0 }} ref={ref}>
       <div style={{ position: 'relative', height: '62vh', minHeight: 420, overflow: 'hidden' }}>
-        <mo.img className="parallax-img" src={m('home.banner.bg')} alt={t('global.slogan')} style={{ y, scale: 1.15 }} />
+        <mo.img className="parallax-img" {...imgProps(m('home.banner.bg'), SIZES.full)} alt={t('global.slogan')} style={{ y, scale: 1.15 }} />
         <div
           style={{
             position: 'absolute',
