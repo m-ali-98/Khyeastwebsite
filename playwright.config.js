@@ -14,8 +14,9 @@
      2. an admin screen whose API is fine but whose UI cannot save,
      3. anything visual — a collapsed layout, an unreadable contrast pair.
 
-   The server is started against a THROWAWAY data directory (see
-   e2e/global-setup.js). Nothing here can touch server/data.
+   The server is started against a THROWAWAY data directory, prepared by
+   e2e/prepare-data.js as the first step of the webServer command. Nothing
+   here can touch server/data.
    ========================================================================== */
 import { defineConfig, devices } from '@playwright/test';
 import path from 'node:path';
@@ -36,7 +37,6 @@ export const E2E = {
 
 export default defineConfig({
   testDir: './e2e',
-  globalSetup: './e2e/global-setup.js',
   /* Serial by default: the admin specs mutate shared server state, and a
      parallel worker editing the same catalogue produces failures that look
      like product bugs but are only the test fighting itself. */
@@ -75,9 +75,15 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run build && node server/index.js',
+    /* prepare-data must run before the server opens the database — hence it
+       is part of this command rather than a globalSetup, which Playwright
+       runs *after* starting the web server. */
+    command: 'node e2e/prepare-data.js && npm run build && node server/index.js',
     url: `http://127.0.0.1:${PORT}/api/health`,
-    reuseExistingServer: !process.env.CI,
+    /* Never reuse: a leftover server from a previous run is pointed at the
+       old database, holds a lock on it under Windows, and would silently
+       invalidate the clean-slate guarantee. */
+    reuseExistingServer: false,
     timeout: 180_000,
     stdout: 'pipe',
     stderr: 'pipe',
