@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, CTABand } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
@@ -80,13 +80,13 @@ export default function Shop() {
           )}
 
           {enabled && list.length > 0 ? (
-            <motion.div className="shop-grid" key={`${brand}-${sort}`}>
+            <mo.div className="shop-grid" key={`${brand}-${sort}`}>
               <AnimatePresence mode="popLayout">
                 {list.map((p, i) => (
                   <ShopCard key={p.slug} p={p} index={i} />
                 ))}
               </AnimatePresence>
-            </motion.div>
+            </mo.div>
           ) : (
             <Reveal className="cart-empty">
               <span className="ico">

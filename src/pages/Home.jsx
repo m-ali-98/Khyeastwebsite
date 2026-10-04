@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
+import { m as mo, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
@@ -53,9 +53,9 @@ function Hero() {
         ))}
       </div>
 
-      <motion.div className="hero__inner" style={{ y, opacity }}>
+      <mo.div className="hero__inner" style={{ y, opacity }}>
         <div className="container">
-          <motion.span
+          <mo.span
             className="hero__badge"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -63,11 +63,11 @@ function Hero() {
           >
             <i />
             {t('home.hero.badge')}
-          </motion.span>
+          </mo.span>
 
           <h1 className="hero__slogan">
             {sloganWords.map((w, i) => (
-              <motion.span
+              <mo.span
                 key={i}
                 className={`word ${i >= sloganWords.length - 3 ? 'accent' : ''}`}
                 initial={{ opacity: 0, y: 46, rotate: 3 }}
@@ -76,29 +76,29 @@ function Hero() {
               >
                 {w}
                 {'\u00A0'}
-              </motion.span>
+              </mo.span>
             ))}
           </h1>
 
-          <motion.p
+          <mo.p
             className="hero__title"
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 1.15 }}
           >
             {t('home.hero.title')}
-          </motion.p>
+          </mo.p>
 
-          <motion.p
+          <mo.p
             className="hero__desc"
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 1.3 }}
           >
             {t('home.hero.desc')}
-          </motion.p>
+          </mo.p>
 
-          <motion.div
+          <mo.div
             className="hero__actions"
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
@@ -111,14 +111,14 @@ function Hero() {
             <Link to="/about" className="btn btn--ghost">
               {t('home.hero.btnAbout')}
             </Link>
-          </motion.div>
+          </mo.div>
         </div>
-      </motion.div>
+      </mo.div>
 
-      <motion.div className="hero__scroll" style={{ opacity }}>
+      <mo.div className="hero__scroll" style={{ opacity }}>
         <span className="mouse" />
         {t('home.hero.scroll')}
-      </motion.div>
+      </mo.div>
     </section>
   );
 }
@@ -340,7 +340,7 @@ function BreadBanner() {
   return (
     <section className="section" style={{ padding: 0 }} ref={ref}>
       <div style={{ position: 'relative', height: '62vh', minHeight: 420, overflow: 'hidden' }}>
-        <motion.img className="parallax-img" src={m('home.banner.bg')} alt={t('global.slogan')} style={{ y, scale: 1.15 }} />
+        <mo.img className="parallax-img" src={m('home.banner.bg')} alt={t('global.slogan')} style={{ y, scale: 1.15 }} />
         <div
           style={{
             position: 'absolute',

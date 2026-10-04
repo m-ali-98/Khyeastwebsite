@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop, orderTokenSave } from '../shop/ShopContext';
@@ -130,15 +130,15 @@ export default function ShopCheckout() {
                 </div>
                 <AnimatePresence>
                   {note && (
-                    <motion.div className={`note ${note.kind}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                    <mo.div className={`note ${note.kind}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
                       {note.msg}
-                    </motion.div>
+                    </mo.div>
                   )}
                 </AnimatePresence>
-                <motion.button className="btn btn--primary" type="submit" disabled={busy} whileTap={{ scale: 0.97 }} style={{ width: '100%', justifyContent: 'center', marginTop: 18 }}>
+                <mo.button className="btn btn--primary" type="submit" disabled={busy} whileTap={{ scale: 0.97 }} style={{ width: '100%', justifyContent: 'center', marginTop: 18 }}>
                   {busy ? '…' : online ? t('shop.checkout.submitPay') : t('shop.checkout.submit')}
                   {!busy && <Icons.shield size={18} />}
-                </motion.button>
+                </mo.button>
                 {online && (
                   <p className="pay-note">
                     <Icons.check size={16} />

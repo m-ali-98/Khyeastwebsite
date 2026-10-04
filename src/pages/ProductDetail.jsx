@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, CTABand, hl } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
@@ -42,7 +42,7 @@ export default function ProductDetail() {
 
           <div className="split" style={{ marginTop: 30 }}>
             <Reveal x={40} y={0}>
-              <motion.div
+              <mo.div
                 className="gallery-img gallery-img--square"
                 style={{ background: 'radial-gradient(90% 90% at 50% 35%, #fff 30%, var(--bg-softer))' }}
                 animate={{ y: [0, -12, 0] }}
@@ -51,7 +51,7 @@ export default function ProductDetail() {
                 {/* Square to match the 1:1 source: the old fixed 440px height
                     with `cover` cropped the top and bottom off the packaging. */}
                 <img src={product.image} alt={product.title} width={720} height={720} loading="lazy" />
-              </motion.div>
+              </mo.div>
             </Reveal>
 
             <Reveal x={-40} y={0} delay={0.1}>
@@ -117,7 +117,7 @@ export default function ProductDetail() {
           </Reveal>
 
           <AnimatePresence mode="wait">
-            <motion.div
+            <mo.div
               key={tab}
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
@@ -155,7 +155,7 @@ export default function ProductDetail() {
                   ))}
                 </ul>
               )}
-            </motion.div>
+            </mo.div>
           </AnimatePresence>
         </div>
       </section>

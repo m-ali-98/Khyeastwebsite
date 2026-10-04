@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as mo } from 'framer-motion';
 import { Icons, Reveal, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop, orderTokenGet } from '../shop/ShopContext';
@@ -77,7 +77,7 @@ export default function ShopOrder() {
 
         {state === 'ok' && order && (
           <>
-            <motion.div className="order-hero" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
+            <mo.div className="order-hero" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
               <span className="tick">
                 <Icons.check size={40} />
               </span>
@@ -86,7 +86,7 @@ export default function ShopOrder() {
                 <span className="code">{order.code}</span>
               </div>
               <p className="keep">{t('shop.order.keep')}</p>
-            </motion.div>
+            </mo.div>
 
             {pay === 'ok' && <div className="order-banner ok">{t('shop.order.payOk')}</div>}
             {pay === 'fail' && <div className="order-banner fail">{t('shop.order.payFail')}</div>}
@@ -104,7 +104,7 @@ export default function ShopOrder() {
                 </div>
               ) : (
                 FLOW.map((s, i) => (
-                  <motion.div
+                  <mo.div
                     key={s}
                     className={`step ${i < currentIdx ? 'done' : ''} ${i === currentIdx ? 'current' : ''}`}
                     initial={{ opacity: 0, y: 16 }}
@@ -115,7 +115,7 @@ export default function ShopOrder() {
                       {i < currentIdx ? <Icons.check size={19} /> : i === 0 ? <Icons.clock size={18} /> : i === 1 ? <Icons.discount size={18} /> : i === 2 ? <Icons.send size={18} /> : <Icons.star size={18} />}
                     </span>
                     <small>{t(`shop.order.st.${s}`)}</small>
-                  </motion.div>
+                  </mo.div>
                 ))
               )}
             </div>
@@ -198,10 +198,10 @@ export default function ShopOrder() {
 
             <div className="order-actions">
               {order.status === 'pending_payment' && paymentProvider !== 'offline' && (
-                <motion.button className="btn btn--primary" onClick={payNow} disabled={busy} whileTap={{ scale: 0.97 }}>
+                <mo.button className="btn btn--primary" onClick={payNow} disabled={busy} whileTap={{ scale: 0.97 }}>
                   <Icons.shield size={18} />
                   {busy ? '…' : t('shop.order.payNow')}
-                </motion.button>
+                </mo.button>
               )}
               <Link to="/shop" className="btn btn--outline">
                 {t('shop.order.back')}

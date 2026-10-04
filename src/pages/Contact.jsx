@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, socialIcon } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 
@@ -75,14 +75,14 @@ function ContactForm() {
     <div className="card" style={{ padding: '40px 40px', position: 'relative', overflow: 'hidden' }}>
       <AnimatePresence mode="wait">
         {sent ? (
-          <motion.div
+          <mo.div
             key="sent"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
             style={{ textAlign: 'center', padding: '50px 10px' }}
           >
-            <motion.div
+            <mo.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 200, damping: 14, delay: 0.1 }}
@@ -99,7 +99,7 @@ function ContactForm() {
               }}
             >
               <Icons.check size={44} />
-            </motion.div>
+            </mo.div>
             <h2 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 10px' }}>{t('contact.form.successTitle')}</h2>
             <p style={{ color: 'var(--muted)', maxWidth: 420, margin: '0 auto 26px' }}>
               {t('contact.form.successText')}
@@ -107,9 +107,9 @@ function ContactForm() {
             <button className="btn btn--outline" onClick={() => setSent(false)}>
               {t('contact.form.again')}
             </button>
-          </motion.div>
+          </mo.div>
         ) : (
-          <motion.form
+          <mo.form
             key="form"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -155,14 +155,14 @@ function ContactForm() {
                 {errors.message && <small style={{ color: 'var(--crimson)' }}>{errors.message}</small>}
               </div>
               <div className="field--full">
-                <motion.button type="submit" className="btn btn--primary" whileTap={{ scale: 0.97 }} disabled={sending}>
+                <mo.button type="submit" className="btn btn--primary" whileTap={{ scale: 0.97 }} disabled={sending}>
                   {t('contact.form.submit')}
                   <Icons.send size={18} />
-                </motion.button>
+                </mo.button>
                 {errors.submit && <small style={{ color: 'var(--crimson)', marginInlineStart: 14 }}>{errors.submit}</small>}
               </div>
             </div>
-          </motion.form>
+          </mo.form>
         )}
       </AnimatePresence>
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, faNum, hl } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
@@ -44,14 +44,7 @@ function CommentForm({ slug, onDone }) {
   };
 
   return (
-    <motion.form
-      className="comment-form"
-      initial={{ opacity: 0, y: 26 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.55 }}
-      onSubmit={submit}
-    >
+    <Reveal as="form" className="comment-form" y={26} onSubmit={submit}>
       <h3>{t('shop.comments.title')}</h3>
       <label>
         {t('shop.comments.name')}
@@ -63,21 +56,21 @@ function CommentForm({ slug, onDone }) {
       </label>
       <AnimatePresence>
         {note && (
-          <motion.div
+          <mo.div
             className={`note ${note.kind}`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
           >
             {note.msg}
-          </motion.div>
+          </mo.div>
         )}
       </AnimatePresence>
       <button className="btn btn--primary" disabled={busy} type="submit">
         <Icons.send size={17} />
         {t('shop.comments.submit')}
       </button>
-    </motion.form>
+    </Reveal>
   );
 }
 
@@ -103,14 +96,7 @@ function Comments({ product }) {
             {list.length === 0 && <p style={{ color: 'var(--muted)', fontWeight: 700 }}>{t('shop.comments.empty')}</p>}
             <AnimatePresence>
               {list.map((c, i) => (
-                <motion.div
-                  className="comment"
-                  key={c.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.45, delay: Math.min(i * 0.06, 0.3) }}
-                >
+                <Reveal className="comment" key={c.id} y={20} delay={i * 0.06}>
                   <div className="comment__head">
                     <span className="avatar">{c.name.trim().charAt(0)}</span>
                     <div>
@@ -130,7 +116,7 @@ function Comments({ product }) {
                       <p>{c.reply}</p>
                     </div>
                   )}
-                </motion.div>
+                </Reveal>
               ))}
             </AnimatePresence>
           </div>
@@ -206,7 +192,7 @@ export default function ShopProduct() {
         <div className="container">
           <Reveal className="sp-detail">
             <div className="sp-gallery">
-              <motion.img
+              <mo.img
                 key={p.slug}
                 src={p.image}
                 alt={p.title}
@@ -240,7 +226,7 @@ export default function ShopProduct() {
                 </div>
                 <div className="sp-buy__row">
                   <QtyStepper value={qty} onChange={(v) => setQty(Math.max(1, v))} max={Number(p.stock) > 0 ? Number(p.stock) : 999} min={1} />
-                  <motion.button
+                  <mo.button
                     className={`btn ${added ? 'btn--outline' : 'btn--primary'}`}
                     disabled={out}
                     onClick={() => add(p.slug, qty) && setAdded(true)}
@@ -254,7 +240,7 @@ export default function ShopProduct() {
                         {t('shop.detail.addToCart')}
                       </>
                     )}
-                  </motion.button>
+                  </mo.button>
                 </div>
                 {catalogItem && (
                   <p style={{ marginTop: 16 }}>

@@ -1,19 +1,16 @@
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Icons, hl } from './ui';
+import { Icons, Reveal, hl } from './ui';
 import { useContent } from '../content/ContentContext';
 
+/* These cards use Reveal rather than framer's whileInView: the shared
+   observer already watches the viewport for every other section on the page,
+   and a grid of cards is exactly where one observer plus one JS animation
+   loop per item cost the most. */
 export function ProductCard({ product, index = 0 }) {
   const { brands, t } = useContent();
   const brand = brands.find((b) => b.id === product.brand);
   return (
-    <motion.article
-      className="card product-card"
-      initial={{ opacity: 0, y: 40 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-60px' }}
-      transition={{ duration: 0.65, delay: (index % 4) * 0.1, ease: [0.22, 1, 0.36, 1] }}
-    >
+    <Reveal as="article" className="card product-card" y={40} delay={(index % 4) * 0.1}>
       <Link to={`/products/${product.slug}`} className="product-card__media" aria-label={product.title}>
         {/* 720x720 square source. The intrinsic size is declared so the
             browser reserves the box and the grid does not jump as photos
@@ -37,20 +34,14 @@ export function ProductCard({ product, index = 0 }) {
           </Link>
         </div>
       </div>
-    </motion.article>
+    </Reveal>
   );
 }
 
 export function PostCard({ post, index = 0 }) {
   const { t } = useContent();
   return (
-    <motion.article
-      className="card post-card"
-      initial={{ opacity: 0, y: 40 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-60px' }}
-      transition={{ duration: 0.65, delay: (index % 3) * 0.12, ease: [0.22, 1, 0.36, 1] }}
-    >
+    <Reveal as="article" className="card post-card" y={40} delay={(index % 3) * 0.12}>
       <Link to={`/blog/${post.slug}`} className="post-card__media" aria-label={post.title}>
         <img src={post.image} alt={post.title} loading="lazy" />
         <span className="post-card__date">{post.date}</span>
@@ -67,19 +58,13 @@ export function PostCard({ post, index = 0 }) {
           </Link>
         </div>
       </div>
-    </motion.article>
+    </Reveal>
   );
 }
 
 export function BrandCard({ brand, index = 0 }) {
   return (
-    <motion.div
-      className="card brand-card"
-      initial={{ opacity: 0, y: 36 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-60px' }}
-      transition={{ duration: 0.6, delay: index * 0.1, ease: [0.22, 1, 0.36, 1] }}
-    >
+    <Reveal className="card brand-card" y={36} delay={index * 0.1}>
       <div className="brand-card__img">
         <img src={brand.image} alt={brand.fa} loading="lazy" />
       </div>
@@ -87,6 +72,6 @@ export function BrandCard({ brand, index = 0 }) {
       <p>
         {brand.en} · {brand.tagline}
       </p>
-    </motion.div>
+    </Reveal>
   );
 }

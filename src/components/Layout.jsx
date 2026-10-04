@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { AnimatePresence, motion, useScroll } from 'framer-motion';
+import { AnimatePresence, m as mo, useScroll } from 'framer-motion';
 import Logo from './Logo';
 import { Icons, socialIcon, hl, faNum, NUM_LOCALE } from './ui';
 import { useContent } from '../content/ContentContext';
@@ -63,7 +63,7 @@ function ThemeToggle() {
 
 function ScrollProgress() {
   const { scrollYProgress } = useScroll();
-  return <motion.div className="scroll-progress" style={{ scaleX: scrollYProgress }} />;
+  return <mo.div className="scroll-progress" style={{ scaleX: scrollYProgress }} />;
 }
 
 function Navbar() {
@@ -194,7 +194,7 @@ function Navbar() {
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <mo.div
             className="mobile-menu"
             initial={{ clipPath: 'circle(0% at 92% 6%)', opacity: 0 }}
             animate={{ clipPath: 'circle(150% at 92% 6%)', opacity: 1 }}
@@ -202,7 +202,7 @@ function Navbar() {
             transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
           >
             {navLinks.map((link, i) => (
-              <motion.div
+              <mo.div
                 key={link.to}
                 initial={{ opacity: 0, x: 40 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -212,9 +212,9 @@ function Navbar() {
                   {t(link.key)}
                   <Icons.arrow size={20} />
                 </NavLink>
-              </motion.div>
+              </mo.div>
             ))}
-            <motion.div
+            <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.55 }}
@@ -222,16 +222,16 @@ function Navbar() {
             >
               <LangSwitch block />
               <ThemeToggle />
-            </motion.div>
-            <motion.div
+            </mo.div>
+            <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.6 }}
               className="m-slogan"
             >
               {t('global.slogan')}
-            </motion.div>
-          </motion.div>
+            </mo.div>
+          </mo.div>
         )}
       </AnimatePresence>
     </>
@@ -248,7 +248,7 @@ function BackToTop() {
   return (
     <AnimatePresence>
       {show && (
-        <motion.button
+        <mo.button
           className="to-top"
           initial={{ opacity: 0, y: 24, scale: 0.8 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -257,7 +257,7 @@ function BackToTop() {
           aria-label="بازگشت به بالا"
         >
           <Icons.arrow size={20} style={{ transform: 'rotate(90deg)' }} />
-        </motion.button>
+        </mo.button>
       )}
     </AnimatePresence>
   );

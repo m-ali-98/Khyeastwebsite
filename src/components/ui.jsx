@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion, useInView, animate } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useContent } from '../content/ContentContext';
 import { observeReveal } from '../lib/motion';
@@ -260,7 +259,7 @@ export const socialIcon = (id) => Icons[id] || Icons.globe;
    last slot, so long lists stay lively. */
 const MAX_STAGGER = 0.32;
 
-export function Reveal({ children, delay = 0, y = 26, x = 0, className = '', style }) {
+export function Reveal({ children, delay = 0, y = 26, x = 0, className = '', style, as: Tag = 'div', ...rest }) {
   const ref = useRef(null);
 
   useEffect(() => observeReveal(ref.current), []);
@@ -268,8 +267,9 @@ export function Reveal({ children, delay = 0, y = 26, x = 0, className = '', sty
   const d = Math.min(delay, MAX_STAGGER);
 
   return (
-    <div
+    <Tag
       ref={ref}
+      {...rest}
       className={`reveal ${className}`.trim()}
       style={{
         '--rv-y': `${y}px`,
@@ -279,7 +279,7 @@ export function Reveal({ children, delay = 0, y = 26, x = 0, className = '', sty
       }}
     >
       {children}
-    </div>
+    </Tag>
   );
 }
 
@@ -307,20 +307,46 @@ export function SectionHead({ overline, title, sub, light = false }) {
 /* ------------------------------------------------------------------ */
 export function Counter({ to, suffix = '', duration = 2.2 }) {
   const ref = useRef(null);
-  const inView = useInView(ref, { once: true, margin: '-60px' });
   const [val, setVal] = useState(0);
   const num = useNum();
 
+  /* Counting from 0 to a number is four lines of requestAnimationFrame. Doing
+     it through framer's imperative animate() pulled its whole animation
+     engine into the entry chunk for the sake of one easing curve. */
   useEffect(() => {
-    if (!inView) return undefined;
+    const el = ref.current;
+    if (!el) return undefined;
 
-    const controls = animate(0, to, {
-      duration,
-      ease: [0.22, 1, 0.36, 1],
-      onUpdate: (v) => setVal(Math.round(v)),
-    });
-    return () => controls.stop();
-  }, [inView, to, duration]);
+    let raf = 0;
+    const ease = (t) => 1 - Math.pow(1 - t, 3); // the [0.22,1,0.36,1] feel
+    const run = () => {
+      const started = performance.now();
+      const tick = (now) => {
+        const p = Math.min(1, (now - started) / (duration * 1000));
+        setVal(Math.round(ease(p) * to));
+        if (p < 1) raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    };
+
+    if (typeof IntersectionObserver !== 'function') {
+      setVal(to);
+      return undefined;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0].isIntersecting) return;
+        io.disconnect();
+        run();
+      },
+      { rootMargin: '-60px' },
+    );
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, [to, duration]);
 
   return (
     <span ref={ref}>
@@ -344,31 +370,18 @@ export function PageHero({ title, sub, image, crumb }) {
         </div>
       )}
       <div className="container">
-        <motion.nav
-          className="breadcrumb"
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
+        <Reveal as="nav" className="breadcrumb" y={14}>
           <Link to="/">{crumb}</Link>
           <span className="sep">/</span>
           <span>{title}</span>
-        </motion.nav>
-        <motion.h1
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-        >
+        </Reveal>
+        <Reveal as="h1" delay={0.12} y={30}>
           {title}
-        </motion.h1>
+        </Reveal>
         {sub && (
-          <motion.p
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.24, ease: [0.22, 1, 0.36, 1] }}
-          >
+          <Reveal as="p" delay={0.24} y={24}>
             {sub}
-          </motion.p>
+          </Reveal>
         )}
       </div>
     </header>

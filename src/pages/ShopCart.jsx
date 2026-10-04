@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
@@ -42,10 +42,9 @@ export default function ShopCart() {
                   </div>
                   <AnimatePresence>
                     {rows.map((r) => (
-                      <motion.div
+                      <mo.div
                         className="cart-table__row"
                         key={r.product.slug}
-                        layout
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0, x: 40 }}
@@ -73,7 +72,7 @@ export default function ShopCart() {
                         <button className="cart-table__del" onClick={() => remove(r.product.slug)} aria-label={t('shop.cart.remove')}>
                           ✕
                         </button>
-                      </motion.div>
+                      </mo.div>
                     ))}
                   </AnimatePresence>
                 </div>
@@ -99,10 +98,10 @@ export default function ShopCart() {
                     <span>{t('shop.cart.total')}</span>
                     <b>{money(total)}</b>
                   </div>
-                  <motion.button className="btn btn--primary" whileTap={{ scale: 0.97 }} onClick={() => navigate('/shop/checkout')}>
+                  <mo.button className="btn btn--primary" whileTap={{ scale: 0.97 }} onClick={() => navigate('/shop/checkout')}>
                     {t('shop.cart.checkout')}
                     <Icons.arrow size={18} />
-                  </motion.button>
+                  </mo.button>
                   <Link to="/shop" className="btn btn--ghost" style={{ justifyContent: 'center' }}>
                     {t('shop.cart.emptyBtn')}
                   </Link>

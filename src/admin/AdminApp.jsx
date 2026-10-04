@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as mo } from 'framer-motion';
 import Logo from '../components/Logo';
 import { Icons } from '../components/ui';
 import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
@@ -137,7 +137,7 @@ function Login({ onDone }) {
       >
         {isDark ? <Icons.sun size={17} /> : <Icons.moon size={17} />}
       </button>
-      <motion.form className="admin__login-card" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} onSubmit={submit}>
+      <mo.form className="admin__login-card" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} onSubmit={submit}>
         <div style={{ display: 'grid', placeItems: 'center' }}>
           <Logo size={30} className="admin__logo-mark" />
         </div>
@@ -158,7 +158,7 @@ function Login({ onDone }) {
         <p style={{ marginTop: 18, fontSize: 12 }}>
           <Link to="/">← بازگشت به وب‌سایت</Link>
         </p>
-      </motion.form>
+      </mo.form>
     </main>
   );
 }

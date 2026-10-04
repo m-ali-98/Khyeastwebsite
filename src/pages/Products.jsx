@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, CTABand } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
@@ -38,7 +38,7 @@ export default function Products() {
             ))}
           </Reveal>
 
-          <motion.div
+          <mo.div
             className="products-grid"
             key={active}
             initial={{ opacity: 0, y: 24 }}
@@ -50,7 +50,7 @@ export default function Products() {
                 <ProductCard key={p.slug} product={p} index={i} />
               ))}
             </AnimatePresence>
-          </motion.div>
+          </mo.div>
 
           <Reveal className="mt-56">
             <div className="cta-band">

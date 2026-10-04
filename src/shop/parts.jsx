@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as mo } from 'framer-motion';
 import { Icons, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from './ShopContext';
@@ -39,9 +39,8 @@ export function ShopCard({ p, index = 0 }) {
   }, [added]);
 
   return (
-    <motion.article
+    <mo.article
       className="shop-card"
-      layout
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.94 }}
@@ -85,6 +84,6 @@ export function ShopCard({ p, index = 0 }) {
           </button>
         </div>
       </div>
-    </motion.article>
+    </mo.article>
   );
 }

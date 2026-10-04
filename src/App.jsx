@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as mo } from 'framer-motion';
 import Layout from './components/Layout';
 import RouteFallback from './components/RouteFallback';
 import { usePrefetchRoutes, prefetch } from './routes';
@@ -175,7 +175,7 @@ function AnimatedRoutes() {
      nothing about the timing changed. */
   return (
     <Layout>
-      <motion.main
+      <mo.main
         key={location.pathname}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -184,7 +184,7 @@ function AnimatedRoutes() {
         <Suspense fallback={<RouteFallback />}>
           <PublicRoutes />
         </Suspense>
-      </motion.main>
+      </mo.main>
     </Layout>
   );
 }

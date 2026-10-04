@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as mo } from 'framer-motion';
 import { Icons, Reveal, hl } from '../components/ui';
 import { PostCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
@@ -28,7 +28,7 @@ export default function PostDetail() {
           <img src={post.image} alt="" loading="lazy" />
         </div>
         <div className="container">
-          <motion.nav
+          <mo.nav
             className="breadcrumb"
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
@@ -39,16 +39,16 @@ export default function PostDetail() {
             <Link to="/blog">{t('nav.blog')}</Link>
             <span className="sep">/</span>
             <span>{post.category}</span>
-          </motion.nav>
-          <motion.h1
+          </mo.nav>
+          <mo.h1
             style={{ maxWidth: 900 }}
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
           >
             {post.title}
-          </motion.h1>
-          <motion.div
+          </mo.h1>
+          <mo.div
             style={{ display: 'flex', gap: 22, color: 'rgba(255,255,255,.75)', fontSize: 14, flexWrap: 'wrap' }}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -66,7 +66,7 @@ export default function PostDetail() {
               <Icons.users size={16} />
               {t('blog.meta.author')}
             </span>
-          </motion.div>
+          </mo.div>
         </div>
       </header>
 

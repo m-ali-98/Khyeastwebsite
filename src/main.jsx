@@ -1,5 +1,5 @@
 import React from 'react';
-import { MotionConfig } from 'framer-motion';
+import { LazyMotion, MotionConfig, domAnimation } from 'framer-motion';
 import ReactDOM from 'react-dom/client';
 import '@fontsource-variable/vazirmatn';
 import './styles/fonts.scss';
@@ -39,15 +39,23 @@ loadPack(localeFromPath(window.location.pathname)).finally(() => {
           The CSS @media rule cannot do this on its own: motion components
           animate through the Web Animations API from JS, where a CSS
           !important override has no effect. */}
-      <MotionConfig reducedMotion="user">
-        <LocaleProvider>
-          <ContentProvider>
-            <ShopProvider>
-              <App />
-            </ShopProvider>
-          </ContentProvider>
-        </LocaleProvider>
-      </MotionConfig>
+      {/* LazyMotion + the `m` component ship only the animation features this
+          site uses. The full `motion` component bundles every feature it
+          *could* need — drag, layout projection, pan, SVG path morphing — and
+          none of it is tree-shakeable, because `motion.div` is a proxy that
+          resolves at runtime. `strict` turns any stray `motion.*` into a
+          build-time-visible error instead of silently restoring the weight. */}
+      <LazyMotion features={domAnimation} strict>
+        <MotionConfig reducedMotion="user">
+          <LocaleProvider>
+            <ContentProvider>
+              <ShopProvider>
+                <App />
+              </ShopProvider>
+            </ContentProvider>
+          </LocaleProvider>
+        </MotionConfig>
+      </LazyMotion>
     </React.StrictMode>
   );
 
