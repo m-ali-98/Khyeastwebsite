@@ -146,7 +146,8 @@ test.describe('shop purchase flow', () => {
     await expect(page).toHaveURL(/\/shop\/cart$/);
     await expect(page.locator('.cart-table__row').nth(1)).toBeVisible();
 
-    await page.locator('.cart-summary button.btn--primary').click();
+    /* the summary is rendered twice (mobile + desktop placement) */
+    await page.locator('.cart-summary button.btn--primary').first().click();
     await expect(page).toHaveURL(/\/shop\/checkout$/);
 
     const form = page.locator('.checkout-form');

@@ -123,7 +123,9 @@ function Login({ onDone }) {
   };
 
   return (
-    <div className="admin__login">
+    /* a <main> so the login screen has the one landmark every page needs —
+       the shell has .admin__main, this screen had nothing */
+    <main className="admin__login">
       {/* the sidebar toggle is not mounted yet, so the login screen carries
           its own so the panel can be opened straight into the right theme */}
       <button
@@ -157,7 +159,7 @@ function Login({ onDone }) {
           <Link to="/">← بازگشت به وب‌سایت</Link>
         </p>
       </motion.form>
-    </div>
+    </main>
   );
 }
 

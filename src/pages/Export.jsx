@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl, useNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 
@@ -12,7 +12,9 @@ export default function Export() {
 
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
-  const y = useTransform(scrollYProgress, [0, 1], [-70, 70]);
+  const reduce = useReducedMotion();
+  const yRaw = useTransform(scrollYProgress, [0, 1], [-70, 70]);
+  const y = reduce ? 0 : yRaw;
 
   return (
     <>

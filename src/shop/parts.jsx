@@ -61,9 +61,9 @@ export function ShopCard({ p, index = 0 }) {
       </div>
       <div className="shop-card__body">
         {brand && <span className="shop-card__brand">{brand.en}</span>}
-        <h3 className="shop-card__title">
+        <h2 className="shop-card__title">
           <Link to={`/shop/${p.slug}`}>{p.title}</Link>
-        </h3>
+        </h2>
         {p.unit && <span className="shop-card__unit">{p.unit}</span>}
         <div className="shop-card__spacer" />
         <div className="shop-card__price">

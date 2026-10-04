@@ -136,7 +136,8 @@
   }
   .badge-featured {
     background: var(--gold);
-    color: #fff;
+    /* white on gold is only 2.3:1; dark ink on the same gold is 8.2:1 */
+    color: #231704;
     font-size: 12px;
     font-weight: 800;
     padding: 5px 12px;

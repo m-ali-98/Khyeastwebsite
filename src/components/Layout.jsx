@@ -294,7 +294,7 @@ function Footer() {
           </div>
 
           <div>
-            <h4>{t('footer.quickTitle')}</h4>
+            <h2>{t('footer.quickTitle')}</h2>
             <ul>
               {NAV_LINKS.filter((link) => link.to !== '/' && (!link.shopOnly || shopEnabled)).map((link) => (
                 <li key={link.to}>
@@ -308,7 +308,7 @@ function Footer() {
           </div>
 
           <div>
-            <h4>{t('footer.brandsTitle')}</h4>
+            <h2>{t('footer.brandsTitle')}</h2>
             <ul>
               {brands.map((b) => (
                 <li key={b.id}>
@@ -328,7 +328,7 @@ function Footer() {
           </div>
 
           <div>
-            <h4>{t('footer.contactTitle')}</h4>
+            <h2>{t('footer.contactTitle')}</h2>
             <ul>
               <li>
                 <a href={`mailto:${t('global.email')}`}>

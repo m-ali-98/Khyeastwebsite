@@ -22,9 +22,11 @@ export function ProductCard({ product, index = 0 }) {
         <span className="product-card__brand">{brand?.fa}</span>
       </Link>
       <div className="product-card__body">
-        <h3>
+        {/* h2, not h3: these cards sit directly under the page h1 on
+            /products, and skipping a level breaks screen-reader outlines. */}
+        <h2>
           <Link to={`/products/${product.slug}`}>{product.title}</Link>
-        </h3>
+        </h2>
         <span className="product-card__meta">
           {product.weight} · {product.pack}
         </span>
@@ -54,9 +56,9 @@ export function PostCard({ post, index = 0 }) {
         <span className="post-card__date">{post.date}</span>
       </Link>
       <div className="post-card__body">
-        <h3>
+        <h2>
           <Link to={`/blog/${post.slug}`}>{post.title}</Link>
-        </h3>
+        </h2>
         <p>{post.excerpt}</p>
         <div className="post-card__foot">
           <Link className="link-arrow" to={`/blog/${post.slug}`}>
@@ -81,7 +83,7 @@ export function BrandCard({ brand, index = 0 }) {
       <div className="brand-card__img">
         <img src={brand.image} alt={brand.fa} loading="lazy" />
       </div>
-      <h3>{brand.fa}</h3>
+      <h2>{brand.fa}</h2>
       <p>
         {brand.en} · {brand.tagline}
       </p>

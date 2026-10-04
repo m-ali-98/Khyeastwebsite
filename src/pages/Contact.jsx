@@ -11,7 +11,7 @@ function OfficeCard({ office, index }) {
         <Ic size={26} />
       </div>
       <div>
-        <h3>{office.title}</h3>
+        <h2>{office.title}</h2>
         <p>{office.address}</p>
         <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           {(office.phones || []).map((ph) => (
@@ -100,7 +100,7 @@ function ContactForm() {
             >
               <Icons.check size={44} />
             </motion.div>
-            <h3 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 10px' }}>{t('contact.form.successTitle')}</h3>
+            <h2 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 10px' }}>{t('contact.form.successTitle')}</h2>
             <p style={{ color: 'var(--muted)', maxWidth: 420, margin: '0 auto 26px' }}>
               {t('contact.form.successText')}
             </p>
@@ -117,7 +117,7 @@ function ContactForm() {
             onSubmit={submit}
             noValidate
           >
-            <h3 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800 }}>{t('contact.form.title')}</h3>
+            <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800 }}>{t('contact.form.title')}</h2>
             <p style={{ color: 'var(--muted)', margin: '0 0 26px', fontSize: 14.5 }}>{t('contact.form.sub')}</p>
             <div className="form-grid">
               <div className="field">
@@ -189,7 +189,7 @@ export default function Contact() {
                 <Icons.whatsapp size={26} />
               </div>
               <div>
-                <h3>{t('contact.quick.title')}</h3>
+                <h2>{t('contact.quick.title')}</h2>
                 <p>{t('contact.quick.text')}</p>
                 <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                   <a href={`mailto:${t('global.email')}`}>

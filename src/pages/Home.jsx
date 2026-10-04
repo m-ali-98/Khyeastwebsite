@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, Marquee, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
@@ -9,8 +9,14 @@ function Hero() {
   const ref = useRef(null);
   const { t, m } = useContent();
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
-  const y = useTransform(scrollYProgress, [0, 1], [0, 180]);
-  const opacity = useTransform(scrollYProgress, [0, 0.85], [1, 0]);
+  /* Parallax is scroll-linked motion, which MotionConfig's reducedMotion
+     setting does not cover — it only governs time-based animations. A visitor
+     who asked for less motion gets a hero that simply stays put. */
+  const reduce = useReducedMotion();
+  const yRaw = useTransform(scrollYProgress, [0, 1], [0, 180]);
+  const opacityRaw = useTransform(scrollYProgress, [0, 0.85], [1, 0]);
+  const y = reduce ? 0 : yRaw;
+  const opacity = reduce ? 1 : opacityRaw;
 
   const sloganWords = t('global.slogan').split(' ');
 
@@ -327,7 +333,9 @@ function BreadBanner() {
   const ref = useRef(null);
   const { t, m } = useContent();
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
-  const y = useTransform(scrollYProgress, [0, 1], [-60, 60]);
+  const reduce = useReducedMotion();
+  const yRaw = useTransform(scrollYProgress, [0, 1], [-60, 60]);
+  const y = reduce ? 0 : yRaw;
 
   return (
     <section className="section" style={{ padding: 0 }} ref={ref}>

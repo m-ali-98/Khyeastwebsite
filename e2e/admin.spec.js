@@ -131,19 +131,31 @@ test('a blank or duplicate slug is refused instead of corrupting the catalogue',
   await adminTab(page, 'محصولات').first().click();
   await page.getByRole('button', { name: '+ محصول جدید' }).click();
 
+  /* Collect every alert instead of consuming one at a time: the assertion
+     that matters is *why* the save was refused, and swallowing the message
+     would let a silent save pass unnoticed. */
+  const alerts = [];
+  page.on('dialog', (d) => {
+    alerts.push(d.message());
+    d.accept();
+  });
+
   await field(page, 'عنوان محصول').fill('بدون شناسه');
   await field(page, 'شناسه یکتا (slug)').fill('');
-
-  page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'ذخیره محصول' }).click();
-
-  /* Still on the editor — the save was blocked. */
-  await expect(page.locator('.admin__panel h1')).toContainText('محصول جدید');
+  await expect.poll(() => alerts.length).toBe(1);
+  expect(alerts[0]).toContain('خالی');
 
   await field(page, 'شناسه یکتا (slug)').fill(PRODUCT_SLUG); // already taken
-  page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'ذخیره محصول' }).click();
-  await expect(page.locator('.admin__panel h1')).toContainText('محصول جدید');
+  await expect.poll(() => alerts.length).toBe(2);
+  expect(alerts[1]).toContain('یکتا');
+
+  /* The real invariant: neither attempt put anything in the catalogue. */
+  await adminTab(page, 'محصولات').first().click();
+  await expect(page.locator('.admin__item', { hasText: 'بدون شناسه' })).toHaveCount(0);
+  await gotoReady(page, '/products');
+  await expect(page.locator('.product-card', { hasText: 'بدون شناسه' })).toHaveCount(0);
 });
 
 test('deleting the product asks for confirmation and removes it everywhere', async ({ page }) => {

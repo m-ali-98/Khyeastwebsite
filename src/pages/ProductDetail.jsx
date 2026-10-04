@@ -128,7 +128,7 @@ export default function ProductDetail() {
             >
               {tab === 'usage' && (
                 <>
-                  <h3 style={{ marginTop: 0 }}>{t('product.usageTitle')}</h3>
+                  <h2 style={{ marginTop: 0, fontSize: '1.17em', fontWeight: 700 }}>{t('product.usageTitle')}</h2>
                   <ol style={{ color: 'var(--ink-2)', lineHeight: 2.3, paddingInlineStart: 22, margin: 0 }}>
                     {(product.usage || []).map((u) => (
                       <li key={u}>{u}</li>

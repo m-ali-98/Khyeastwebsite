@@ -11,6 +11,9 @@
   --crimson-800: #7a0820;
   --crimson-900: #4d0514;
   --crimson-soft: rgba(220, 20, 60, 0.08);
+  /* crimson tuned for small text: the brand crimson only reaches 4.4:1 on
+     white, just under the AA threshold, so labels and links use this one */
+  --crimson-ink: #c01034;
   --crimson-glow: rgba(220, 20, 60, 0.35);
 
   --ink: #1b1114;
@@ -63,6 +66,7 @@
   --crimson-800: #8c0e28;
   --crimson-900: #55081a;
   --crimson-soft: rgba(239, 43, 82, 0.14);
+  --crimson-ink: #ff5c79;
   --crimson-glow: rgba(239, 43, 82, 0.4);
 
   --ink: #f6eef0;
@@ -122,7 +126,7 @@
   .post-callout { border-right: 0; border-left: 4px solid var(--crimson); }
 
   .footer::before { right: auto; left: -140px; }
-  .footer h4::after { right: auto; left: auto; }
+  .footer h2::after { right: auto; left: auto; }
 
   .to-top { left: auto; right: 28px; }
 
@@ -191,7 +195,7 @@ input, select, textarea { font-family: inherit; }
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: var(--crimson);
+  color: var(--crimson-ink);
   background: var(--crimson-soft);
   border: 1px solid rgba(220, 20, 60, 0.18);
   padding: 7px 18px;
@@ -290,7 +294,7 @@ input, select, textarea { font-family: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--crimson);
+  color: var(--crimson-ink);
   font-weight: 700;
   font-size: 15px;
   /* was `transition: gap` — animating gap reflows the flex container on every
@@ -705,7 +709,7 @@ input, select, textarea { font-family: inherit; }
 }
 .brand-card:hover .brand-card__img { transform: translateY(-8px) scale(1.05); }
 .brand-card__img img { max-height: 130px; object-fit: contain; }
-.brand-card h3 { margin: 0 0 4px; font-size: 19px; font-weight: 800; }
+.brand-card h2 { margin: 0 0 4px; font-size: 19px; font-weight: 800; }
 .brand-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
 
 /* ---------- Product cards ---------- */
@@ -749,7 +753,7 @@ input, select, textarea { font-family: inherit; }
   box-shadow: 0 8px 20px -8px var(--crimson-glow);
 }
 .product-card__body { padding: 20px 22px 24px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
-.product-card__body h3 { margin: 0; font-size: 17.5px; font-weight: 800; line-height: 1.6; }
+.product-card__body h2 { margin: 0; font-size: 17.5px; font-weight: 800; line-height: 1.6; }
 .product-card__meta { color: var(--muted); font-size: 13.5px; }
 .product-card__foot { margin-top: auto; padding-top: 12px; display: flex; justify-content: space-between; align-items: center; }
 
@@ -1052,7 +1056,7 @@ input, select, textarea { font-family: inherit; }
   border-radius: 999px;
 }
 .post-card__body { padding: 22px 24px 26px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
-.post-card__body h3 { margin: 0; font-size: 17px; font-weight: 800; line-height: 1.7; }
+.post-card__body h2 { margin: 0; font-size: 17px; font-weight: 800; line-height: 1.7; }
 .post-card__body p { margin: 0; color: var(--muted); font-size: 14px; }
 .post-card__foot { margin-top: auto; padding-top: 10px; }
 
@@ -1109,7 +1113,7 @@ input, select, textarea { font-family: inherit; }
   background: var(--crimson-soft);
   color: var(--crimson);
 }
-.contact-card h3 { margin: 0 0 8px; font-size: 17px; font-weight: 800; }
+.contact-card h2 { margin: 0 0 8px; font-size: 17px; font-weight: 800; }
 .contact-card p { margin: 0 0 6px; color: var(--muted); font-size: 14.5px; }
 .contact-card a { color: var(--crimson); font-weight: 700; }
 
@@ -1153,7 +1157,7 @@ input, select, textarea { font-family: inherit; }
   gap: 44px;
   position: relative;
 }
-.footer h4 {
+.footer h2 {
   color: #fff;
   font-size: 16.5px;
   font-weight: 800;
@@ -1161,7 +1165,7 @@ input, select, textarea { font-family: inherit; }
   position: relative;
   padding-bottom: 12px;
 }
-.footer h4::after {
+.footer h2::after {
   content: '';
   position: absolute;
   bottom: 0; right: 0;
@@ -1514,6 +1518,14 @@ input, select, textarea { font-family: inherit; }
    Dark-mode corrections for surfaces that were hard-coded to a light canvas
    ========================================================================== */
 [data-theme='dark'] {
+  /* the dark palette lifts crimson to #ef2b52, which drops white text on it
+     to 4.1:1 — the pills carry their label on the deeper shade instead */
+  .badge-off,
+  .badge-float,
+  .product-card__brand,
+  .filter-chip.is-active { background: var(--crimson-600); }
+  .filter-chip.is-active { border-color: var(--crimson-600); }
+
   .nav.is-scrolled .nav__bar {
     background: rgba(23, 14, 17, 0.88);
     box-shadow: 0 10px 40px -18px rgba(0, 0, 0, 0.8);

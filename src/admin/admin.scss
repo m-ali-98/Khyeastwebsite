@@ -280,7 +280,9 @@
     outline: none;
 
     &:focus { border-color: var(--crimson); }
-    &::placeholder { color: var(--muted); opacity: 0.75; }
+    /* no extra opacity: --muted is already the lightest text that still
+       clears 4.5:1 against the field, and 0.75 dropped it to ~3.1:1 */
+    &::placeholder { color: var(--muted); }
   }
 }
 .admin__trans-label {
