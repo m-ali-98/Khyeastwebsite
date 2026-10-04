@@ -91,7 +91,14 @@ try {
   const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)];
   if (inline.length) {
     for (const m of inline) {
-      const want = crypto.createHash('sha256').update(m[1], 'utf8').digest('base64');
+      /* Hash what the BROWSER hashes. The HTML parser normalises CRLF to LF
+         before the script text reaches the CSP check, so on a Windows
+         checkout the raw bytes off the wire carry \r\n and hashing them
+         produces a digest no browser ever computes. The server normalises
+         for the same reason; this has to match it or the check fails on
+         Windows while the real page works perfectly. */
+      const text = m[1].replace(/\r\n/g, '\n');
+      const want = crypto.createHash('sha256').update(text, 'utf8').digest('base64');
       check(csp.includes(`'sha256-${want}'`), 'CSP hash matches the served inline script');
     }
   }

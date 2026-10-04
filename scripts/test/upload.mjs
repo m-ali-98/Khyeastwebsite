@@ -39,13 +39,27 @@ const check = (ok, name, detail = '') => {
 };
 
 let server;
+/* Keep the server's own output. When the harness fails, "command failed" is
+   useless — the reason is almost always in here. */
+let serverLog = '';
+
 const start = async () => {
   server = spawn('node', ['server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), DB_FILE: DB, UPLOAD_DIR: UPLOADS, NODE_ENV: 'development' },
-    stdio: 'ignore',
+    /* DATA_DIR too, not just DB_FILE: without it the server falls back to the
+       real server/data and this suite would be reading the content.json you
+       actually ship. */
+    env: { ...process.env, PORT: String(PORT), DATA_DIR: TMP, DB_FILE: DB, UPLOAD_DIR: UPLOADS, NODE_ENV: 'development' },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  for (let i = 0; i < 100; i += 1) {
+  server.stdout.on('data', (d) => { serverLog += d; });
+  server.stderr.on('data', (d) => { serverLog += d; });
+  server.on('error', (e) => { serverLog += `spawn: ${e.message}\n`; });
+
+  /* 20s, not 10: a cold start on Windows loads a native SQLite binding and
+     may be waiting on a virus scanner the first time. */
+  for (let i = 0; i < 200; i += 1) {
+    if (server.exitCode !== null) throw new Error(`server exited early (${server.exitCode}): ${serverLog.trim().slice(-300)}`);
     try {
       if ((await fetch(`${BASE}/api/health`)).ok) return;
     } catch {
@@ -53,15 +67,21 @@ const start = async () => {
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('server did not start');
+  throw new Error(`server did not start: ${serverLog.trim().slice(-300) || 'no output'}`);
 };
 
-const stop = () => {
+const stop = async () => {
   if (server) server.kill('SIGKILL');
-  try {
-    fs.rmSync(TMP, { recursive: true, force: true });
-  } catch {
-    /* best effort */
+  /* Windows keeps the SQLite file locked until the last handle closes, which
+     lags process exit. Retry rather than reporting a cleanup race as a test
+     failure — and never let cleanup decide the result. */
+  for (let i = 0; i < 6; i += 1) {
+    try {
+      fs.rmSync(TMP, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 300));
+    }
   }
 };
 
@@ -194,8 +214,10 @@ try {
 } catch (e) {
   check(false, 'harness', String(e?.message || e));
 } finally {
-  stop();
+  await stop();
 }
 
+/* Exit 0 even on failure, like every other suite here: run.mjs reads the
+   N/M line and the LEAK lines from stdout. A non-zero exit makes execFile
+   reject, and the reason — the thing we actually need — is thrown away. */
 console.log(`${pass}/${pass + fail}`);
-process.exit(fail ? 1 : 0);

@@ -52,6 +52,18 @@ const record = (ok, label, detail = '') => {
   failures.push(`${label}${detail ? ' — ' + detail : ''}`);
 };
 
+/* A suite that exits non-zero makes execFile reject, and its stdout — the
+   LEAK lines saying what actually broke — goes in the bin. Keep it: a bare
+   "harness error" has cost real debugging time. */
+async function suite(file, timeout) {
+  try {
+    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
+    return { stdout, crashed: false, err: '' };
+  } catch (e) {
+    return { stdout: e?.stdout || '', crashed: true, err: String(e?.stderr || e?.message || e).trim() };
+  }
+}
+
 async function child(script, arg) {
   const { stdout } = await run('node', [path.join(HERE, script), arg], { cwd: HERE, timeout: 40000 });
   return JSON.parse(stdout.trim().split('\n').pop());
@@ -181,20 +193,17 @@ try {
 }
 
 console.log('\nUpload optimisation — a photo may be shrunk, but never lost or broken');
-for (const [file, label, timeout] of [['images.mjs', 'upload optimisation checks', 60000], ['upload.mjs', 'upload round-trip checks', 60000]]) {
-  try {
-    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
-    const line = stdout.trim().split('\n').pop();
-    const m = line.match(/(\d+)\/(\d+)/);
-    const leaks = stdout.split('\n').filter((l) => l.trim().startsWith('LEAK'));
-    const ok = Boolean(m) && m[1] === m[2];
-    record(ok, file.replace('.mjs', ''), leaks.join('; ').slice(0, 200));
-    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : line} ${label}`);
-    leaks.forEach((l) => console.log('       ' + l.trim()));
-  } catch (e) {
-    record(false, file.replace('.mjs', ''), String(e.message).slice(0, 90));
-    console.log(`  FAIL ${file} harness error`);
-  }
+for (const [file, label, timeout] of [['images.mjs', 'upload optimisation checks', 60000], ['upload.mjs', 'upload round-trip checks', 90000]]) {
+  const name = file.replace('.mjs', '');
+  const { stdout, crashed, err } = await suite(file, timeout);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.trim().startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, name, (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} ${label}`);
+  leaks.forEach((l) => console.log('       ' + l.trim()));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
 }
 
 console.log('\nBehaviour — limits, errors and inventory must not cost a sale');
