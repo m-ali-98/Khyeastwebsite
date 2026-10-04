@@ -6,7 +6,7 @@
    a save button wired to the wrong handler, a draft that never clears, or a
    confirm() dialog that blocks a delete. Everything here clicks.
 
-   All writes land in .e2e-data/ (see e2e/global-setup.js), never in
+   All writes land in .e2e-data/ (see e2e/prepare-data.js), never in
    server/data/.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
