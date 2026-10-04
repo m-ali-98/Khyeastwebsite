@@ -157,7 +157,7 @@ test.describe('shop purchase flow', () => {
     await inputs.nth(2).fill('اهواز');
     await form.locator('textarea').first().fill('خیابان نمونه، پلاک ۱۲، واحد ۳');
 
-    await form.locator('button[type="submit"]').click();
+    await form.locator('button[type="submit"]').first().click();
 
     await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
     await expect(page.locator('.order-hero .code')).not.toBeEmpty();

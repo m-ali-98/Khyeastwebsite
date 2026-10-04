@@ -59,12 +59,15 @@ const dropTranslations = (i18n, bucket, slug) => {
   }
   return next;
 };
+/* No fallback: an empty box must stay empty so the save guard below can say
+   so. Inventing `item-1712…` behind the admin's back gave the product a
+   permanent machine URL they never chose. */
 const slugify = (s) =>
   String(s)
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9\u0600-\u06FF]+/g, '-')
-    .replace(/^-+|-+$/g, '') || `item-${Date.now()}`;
+    .replace(/^-+|-+$/g, '');
 
 /* The slug is the URL and the lookup key. A blank one produces /products/ ,
    which collides with the index route, and a duplicate makes the second item

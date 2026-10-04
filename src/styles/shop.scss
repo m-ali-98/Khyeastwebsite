@@ -27,7 +27,7 @@
       height: 42px;
       border-radius: 12px;
       background: var(--crimson-soft);
-      color: var(--crimson);
+      color: var(--crimson-ink);
     }
     span {
       font-size: 13.5px;
@@ -158,7 +158,7 @@
     border: 1px solid rgba(24, 122, 60, 0.25);
 
     &.is-out {
-      color: var(--crimson);
+      color: var(--crimson-ink);
       border-color: rgba(220, 20, 60, 0.25);
     }
     &.is-low {
@@ -179,7 +179,7 @@
     font-size: 11.5px;
     font-weight: 800;
     letter-spacing: 0.4px;
-    color: var(--crimson);
+    color: var(--crimson-ink);
     text-transform: uppercase;
   }
 
@@ -192,7 +192,7 @@
     a {
       color: inherit;
       &:hover {
-        color: var(--crimson);
+        color: var(--crimson-ink);
       }
     }
   }
@@ -266,7 +266,7 @@
     display: inline-block;
     font-size: 12px;
     font-weight: 800;
-    color: var(--crimson);
+    color: var(--crimson-ink);
     background: var(--crimson-soft);
     padding: 6px 14px;
     border-radius: 999px;
@@ -306,7 +306,7 @@
     .now {
       font-size: 28px;
       font-weight: 900;
-      color: var(--crimson);
+      color: var(--crimson-ink);
     }
     .was {
       font-size: 15px;
@@ -330,7 +330,7 @@
     margin-bottom: 16px;
 
     &.is-out {
-      color: var(--crimson);
+      color: var(--crimson-ink);
     }
   }
 
@@ -364,7 +364,7 @@
     background: transparent;
     font-size: 20px;
     font-weight: 800;
-    color: var(--crimson);
+    color: var(--crimson-ink);
     cursor: pointer;
     transition: background 0.2s;
     font-family: inherit;
@@ -407,7 +407,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    color: var(--crimson);
+    color: var(--crimson-ink);
   }
 
   table {
@@ -445,7 +445,7 @@
     font-size: 17px;
     font-weight: 900;
     margin-bottom: 12px;
-    color: var(--crimson);
+    color: var(--crimson-ink);
   }
 }
 
@@ -506,7 +506,7 @@
       flex: none;
       border-radius: 50%;
       background: var(--crimson-soft);
-      color: var(--crimson);
+      color: var(--crimson-ink);
       display: grid;
       place-items: center;
       font-weight: 900;
@@ -546,7 +546,7 @@
 
     b {
       font-size: 12.5px;
-      color: var(--crimson);
+      color: var(--crimson-ink);
       display: flex;
       align-items: center;
       gap: 7px;
@@ -682,7 +682,7 @@
       line-height: 1.8;
       display: block;
       a:hover {
-        color: var(--crimson);
+        color: var(--crimson-ink);
       }
     }
     small {
@@ -708,7 +708,7 @@
     border-radius: 50%;
     border: 1.5px solid var(--line);
     background: transparent;
-    color: var(--crimson);
+    color: var(--crimson-ink);
     font-size: 15px;
     cursor: pointer;
     /* explicit property list: `all` re-evaluates everything on every change */
@@ -767,7 +767,7 @@
 
       b {
         font-size: 19px;
-        color: var(--crimson);
+        color: var(--crimson-ink);
       }
     }
   }
@@ -799,7 +799,7 @@
     margin: 0 auto 20px;
     border-radius: 50%;
     background: var(--crimson-soft);
-    color: var(--crimson);
+    color: var(--crimson-ink);
     display: grid;
     place-items: center;
   }
@@ -832,7 +832,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    color: var(--crimson);
+    color: var(--crimson-ink);
   }
 
   &__grid {
@@ -938,7 +938,7 @@
     margin: 0 auto 18px;
     border-radius: 50%;
     background: var(--crimson-soft);
-    color: var(--crimson);
+    color: var(--crimson-ink);
     display: grid;
     place-items: center;
   }
@@ -1047,11 +1047,11 @@
     &.current {
       .dot {
         border-color: var(--crimson);
-        color: var(--crimson);
+        color: var(--crimson-ink);
         animation: pulse-dot 1.8s infinite;
       }
       small {
-        color: var(--crimson);
+        color: var(--crimson-ink);
       }
     }
   }
@@ -1098,7 +1098,7 @@
     font-size: 15.5px;
     font-weight: 900;
     margin-bottom: 14px;
-    color: var(--crimson);
+    color: var(--crimson-ink);
     display: flex;
     align-items: center;
     gap: 9px;
@@ -1159,7 +1159,7 @@
 
   &:hover {
     border-color: var(--crimson);
-    color: var(--crimson);
+    color: var(--crimson-ink);
     transform: translateY(-2px);
   }
 
@@ -1234,3 +1234,9 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* The dark palette lifts crimson to #ef2b52, where white text falls to
+   4.1:1. These live here rather than in global.scss because the shop rules
+   are nested one level deeper and would otherwise win the cascade. */
+[data-theme='dark'] .shop-card .badge-off,
+[data-theme='dark'] .shop-card__badges .badge-off { background: var(--crimson-600); }

@@ -38,7 +38,7 @@
 .admin__login-card p { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
 .admin__login-card .field { text-align: right; margin-bottom: 14px; }
 .admin__login-card .btn { width: 100%; }
-.admin__login-err { color: var(--crimson); font-size: 13px; margin-top: 10px; }
+.admin__login-err { color: var(--crimson-ink); font-size: 13px; margin-top: 10px; }
 
 .admin__shell { display: grid; grid-template-columns: 250px 1fr; min-height: 100svh; }
 .admin__side {
@@ -110,7 +110,7 @@
   color: var(--ink-2);
   transition: background-color 0.25s, border-color 0.25s, color 0.25s;
 }
-.admin__iconbtn:hover { border-color: var(--crimson); color: var(--crimson); }
+.admin__iconbtn:hover { border-color: var(--crimson); color: var(--crimson-ink); }
 .admin__iconbtn.danger:hover { background: var(--crimson); color: #fff; border-color: var(--crimson); }
 
 .admin__texts { display: grid; gap: 14px; }
@@ -146,12 +146,12 @@
   font-weight: 700;
   color: var(--ink-2);
 }
-.rte__bar button:hover { border-color: var(--crimson); color: var(--crimson); }
+.rte__bar button:hover { border-color: var(--crimson); color: var(--crimson-ink); }
 .rte__area { min-height: 260px; padding: 16px 18px; font-size: 15px; line-height: 2; outline: none; direction: rtl; }
 .rte__area h2, .rte__area h3 { margin: 14px 0 8px; }
 .rte__area img { max-width: 100%; border-radius: 10px; margin: 10px 0; }
 .rte__area video { max-width: 100%; border-radius: 10px; margin: 10px 0; }
-.rte__area a { color: var(--crimson); text-decoration: underline; }
+.rte__area a { color: var(--crimson-ink); text-decoration: underline; }
 .rte__hint { font-size: 12px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--line); background: var(--bg-soft); }
 
 /* messages */
@@ -371,7 +371,7 @@
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.04em;
-  color: var(--crimson);
+  color: var(--crimson-ink);
 }
 
 .admin__badge {
@@ -444,7 +444,7 @@
   display: inline-block;
   font-size: 10.5px;
   font-weight: 800;
-  color: var(--crimson);
+  color: var(--crimson-ink);
   background: var(--surface);
   border-radius: 6px;
   padding: 1px 6px;
@@ -480,7 +480,7 @@
   padding: 13px 16px;
   margin-bottom: 22px;
 
-  svg { flex: none; margin-top: 3px; color: var(--crimson); }
+  svg { flex: none; margin-top: 3px; color: var(--crimson-ink); }
   strong { font-size: 13.5px; }
   p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.9; }
 }
@@ -643,7 +643,7 @@
   color: var(--ink-2);
   transition: border-color 0.25s, color 0.25s, background 0.25s;
 
-  &:hover { border-color: var(--crimson); color: var(--crimson); }
+  &:hover { border-color: var(--crimson); color: var(--crimson-ink); }
 }
 
 /* The mark keeps its own aspect ratio; it is not a square badge.

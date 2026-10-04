@@ -64,9 +64,17 @@ async function audit(page) {
   );
 }
 
+/* A bare selector is not enough to fix a contrast failure — the measured
+   colours and ratio are what say which token is wrong. */
+const nodeLine = (n) => {
+  const d = (n.any || []).find((c) => c.data && c.data.contrastRatio)?.data;
+  const extra = d ? `  [${d.fgColor} on ${d.bgColor} = ${d.contrastRatio}:1, needs ${d.expectedContrastRatio}]` : '';
+  return n.target.join(' ') + extra;
+};
+
 const describe = (v) =>
   v.violations
-    .map((x) => `${x.id} (${x.nodes.length}×) — ${x.help}\n      ${x.nodes.slice(0, 3).map((n) => n.target.join(' ')).join('\n      ')}`)
+    .map((x) => `${x.id} (${x.nodes.length}×) — ${x.help}\n      ${x.nodes.slice(0, 3).map(nodeLine).join('\n      ')}`)
     .join('\n  ');
 
 const PAGES = ['/', '/about', '/products', '/products/dezmaye-gold-80', '/blog', '/contact', '/shop', '/shop/cart', '/en', '/ar'];

@@ -11,7 +11,7 @@ const slugify = (s) =>
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9\u0600-\u06FF]+/g, '-')
-    .replace(/^-+|-+$/g, '') || `shop-${Date.now()}`;
+    .replace(/^-+|-+$/g, '');
 const num = (v, fallback = 0) => {
   const n = Number(String(v).replace(/[^\d.-]/g, ''));
   return Number.isFinite(n) ? n : fallback;
@@ -83,6 +83,9 @@ export function ShopProductsTab() {
       description: sanitizeHtml(draft.description || ''),
       specs: (draft.specs || []).filter(([k, v]) => k || v),
     };
+    /* slugify() no longer invents a slug, so the blank case is caught here
+       instead of silently becoming shop-1712… */
+    if (!clean.slug) return window.alert('شناسه (slug) نمی‌تواند خالی باشد.');
     if (clean.oldPrice && clean.oldPrice <= clean.price) clean.oldPrice = null;
     const exists = items.some((p) => p.slug === clean.slug);
     commitShop({ products: exists ? items.map((p) => (p.slug === clean.slug ? clean : p)) : [clean, ...items] });

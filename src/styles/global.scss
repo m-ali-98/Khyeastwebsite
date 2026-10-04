@@ -219,7 +219,7 @@ input, select, textarea { font-family: inherit; }
 }
 .section-title em {
   font-style: normal;
-  color: var(--crimson);
+  color: var(--crimson-ink);
   position: relative;
   white-space: nowrap;
 }
@@ -277,7 +277,7 @@ input, select, textarea { font-family: inherit; }
 
 .btn--outline {
   background: transparent;
-  color: var(--crimson);
+  color: var(--crimson-ink);
   border: 1.5px solid rgba(220, 20, 60, 0.4);
 }
 .btn--outline:hover { background: var(--crimson-soft); }
@@ -415,9 +415,9 @@ input, select, textarea { font-family: inherit; }
   transition: color 0.3s;
 }
 .nav__link:hover { color: var(--crimson-bright); }
-.nav.is-scrolled .nav__link:hover { color: var(--crimson); }
+.nav.is-scrolled .nav__link:hover { color: var(--crimson-ink); }
 .nav__link.active { color: #fff; }
-.nav.is-scrolled .nav__link.active { color: var(--crimson); }
+.nav.is-scrolled .nav__link.active { color: var(--crimson-ink); }
 .nav__link.active::after {
   content: '';
   position: absolute;
@@ -806,7 +806,7 @@ input, select, textarea { font-family: inherit; }
   place-items: center;
   font-size: 26px;
   font-weight: 900;
-  color: var(--crimson);
+  color: var(--crimson-ink);
   position: relative;
   z-index: 1;
   box-shadow: 0 16px 36px -14px var(--crimson-glow);
@@ -896,7 +896,7 @@ input, select, textarea { font-family: inherit; }
 }
 .check-list { list-style: none; padding: 0; margin: 26px 0 34px; display: grid; gap: 14px; }
 .check-list li { display: flex; gap: 12px; align-items: flex-start; font-size: 15.5px; color: var(--ink-2); }
-.check-list li svg { flex: none; margin-top: 5px; color: var(--crimson); }
+.check-list li svg { flex: none; margin-top: 5px; color: var(--crimson-ink); }
 
 /* ---------- Page hero (inner pages) ---------- */
 .page-hero {
@@ -991,8 +991,8 @@ input, select, textarea { font-family: inherit; }
   color: var(--muted);
   transition: color 0.3s;
 }
-.tab:hover { color: var(--crimson); }
-.tab.is-active { color: var(--crimson); }
+.tab:hover { color: var(--crimson-ink); }
+.tab.is-active { color: var(--crimson-ink); }
 .tab.is-active::after {
   content: '';
   position: absolute;
@@ -1111,11 +1111,11 @@ input, select, textarea { font-family: inherit; }
   display: grid;
   place-items: center;
   background: var(--crimson-soft);
-  color: var(--crimson);
+  color: var(--crimson-ink);
 }
 .contact-card h2 { margin: 0 0 8px; font-size: 17px; font-weight: 800; }
 .contact-card p { margin: 0 0 6px; color: var(--muted); font-size: 14.5px; }
-.contact-card a { color: var(--crimson); font-weight: 700; }
+.contact-card a { color: var(--crimson-ink); font-weight: 700; }
 
 /* ---------- Certifications ---------- */
 .certs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; }
@@ -1128,7 +1128,7 @@ input, select, textarea { font-family: inherit; }
   place-items: center;
   background: var(--surface);
   border: 2px solid rgba(220, 20, 60, 0.25);
-  color: var(--crimson);
+  color: var(--crimson-ink);
   transition: transform 0.5s var(--ease), background 0.35s, color 0.35s;
 }
 .cert-card:hover .cert-card__icon { transform: scale(1.1) rotate(6deg); background: var(--crimson); color: #fff; }
@@ -1236,7 +1236,7 @@ input, select, textarea { font-family: inherit; }
     radial-gradient(80% 60% at 50% 0%, var(--crimson-soft), transparent 60%),
     var(--surface);
 }
-.nf h1 { font-size: clamp(80px, 16vw, 160px); font-weight: 900; color: var(--crimson); line-height: 1; margin: 0; }
+.nf h1 { font-size: clamp(80px, 16vw, 160px); font-weight: 900; color: var(--crimson-ink); line-height: 1; margin: 0; }
 .nf h2 { font-size: 26px; font-weight: 800; margin: 10px 0; }
 .nf p { color: var(--muted); margin-bottom: 30px; }
 
@@ -1282,7 +1282,7 @@ input, select, textarea { font-family: inherit; }
   transition: background-color 0.28s var(--ease-soft), border-color 0.28s var(--ease-soft),
     color 0.28s var(--ease-soft);
 }
-.filter-chip:hover { border-color: var(--crimson); color: var(--crimson); }
+.filter-chip:hover { border-color: var(--crimson); color: var(--crimson-ink); }
 .filter-chip.is-active {
   background: var(--crimson);
   border-color: var(--crimson);
