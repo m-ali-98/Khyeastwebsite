@@ -22,8 +22,11 @@ import { createShopRouter } from './shop.js';
 import * as store from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
+/* DATA_DIR / UPLOAD_DIR are overridable so an automated run can point the
+   whole persistence layer at a scratch directory. Without this the browser
+   tests would edit the real content.json of whoever runs them. */
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(__dirname, 'uploads');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
 const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once

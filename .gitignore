@@ -24,3 +24,11 @@ server/data/*.db-shm
 .env
 .env.*
 !.env.example
+
+# Browser-test artefacts (the scratch data dir, traces, reports).
+# Visual baselines under e2e/__screenshots__/ ARE committed on purpose.
+.e2e-data/
+test-results/
+playwright-report/
+blob-report/
+.playwright/

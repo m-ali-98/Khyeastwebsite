@@ -9,7 +9,10 @@
     "server": "node server/index.js",
     "start": "node server/index.js",
     "test": "vite build && node scripts/test/run.mjs",
-    "smoke": "vite build && node scripts/test/run.mjs"
+    "smoke": "vite build && node scripts/test/run.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots",
+    "test:all": "npm test && npm run test:e2e"
   },
   "repository": {
     "type": "git",
@@ -35,7 +38,9 @@
     "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "axe-core": "^4.10.3",
     "linkedom": "^0.18.13",
     "sass": "^1.104.0",
     "sharp": "^0.35.4",
