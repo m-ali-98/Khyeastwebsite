@@ -720,6 +720,30 @@ input, select, textarea { font-family: inherit; }
 .brand-card h2 { margin: 0 0 4px; font-size: 19px; font-weight: 800; }
 .brand-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
 
+/* The card is an <a> now (it filters the products page by brand), so the
+   anchor defaults have to be undone — otherwise every brand name turns link
+   coloured and underlined. */
+a.brand-card { display: block; color: inherit; text-decoration: none; }
+.brand-card__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--crimson-ink);
+  /* opacity, not display: the arrow must not reflow the card on hover, and a
+     keyboard user needs to see it on focus too */
+  opacity: 0.75;
+  transition: opacity 0.35s var(--ease), transform 0.35s var(--ease);
+}
+.brand-card__cta svg { transition: transform 0.35s var(--ease); }
+a.brand-card:hover .brand-card__cta,
+a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
+/* RTL: the arrow points right, so it travels left on hover */
+a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
+[dir='ltr'] a.brand-card:hover .brand-card__cta svg { transform: translateX(4px); }
+
 /* ---------- Product cards ---------- */
 .products-grid {
   display: grid;

@@ -63,9 +63,21 @@ export function PostCard({ post, index = 0 }) {
   );
 }
 
+/* The whole card is the link. Someone reading «four brands, one standard»
+   and clicking دزمایه means "show me those" — the products page already
+   filters on ?brand=, so this just hands it the id. Link, not a div with an
+   onClick: it has to be middle-clickable, focusable and announced as a link. */
 export function BrandCard({ brand, index = 0 }) {
+  const { t } = useContent();
   return (
-    <Reveal className="card brand-card" y={36} delay={index * 0.1}>
+    <Reveal
+      as={Link}
+      to={`/products?brand=${encodeURIComponent(brand.id)}`}
+      className="card brand-card"
+      y={36}
+      delay={index * 0.1}
+      aria-label={`${brand.fa} — ${t('home.brands.cardLink')}`}
+    >
       <div className="brand-card__img">
         <img {...imgProps(brand.image, SIZES.card)} alt={brand.fa} loading="lazy" />
       </div>
@@ -73,6 +85,10 @@ export function BrandCard({ brand, index = 0 }) {
       <p>
         {brand.en} · {brand.tagline}
       </p>
+      <span className="brand-card__cta">
+        {t('home.brands.cardLink')}
+        <Icons.arrow size={15} />
+      </span>
     </Reveal>
   );
 }

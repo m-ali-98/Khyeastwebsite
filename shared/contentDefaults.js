@@ -40,6 +40,7 @@ export const TEXTS = {
   'home.brands.overline': 'برندهای تجاری',
   'home.brands.title': 'چهار برند معتبر، [[یک استاندارد کیفیت]]',
   'home.brands.sub': 'محصول خمیرمایه خشک فوری خود را با نام‌های تجاری دزمایه، شتاب، ایکس پاور و نان مایه روانه بازارهای داخلی و خارجی می‌کنیم.',
+  'home.brands.cardLink': 'محصولات این برند',
 
   'home.products.overline': 'محصولات برگزیده',
   'home.products.title': 'خمیرمایه خشک فوری برای [[هر نوع پخت]]',
@@ -119,6 +120,7 @@ export const TEXTS = {
   'product.tab.storage': 'شرایط نگهداری و انبارداری',
   'product.usageTitle': 'نحوه مصرف محصول:',
   'product.btnOrder': 'تماس برای سفارش عمده',
+  'product.btnShop': 'خرید آنلاین',
   'product.btnWhatsapp': 'سفارش در واتس‌اپ',
   'product.btnSample': 'درخواست نمونه آزمایشگاهی',
   'product.related': 'سایر [[محصولات]]',

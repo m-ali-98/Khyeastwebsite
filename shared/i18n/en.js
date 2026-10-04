@@ -40,6 +40,7 @@ export const TEXTS = {
   'home.brands.title': 'Four trusted brands, [[one quality standard]]',
   'home.brands.sub':
     'Our instant dry yeast reaches domestic and international markets under the Dezmaye, Shetab, X-Power and Nan Maye names.',
+  'home.brands.cardLink': 'Products of this brand',
   'home.products.overline': 'Featured products',
   'home.products.title': 'Instant dry yeast for [[every kind of baking]]',
   'home.products.sub': 'From household sachets to 20 kg export sacks — all held to a single quality promise.',
@@ -111,6 +112,7 @@ export const TEXTS = {
   'product.tab.storage': 'Storage and warehousing conditions',
   'product.usageTitle': 'How to use this product:',
   'product.btnOrder': 'Call for bulk orders',
+  'product.btnShop': 'Shop online',
   'product.btnWhatsapp': 'Order on WhatsApp',
   'product.btnSample': 'Request a laboratory sample',
   'product.related': 'Other [[products]]',

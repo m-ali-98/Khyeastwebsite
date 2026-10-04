@@ -4,6 +4,7 @@ import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, CTABand, hl } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
+import { useLocale } from '../i18n/LocaleContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 import NotFound from './NotFound';
 import { imgProps, SIZES } from '../lib/img';
@@ -11,6 +12,7 @@ import { imgProps, SIZES } from '../lib/img';
 export default function ProductDetail() {
   const { slug } = useParams();
   const { t, l, products, brands } = useContent();
+  const { shopEnabled } = useLocale();
   const [tab, setTab] = useState('usage');
 
   const product = products.find((p) => p.slug === slug);
@@ -21,7 +23,14 @@ export default function ProductDetail() {
   );
   if (!product) return <NotFound />;
   const brand = brands.find((b) => b.id === product.brand);
-  const related = products.filter((p) => p.slug !== product.slug).slice(0, 4);
+
+  /* Same brand first. Someone looking at a 500g دزمایه is far more likely to
+     want the other دزمایه sizes than a different brand entirely, and the
+     catalogue order alone used to bury them. Within each group the catalogue
+     order is kept, so the admin's ordering still decides ties. */
+  const related = [...products.filter((p) => p.slug !== product.slug)]
+    .sort((a, b) => Number(b.brand === product.brand) - Number(a.brand === product.brand))
+    .slice(0, 4);
 
   const TABS = [
     { id: 'usage', label: t('product.tab.usage') },
@@ -88,6 +97,15 @@ export default function ProductDetail() {
                   <Icons.phone size={18} />
                   {t('product.btnOrder')}
                 </a>
+                {/* The shop exists on the Persian site only, so this button
+                    follows the same gate the navigation uses rather than a
+                    second rule that could drift away from it. */}
+                {shopEnabled && (
+                  <Link className="btn btn--primary" to="/shop">
+                    <Icons.box size={18} />
+                    {t('product.btnShop')}
+                  </Link>
+                )}
                 <a className="btn btn--outline" href={l('sales.whatsapp')} target="_blank" rel="noreferrer">
                   <Icons.whatsapp size={18} />
                   {t('product.btnWhatsapp')}

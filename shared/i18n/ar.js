@@ -40,6 +40,7 @@ export const TEXTS = {
   'home.brands.title': 'أربع علامات موثوقة، [[معيار جودة واحد]]',
   'home.brands.sub':
     'نطرح خميرتنا الجافة الفورية في الأسواق المحلية والدولية تحت أسماء دزمايه وشتاب وإكس باور ونان مايه.',
+  'home.brands.cardLink': 'منتجات هذه العلامة',
   'home.products.overline': 'منتجات مختارة',
   'home.products.title': 'خميرة جافة فورية [[لكل أنواع الخَبز]]',
   'home.products.sub': 'من أكياس الاستخدام المنزلي إلى أكياس التصدير زنة ٢٠ كجم؛ جميعها بوعد جودة واحد.',
@@ -109,6 +110,7 @@ export const TEXTS = {
   'product.tab.storage': 'شروط التخزين والحفظ',
   'product.usageTitle': 'طريقة استخدام المنتج:',
   'product.btnOrder': 'اتصل للطلبات بالجملة',
+  'product.btnShop': 'تسوق عبر الإنترنت',
   'product.btnWhatsapp': 'اطلب عبر واتساب',
   'product.btnSample': 'طلب عينة مخبرية',
   'product.related': 'منتجات [[أخرى]]',
