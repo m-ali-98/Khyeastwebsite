@@ -259,7 +259,7 @@ test('the shop products tab can refresh live stock without clobbering it', async
 test('an order placed on the site is visible in the orders tab and its status can change', async ({ page }) => {
   /* place a real order through the storefront */
   await gotoReady(page, '/shop/dezmaye-gold-80');
-  await page.locator('.sp-buy__row button').first().click();
+  await page.locator('.sp-buy__row .btn').click();
   await gotoReady(page, '/shop/checkout');
   const form = page.locator('.checkout-form');
   const inputs = form.locator('.checkout-form__grid input');

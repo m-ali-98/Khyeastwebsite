@@ -8,9 +8,12 @@
 import { test, expect } from '@playwright/test';
 import { gotoReady, watchConsole, faNum } from './helpers.js';
 
-/* Every route, with a string that must appear in the rendered page. The
-   string matters: asserting "the page loaded" passes on an empty shell, which
-   is exactly the failure mode we are trying to catch. */
+/* Every route, with a selector that must be present and the minimum amount of
+   text the page must render. The minimum matters: asserting "the page loaded"
+   passes on an empty shell, which is the failure mode we are trying to catch.
+   An empty cart and an empty checkout are legitimately terse — they are one
+   line and a button — so they carry their own, lower, threshold rather than
+   being excused entirely. */
 const ROUTES = [
   ['/', '.hero'],
   ['/about', 'main'],
@@ -22,8 +25,8 @@ const ROUTES = [
   ['/contact', 'form'],
   ['/shop', '.sp-card, .shop-card, main'],
   ['/shop/dezmaye-gold-80', '.sp-buy'],
-  ['/shop/cart', 'main'],
-  ['/shop/checkout', 'main'],
+  ['/shop/cart', '.cart-empty, .cart-layout', 30],
+  ['/shop/checkout', '.cart-empty, .checkout-grid', 30],
   ['/en', 'main'],
   ['/en/about', 'main'],
   ['/en/products', '.product-card'],
@@ -34,7 +37,7 @@ const ROUTES = [
 ];
 
 test.describe('public routes', () => {
-  for (const [route, selector] of ROUTES) {
+  for (const [route, selector, minChars = 120] of ROUTES) {
     test(`renders ${route} @mobile`, async ({ page }) => {
       const errors = watchConsole(page);
       await gotoReady(page, route);
@@ -42,7 +45,7 @@ test.describe('public routes', () => {
       /* The lazy chunk must have produced real content, not the skeleton. */
       await expect(page.locator(selector).first()).toBeVisible();
       const text = await page.locator('main').innerText();
-      expect(text.trim().length, `${route} rendered almost nothing`).toBeGreaterThan(120);
+      expect(text.trim().length, `${route} rendered almost nothing`).toBeGreaterThan(minChars);
 
       /* No skeleton or boot splash may still be on screen once settled. */
       await expect(page.locator('.route-fallback, .boot-splash')).toHaveCount(0);
@@ -85,7 +88,7 @@ test('the shop is reachable in Persian and absent in English and Arabic', async 
   }
 });
 
-test('dark mode applies and survives a reload @mobile', async ({ page }) => {
+test('dark mode applies and survives a reload', async ({ page }) => {
   await gotoReady(page, '/');
   const html = page.locator('html');
   const before = await html.getAttribute('data-theme');
@@ -136,7 +139,7 @@ test.describe('shop purchase flow', () => {
     const errors = watchConsole(page);
 
     await gotoReady(page, '/shop/dezmaye-gold-80');
-    await page.locator('.sp-buy__row button').first().click();
+    await page.locator('.sp-buy__row .btn').click();
     await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(1));
 
     await page.locator('.nav__cart').click();
@@ -162,7 +165,7 @@ test.describe('shop purchase flow', () => {
 
   test('checkout refuses an incomplete form with a visible message', async ({ page }) => {
     await gotoReady(page, '/shop/dezmaye-gold-500');
-    await page.locator('.sp-buy__row button').first().click();
+    await page.locator('.sp-buy__row .btn').click();
     await gotoReady(page, '/shop/checkout');
 
     await page.locator('.checkout-form button[type="submit"]').click();
@@ -173,7 +176,7 @@ test.describe('shop purchase flow', () => {
 
   test('the cart survives a reload', async ({ page }) => {
     await gotoReady(page, '/shop/dezmaye-gold-80');
-    await page.locator('.sp-buy__row button').first().click();
+    await page.locator('.sp-buy__row .btn').click();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(1));
   });

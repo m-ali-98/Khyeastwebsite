@@ -324,7 +324,13 @@ const scriptHashes = () => {
     const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
     const out = [];
     for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
-      out.push(`'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
+      /* The browser hashes the script text as the HTML parser produced it,
+         and the parser normalises CRLF to LF. A file checked out on Windows
+         (or edited there) carries CRLF, so hashing the raw bytes yields a
+         digest the browser never computes — and the inline boot script is
+         blocked on every page load. Normalise before hashing. */
+      const text = m[1].replace(/\r\n/g, '\n');
+      out.push(`'sha256-${crypto.createHash('sha256').update(text, 'utf8').digest('base64')}'`);
     }
     return out.join(' ');
   } catch {

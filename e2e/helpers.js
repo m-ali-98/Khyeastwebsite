@@ -37,15 +37,20 @@ export async function gotoReady(page, url) {
 export async function loginAdmin(page) {
   await page.goto('/admin', { waitUntil: 'domcontentloaded' });
   const card = page.locator('.admin__login-card');
+  const side = page.locator('.admin__side');
+
+  /* The panel renders neither until BOTH the session check and the three
+     translation dictionaries have resolved, which on a cold chunk cache can
+     take a while. Wait for whichever appears instead of assuming the login
+     card is up within a fixed window. */
+  await expect(card.or(side).first()).toBeVisible({ timeout: 30_000 });
+
   /* Already signed in from an earlier test in the same browser context. */
-  if (!(await card.isVisible({ timeout: 12_000 }).catch(() => false))) {
-    await expect(page.locator('.admin__side')).toBeVisible();
-    return;
-  }
+  if (await side.isVisible()) return;
   await card.locator('input').first().fill(E2E.user);
   await card.locator('input[type="password"]').fill(E2E.pass);
   await card.getByRole('button', { name: 'ورود به پنل' }).click();
-  await expect(page.locator('.admin__side')).toBeVisible({ timeout: 15_000 });
+  await expect(side).toBeVisible({ timeout: 20_000 });
 }
 
 export const adminTab = (page, label) => page.locator('.admin__side button', { hasText: label });

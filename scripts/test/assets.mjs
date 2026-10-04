@@ -7,6 +7,7 @@
    is invisible in a unit test, so this check walks every image path in the
    shipped content and the source and asserts the file is really in dist/. */
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -194,5 +195,43 @@ check(
   !runPrefetch('/products', false).some((k) => k.startsWith('/shop')),
   'the products page also skips the shop chunk outside Persian',
 );
+
+/* ---- CSP: the inline-script hash must survive a Windows checkout ---------
+   The browser hashes the inline boot script as the HTML parser produced it,
+   and the parser normalises CRLF to LF. Hashing the raw file bytes therefore
+   produces a digest no browser ever computes when index.html has Windows
+   line endings, and the script that sets lang/dir/theme before first paint is
+   blocked on every single page load. Drive the REAL function from the server
+   over both line endings and require the same answer. */
+{
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  const start = src.indexOf('const scriptHashes');
+  const end = src.indexOf('\n};', start) + 3;
+  if (start === -1 || end < start) {
+    check(false, 'scriptHashes() found in server/index.js');
+  } else {
+    const tmp = path.join(ROOT, '.tmp-csp-check');
+    const body = "\n  var a = 1;\n  console.log(a);\n";
+    const html = (nl) => `<html><head><script>${body.replace(/\n/g, nl)}</script></head></html>`;
+
+    const hashesFor = (nl) => {
+      fs.mkdirSync(tmp, { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'index.html'), html(nl));
+      const fn = new Function(
+        'fs', 'path', 'crypto', 'DIST',
+        `${src.slice(start, end)} return scriptHashes();`,
+      )(fs, path, crypto, tmp);
+      fs.rmSync(tmp, { recursive: true, force: true });
+      return fn;
+    };
+
+    const lf = hashesFor('\n');
+    const crlf = hashesFor('\r\n');
+    const expected = `'sha256-${crypto.createHash('sha256').update(body, 'utf8').digest('base64')}'`;
+
+    check(lf === expected, 'CSP hash matches the parsed script text (LF)', `${lf} vs ${expected}`);
+    check(crlf === lf, 'CSP hash is identical for a CRLF checkout', `${crlf} vs ${lf}`);
+  }
+}
 
 console.log(`${pass}/${pass + fail}`);

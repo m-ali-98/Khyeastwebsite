@@ -1,4 +1,5 @@
 import React from 'react';
+import { MotionConfig } from 'framer-motion';
 import ReactDOM from 'react-dom/client';
 import '@fontsource-variable/vazirmatn';
 import '@fontsource-variable/inter';
@@ -34,13 +35,19 @@ function dismissSplash() {
 loadPack(localeFromPath(window.location.pathname)).finally(() => {
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
-      <LocaleProvider>
-        <ContentProvider>
-          <ShopProvider>
-            <App />
-          </ShopProvider>
-        </ContentProvider>
-      </LocaleProvider>
+      {/* reducedMotion="user" makes framer-motion honour the OS setting.
+          The CSS @media rule cannot do this on its own: motion components
+          animate through the Web Animations API from JS, where a CSS
+          !important override has no effect. */}
+      <MotionConfig reducedMotion="user">
+        <LocaleProvider>
+          <ContentProvider>
+            <ShopProvider>
+              <App />
+            </ShopProvider>
+          </ContentProvider>
+        </LocaleProvider>
+      </MotionConfig>
     </React.StrictMode>
   );
 

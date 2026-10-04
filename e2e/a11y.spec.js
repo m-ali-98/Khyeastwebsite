@@ -45,8 +45,17 @@ const RULES = [
   'meta-viewport',
 ];
 
+/* The site ships a strict CSP: script-src 'self' plus the hash of the one
+   inline boot script. Injecting axe with addScriptTag({content}) is an inline
+   script and is therefore (correctly) blocked. Serving it from a same-origin
+   URL that Playwright fulfils locally satisfies 'self' without weakening the
+   policy the real site runs under — the whole point of auditing the real
+   build is that nothing about it is relaxed for the test. */
 async function audit(page) {
-  await page.addScriptTag({ content: AXE_SOURCE });
+  await page.route('**/__axe.js', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: AXE_SOURCE }),
+  );
+  await page.addScriptTag({ url: '/__axe.js' });
   return page.evaluate(
     async (rules) =>
       // eslint-disable-next-line no-undef
@@ -114,7 +123,11 @@ test('motion is suppressed when the visitor asks for reduced motion', async ({ p
   /* Nothing should still be mid-flight a second after load. */
   await page.waitForTimeout(1000);
   const moving = await page.evaluate(() =>
-    document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getTiming().duration > 400).length,
+    document
+      .getAnimations()
+      .filter((a) => a.playState === 'running' && a.effect?.getTiming().duration > 400)
+      /* name the offenders: "2 animations" is not actionable */
+      .map((a) => a.animationName || a.effect?.target?.className || 'unnamed'),
   );
-  expect(moving, 'long animations still running under prefers-reduced-motion').toBe(0);
+  expect(moving, `long animations still running under prefers-reduced-motion: ${moving.join(', ')}`).toEqual([]);
 });
