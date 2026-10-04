@@ -323,7 +323,11 @@ input, select, textarea { font-family: inherit; }
   position: fixed;
   top: 0; right: 0; left: 0;
   z-index: 100;
-  transition: background 0.4s, box-shadow 0.4s, backdrop-filter 0.4s;
+  /* backdrop-filter is deliberately NOT in this list: transitioning it makes
+     the browser re-blur everything behind the bar on every frame, which is
+     the most expensive thing a sticky header can do. It snaps on instead,
+     hidden by the background fading in over it. */
+  transition: background 0.4s, box-shadow 0.4s;
 }
 .nav__topbar {
   background: linear-gradient(90deg, var(--crimson-800), var(--crimson-600));
@@ -334,8 +338,11 @@ input, select, textarea { font-family: inherit; }
      every frame of the scroll. A scaleY + opacity fade is compositor-only. */
   height: 40px;
   transform-origin: top;
-  transition: transform 0.38s var(--ease-soft), opacity 0.28s var(--ease-soft),
-    height 0.38s var(--ease-soft);
+  /* height is excluded on purpose: animating it relayouts the whole header
+     subtree on every frame of the collapse — and the collapse happens while
+     the user is scrolling, which is exactly when there is no budget for it.
+     It changes once; the eye follows the scaleY and the fade. */
+  transition: transform 0.38s var(--ease-soft), opacity 0.28s var(--ease-soft);
 }
 .nav__topbar-inner {
   height: 40px;
@@ -351,7 +358,10 @@ input, select, textarea { font-family: inherit; }
 .nav.is-scrolled .nav__topbar { height: 0; opacity: 0; }
 .nav.is-scrolled .nav__bar {
   background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(18px) saturate(1.4);
+  /* 12px reads the same at this opacity as 18px did, for roughly half the
+     per-frame cost, and saturate() added a second filter pass for an effect
+     invisible behind 86% white. */
+  backdrop-filter: blur(12px);
   box-shadow: 0 10px 40px -18px rgba(27, 17, 20, 0.25);
 }
 .nav.is-scrolled .nav__link { color: var(--ink-2); }
@@ -515,6 +525,9 @@ input, select, textarea { font-family: inherit; }
   width: 100%; height: 100%;
   object-fit: cover;
   animation: kenburns 26s ease-in-out infinite alternate;
+  /* a permanently animating full-bleed image: pin it to its own layer so the
+     compositor never re-rasterises it mid-scroll */
+  will-change: transform;
 }
 @keyframes kenburns {
   from { transform: scale(1) translate(0, 0); }
@@ -1252,6 +1265,7 @@ input, select, textarea { font-family: inherit; }
 /* ---------- Parallax image ---------- */
 .parallax-img {
   position: absolute;
+  will-change: transform;
   inset: -15% 0;
   width: 100%;
   height: 130%;
