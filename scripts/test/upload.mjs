@@ -142,8 +142,13 @@ try {
     const missing = variantWidths(full).filter((w) => !fs.existsSync(`${stem}-${w}.webp`));
     check(missing.length === 0, 'every width the browser will request exists', missing.join(' '));
 
+    /* Read the bytes and measure those, rather than handing sharp a path.
+       libvips keeps the file open while it works, and Windows refuses to
+       unlink an open file — measuring by path here made the delete below
+       fail with EPERM, which looked like a server bug and was this test
+       holding the files hostage. */
     const widths = [];
-    for (const w of variantWidths(full)) widths.push((await sharp(`${stem}-${w}.webp`).metadata()).width);
+    for (const w of variantWidths(full)) widths.push((await sharp(fs.readFileSync(`${stem}-${w}.webp`)).metadata()).width);
     check(widths.join() === variantWidths(full).join(), 'each variant is the width it claims', widths.join());
 
     /* ---- and deleting the image takes the set with it ------------------ */
@@ -152,7 +157,9 @@ try {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: body.url }),
     });
-    check(del.status === 200, 'the image deletes', String(del.status));
+    const delBody = await del.json().catch(() => ({}));
+    check(del.status === 200, 'the image deletes', `${del.status} ${JSON.stringify(delBody)}`);
+    check((delBody.stuck || []).length === 0, 'nothing was left locked', (delBody.stuck || []).join(' '));
     check(!fs.existsSync(master), 'the master is gone');
     const orphans = UPLOAD_LADDER.filter((w) => fs.existsSync(`${stem}-${w}.webp`));
     check(orphans.length === 0, 'no smaller copy is orphaned', orphans.join(' '));

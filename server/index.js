@@ -614,20 +614,32 @@ app.delete('/api/upload', requireAuth, (req, res) => {
   const m = url.match(/^\/uploads\/(images|videos)\/([\w.-]+)$/);
   if (!m) return res.status(400).json({ error: 'invalid url' });
   const dir = path.join(UPLOAD_DIR, m[1]);
-  const file = path.join(dir, m[2]);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
+
+  /* Unlinking can fail on a file that is in use — Windows refuses while any
+     handle is open, and a virus scanner or a backup agent can hold one for a
+     moment. That must not turn removing a picture into a 500: the admin has
+     already stopped referencing it, and a file we could not delete is litter,
+     not an error. Report which ones survived instead. */
+  const stuck = [];
+  const remove = (f) => {
+    if (!fs.existsSync(f)) return;
+    try {
+      fs.unlinkSync(f);
+    } catch {
+      stuck.push(path.basename(f));
+    }
+  };
+
+  remove(path.join(dir, m[2]));
 
   /* An optimised image is a set, not a file. Deleting only the master would
      leave its smaller copies behind for good — nothing else references them,
      so no later pass could ever find them. */
   const opt = m[2].match(/^(.+)-w\d+\.webp$/);
   if (opt) {
-    for (const w of UPLOAD_LADDER) {
-      const v = path.join(dir, `${opt[1]}-${w}.webp`);
-      if (fs.existsSync(v)) fs.unlinkSync(v);
-    }
+    for (const w of UPLOAD_LADDER) remove(path.join(dir, `${opt[1]}-${w}.webp`));
   }
-  res.json({ ok: true });
+  res.json({ ok: true, stuck });
 });
 
 /* Defence in depth for anything already on disk (including files uploaded
