@@ -331,33 +331,6 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Slogan marquee band                                                */
-/* ------------------------------------------------------------------ */
-export function Marquee({ repeat = 4 }) {
-  const { t } = useContent();
-  const Item = () => (
-    <span className="marquee__item">
-      {t('global.slogan')}
-      <Icons.wheat size={24} />
-      {t('global.company.short')}
-      <Icons.wheat size={24} />
-    </span>
-  );
-  return (
-    <div className="marquee" aria-hidden="true">
-      <div className="marquee__track">
-        {Array.from({ length: repeat }).map((_, i) => (
-          <Item key={i} />
-        ))}
-        {Array.from({ length: repeat }).map((_, i) => (
-          <Item key={`b-${i}`} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Inner-page hero                                                    */
 /* ------------------------------------------------------------------ */
 export function PageHero({ title, sub, image, crumb }) {

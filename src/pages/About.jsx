@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, Marquee, hl } from '../components/ui';
+import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 
 function Mission() {
@@ -43,7 +43,6 @@ export default function About() {
   return (
     <>
       <PageHero title={t('about.hero.title')} sub={t('about.hero.sub')} image={m('about.hero.img')} />
-      <Marquee />
 
       <section className="section">
         <div className="container">

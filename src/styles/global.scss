@@ -685,35 +685,6 @@ input, select, textarea { font-family: inherit; }
   100% { transform: translateY(-105vh) rotate(320deg); opacity: 0; }
 }
 
-/* ---------- Marquee slogan band ---------- */
-.marquee {
-  background: linear-gradient(90deg, var(--crimson-700), var(--crimson) 50%, var(--crimson-700));
-  color: #fff;
-  overflow: hidden;
-  padding: 18px 0;
-  position: relative;
-}
-.marquee__track {
-  display: flex;
-  gap: 56px;
-  width: max-content;
-  animation: marquee 26s linear infinite;
-}
-.marquee:hover .marquee__track { animation-play-state: paused; }
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(50%); }
-}
-.marquee__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 56px;
-  font-size: clamp(16px, 2vw, 22px);
-  font-weight: 800;
-  white-space: nowrap;
-}
-.marquee__item svg { flex: none; opacity: 0.85; }
-
 /* ---------- Brand strip ---------- */
 .brands-grid {
   display: grid;

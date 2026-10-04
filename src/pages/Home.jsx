@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
-import { Icons, Reveal, SectionHead, Counter, Marquee, CTABand, hl, useNum } from '../components/ui';
+import { Icons, Reveal, SectionHead, Counter, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 
@@ -373,7 +373,6 @@ export default function Home() {
   return (
     <>
       <Hero />
-      <Marquee />
       <Intro />
       <Brands />
       <FeaturedProducts />
