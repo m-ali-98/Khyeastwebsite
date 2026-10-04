@@ -13,7 +13,7 @@
       attacker can point the gateway's return URL at a host they control and
       capture the order token from its query string.
    ========================================================================== */
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -32,7 +32,10 @@ const check = (ok, name, detail = '') => {
 
 /* ---- 1. amount verification ---------------------------------------------- */
 
-const { verifyPayment } = await import(path.join(ROOT, 'server/payment.js'));
+/* import() needs a URL, not a filesystem path: on Windows an absolute path
+   starts with a drive letter and Node rejects it as an unknown "c:" scheme
+   (ERR_UNSUPPORTED_ESM_URL_SCHEME). pathToFileURL works on every platform. */
+const { verifyPayment } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
 /* Orders are priced in rial; both gateways settle in toman (rial / 10), so
    the amount the gateway echoes back is a tenth of the order total. */
 const EXPECTED_RIAL = 910000;
@@ -111,7 +114,7 @@ globalThis.fetch = realFetch;
 /* safeOrigin lives inside shop.js, which pulls in the database on import, so
    the function is extracted and evaluated on its own rather than importing
    the whole module. */
-const shopSrc = fs.readFileSync(path.join(ROOT, 'server/shop.js'), 'utf8');
+const shopSrc = fs.readFileSync(path.join(ROOT, 'server', 'shop.js'), 'utf8');
 const start = shopSrc.indexOf('const PUBLIC_ORIGIN');
 const end = shopSrc.indexOf('\n}', shopSrc.indexOf('function safeOrigin')) + 2;
 
