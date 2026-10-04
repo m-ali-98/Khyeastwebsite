@@ -4,6 +4,7 @@
   "description": "Multi-page React website for Khuzestan Yeast Co. — crimson & white, RTL Persian, rich animations.",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
