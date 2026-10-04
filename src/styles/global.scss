@@ -31,6 +31,9 @@
   --img-dim: none;
 
   --gold: #d9a441;
+  /* "in stock" and other affirmatives. Dark mode lifts it: this value is
+     only 3.5:1 against the near-black canvas. */
+  --ok: #187a3c;
 
   --radius-sm: 14px;
   --radius: 22px;
@@ -78,6 +81,7 @@
   --bg-soft: #120a0d;
   --bg-softer: #1c1216;
   --line: rgba(246, 238, 240, 0.12);
+  --ok: #4ade80;
 
   --shadow-sm: 0 6px 24px -12px rgba(0, 0, 0, 0.7);
   --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8);

@@ -242,10 +242,17 @@ const ratio = (a, b) => {
   return (x + 0.05) / (y + 0.05);
 };
 
-for (const route of ['/shop/dezmaye-gold-80', '/shop/cart', '/products/dezmaye-gold-80']) {
+/* Only genuinely hero-less routes belong here. /shop/cart and /shop/checkout
+   render a PageHero, so their bar is transparent over a dark ground and was
+   never part of this bug — the first run of this test said so by failing the
+   precondition. */
+for (const route of ['/shop/dezmaye-gold-80', '/products/dezmaye-gold-80']) {
   test(`the header is readable at the top of ${route} @mobile`, async ({ page }) => {
     await gotoReady(page, route);
-    await expect(page.locator('.hero, .page-hero')).toHaveCount(0); // precondition: no hero here
+    /* Precondition, not decoration: if a hero appears here one day the
+       transparent bar becomes correct again and this test must be revisited
+       rather than quietly measuring the wrong thing. */
+    await expect(page.locator('.hero, .page-hero')).toHaveCount(0);
 
     /* Read the bar's own background, not the body's: the solid state paints
        a translucent surface over the page. */

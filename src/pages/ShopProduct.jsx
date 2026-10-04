@@ -279,10 +279,13 @@ export default function ShopProduct() {
           <div className="sp-info">
             {p.specs?.length > 0 && (
               <Reveal className="sp-specs" x={-24}>
-                <h3>
+                {/* h2: the product title above is the page's h1, and an h3
+                    here skips a level — screen-reader users navigating by
+                    heading would be told a section is missing. */}
+                <h2>
                   <Icons.gear size={18} />
                   {t('shop.detail.specs')}
-                </h3>
+                </h2>
                 <table>
                   <tbody>
                     {p.specs.map(([k, v], i) => (
@@ -296,7 +299,7 @@ export default function ShopProduct() {
               </Reveal>
             )}
             <Reveal className="sp-desc" x={24}>
-              <h3>{t('shop.detail.desc')}</h3>
+              <h2>{t('shop.detail.desc')}</h2>
               <div className="post-body" dangerouslySetInnerHTML={{ __html: safeDesc }} />
             </Reveal>
           </div>

@@ -196,6 +196,8 @@
     padding: 5px 11px;
     border-radius: 999px;
     z-index: 2;
+    /* this one keeps the literal: it is a white pill over the photo in both
+       themes, where the darker green is the legible choice */
     background: rgba(255, 255, 255, 0.92);
     color: #187a3c;
     border: 1px solid rgba(24, 122, 60, 0.25);
@@ -369,7 +371,9 @@
   &__stock {
     font-size: 13px;
     font-weight: 700;
-    color: #187a3c;
+    /* token, not a literal: this green sits directly on the page, and the
+       light-mode value is 3.5:1 on a dark canvas */
+    color: var(--ok);
     margin-bottom: 16px;
 
     &.is-out {
@@ -443,7 +447,7 @@
   padding: 24px;
   box-shadow: var(--shadow-sm);
 
-  h3 {
+  h2 {
     font-size: 17px;
     font-weight: 900;
     margin-bottom: 14px;
@@ -484,7 +488,7 @@
   padding: 26px 28px;
   box-shadow: var(--shadow-sm);
 
-  h3 {
+  h2 {
     font-size: 17px;
     font-weight: 900;
     margin-bottom: 12px;
@@ -1279,4 +1283,5 @@
    4.1:1. These live here rather than in global.scss because the shop rules
    are nested one level deeper and would otherwise win the cascade. */
 [data-theme='dark'] .shop-card .badge-off,
-[data-theme='dark'] .shop-card__badges .badge-off { background: var(--crimson-600); }
+[data-theme='dark'] .shop-card__badges .badge-off,
+[data-theme='dark'] .sp-buy .off { background: var(--crimson-600); }
