@@ -241,11 +241,14 @@ test('a message sent from the contact form appears in the inbox', async ({ page 
   await page.locator('#message').fill(BODY);
   await page.locator('form button[type="submit"]').click();
 
-  /* On success the form is replaced by the confirmation panel; a rate limit
-     leaves an inline <small> instead. Either way the visitor is told. */
-  await expect(
-    page.locator('form .field small').first().or(page.getByRole('button', { name: /ارسال پیام دیگر|پیام جدید|ارسال دوباره/ })).first(),
-  ).toBeVisible({ timeout: 15_000 });
+  /* Accepting an inline error here as "either way the visitor is told" made
+     the test contradict itself: it would then assert the message reached the
+     inbox, which a refused post never does. The send must succeed — the run
+     lifts the public rate limit (see playwright.config.js) so the only way
+     to land on the error branch is a genuine fault. */
+  await expect(page.getByRole('button', { name: /ارسال پیام دیگر|پیام جدید|ارسال دوباره/ }).first()).toBeVisible({
+    timeout: 15_000,
+  });
 
   await loginAdmin(page);
   await adminTab(page, 'پیام‌های مردم').first().click();

@@ -96,6 +96,13 @@ export default defineConfig({
       ADMIN_PASS: E2E.pass,
       ADMIN_SECRET: E2E.secret,
       NODE_ENV: 'development',
+      /* Every request in the run comes from 127.0.0.1, so the public
+         rate limits (5 messages / 5 comments / 12 orders per 10 min) would
+         start answering 429 halfway through. The limiter itself is covered
+         by scripts/test/behaviour.mjs against its real defaults. */
+      RL_MAX_MESSAGE: '500',
+      RL_MAX_COMMENT: '500',
+      RL_MAX_ORDER: '500',
     },
   },
 });

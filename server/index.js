@@ -395,8 +395,11 @@ app.get('/api/content', (_req, res) => {
    can flood the inbox — burying real enquiries and growing the database
    until the disk fills. Generous enough that a person correcting a typo and
    resubmitting is never blocked. */
+/* The ceiling is overridable so an end-to-end run, which drives the same
+   flows from one address far faster than any person, is not throttled into
+   false failures. Unset — i.e. in production — the published limit applies. */
 const MSG_WINDOW = 10 * 60 * 1000;
-const MSG_MAX = 5;
+const MSG_MAX = Number(process.env.RL_MAX_MESSAGE) || 5;
 const msgHits = new Map();
 
 setInterval(() => {

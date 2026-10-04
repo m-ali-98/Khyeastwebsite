@@ -159,6 +159,10 @@ test.describe('shop purchase flow', () => {
 
     await form.locator('button[type="submit"]').first().click();
 
+    /* Wait for whichever side resolves, then report the refusal text — a
+       bare URL assertion only ever said "still on /shop/checkout". */
+    await expect(page.locator('.order-hero .code, .note.err').first()).toBeVisible({ timeout: 20_000 });
+    expect(await page.locator('.note.err').allTextContents(), 'checkout refused the order').toEqual([]);
     await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
     await expect(page.locator('.order-hero .code')).not.toBeEmpty();
     expect(errors).toEqual([]);

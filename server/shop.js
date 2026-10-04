@@ -56,8 +56,14 @@ const orderCode = () => `KY-${Date.now().toString(36).slice(-5).toUpperCase()}${
 
    Limits differ by intent: comments are chatter, orders are revenue, so
    ordering is far more permissive. */
+/* The ceiling is overridable so an end-to-end run, which drives the same
+   flows from one address far faster than any person, is not throttled into
+   false failures. Unset — i.e. in production — the published limit applies. */
 const RL_WINDOW = 10 * 60 * 1000;
-const RL_MAX = { comment: 5, order: 12 };
+const RL_MAX = {
+  comment: Number(process.env.RL_MAX_COMMENT) || 5,
+  order: Number(process.env.RL_MAX_ORDER) || 12,
+};
 const hits = { comment: new Map(), order: new Map() };
 
 const recentFor = (kind, ip) => {
