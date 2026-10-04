@@ -6,7 +6,7 @@
    harness is finally proved to render its real content.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
-import { gotoReady, watchConsole, faNum } from './helpers.js';
+import { gotoReady, routeSettled, watchConsole, faNum } from './helpers.js';
 
 /* Every route, with a selector that must be present and the minimum amount of
    text the page must render. The minimum matters: asserting "the page loaded"
@@ -143,12 +143,11 @@ test.describe('shop purchase flow', () => {
     await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(1));
 
     await page.locator('.nav__cart').click();
-    await expect(page).toHaveURL(/\/shop\/cart$/);
+    await routeSettled(page, /\/shop\/cart$/);
     await expect(page.locator('.cart-table__row').nth(1)).toBeVisible();
 
-    /* the summary is rendered twice (mobile + desktop placement) */
-    await page.locator('.cart-summary button.btn--primary').first().click();
-    await expect(page).toHaveURL(/\/shop\/checkout$/);
+    await page.locator('.cart-summary button.btn--primary').click();
+    await routeSettled(page, /\/shop\/checkout$/);
 
     const form = page.locator('.checkout-form');
     const inputs = form.locator('.checkout-form__grid input');
@@ -157,7 +156,7 @@ test.describe('shop purchase flow', () => {
     await inputs.nth(2).fill('اهواز');
     await form.locator('textarea').first().fill('خیابان نمونه، پلاک ۱۲، واحد ۳');
 
-    await form.locator('button[type="submit"]').first().click();
+    await form.locator('button[type="submit"]').click();
 
     /* Wait for whichever side resolves, then report the refusal text — a
        bare URL assertion only ever said "still on /shop/checkout". */

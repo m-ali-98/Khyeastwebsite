@@ -10,7 +10,7 @@
    server/data/.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
-import { loginAdmin, adminTab, watchConsole, gotoReady, E2E } from './helpers.js';
+import { loginAdmin, adminTab, watchConsole, gotoReady, routeSettled, E2E } from './helpers.js';
 
 const field = (page, label) => page.locator('label.field', { hasText: label }).locator('input, textarea, select').first();
 
@@ -234,8 +234,11 @@ test('editing a site text autosaves and shows up on the home page', async ({ pag
 test('a message sent from the contact form appears in the inbox', async ({ page }) => {
   const BODY = 'پیام آزمایشی خودکار ' + STAMP + ' — لطفاً نادیده بگیرید.';
 
+  /* The inbox lists sender and phone; the body only renders once a row is
+     expanded. Looking for the stamp in a collapsed list could never match,
+     so it goes in the name too. */
   await gotoReady(page, '/contact');
-  await page.locator('#name').fill('آزمون خودکار');
+  await page.locator('#name').fill('آزمون خودکار ' + STAMP);
   await page.locator('#phone').fill('09123456789');
   await page.locator('#email').fill('e2e@example.com');
   await page.locator('#message').fill(BODY);
@@ -256,6 +259,9 @@ test('a message sent from the contact form appears in the inbox', async ({ page 
 
   /* Mark read / delete must work from the UI. */
   const msg = page.locator('.msg', { hasText: STAMP }).first();
+  /* Expanding it proves the body survived the round trip, not just the name. */
+  await msg.locator('.msg__head').click();
+  await expect(msg).toContainText(BODY);
   await msg.getByRole('button', { name: /خوانده|نخوانده/ }).click();
   await expect(page.locator('.msg', { hasText: STAMP })).toBeVisible();
 });
@@ -276,6 +282,7 @@ test('an order placed on the site is visible in the orders tab and its status ca
   await gotoReady(page, '/shop/dezmaye-gold-80');
   await page.locator('.sp-buy__row .btn').click();
   await gotoReady(page, '/shop/checkout');
+  await routeSettled(page);
   const form = page.locator('.checkout-form');
   const inputs = form.locator('.checkout-form__grid input');
   await inputs.nth(0).fill('سفارش آزمایشی');

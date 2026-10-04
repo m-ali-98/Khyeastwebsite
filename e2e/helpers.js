@@ -34,6 +34,18 @@ export async function gotoReady(page, url) {
   await page.waitForLoadState('networkidle').catch(() => {});
 }
 
+/** Wait until a client-side route change has finished.
+ *
+ *  Page transitions use <AnimatePresence mode="popLayout">, so while the old
+ *  page animates out BOTH routes are in the DOM. That is what produced the
+ *  "resolved to 2 elements" failures: a form filled on the outgoing copy, then
+ *  submitted on the incoming empty one, or the reverse. Waiting for a single
+ *  <main> is the honest signal that the new page owns the document. */
+export async function routeSettled(page, urlRe) {
+  if (urlRe) await expect(page).toHaveURL(urlRe);
+  await expect(page.locator('main')).toHaveCount(1, { timeout: 10_000 });
+}
+
 export async function loginAdmin(page) {
   await page.goto('/admin', { waitUntil: 'domcontentloaded' });
   const card = page.locator('.admin__login-card');

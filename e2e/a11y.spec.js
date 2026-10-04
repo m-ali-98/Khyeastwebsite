@@ -56,6 +56,22 @@ async function audit(page) {
     route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: AXE_SOURCE }),
   );
   await page.addScriptTag({ url: '/__axe.js' });
+  /* Entrance animations fade panels in from opacity 0. Auditing mid-fade
+     measures a blend — the admin login inputs read #989495 on white (2.99:1)
+     at 45% through the card's fade, which is a measurement artefact, not a
+     palette fault. Wait for every finite animation to land; the looping
+     decorative ones (hero particles) are skipped because they never do. */
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+          .every((a) => a.playState === 'finished' || a.playState === 'idle'),
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {});
   return page.evaluate(
     async (rules) =>
       // eslint-disable-next-line no-undef
