@@ -104,6 +104,37 @@ function Navbar() {
     };
   }, []);
 
+  /* The transparent navbar only works over a dark hero. On a page that has
+     none — a shop product, the cart, checkout, an order — white links sat on
+     a white page and the header was simply invisible in light mode. So the
+     bar is solid whenever there is no hero behind it, not merely when the
+     visitor has scrolled.
+
+     The hero belongs to a lazily-loaded route chunk, so it is not in the DOM
+     on the first frame after a navigation. Start from "no hero" (solid, i.e.
+     always legible, never the broken state) and look again for a few frames
+     before settling. */
+  const [hasHero, setHasHero] = useState(false);
+  useEffect(() => {
+    let frame = 0;
+    let tries = 0;
+    setHasHero(false);
+
+    const look = () => {
+      if (document.querySelector('.hero, .page-hero')) {
+        setHasHero(true);
+        return;
+      }
+      /* ~1s at 60fps: long enough for a route chunk and its skeleton. */
+      if (tries++ < 60) frame = window.requestAnimationFrame(look);
+    };
+
+    look();
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [location.pathname]);
+
   useEffect(() => setOpen(false), [location.pathname]);
 
   useEffect(() => {
@@ -117,7 +148,7 @@ function Navbar() {
 
   return (
     <>
-      <nav className={`nav ${scrolled && !open ? 'is-scrolled' : ''}`}>
+      <nav className={`nav ${(scrolled || !hasHero) && !open ? 'is-scrolled' : ''}`}>
         <div className="nav__topbar">
           <div className="container nav__topbar-inner">
             <div className="nav__topbar-socials">

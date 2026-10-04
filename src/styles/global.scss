@@ -967,15 +967,23 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   line-height: 1.6;
 }
 .page-hero p { max-width: 660px; color: rgba(255, 255, 255, 0.82); font-size: 16.5px; margin: 0; }
+/* The breadcrumb used to be white by default, which is only legible inside
+   the dark hero — every other use had to undo it with an inline style, and
+   any that forgot was invisible. Default to the page ink; the hero overrides
+   it, because the hero is the exception. */
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 13.5px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
 }
-.breadcrumb a:hover { color: #fff; }
-.breadcrumb .sep { opacity: 0.5; }
+.breadcrumb a:hover { color: var(--crimson-ink); }
+.breadcrumb .sep { opacity: 0.5; color: var(--crimson); }
+
+.page-hero .breadcrumb { color: rgba(255, 255, 255, 0.7); }
+.page-hero .breadcrumb a:hover { color: #fff; }
+.page-hero .breadcrumb .sep { color: inherit; }
 
 /* ---------- Timeline ---------- */
 .timeline { position: relative; max-width: 860px; margin: 0 auto; padding: 10px 0; }

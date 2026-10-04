@@ -224,3 +224,44 @@ test('no image is requested that the server cannot serve @mobile', async ({ page
   }
   expect(broken).toEqual([]);
 });
+
+/* The transparent navbar is only legible over a dark hero. A page without one
+   — a shop product, the cart, checkout, a product detail page — used to paint
+   white links on a white page, so the whole header disappeared in light mode.
+   The rule is now "solid unless a hero is actually behind it", and this
+   measures the result the visitor gets rather than the class name: the link
+   colour must have real contrast against whatever is painted behind it. */
+const srgb = (c) => {
+  const v = c / 255;
+  return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+};
+const lum = ([r, g, b]) => 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b);
+const parse = (s) => (s.match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
+const ratio = (a, b) => {
+  const [x, y] = [lum(parse(a)), lum(parse(b))].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+
+for (const route of ['/shop/dezmaye-gold-80', '/shop/cart', '/products/dezmaye-gold-80']) {
+  test(`the header is readable at the top of ${route} @mobile`, async ({ page }) => {
+    await gotoReady(page, route);
+    await expect(page.locator('.hero, .page-hero')).toHaveCount(0); // precondition: no hero here
+
+    /* Read the bar's own background, not the body's: the solid state paints
+       a translucent surface over the page. */
+    const { fg, bg } = await page.evaluate(() => {
+      const link = document.querySelector('.nav__links a.nav__link');
+      const bar = document.querySelector('.nav__bar') || document.querySelector('.nav');
+      return {
+        fg: getComputedStyle(link).color,
+        bg: getComputedStyle(bar).backgroundColor,
+      };
+    });
+
+    /* A transparent bar reports rgba(0, 0, 0, 0) — which is exactly the
+       broken state on a page with no hero, so treat it as a failure rather
+       than computing contrast against nothing. */
+    expect(bg, `navbar is transparent on ${route}, so its white text sits on the page itself`).not.toMatch(/, 0\)$/);
+    expect(ratio(fg, bg), `nav link contrast on ${route}`).toBeGreaterThan(4.5);
+  });
+}

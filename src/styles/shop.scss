@@ -5,27 +5,40 @@
 /* ---------------- trust band ---------------- */
 .shop-trust {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* Four equal columns forced «ضمانت اصالت کالا — تأمین مستقیم از کارخانه»
+     into three ragged lines next to «ارسال سریع به سراسر ایران» on one, so
+     the row looked broken rather than designed. auto-fit lets the row become
+     two or three columns on its own, and the boxes stay the same height as
+     each other because the grid stretches them. */
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 14px;
   margin-bottom: 44px;
 
   &__item {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
+    min-height: 78px;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
-    padding: 14px 16px;
+    padding: 16px 18px;
     box-shadow: var(--shadow-sm);
+    /* a quiet lift, matching the cards elsewhere rather than sitting flat */
+    transition: transform 0.35s var(--ease), border-color 0.35s var(--ease);
+
+    &:hover {
+      transform: translateY(-3px);
+      border-color: var(--crimson-soft);
+    }
 
     .ico {
       flex: none;
       display: grid;
       place-items: center;
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
       background: var(--crimson-soft);
       color: var(--crimson-ink);
     }
@@ -33,7 +46,10 @@
       font-size: 13.5px;
       font-weight: 700;
       color: var(--ink-2);
-      line-height: 1.7;
+      /* 1.7 left the two-line labels looking like two separate sentences */
+      line-height: 1.6;
+      /* split a wrapped label evenly instead of leaving one orphan word */
+      text-wrap: balance;
     }
   }
 }
@@ -59,16 +75,25 @@
     color: var(--muted);
     font-weight: 700;
 
+    /* This sits in the same row as the brand chips, so it has to be the same
+       object: pill, same height, same type size. At 12px radius and a
+       smaller font it read as a stray form control dropped next to them. */
     select {
       border: 1.5px solid var(--line);
-      border-radius: 12px;
+      border-radius: 999px;
       background: var(--surface);
-      padding: 9px 12px;
+      padding: 10px 18px;
       font-family: inherit;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
-      color: var(--ink);
+      color: var(--ink-2);
       cursor: pointer;
+      transition: border-color 0.28s var(--ease-soft), color 0.28s var(--ease-soft);
+
+      &:hover {
+        border-color: var(--crimson);
+        color: var(--crimson-ink);
+      }
     }
   }
 }
@@ -1199,12 +1224,12 @@
   }
 }
 
-/* ---------------- responsive ---------------- */
+/* ---------------- responsive ----------------
+   .shop-trust is deliberately absent here: its auto-fit track sizing already
+   reflows from four columns to two to one, and a fixed override at a
+   breakpoint only fought it. */
 @media (max-width: 1080px) {
   .shop-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .shop-trust {
     grid-template-columns: repeat(2, 1fr);
   }
   .sp-detail,
@@ -1247,9 +1272,6 @@
       width: 38px;
       height: 38px;
     }
-  }
-  .shop-trust {
-    grid-template-columns: 1fr;
   }
 }
 

@@ -93,7 +93,12 @@ const describe = (v) =>
     .map((x) => `${x.id} (${x.nodes.length}×) — ${x.help}\n      ${x.nodes.slice(0, 3).map(nodeLine).join('\n      ')}`)
     .join('\n  ');
 
-const PAGES = ['/', '/about', '/products', '/products/dezmaye-gold-80', '/blog', '/contact', '/shop', '/shop/cart', '/en', '/ar'];
+/* /shop/<slug> is here because it has no hero: axe cannot judge contrast
+   through a transparent overlay (it reports those as incomplete, and we only
+   collect violations), which is exactly how the invisible white navbar on the
+   hero-less pages went unnoticed. public.spec.js measures that case
+   directly; this still covers everything below the header. */
+const PAGES = ['/', '/about', '/products', '/products/dezmaye-gold-80', '/blog', '/contact', '/shop', '/shop/dezmaye-gold-80', '/shop/cart', '/en', '/ar'];
 
 for (const url of PAGES) {
   for (const theme of ['light', 'dark']) {

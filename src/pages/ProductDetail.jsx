@@ -42,11 +42,11 @@ export default function ProductDetail() {
     <>
       <section className="section" style={{ paddingTop: 'calc(var(--nav-h) + 80px)' }}>
         <div className="container">
-          <Reveal className="breadcrumb" style={{ color: 'var(--muted)' }}>
+          <Reveal className="breadcrumb">
             <Link to="/">{t('nav.breadcrumb.home')}</Link>
-            <span className="sep" style={{ color: 'var(--crimson)' }}>/</span>
+            <span className="sep">/</span>
             <Link to="/products">{t('nav.products')}</Link>
-            <span className="sep" style={{ color: 'var(--crimson)' }}>/</span>
+            <span className="sep">/</span>
             <span>{product.title}</span>
           </Reveal>
 
