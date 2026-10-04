@@ -180,6 +180,23 @@ try {
   console.log('  FAIL assets harness error');
 }
 
+console.log('\nUpload optimisation — a photo may be shrunk, but never lost or broken');
+for (const [file, label, timeout] of [['images.mjs', 'upload optimisation checks', 60000], ['upload.mjs', 'upload round-trip checks', 60000]]) {
+  try {
+    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
+    const line = stdout.trim().split('\n').pop();
+    const m = line.match(/(\d+)\/(\d+)/);
+    const leaks = stdout.split('\n').filter((l) => l.trim().startsWith('LEAK'));
+    const ok = Boolean(m) && m[1] === m[2];
+    record(ok, file.replace('.mjs', ''), leaks.join('; ').slice(0, 200));
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : line} ${label}`);
+    leaks.forEach((l) => console.log('       ' + l.trim()));
+  } catch (e) {
+    record(false, file.replace('.mjs', ''), String(e.message).slice(0, 90));
+    console.log(`  FAIL ${file} harness error`);
+  }
+}
+
 console.log('\nBehaviour — limits, errors and inventory must not cost a sale');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'behaviour.mjs')], { cwd: HERE, timeout: 90000 });

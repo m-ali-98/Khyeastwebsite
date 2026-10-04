@@ -26,19 +26,35 @@ export function Field({ label, value, onChange, type = 'text', dir, textarea, ro
 }
 
 /* ---------------- upload button (photos & videos) ---------------- */
+/* bytes → «۲۱۰ کیلوبایت» / «۳٫۸ مگابایت» */
+const kb = (n) =>
+  n >= 1024 * 1024
+    ? `${(n / 1024 / 1024).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} مگابایت`
+    : `${Math.round(n / 1024).toLocaleString('fa-IR')} کیلوبایت`;
+
 export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/webm', label = 'بارگذاری فایل', small = false }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [note, setNote] = useState('');
 
   const pick = async (file) => {
     setBusy(true);
     setErr('');
+    setNote('');
     try {
       const fd = new FormData();
       fd.append('file', file);
       const res = await api('/api/upload', { method: 'POST', formData: fd, auth: true });
       onUploaded(res.url);
+      /* Say what happened to the file. The server shrinks photos on upload,
+         and silent processing is the kind of thing that makes someone think
+         the panel mangled their picture. */
+      if (res.optimised && res.originalBytes > res.bytes) {
+        setNote(`بهینه شد: ${kb(res.originalBytes)} ← ${kb(res.bytes)}`);
+      } else {
+        setNote('بارگذاری شد');
+      }
     } catch (e) {
       setErr('بارگذاری ممکن نشد');
     } finally {
@@ -61,6 +77,7 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
         {busy ? 'در حال بارگذاری…' : label}
       </button>
       {err && <small style={{ color: 'var(--crimson)' }}>{err}</small>}
+      {!err && note && <small style={{ color: 'var(--muted)' }}>{note}</small>}
     </>
   );
 }

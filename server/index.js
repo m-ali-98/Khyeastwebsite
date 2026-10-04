@@ -19,6 +19,8 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { createShopRouter } from './shop.js';
+import { optimizeImage, optimiserAvailable } from './images.js';
+import { UPLOAD_LADDER } from '../shared/uploadSizes.js';
 import * as store from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -381,7 +383,12 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '8mb' }));
 
 /* ---------------- public ---------------- */
-app.get('/api/health', (_req, res) => res.json({ ok: true, db: 'sqlite' }));
+/* `imageOptimiser` is here so a deployment can be checked without uploading
+   anything: sharp carries a native binary, and on a host that cannot install
+   it uploads keep working but are stored as they arrive. */
+app.get('/api/health', async (_req, res) =>
+  res.json({ ok: true, db: 'sqlite', imageOptimiser: await optimiserAvailable() }),
+);
 
 app.get('/api/content', (_req, res) => {
   try {
@@ -544,26 +551,82 @@ app.delete('/api/messages/:id', requireAuth, (req, res) => {
 });
 
 /* ---------------- admin: uploads ---------------- */
-app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
+app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no file' });
   const ext = path.extname(req.file.originalname).toLowerCase();
   const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
   if (!kind) return res.status(415).json({ error: 'unsupported file type' });
   if (!contentMatchesExt(req.file.buffer, ext))
     return res.status(415).json({ error: 'file content does not match its extension' });
-  const name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
+
   const dir = path.join(UPLOAD_DIR, `${kind}s`);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, name), req.file.buffer);
-  res.json({ url: `/uploads/${kind}s/${name}` });
+  const stem = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+  /* Videos are stored as they arrive. Images go through server/images.js,
+     which shrinks them to a sane width and writes the smaller copies the
+     browser picks between. It never throws and never refuses: anything it
+     cannot improve comes back as the original bytes. */
+  const opt =
+    kind === 'image'
+      ? await optimizeImage(req.file.buffer, ext)
+      : { optimised: false, buffer: req.file.buffer, ext, width: null, variants: [], originalBytes: req.file.buffer.length };
+
+  /* Write the smaller copies FIRST and the master last, then hand back the
+     -w<width> name. The browser reads that suffix as "the whole ladder is
+     there", so it must only ever be published once the ladder really is. If
+     any write fails we roll back to the plain name and the plain file, and
+     the upload still succeeds — unoptimised beats broken. */
+  const written = [];
+  let name = `${stem}${opt.ext}`;
+  try {
+    if (opt.optimised && opt.variants.length) {
+      for (const v of opt.variants) {
+        const vf = path.join(dir, `${stem}-${v.width}.webp`);
+        fs.writeFileSync(vf, v.buffer);
+        written.push(vf);
+      }
+      name = `${stem}-w${opt.width}.webp`;
+    }
+    const master = path.join(dir, name);
+    fs.writeFileSync(master, opt.buffer);
+    written.push(master);
+  } catch (err) {
+    for (const f of written) {
+      try { fs.unlinkSync(f); } catch { /* best effort */ }
+    }
+    name = `${stem}${ext}`;
+    fs.writeFileSync(path.join(dir, name), req.file.buffer);
+    return res.json({ url: `/uploads/${kind}s/${name}`, optimised: false, bytes: req.file.buffer.length, originalBytes: req.file.buffer.length });
+  }
+
+  res.json({
+    url: `/uploads/${kind}s/${name}`,
+    optimised: Boolean(opt.optimised),
+    bytes: opt.buffer.length,
+    originalBytes: opt.originalBytes,
+    width: opt.width,
+  });
 });
 
 app.delete('/api/upload', requireAuth, (req, res) => {
   const url = String(req.body?.url || '');
   const m = url.match(/^\/uploads\/(images|videos)\/([\w.-]+)$/);
   if (!m) return res.status(400).json({ error: 'invalid url' });
-  const file = path.join(UPLOAD_DIR, m[1], m[2]);
+  const dir = path.join(UPLOAD_DIR, m[1]);
+  const file = path.join(dir, m[2]);
   if (fs.existsSync(file)) fs.unlinkSync(file);
+
+  /* An optimised image is a set, not a file. Deleting only the master would
+     leave its smaller copies behind for good — nothing else references them,
+     so no later pass could ever find them. */
+  const opt = m[2].match(/^(.+)-w\d+\.webp$/);
+  if (opt) {
+    for (const w of UPLOAD_LADDER) {
+      const v = path.join(dir, `${opt[1]}-${w}.webp`);
+      if (fs.existsSync(v)) fs.unlinkSync(v);
+    }
+  }
   res.json({ ok: true });
 });
 
