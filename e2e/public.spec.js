@@ -6,7 +6,7 @@
    harness is finally proved to render its real content.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
-import { gotoReady, routeSettled, watchConsole, faNum } from './helpers.js';
+import { gotoReady, routeSettled, one, watchConsole, faNum } from './helpers.js';
 
 /* Every route, with a selector that must be present and the minimum amount of
    text the page must render. The minimum matters: asserting "the page loaded"
@@ -146,7 +146,7 @@ test.describe('shop purchase flow', () => {
     await routeSettled(page, /\/shop\/cart$/);
     await expect(page.locator('.cart-table__row').nth(1)).toBeVisible();
 
-    await page.locator('.cart-summary button.btn--primary').click();
+    await (await one(page, '.cart-summary button.btn--primary')).click();
     await routeSettled(page, /\/shop\/checkout$/);
 
     const form = page.locator('.checkout-form');
@@ -163,7 +163,7 @@ test.describe('shop purchase flow', () => {
     await expect(page.locator('.order-hero .code, .note.err').first()).toBeVisible({ timeout: 20_000 });
     expect(await page.locator('.note.err').allTextContents(), 'checkout refused the order').toEqual([]);
     await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
-    await expect(page.locator('.order-hero .code')).not.toBeEmpty();
+    await expect(await one(page, '.order-hero .code')).not.toBeEmpty();
     expect(errors).toEqual([]);
   });
 

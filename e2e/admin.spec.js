@@ -10,7 +10,7 @@
    server/data/.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
-import { loginAdmin, adminTab, watchConsole, gotoReady, routeSettled, E2E } from './helpers.js';
+import { loginAdmin, adminTab, watchConsole, gotoReady, routeSettled, one, E2E } from './helpers.js';
 
 const field = (page, label) => page.locator('label.field', { hasText: label }).locator('input, textarea, select').first();
 
@@ -291,7 +291,7 @@ test('an order placed on the site is visible in the orders tab and its status ca
   await form.locator('textarea').first().fill('نشانی آزمایشی برای سفارش خودکار، پلاک ۷');
   await form.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
-  const code = (await page.locator('.order-hero .code').innerText()).trim();
+  const code = (await (await one(page, '.order-hero .code')).innerText()).trim();
 
   await loginAdmin(page);
   await adminTab(page, 'سفارش‌ها').first().click();

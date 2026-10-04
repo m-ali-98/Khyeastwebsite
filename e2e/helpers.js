@@ -41,9 +41,56 @@ export async function gotoReady(page, url) {
  *  "resolved to 2 elements" failures: a form filled on the outgoing copy, then
  *  submitted on the incoming empty one, or the reverse. Waiting for a single
  *  <main> is the honest signal that the new page owns the document. */
+/** The one live copy of `selector`, and a printed explanation when there is
+ *  more than one.
+ *
+ *  Page transitions keep the outgoing route mounted for a moment, so a
+ *  selector can legitimately resolve twice mid-flight. Blind .first() hid
+ *  that and picked the stale copy; a bare strict locator fails with nothing
+ *  but a count. This takes the live copy — the incoming page is appended
+ *  last — and logs where each duplicate sits so the structure is visible in
+ *  the run output instead of being guessed at. */
+export async function one(page, selector) {
+  const loc = page.locator(selector);
+  await expect(loc.first()).toBeVisible({ timeout: 15_000 });
+  const n = await loc.count();
+  if (n > 1) {
+    const paths = await page.evaluate((sel) => {
+      const describe = (el) => {
+        const parts = [];
+        for (let p = el; p && p !== document.documentElement; p = p.parentElement)
+          parts.push(p.tagName.toLowerCase() + (typeof p.className === 'string' && p.className ? '.' + p.className.trim().split(/\s+/).join('.') : ''));
+        return parts.reverse().join(' > ');
+      };
+      return [...document.querySelectorAll(sel)].map(describe);
+    }, selector);
+    console.log(`[e2e] "${selector}" matched ${n} elements; using the last:\n    ${paths.join('\n    ')}`);
+  }
+  return loc.last();
+}
+
 export async function routeSettled(page, urlRe) {
   if (urlRe) await expect(page).toHaveURL(urlRe);
   await expect(page.locator('main')).toHaveCount(1, { timeout: 10_000 });
+  await animationsSettled(page);
+}
+
+/** Resolve once every finite animation has landed.
+ *
+ *  Looping decorative ones (the hero particles) never finish, so they are
+ *  excluded — waiting on them would simply burn the timeout. */
+export async function animationsSettled(page) {
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+          .every((a) => a.playState === 'finished' || a.playState === 'idle'),
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {});
 }
 
 export async function loginAdmin(page) {
