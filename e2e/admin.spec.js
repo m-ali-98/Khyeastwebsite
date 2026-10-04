@@ -295,17 +295,29 @@ test('an order placed on the site is visible in the orders tab and its status ca
 
   await loginAdmin(page);
   await adminTab(page, 'سفارش‌ها').first().click();
-  const row = page.locator('.admin__panel', { hasText: code }).first();
+  const row = page.locator('.msg', { hasText: code }).first();
   await expect(row).toBeVisible({ timeout: 15_000 });
 
+  /* Like the inbox, an order row keeps its detail — including the status
+     select — collapsed until the header is clicked. */
+  await row.locator('.msg__head').click();
+  const select = row.locator('select').first();
+  await expect(select).toBeVisible();
+  const before = await select.inputValue();
+  const after = (await select.locator('option').evaluateAll((os) => os.map((o) => o.value))).find((v) => v !== before);
+
   /* Changing the status must stick across a reload — that is the path where
-     the stock re-reservation bug lived. */
-  const select = page.locator('select').first();
-  await select.selectOption({ index: 1 });
-  await page.waitForTimeout(800);
+     the stock re-reservation bug lived. The list reloads itself after the
+     PATCH, so the proof is what comes back from the server, not what the
+     control shows a moment later. */
+  await select.selectOption(after);
+  await page.waitForTimeout(1000);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await adminTab(page, 'سفارش‌ها').first().click();
-  await expect(page.locator('.admin__panel', { hasText: code }).first()).toBeVisible();
+  const again = page.locator('.msg', { hasText: code }).first();
+  await expect(again).toBeVisible({ timeout: 15_000 });
+  await again.locator('.msg__head').click();
+  await expect(again.locator('select').first()).toHaveValue(after);
 });
 
 test('logging out revokes the session, so the back button cannot re-enter', async ({ page }) => {
