@@ -19,6 +19,15 @@ function Hero() {
   const y = reduce ? 0 : yRaw;
   const opacity = reduce ? 1 : opacityRaw;
 
+  /* The hero entrance is a 1.5-second cascade — badge, then every word of the
+     slogan, then title, description and buttons. MotionConfig's reducedMotion
+     setting only drops the transform half of each of those; the opacity fade
+     keeps running, so a visitor who asked for less motion still watches the
+     page assemble itself. Skip the animation outright instead: `enter()`
+     returns nothing at all, and the element renders in its final state on the
+     first frame. */
+  const enter = (initial, animate, transition) => (reduce ? {} : { initial, animate, transition });
+
   const sloganWords = t('global.slogan').split(' ');
 
   const particles = useMemo(
@@ -58,9 +67,7 @@ function Hero() {
         <div className="container">
           <mo.span
             className="hero__badge"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.2 }}
+            {...enter({ opacity: 0, y: 20 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 0.2 })}
           >
             <i />
             {t('home.hero.badge')}
@@ -71,9 +78,11 @@ function Hero() {
               <mo.span
                 key={i}
                 className={`word ${i >= sloganWords.length - 3 ? 'accent' : ''}`}
-                initial={{ opacity: 0, y: 46, rotate: 3 }}
-                animate={{ opacity: 1, y: 0, rotate: 0 }}
-                transition={{ duration: 0.8, delay: 0.35 + i * 0.11, ease: [0.22, 1, 0.36, 1] }}
+                {...enter(
+                  { opacity: 0, y: 46, rotate: 3 },
+                  { opacity: 1, y: 0, rotate: 0 },
+                  { duration: 0.8, delay: 0.35 + i * 0.11, ease: [0.22, 1, 0.36, 1] },
+                )}
               >
                 {w}
                 {'\u00A0'}
@@ -83,27 +92,21 @@ function Hero() {
 
           <mo.p
             className="hero__title"
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 1.15 }}
+            {...enter({ opacity: 0, y: 24 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 1.15 })}
           >
             {t('home.hero.title')}
           </mo.p>
 
           <mo.p
             className="hero__desc"
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 1.3 }}
+            {...enter({ opacity: 0, y: 24 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 1.3 })}
           >
             {t('home.hero.desc')}
           </mo.p>
 
           <mo.div
             className="hero__actions"
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 1.45 }}
+            {...enter({ opacity: 0, y: 24 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 1.45 })}
           >
             <Link to="/products" className="btn btn--primary">
               {t('home.hero.btnProducts')}

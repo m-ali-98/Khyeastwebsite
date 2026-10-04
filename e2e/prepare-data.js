@@ -60,4 +60,15 @@ fs.mkdirSync(path.join(dataDir, 'uploads', 'videos'), { recursive: true });
 const live = path.join(ROOT, 'server', 'data', 'content.json');
 if (fs.existsSync(live)) fs.copyFileSync(live, path.join(dataDir, 'content.json'));
 
+/* The seeded content.json points at whatever the admin has uploaded on this
+   machine, so the uploads have to travel with it. Without them every
+   /uploads/... URL in the catalogue 404s and the console-error and
+   broken-image checks fail on photos that are perfectly fine in reality —
+   and the more widths a srcset offers, the more 404s one stale copy produces.
+   Copying is cheap next to a browser run and keeps the pair consistent. */
+const liveUploads = path.join(ROOT, 'server', 'uploads');
+if (fs.existsSync(liveUploads)) {
+  fs.cpSync(liveUploads, path.join(dataDir, 'uploads'), { recursive: true, force: true });
+}
+
 console.log(`[e2e] scratch data directory ready: ${path.relative(ROOT, dataDir)}`);

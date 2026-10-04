@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { UPLOAD_LADDER } from '../../shared/uploadSizes.js';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -163,6 +164,36 @@ for (const [url, widths] of Object.entries(variants)) {
   }
 }
 check(notSmaller.length === 0, 'every variant is smaller than its original', notSmaller.join(' '));
+
+/* ---- uploaded images referenced by the live content --------------------
+   content.json points at files under server/uploads/ that are not in git.
+   A reference whose file has been deleted renders a broken image, and an
+   optimised upload advertises its smaller copies in its own name — so one
+   stale entry now produces a 404 for every width the browser tries. The
+   browser suite catches this too, but five minutes later. */
+const liveContent = path.join(ROOT, 'server/data/content.json');
+const uploadRoot = path.join(ROOT, 'server/uploads');
+if (fs.existsSync(liveContent) && fs.existsSync(uploadRoot)) {
+  const raw = fs.readFileSync(liveContent, 'utf8');
+  const urls = [...new Set(raw.match(/\/uploads\/(?:images|videos)\/[\w.-]+/g) || [])];
+  const gone = [];
+  for (const url of urls) {
+    const file = path.join(ROOT, 'server', url.replace(/^\//, ''));
+    if (!fs.existsSync(file)) {
+      gone.push(url);
+      continue;
+    }
+    const w = Number((url.match(/-w(\d+)\.webp$/) || [])[1]);
+    if (!w) continue;
+    const stem = file.replace(/-w\d+\.webp$/, '');
+    for (const v of UPLOAD_LADDER.filter((x) => x <= w * 0.85)) {
+      if (!fs.existsSync(`${stem}-${v}.webp`)) gone.push(`${url} @${v}`);
+    }
+  }
+  check(gone.length === 0, 'every uploaded image the content references is on disk', gone.join(' '));
+} else {
+  check(true, 'every uploaded image the content references is on disk (none to check)');
+}
 
 /* ---- speculative prefetch must respect the locale ----------------------
    React Router strips the /en and /ar prefix with `basename`, so
