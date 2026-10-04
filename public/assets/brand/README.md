@@ -1,20 +1,30 @@
 # Brand assets
 
-The official company mark. `logo.png` is the source of truth — every surface of
-the site points at it, so replacing that one file updates the logo everywhere.
+The official company mark. The master lives in `assets-src/brand/` and is NOT
+deployed; this folder holds only what the browser downloads.
 
 ## Files
 
 | File | Size | Used for |
 | --- | --- | --- |
-| `logo.png` | 837x800 | the mark itself, everywhere on the site |
+| `logo.webp` | 268x256, ~12 KB | the mark itself, everywhere on the site |
 | `apple-touch-icon.png` | 188x180 | iOS home screen |
 | `favicon-64.png` | 67x64 | browser tab |
 | `favicon-32.png` | 33x32 | browser tab, smaller displays |
-| `logo-original.png` | 837x800 | the untouched supplied artwork, kept for reference |
 
-All are transparent RGBA PNGs, trimmed so there is no padding baked in around
-the mark.
+Masters, kept out of `public/` so they are never shipped:
+
+| File | Size | Used for |
+| --- | --- | --- |
+| `assets-src/brand/logo.png` | 837x800, 152 KB | source of truth for `logo.webp` |
+| `assets-src/brand/logo-original.png` | 837x800 | the untouched supplied artwork, for reference |
+
+The mark is never drawn larger than 72 px (the boot splash), so the 256px WebP
+is already 3x oversampled; the 152 KB master was being downloaded in full to
+paint a 46 px navbar logo.
+
+All are transparent RGBA, trimmed so there is no padding baked in around the
+mark.
 
 ## Colour
 
@@ -47,7 +57,13 @@ file if the original palette is ever wanted back.
 
 ## Replacing the logo
 
-Drop a new PNG at `public/assets/brand/logo.png`. Two requirements:
+Drop a new PNG at `assets-src/brand/logo.png`, then run:
+
+```bash
+node scripts/logo-webp.mjs
+```
+
+Two requirements:
 
 - **Transparent background.** The white rendering on dark grounds is a
   `brightness(0) invert(1)` filter, which only touches inked pixels. A white

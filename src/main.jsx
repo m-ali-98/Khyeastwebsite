@@ -2,7 +2,7 @@ import React from 'react';
 import { MotionConfig } from 'framer-motion';
 import ReactDOM from 'react-dom/client';
 import '@fontsource-variable/vazirmatn';
-import '@fontsource-variable/inter';
+import './styles/fonts.scss';
 import './styles/global.scss';
 import './styles/shop.scss';
 import App from './App';

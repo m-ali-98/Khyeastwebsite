@@ -11,7 +11,7 @@
    Deliberately NOT touched:
      • favicons and apple-touch-icon — some OS/browser surfaces still expect
        PNG, and they are already ~1-12 KB so there is nothing to win
-     • logo.png / logo-original.png  — the logo is rendered through
+     • assets-src/brand/*.png  — masters, not shipped; the logo is rendered through
        <Logo>, is used on light and dark backgrounds, and the user has
        rejected lossy handling of the brand artwork before
 
