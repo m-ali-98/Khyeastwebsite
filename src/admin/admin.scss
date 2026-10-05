@@ -810,9 +810,25 @@
   display: grid;
   gap: 2px;
   min-width: 0;
+  justify-items: start;
 
   b { font-size: 14.5px; font-weight: 800; }
   small { font-size: 12.5px; color: var(--muted); }
+}
+
+/* dir="ltr" keeps a phone number, order code or email in Latin reading
+   order, but it also makes the element align to ITS OWN start — the left —
+   while the Persian line above it sits on the right of this RTL panel. The
+   value then drifted to the opposite edge from the name it belongs to.
+
+   Two fixes, because the cases differ: the name and phone pair is simply
+   packed to the start of the row (justify-items above), and the values that
+   must keep their full width to wrap — a long email, a table cell — are
+   aligned to the end of their LTR box instead, which is the same edge. */
+.cust__id small[dir='ltr'],
+.cust__facts b[dir='ltr'],
+.cust__table td[dir='ltr'] {
+  text-align: end;
 }
 
 .cust__stats {
