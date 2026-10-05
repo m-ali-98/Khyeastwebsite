@@ -147,6 +147,21 @@ try {
   console.log('  FAIL payment harness error');
 }
 
+console.log('\nSMS — a message that cannot be sent must not cost an order');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'sms.mjs')], { cwd: HERE, timeout: 40000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'sms', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} phone, secret and transport cases`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'sms', String(e.message).slice(0, 90));
+  console.log('  FAIL sms harness error');
+}
+
 console.log('\nAuth — logging out must revoke the token, not just forget it');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'auth.mjs')], { cwd: HERE, timeout: 60000 });

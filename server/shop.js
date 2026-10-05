@@ -9,6 +9,17 @@ import express from 'express';
 import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { createPayment, verifyPayment, normalizePayment } from './payment.js';
+import {
+  sendSms,
+  normalizeSms,
+  mergeSmsSettings,
+  publicSmsSettings,
+  smsReadiness,
+  normalizePhone,
+  toLocalPhone,
+  orderStatusUrl,
+  orderSmsText,
+} from './sms.js';
 import * as db from './db.js';
 
 /* ---------------------------------------------------------------------------
@@ -106,6 +117,47 @@ export function createShopRouter({ database, requireAuth }) {
 
   const display = () => ({ ...DEFAULT_STATE.shop.display, ...(db.getSetting(D, 'shop.display') || {}) });
   const payment = () => normalizePayment(db.getSetting(D, 'shop.payment') || {});
+  const smsCfg = () => normalizeSms(db.getSetting(D, 'shop.sms') || {});
+
+  /* One place where an SMS is attempted, logged and capped.
+     Deliberately not awaited by the order path: a message that takes four
+     seconds to send must not add four seconds to checkout, and a provider
+     outage must not turn a paid order into an error page. Every outcome,
+     including a refusal by the cap, is written to sms_log. */
+  function dispatchSms(msg) {
+    const cfg = smsCfg();
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+
+    const log = (row) => {
+      try {
+        db.insertSmsLog(D, row);
+      } catch (e) {
+        console.error('[sms] could not log:', e.message);
+      }
+    };
+
+    if (cfg.dailyCap > 0 && db.countSmsSince(D, midnight.toISOString()) >= cfg.dailyCap) {
+      log({ ...msg, provider: cfg.provider, environment: cfg.environment, ok: false, error: 'daily cap reached' });
+      return Promise.resolve({ ok: false, error: 'daily cap reached' });
+    }
+
+    return sendSms(cfg, msg)
+      .then((out) => {
+        log({ ...out, phone: out.to, ref: msg.ref || '' });
+        /* With no provider configured the message exists only in the
+           database, which is no use to someone developing the signup flow
+           and waiting for a code. Print it. */
+        if (cfg.provider === 'log') console.log(`[sms:log] → ${out.to}\n${out.text}`);
+        if (!out.ok) console.error('[sms] send failed:', out.error);
+        return out;
+      })
+      .catch((e) => {
+        /* sendSms is written not to throw; this is the belt to its braces. */
+        log({ ...msg, provider: cfg.provider, environment: cfg.environment, ok: false, error: String(e?.message || e) });
+        return { ok: false, error: String(e?.message || e) };
+      });
+  }
 
   /* ---------------- public ---------------- */
   r.get('/api/shop-public', (_req, res) => {
@@ -158,8 +210,16 @@ export function createShopRouter({ database, requireAuth }) {
     const address = String(c.address || '').trim();
     if (name.length < 3 || city.length < 2 || address.length < 10)
       return res.status(400).json({ error: 'customer fields required' });
-    if (!/^(\+98|0098|0)?9\d{9}$/.test(phone.replace(/[\s-]/g, '')))
-      return res.status(400).json({ error: 'invalid phone' });
+    /* normalizePhone, not a regex: an Iranian visitor typing on a Persian
+       keyboard produces ۰۹۱۲۳۴۵۶۷۸۹, which the old ASCII pattern rejected
+       outright — a valid customer with a valid number was told their phone
+       was invalid. It also folds +98 / 0098 / 0912 / 912 into one value, so
+       the number the SMS goes to is the number the account system will key
+       on later. Stored in the readable 09xxxxxxxxx form for the admin and
+       the shipping label; canonical 98… is derived wherever it is compared. */
+    const canonicalPhone = normalizePhone(phone);
+    if (!canonicalPhone) return res.status(400).json({ error: 'invalid phone' });
+    const localPhone = toLocalPhone(canonicalPhone);
 
     /* price strictly server-side */
     const lines = [];
@@ -192,7 +252,7 @@ export function createShopRouter({ database, requireAuth }) {
       items: lines,
       customer: {
         name: name.slice(0, 200),
-        phone: phone.slice(0, 20),
+        phone: localPhone,
         city: city.slice(0, 100),
         address: address.slice(0, 600),
         postal: String(c.postal || '').slice(0, 20),
@@ -227,6 +287,27 @@ export function createShopRouter({ database, requireAuth }) {
 
     db.insertOrder(D, order);
     recordHit('order', req.ip);
+
+    /* After the commit, and not awaited: the order exists whatever the SMS
+       does. The status link carries the order's private token, which is the
+       only thing that makes the tracking page readable — so this message is
+       the customer's key to their own order, and it is sent to the number
+       they just proved they can be reached at. */
+    const sms = smsCfg();
+    if (sms.onOrder) {
+      const url = orderStatusUrl(origin, order);
+      dispatchSms({
+        kind: 'order',
+        to: order.customer.phone,
+        ref: order.code,
+        text: orderSmsText(order, url),
+        templateId: sms.orderTemplateId || 0,
+        params: [
+          { name: 'CODE', value: order.code },
+          { name: 'LINK', value: url },
+        ],
+      });
+    }
     res.json({
       ok: true,
       order: { code: order.code, token: order.token, total: order.total, status: order.status, provider: order.provider },
@@ -410,6 +491,34 @@ export function createShopRouter({ database, requireAuth }) {
     if (order && order.status !== 'cancelled') db.restoreStock(D, order.items);
     db.deleteOrder(D, req.params.id);
     res.json({ ok: true });
+  });
+
+  /* ---------------- SMS settings ---------------- */
+
+  /* The API key is never sent back — only a mask and a boolean. An admin
+     session is not a licence to read the credential out of the browser. */
+  r.get('/api/shop-admin/sms', requireAuth, (_req, res) =>
+    res.json({ sms: publicSmsSettings(smsCfg()), readiness: smsReadiness(smsCfg()), log: db.listSmsLog(D, 50) })
+  );
+
+  r.put('/api/shop-admin/sms', requireAuth, (req, res) => {
+    /* merge, not replace: a form that posts the mask back must keep the
+       stored key rather than wipe it */
+    const next = mergeSmsSettings(smsCfg(), req.body || {});
+    db.setSetting(D, 'shop.sms', next);
+    res.json({ ok: true, sms: publicSmsSettings(next), readiness: smsReadiness(next) });
+  });
+
+  /* Prove the credentials work without placing a real order. */
+  r.post('/api/shop-admin/sms/test', requireAuth, async (req, res) => {
+    const to = String(req.body?.phone || '').trim();
+    if (!normalizePhone(to)) return res.status(400).json({ error: 'invalid phone' });
+    const out = await dispatchSms({
+      kind: 'test',
+      to,
+      text: 'خمیرمایه خوزستان — پیامک آزمایشی. تنظیمات پنل درست است.',
+    });
+    res.json({ ok: !!out.ok, error: out.error || '', sent: out.ok });
   });
 
   r.get('/api/shop-admin/payment', requireAuth, (_req, res) => res.json(payment()));

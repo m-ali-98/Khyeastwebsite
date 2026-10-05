@@ -280,6 +280,36 @@ try {
     `valid order returned ${goodOrder.status}`,
   );
 
+  /* ---- 4b. an Iranian keyboard must be able to buy things --------------- */
+  /* ۰۹۱۲۳۴۵۶۷۸۹ is what a Persian layout produces, and the site is Persian
+     first. An ASCII-only phone pattern told those customers their own phone
+     number was invalid — a silent, total checkout failure for anyone who did
+     not think to retype it in Latin digits. */
+  const faPhone = await jpost('/api/shop-public/orders', {
+    items: [{ slug: RL_SLUG, qty: 1 }],
+    customer: { ...CUSTOMER, phone: '۰۹۱۲۳۴۵۶۷۸۹' },
+  });
+  check(faPhone.ok, 'an order with Persian-digit phone is accepted', `returned ${faPhone.status}`);
+
+  for (const [label, written] of [
+    ['+98 912 345 6789', '+98 912 345 6789'],
+    ['00989123456789', '00989123456789'],
+    ['9123456789', '9123456789'],
+  ]) {
+    const r = await jpost('/api/shop-public/orders', {
+      items: [{ slug: RL_SLUG, qty: 1 }],
+      customer: { ...CUSTOMER, phone: written },
+    });
+    check(r.ok, `an order with phone written as ${label} is accepted`, `returned ${r.status}`);
+  }
+
+  /* Still closed to things that are not mobile numbers. */
+  const landline = await jpost('/api/shop-public/orders', {
+    items: [{ slug: RL_SLUG, qty: 1 }],
+    customer: { ...CUSTOMER, phone: '۰۲۱۲۲۵۷۸۲۴۲' },
+  });
+  check(landline.status === 400, 'a landline is still rejected', `returned ${landline.status}`);
+
   /* ---- 5. a 429, when it does happen, is actionable ---------------------- */
   let limited = null;
   for (let i = 0; i < 20 && !limited; i += 1) {

@@ -580,3 +580,204 @@ export function ShopPaymentTab() {
     </div>
   );
 }
+
+/* ================= SMS (sms.ir) ================= */
+/* Settings, a live readiness readout, a test send and the recent log.
+   The API key is write-only: the server returns a mask, and posting the mask
+   back means "unchanged" — so an admin can edit the line number without
+   re-typing a credential they may not have to hand. */
+export function ShopSmsTab() {
+  const [cfg, setCfg] = useState(null);
+  const [readiness, setReadiness] = useState(null);
+  const [log, setLog] = useState([]);
+  const [err, setErr] = useState('');
+  const [ok, setOk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [testTo, setTestTo] = useState('');
+  const [testMsg, setTestMsg] = useState('');
+
+  const apply = (d) => {
+    setCfg(d.sms);
+    setReadiness(d.readiness);
+    setLog(d.log || []);
+  };
+
+  const load = async () => {
+    try {
+      setErr('');
+      apply(await api('/api/shop-admin/sms', { auth: true }));
+    } catch (e) {
+      setErr(e.status === 401 ? 'نشست مدیر منقضی شده؛ دوباره وارد شوید.' : 'دریافت تنظیمات پیامک ممکن نشد.');
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const saveCfg = async () => {
+    setBusy(true);
+    setOk(false);
+    try {
+      const d = await api('/api/shop-admin/sms', { method: 'PUT', body: cfg, auth: true });
+      setCfg(d.sms);
+      setReadiness(d.readiness);
+      setOk(true);
+      setTimeout(() => setOk(false), 2500);
+    } catch {
+      setErr('ذخیره تنظیمات پیامک ممکن نشد.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendTest = async () => {
+    setTestMsg('در حال ارسال…');
+    try {
+      const d = await api('/api/shop-admin/sms/test', { method: 'POST', body: { phone: testTo }, auth: true });
+      setTestMsg(d.ok ? '✓ ارسال شد' : `ارسال نشد: ${d.error || 'نامشخص'}`);
+    } catch (e) {
+      setTestMsg(e.status === 400 ? 'شماره موبایل معتبر نیست.' : 'ارسال ممکن نشد.');
+    }
+    load();
+  };
+
+  if (!cfg && !err) return <div className="admin__panel"><p style={{ color: 'var(--muted)' }}>در حال دریافت…</p></div>;
+
+  return (
+    <div className="admin__panel">
+      <div className="admin__head">
+        <div>
+          <h1>پیامک (sms.ir)</h1>
+          <p>ارسال لینک پیگیری سفارش و کد تأیید — جابه‌جایی بین کلید آزمایشی و اصلی بدون تغییر کد</p>
+        </div>
+      </div>
+      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+      {cfg && (
+        <>
+          {readiness && (
+            <p style={{ fontSize: 13, fontWeight: 800, color: readiness.ready ? 'var(--admin-ok)' : 'var(--crimson)', lineHeight: 2 }}>
+              {readiness.ready
+                ? cfg.provider === 'log'
+                  ? '● حالت آزمایشی داخلی: پیامکی ارسال نمی‌شود و فقط در گزارش ثبت می‌گردد.'
+                  : `● آماده ارسال — ${cfg.environment === 'production' ? 'کلید اصلی' : 'کلید آزمایشی'}`
+                : `● ناقص است؛ این موارد وارد نشده: ${readiness.missing.join('، ')}`}
+            </p>
+          )}
+
+          <Field
+            label="سرویس پیامک"
+            value={cfg.provider}
+            onChange={(v) => setCfg({ ...cfg, provider: v })}
+            type="select"
+            options={[
+              { value: 'log', label: 'غیرفعال — فقط ثبت در گزارش (بدون ارسال واقعی)' },
+              { value: 'smsir', label: 'sms.ir' },
+            ]}
+          />
+
+          {cfg.provider === 'smsir' && (
+            <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
+              <Field
+                label="محیط"
+                value={cfg.environment}
+                onChange={(v) => setCfg({ ...cfg, environment: v })}
+                type="select"
+                options={[
+                  { value: 'sandbox', label: 'آزمایشی (Sandbox) — کلید تست' },
+                  { value: 'production', label: 'اصلی (Production) — کلید واقعی' },
+                ]}
+              />
+              <Field
+                label={cfg.hasApiKey ? 'API Key — برای تغییر، کلید جدید را وارد کنید' : 'API Key'}
+                dir="ltr"
+                value={cfg.apiKey}
+                onChange={(v) => setCfg({ ...cfg, apiKey: v })}
+              />
+              <Field label="شماره خط ارسال (Line Number)" dir="ltr" value={cfg.lineNumber} onChange={(v) => setCfg({ ...cfg, lineNumber: v })} />
+              <Field
+                label="شناسه قالب کد تأیید (Verify Template ID)"
+                dir="ltr"
+                value={cfg.verifyTemplateId || ''}
+                onChange={(v) => setCfg({ ...cfg, verifyTemplateId: v })}
+              />
+              <Field
+                label="شناسه قالب ثبت سفارش (اختیاری)"
+                dir="ltr"
+                value={cfg.orderTemplateId || ''}
+                onChange={(v) => setCfg({ ...cfg, orderTemplateId: v })}
+              />
+            </div>
+          )}
+
+          <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+            <label className="admin__row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={cfg.onOrder !== false} onChange={(e) => setCfg({ ...cfg, onOrder: e.target.checked })} />
+              ارسال پیامک «سفارش ثبت شد» همراه لینک پیگیری
+            </label>
+            <label className="admin__row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={!!cfg.onStatus} onChange={(e) => setCfg({ ...cfg, onStatus: e.target.checked })} />
+              ارسال پیامک هنگام تغییر وضعیت سفارش (پرداخت‌شده، ارسال‌شده…)
+            </label>
+            <Field
+              label="سقف ارسال روزانه (۰ یعنی بدون محدودیت)"
+              dir="ltr"
+              type="number"
+              value={cfg.dailyCap}
+              onChange={(v) => setCfg({ ...cfg, dailyCap: v })}
+            />
+          </div>
+
+          <div className="admin__row" style={{ marginTop: 22 }}>
+            <button className="btn btn--primary" onClick={saveCfg} disabled={busy}>
+              ذخیره تنظیمات پیامک
+            </button>
+            {ok && <span style={{ color: 'var(--admin-ok)', fontWeight: 800, fontSize: 13 }}>✓ ذخیره شد</span>}
+          </div>
+
+          <div style={{ background: 'var(--bg-soft)', borderRadius: 14, padding: '16px 20px', marginTop: 22 }}>
+            <b style={{ fontSize: 13 }}>ارسال پیامک آزمایشی</b>
+            <div className="admin__row" style={{ marginTop: 10, gap: 10, alignItems: 'flex-end' }}>
+              <div style={{ flex: '1 1 220px' }}>
+                <Field label="شماره موبایل" dir="ltr" value={testTo} onChange={setTestTo} />
+              </div>
+              <button className="btn btn--outline" onClick={sendTest} disabled={!testTo}>
+                ارسال
+              </button>
+              {testMsg && <span style={{ fontSize: 13, fontWeight: 700 }}>{testMsg}</span>}
+            </div>
+          </div>
+
+          <h2 style={{ fontSize: 15, marginTop: 26, marginBottom: 10 }}>آخرین پیامک‌ها</h2>
+          {log.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>هنوز پیامکی ثبت نشده است.</p>}
+          <div className="admin__list">
+            {log.map((row) => (
+              <div className="admin__item" key={row.id} style={{ alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>
+                    <span dir="ltr">{row.phone}</span>
+                    <span style={{ color: 'var(--muted)', fontWeight: 600 }}> — {row.kind}</span>
+                    {row.ref && <span style={{ color: 'var(--muted)', fontWeight: 600 }}> — {row.ref}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap', marginTop: 4 }}>{row.text}</div>
+                  {!row.ok && row.error && <div style={{ fontSize: 12, color: 'var(--crimson)', marginTop: 4 }}>{row.error}</div>}
+                </div>
+                <span className={`msg__badge ${row.ok ? 'read' : ''}`}>{row.ok ? 'ارسال شد' : 'ناموفق'}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ background: 'var(--bg-soft)', borderRadius: 14, padding: '16px 20px', marginTop: 22, fontSize: 13, lineHeight: 2.3 }}>
+            <b>راه‌اندازی در پنل sms.ir:</b>
+            <ul style={{ margin: '6px 18px 0', listStyle: 'disc' }}>
+              <li>یک <b>خط ارسال</b> تهیه کنید و شماره آن را در فیلد بالا بگذارید.</li>
+              <li>برای کد تأیید، در بخش «قالب‌های پیامکی» یک قالب با پارامتر <code dir="ltr">CODE</code> بسازید و شناسه آن را وارد کنید؛ ارسال کد با متن آزاد توسط اپراتور فیلتر می‌شود.</li>
+              <li>برای پیامک سفارش هم بهتر است یک قالب با پارامترهای <code dir="ltr">CODE</code> و <code dir="ltr">LINK</code> ثبت شود، چون پیامک حاوی لینک روی خطوط اشتراکی معمولاً مسدود می‌گردد.</li>
+              <li>کلید API فقط روی سرور نگهداری می‌شود؛ در این صفحه هرگز کامل نمایش داده نمی‌شود.</li>
+              <li>اگر ارسال پیامک با خطا روبه‌رو شود، سفارش مشتری همچنان ثبت می‌شود و خطا در همین گزارش ثبت می‌گردد.</li>
+            </ul>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

@@ -112,6 +112,29 @@ function migrate(db) {
       read    INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_messages_at ON messages(at DESC);
+
+    /* Every send attempt, successful or not. Three jobs: the admin can see
+       why a customer says they got nothing, the daily cap is countable, and
+       a provider outage leaves evidence. The body is kept because an SMS is
+       cheap to store and impossible to reconstruct.
+
+       The phone column holds the canonical 98xxxxxxxxxx form — the same key
+       the rest of the system uses, so a customer's messages can be found. */
+    CREATE TABLE IF NOT EXISTS sms_log (
+      id          TEXT PRIMARY KEY,
+      at          TEXT NOT NULL,
+      kind        TEXT NOT NULL DEFAULT 'other',
+      phone       TEXT NOT NULL DEFAULT '',
+      text        TEXT NOT NULL DEFAULT '',
+      provider    TEXT NOT NULL DEFAULT 'log',
+      environment TEXT NOT NULL DEFAULT 'sandbox',
+      ok          INTEGER NOT NULL DEFAULT 0,
+      error       TEXT NOT NULL DEFAULT '',
+      message_id  TEXT,
+      ref         TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_sms_at ON sms_log(at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sms_phone ON sms_log(phone);
   `);
 }
 
@@ -470,4 +493,51 @@ export function seedFromLegacy(db, { CONTENT_FILE, SHOP_FILE, MESSAGES_FILE }) {
 
   setSetting(db, 'seeded', new Date().toISOString());
   return report;
+}
+
+/* ------------------------------------------------------------------ sms */
+export function insertSmsLog(db, row) {
+  db.prepare(
+    `INSERT INTO sms_log (id, at, kind, phone, text, provider, environment, ok, error, message_id, ref)
+     VALUES (@id, @at, @kind, @phone, @text, @provider, @environment, @ok, @error, @message_id, @ref)`
+  ).run({
+    id: row.id || crypto.randomUUID(),
+    at: row.at || new Date().toISOString(),
+    kind: row.kind || 'other',
+    phone: row.phone || '',
+    text: row.text || '',
+    provider: row.provider || 'log',
+    environment: row.environment || 'sandbox',
+    ok: row.ok ? 1 : 0,
+    error: row.error || '',
+    message_id: row.messageId == null ? null : String(row.messageId),
+    ref: row.ref || '',
+  });
+}
+
+/** Successful sends since an ISO timestamp. Only successes count against the
+ *  daily cap: a provider outage must not lock the shop out for the rest of
+ *  the day on top of already having failed. */
+export function countSmsSince(db, iso) {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM sms_log WHERE at >= ? AND ok = 1').get(iso);
+  return Number(row?.n || 0);
+}
+
+export function listSmsLog(db, limit = 50) {
+  return db
+    .prepare('SELECT * FROM sms_log ORDER BY at DESC LIMIT ?')
+    .all(Math.max(1, Math.min(500, Number(limit) || 50)))
+    .map((r) => ({
+      id: r.id,
+      at: r.at,
+      kind: r.kind,
+      phone: r.phone,
+      text: r.text,
+      provider: r.provider,
+      environment: r.environment,
+      ok: !!r.ok,
+      error: r.error,
+      messageId: r.message_id,
+      ref: r.ref,
+    }));
 }
