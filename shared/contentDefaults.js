@@ -223,6 +223,7 @@ export const TEXTS = {
   'nav.blog': 'وبلاگ',
   'nav.contact': 'تماس با ما',
   'nav.cta': 'استعلام قیمت',
+  'nav.menu': 'منوی سایت',
   'nav.breadcrumb.home': 'صفحه اصلی',
 
   /* ---------- shop ---------- */

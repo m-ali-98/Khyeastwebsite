@@ -441,11 +441,35 @@ input, select, textarea { font-family: inherit; }
 }
 .nav.is-scrolled .nav__logo-text strong { color: var(--ink); }
 
-.nav__links { display: flex; align-items: center; gap: 4px; }
+/* Three regions: logo | links | actions. The links take the slack so the
+   two outer clusters keep their natural width and nothing jumps as the
+   cart badge appears and disappears. */
+.nav__links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline: auto;
+}
+
+.nav__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+/* Tighter to each other than to the call to action — that spacing is what
+   makes the two icons read as one pair rather than as loose clutter. */
+.nav__icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .nav__link {
   position: relative;
-  padding: 10px 14px;
-  font-size: 15px;
+  padding: 10px 12px;
+  font-size: 14.5px;
+  white-space: nowrap;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
   border-radius: 12px;
@@ -464,7 +488,7 @@ input, select, textarea { font-family: inherit; }
   background: var(--crimson);
 }
 .nav.is-scrolled .nav__link.active::after { background: var(--crimson); }
-.nav__cta { margin-inline-start: 10px; }
+.nav__cta { flex: none; white-space: nowrap; }
 
 .nav__burger {
   display: none;
@@ -513,6 +537,45 @@ input, select, textarea { font-family: inherit; }
   align-items: center;
 }
 .mobile-menu a.m-link.active { color: var(--crimson-bright); }
+/* The shop shortcuts the collapsed bar can no longer show. Pills rather
+   than more full-width rows: they are secondary to the page links above
+   them and should not compete with them for weight. */
+.mobile-menu .m-shop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.mobile-menu .m-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 700;
+  transition: background-color 0.25s var(--ease-soft), border-color 0.25s var(--ease-soft);
+}
+.mobile-menu .m-pill:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-color: #fff;
+}
+.mobile-menu .m-pill__badge {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--crimson);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 0 5px;
+}
+
 .mobile-menu .m-slogan {
   margin-top: auto;
   padding-top: 28px;
@@ -1377,9 +1440,15 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   .footer__grid { grid-template-columns: 1fr 1fr; }
 }
 
-@media (max-width: 900px) {
+/* The navigation collapses at 1100px, not 900. Eight Persian labels plus
+   the icons and the call to action stop fitting at about 1040px, and the
+   old breakpoint let the bar crowd and wrap for 200px before it gave up. */
+@media (max-width: 1100px) {
   .nav__links, .nav__cta { display: none; }
   .nav__burger { display: grid; }
+}
+
+@media (max-width: 900px) {
   .split { grid-template-columns: 1fr; gap: 56px; }
   .steps { grid-template-columns: repeat(2, 1fr); gap: 40px; }
   .steps::before { display: none; }

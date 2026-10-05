@@ -199,36 +199,42 @@ function Navbar() {
             ))}
           </div>
 
-          {shopEnabled && (
-            <Link to="/shop/cart" className="nav__cart" aria-label={t('shop.cart.title')}>
-              <Icons.box size={20} />
-              {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
+          {/* One cluster, so the bar is three regions — logo, links, actions
+              — instead of five siblings sharing one gap. The icon buttons
+              sit tighter to each other than to the call to action, which is
+              what makes them read as a pair rather than as clutter. */}
+          <div className="nav__actions">
+            {shopEnabled && (
+              <div className="nav__icons">
+                <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
+                  <Icons.box size={19} />
+                  {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
+                </Link>
+
+                {/* One destination either way: the panel bounces a signed-out
+                    visitor to the login page, so the header does not have to
+                    know the session state to render the right link. */}
+                <Link to="/shop/account" className="nav__icon nav__account" aria-label={t('shop.account.title')}>
+                  <Icons.users size={19} />
+                </Link>
+              </div>
+            )}
+
+            <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
+              {t('nav.cta')}
             </Link>
-          )}
 
-          {/* One destination either way: the panel bounces a signed-out
-              visitor to the login page, so the header does not have to know
-              the session state to render the right link. */}
-          {shopEnabled && (
-            <Link to="/shop/account" className="nav__cart nav__account" aria-label={t('shop.account.title')}>
-              <Icons.users size={20} />
-            </Link>
-          )}
-
-          <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
-            {t('nav.cta')}
-          </Link>
-
-          <button
-            className={`nav__burger ${open ? 'is-open' : ''}`}
-            onClick={() => setOpen((v) => !v)}
-            aria-label={t('nav.home')}
-            aria-expanded={open}
-          >
-            <span />
-            <span />
-            <span />
-          </button>
+            <button
+              className={`nav__burger ${open ? 'is-open' : ''}`}
+              onClick={() => setOpen((v) => !v)}
+              aria-label={t('nav.menu')}
+              aria-expanded={open}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -254,6 +260,27 @@ function Navbar() {
                 </NavLink>
               </mo.div>
             ))}
+            {shopEnabled && (
+              <mo.div
+                initial={{ opacity: 0, x: 40 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.15 + navLinks.length * 0.06, duration: 0.45 }}
+                className="m-shop"
+              >
+                {/* On a phone the two icon buttons are gone from the bar, so
+                    the menu has to carry them or the account is unreachable
+                    from the header. */}
+                <NavLink to="/shop/cart" className="m-pill">
+                  <Icons.box size={18} />
+                  {t('shop.cart.title')}
+                  {count > 0 && <span className="m-pill__badge">{faNum(count)}</span>}
+                </NavLink>
+                <NavLink to="/shop/account" className="m-pill">
+                  <Icons.users size={18} />
+                  {t('shop.account.title')}
+                </NavLink>
+              </mo.div>
+            )}
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

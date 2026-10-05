@@ -155,6 +155,35 @@ test.describe('customer accounts', () => {
     await expect(page.locator('.auth-card')).toBeVisible();
   });
 
+  test('the customers tab lists a new customer and can block them', async ({ page }) => {
+    const phone = uniquePhone();
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone, name: 'مشتری قابل مسدودسازی' });
+    await addAddress(page);
+
+    await loginAdmin(page);
+    await page.locator('.admin__side button', { hasText: 'مشتریان' }).click();
+    await expect(page.locator('.admin__panel h1')).toContainText('مشتریان');
+
+    /* Search by the number as it was typed, with a leading zero — the
+       stored form is 98…, so this only works if both sides are normalised. */
+    await page.locator('.admin__search input').fill(phone);
+    const row = page.locator('.msg__head', { hasText: 'مشتری قابل مسدودسازی' });
+    await expect(row).toHaveCount(1);
+
+    await row.click();
+    const body = page.locator('.msg__body');
+    await expect(body).toContainText('دزفول'); // their address
+    await expect(body).toContainText('نشانی‌ها');
+
+    await body.getByRole('button', { name: 'مسدود کردن حساب' }).click();
+    await expect(page.locator('.msg__badge', { hasText: 'مسدود' })).toBeVisible();
+
+    /* And the block is real: the customer's own session is gone. */
+    const me = await page.request.get('/api/account/me');
+    expect((await me.json()).customer).toBeNull();
+  });
+
   test('the admin can see that a code was sent, but not the customer password', async ({ page }) => {
     const phone = uniquePhone();
     await gotoReady(page, '/shop');

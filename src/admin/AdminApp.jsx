@@ -5,7 +5,7 @@ import Logo from '../components/Logo';
 import { Icons } from '../components/ui';
 import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, ContactTab, MessagesTab } from './tabs';
-import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab } from './shopTabs';
+import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab } from './shopTabs';
 import { TranslationsTab } from './i18nTab';
 import { ProductsTransTab, PostsTransTab } from './entityTrans';
 import { AdminLocaleProvider, useAdminLocale } from './adminLocale';
@@ -25,6 +25,7 @@ const TABS = [
   { id: 'orders', label: 'سفارش‌ها', icon: 'send', faOnly: true },
   { id: 'comments', label: 'دیدگاه‌ها', icon: 'users', faOnly: true },
   { id: 'payment', label: 'درگاه پرداخت', icon: 'gear', faOnly: true },
+  { id: 'customers', label: 'مشتریان', icon: 'users', faOnly: true },
   { id: 'sms', label: 'پیامک', icon: 'send', faOnly: true },
   { id: 'texts', label: 'متون سایت', icon: 'spark', base: true },
   { id: 'translations', label: 'متون و فهرست‌ها', icon: 'globe', transOnly: true },
@@ -208,6 +209,7 @@ function AdminShell() {
     orders: ShopOrdersTab,
     comments: ShopCommentsTab,
     payment: ShopPaymentTab,
+    customers: ShopCustomersTab,
     sms: ShopSmsTab,
     texts: TextsTab,
     media: MediaTab,

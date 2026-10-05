@@ -221,6 +221,7 @@ export const TEXTS = {
   'nav.blog': 'Blog',
   'nav.contact': 'Contact',
   'nav.cta': 'Request a quote',
+  'nav.menu': 'Site menu',
   'nav.breadcrumb.home': 'Home',
 };
 

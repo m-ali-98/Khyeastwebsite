@@ -669,6 +669,7 @@ const accountRouter = createAccountRouter({
   database: db,
   dispatchSms: shopRouter.dispatchSms,
   smsSettings: shopRouter.smsSettings,
+  requireAdmin: requireAuth,
   /* Same rule as the payment callbacks: PUBLIC_ORIGIN wins, and a Host
      header from the client is never trusted to describe us. */
   selfOrigin: (req) =>

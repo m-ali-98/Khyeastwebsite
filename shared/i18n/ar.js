@@ -215,6 +215,7 @@ export const TEXTS = {
   'nav.blog': 'المدونة',
   'nav.contact': 'اتصل بنا',
   'nav.cta': 'طلب عرض سعر',
+  'nav.menu': 'قائمة الموقع',
   'nav.breadcrumb.home': 'الرئيسية',
 };
 

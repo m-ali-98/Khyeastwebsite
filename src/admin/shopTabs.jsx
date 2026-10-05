@@ -781,3 +781,156 @@ export function ShopSmsTab() {
     </div>
   );
 }
+
+/* ================= customers ================= */
+/* Read-mostly on purpose: the admin can see who someone is, what they have
+   ordered and where they want it, and can block an abusive account. There is
+   no edit-their-address button — a shipping address the customer did not
+   write is a parcel sent to the wrong door with nobody to blame. */
+export function ShopCustomersTab() {
+  const [rows, setRows] = useState(null);
+  const [open, setOpen] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [q, setQ] = useState('');
+  const [err, setErr] = useState('');
+
+  const load = async () => {
+    try {
+      setErr('');
+      const d = await api('/api/shop-admin/customers', { auth: true });
+      setRows(d.customers || []);
+    } catch (e) {
+      setErr(e.status === 401 ? 'نشست مدیر منقضی شده؛ دوباره وارد شوید.' : 'دریافت فهرست مشتریان ممکن نشد.');
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const show = async (id) => {
+    if (open === id) {
+      setOpen(null);
+      return;
+    }
+    setOpen(id);
+    setDetail(null);
+    try {
+      setDetail(await api(`/api/shop-admin/customers/${id}`, { auth: true }));
+    } catch {
+      setErr('دریافت اطلاعات مشتری ممکن نشد.');
+    }
+  };
+
+  const setBlocked = async (id, blocked) => {
+    await api(`/api/shop-admin/customers/${id}`, { method: 'PATCH', body: { blocked }, auth: true });
+    load();
+    if (open === id) show(id);
+  };
+
+  const fa = (n) => String(n ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
+  const local = (p) => fa(String(p || '').replace(/^98/, '0'));
+  const date = (iso) => (iso ? fa(new Date(iso).toLocaleDateString('fa-IR')) : '—');
+
+  /* Searching by digits has to work whichever way the number is written, so
+     the needle and the haystack are both reduced to Latin digits first. */
+  const norm = (s) => String(s || '').replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  const needle = norm(q).trim().replace(/^0/, '');
+  const list = (rows || []).filter((c) => !needle || norm(c.phone).includes(needle) || c.name.includes(q.trim()));
+
+  return (
+    <div className="admin__panel">
+      <div className="admin__head">
+        <div>
+          <h1>مشتریان</h1>
+          <p>حساب‌های ثبت‌شده با شماره موبایل تأییدشده</p>
+        </div>
+        {rows && <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--muted)' }}>{fa(rows.length)} حساب</span>}
+      </div>
+
+      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+
+      <div className="admin__search">
+        <input placeholder="جست‌وجو با نام یا شماره موبایل…" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+
+      {!rows && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
+      {rows && list.length === 0 && (
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>{rows.length ? 'مشتری‌ای با این مشخصات پیدا نشد.' : 'هنوز مشتری‌ای ثبت‌نام نکرده است.'}</p>
+      )}
+
+      <div className="admin__list">
+        {list.map((c) => (
+          <div key={c.id} style={{ display: 'grid' }}>
+            <div className={`msg__head ${c.blocked ? '' : 'unread'}`} onClick={() => show(c.id)}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <b>{c.name || '—'}</b>
+                <span style={{ color: 'var(--muted)', marginInlineStart: 10 }} dir="ltr">
+                  {local(c.phone)}
+                </span>
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {fa(c.orderCount)} سفارش · {fa(c.addressCount)} نشانی · عضویت {date(c.at)}
+              </span>
+              {c.blocked && <span className="msg__badge">مسدود</span>}
+            </div>
+
+            {open === c.id && (
+              <div className="msg__body">
+                {!detail && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
+                {detail && (
+                  <>
+                    <div className="admin__row" style={{ gap: 18, flexWrap: 'wrap', fontSize: 13 }}>
+                      <span>
+                        ایمیل: <b dir="ltr">{detail.customer.email || '—'}</b>
+                      </span>
+                      <span>
+                        آخرین ورود: <b>{date(detail.customer.lastLoginAt)}</b>
+                      </span>
+                    </div>
+
+                    <h3 style={{ fontSize: 14, margin: '16px 0 8px' }}>سفارش‌ها</h3>
+                    {detail.orders.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>سفارشی ثبت نشده است.</p>}
+                    {detail.orders.map((o) => (
+                      <div key={o.code} className="admin__text-row" style={{ justifyContent: 'space-between' }}>
+                        <span dir="ltr">{o.code}</span>
+                        <span>{date(o.at)}</span>
+                        <span>{fa(Number(o.total).toLocaleString('en-US'))} ریال</span>
+                        <span>{o.status}</span>
+                      </div>
+                    ))}
+
+                    <h3 style={{ fontSize: 14, margin: '16px 0 8px' }}>نشانی‌ها</h3>
+                    {detail.addresses.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>نشانی ثبت نشده است.</p>}
+                    {detail.addresses.map((a) => (
+                      <div key={a.id} className="admin__text-row" style={{ display: 'block', lineHeight: 2 }}>
+                        <b>{a.title}</b> — {a.province}، {a.city}، {a.address}
+                        {a.plaque && `، پلاک ${fa(a.plaque)}`}
+                        {a.unit && `، واحد ${fa(a.unit)}`}
+                        <br />
+                        <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+                          {a.receiver} — <span dir="ltr">{local(a.phone)}</span> — کد پستی <span dir="ltr">{fa(a.postal)}</span>
+                        </span>
+                      </div>
+                    ))}
+
+                    <div className="admin__row" style={{ marginTop: 18 }}>
+                      <button
+                        className={`btn ${c.blocked ? 'btn--outline' : 'btn--primary'}`}
+                        onClick={() => setBlocked(c.id, !c.blocked)}
+                      >
+                        {c.blocked ? 'رفع مسدودی حساب' : 'مسدود کردن حساب'}
+                      </button>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        مسدودسازی، ورودهای فعلی را هم قطع می‌کند و قابل برگشت است؛ سفارش‌ها حذف نمی‌شوند.
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

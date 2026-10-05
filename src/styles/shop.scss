@@ -1189,28 +1189,50 @@
   }
 }
 
-/* ---------------- header cart button ---------------- */
-.nav__cart {
+/* ---------------- header icon buttons (cart, account) ----------------
+   These used to be opaque white tiles with a light border, which is only
+   right once the bar has turned solid. Over the hero — where the bar is
+   transparent and everything else in it is white — they read as two pale
+   boxes stuck onto the artwork. They now take the same treatment as the
+   burger: a glass chip over the hero, a bordered surface tile once the bar
+   is solid, matching the rest of the header in both states. */
+.nav__icon {
   position: relative;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border-radius: 13px;
-  border: 1.5px solid var(--line);
-  color: var(--ink-2);
-  background: var(--surface);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  /* background-color rather than background: the blur must not be
+     re-evaluated on a property that changes on hover */
   transition: background-color 0.25s var(--ease-soft), border-color 0.25s var(--ease-soft),
     color 0.25s var(--ease-soft), transform 0.25s var(--ease-soft);
   flex: none;
 
   &:hover {
-    border-color: var(--crimson);
-    color: var(--crimson-ink);
+    border-color: #fff;
+    background-color: rgba(255, 255, 255, 0.2);
     transform: translateY(-2px);
   }
 
-  &-badge {
+  .nav.is-scrolled & {
+    border-color: var(--line);
+    background-color: var(--surface);
+    color: var(--ink-2);
+    backdrop-filter: none;
+
+    &:hover {
+      border-color: var(--crimson);
+      color: var(--crimson-ink);
+      background-color: var(--surface);
+    }
+  }
+
+  .nav__cart-badge {
     position: absolute;
     top: -7px;
     inset-inline-end: -7px;

@@ -91,8 +91,9 @@ const tooMany = (res, seconds = 900) => {
  *        daily cap and the sms_log stay in one place.
  * @param smsSettings  () => normalised SMS settings (for the template id)
  * @param selfOrigin   (req) => the site's own origin, for the CSRF check
+ * @param requireAdmin the admin session guard, for the customers tab
  */
-export function createAccountRouter({ database, dispatchSms, smsSettings, selfOrigin }) {
+export function createAccountRouter({ database, dispatchSms, smsSettings, selfOrigin, requireAdmin }) {
   const D = database;
   const r = express.Router();
   const limiter = makeLimiter();
@@ -407,6 +408,45 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     if (!sameOrigin(req, res)) return;
     if (!db.getAddress(D, req.customer.id, req.params.id)) return res.status(404).json({ error: 'نشانی پیدا نشد.' });
     res.json({ ok: true, addresses: db.setDefaultAddress(D, req.customer.id, req.params.id) });
+  });
+
+  /* ------------------------------------------------- 8. admin read-only+ */
+
+  /* Deliberately narrow. The admin needs to answer "who is this customer,
+     what have they ordered, where do they want it" and to stop an abusive
+     account — nothing else. There is no endpoint here that reveals a
+     password hash or a session, and none that edits someone's address on
+     their behalf: a shipping address the customer did not write is a
+     parcel sent to the wrong door with nobody to blame. */
+  r.get('/api/shop-admin/customers', requireAdmin, (req, res) => {
+    const customers = db.listCustomers(D).map((c) => ({
+      ...c,
+      orderCount: db.listOrdersForCustomer(D, c.id).length,
+      addressCount: db.listAddresses(D, c.id).length,
+    }));
+    res.json({ customers });
+  });
+
+  r.get('/api/shop-admin/customers/:id', requireAdmin, (req, res) => {
+    const row = db.getCustomerById(D, req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json({
+      customer: db.publicCustomer(row),
+      addresses: db.listAddresses(D, row.id),
+      orders: db.listOrdersForCustomer(D, row.id).map(({ token, ...o }) => o),
+    });
+  });
+
+  /* Blocking is reversible and does not delete anything: an order history
+     is a business record, and a blocked customer may be a mistake. */
+  r.patch('/api/shop-admin/customers/:id', requireAdmin, (req, res) => {
+    const row = db.getCustomerById(D, req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    const blocked = Boolean(req.body?.blocked);
+    db.updateCustomer(D, row.id, { blocked });
+    /* A block that leaves the existing session alive blocks nothing. */
+    if (blocked) db.deleteSessionsFor(D, row.id);
+    res.json({ ok: true, customer: db.publicCustomer(db.getCustomerById(D, row.id)) });
   });
 
   return r;

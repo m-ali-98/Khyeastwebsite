@@ -322,6 +322,57 @@ try {
   }
   const afterGuesses = await json(await call('POST', '/api/account/otp/verify', { phone: VICTIM, code: real, purpose: 'register' }));
   check(afterGuesses.status === 400, 'the real code is dead after repeated wrong guesses', String(afterGuesses.status));
+  /* --------------------------------------------- 11. the admin's view */
+  const list = await json(await call('GET', '/api/shop-admin/customers', undefined, { auth: adminToken }));
+  check(list.status === 200, 'the admin can list customers');
+  check(list.body.customers.length >= 2, 'both test customers are there', String(list.body.customers.length));
+  /* The admin panel is a browser page like any other: a password hash that
+     reaches it is a password hash in a screenshot, a cache and a support
+     chat. */
+  check(!JSON.stringify(list.body).includes('scrypt$'), 'no password hash reaches the admin panel');
+  check(!JSON.stringify(list.body).includes('pass_hash'), 'not even the field name');
+
+  const target = list.body.customers.find((c) => c.phone === '989120000001');
+  check(target.orderCount >= 1, 'the list counts their orders', String(target.orderCount));
+  check(target.addressCount >= 2, 'and their addresses', String(target.addressCount));
+
+  const anonList = await json(await call('GET', '/api/shop-admin/customers'));
+  check(anonList.status === 401, 'the customer list needs an admin session');
+  /* A customer session is not an admin session, however valid it is. */
+  const customerPeek = await json(await call('GET', '/api/shop-admin/customers', undefined, { cookie: cookieOf(newPass.res) }));
+  check(customerPeek.status === 401, 'a signed-in customer cannot read the customer list', String(customerPeek.status));
+
+  const detail = await json(await call('GET', `/api/shop-admin/customers/${target.id}`, undefined, { auth: adminToken }));
+  check(detail.status === 200 && detail.body.orders.length >= 1, 'the admin can see a customer orders');
+  check(detail.body.addresses.length >= 1, 'and their addresses');
+  check(!JSON.stringify(detail.body.orders).includes('"token"'), 'but not the order tracking tokens');
+
+  /* Blocking must end the session, not just refuse the next login — a
+     block that leaves someone signed in blocks nothing. */
+  const live = cookieOf(newPass.res);
+  const before = await json(await call('GET', '/api/account/me', undefined, { cookie: live }));
+  check(before.body.customer !== null, 'the customer is signed in before the block');
+
+  const block = await json(await call('PATCH', `/api/shop-admin/customers/${target.id}`, { blocked: true }, { auth: adminToken }));
+  check(block.status === 200 && block.body.customer.blocked === true, 'the admin can block an account');
+
+  const afterBlock = await json(await call('GET', '/api/account/me', undefined, { cookie: live }));
+  check(afterBlock.body.customer === null, 'blocking ends the live session immediately');
+
+  const blockedLogin = await json(await call('POST', '/api/account/login', { phone: PHONE, password: NEWPASS }));
+  check(blockedLogin.status === 401, 'and the right password no longer logs in');
+
+  const unblock = await json(await call('PATCH', `/api/shop-admin/customers/${target.id}`, { blocked: false }, { auth: adminToken }));
+  check(unblock.body.customer.blocked === false, 'unblocking is possible');
+  const backIn = await json(await call('POST', '/api/account/login', { phone: PHONE, password: NEWPASS }));
+  check(backIn.status === 200, 'and the customer can sign in again');
+
+  const stillOrders = await json(await call('GET', `/api/shop-admin/customers/${target.id}`, undefined, { auth: adminToken }));
+  check(stillOrders.body.orders.length >= 1, 'blocking never deleted the order history');
+
+  const ghost = await json(await call('GET', '/api/shop-admin/customers/not-a-real-id', undefined, { auth: adminToken }));
+  check(ghost.status === 404, 'an unknown customer id is a 404, not a crash');
+
 } catch (e) {
   check(false, 'harness', String(e?.message || e));
 } finally {
