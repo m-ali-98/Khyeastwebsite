@@ -57,10 +57,20 @@ const start = async () => {
   throw new Error('server did not start');
 };
 
+/* Checkout now requires a signed-in customer, so every order below rides on
+   a session cookie. It is set once, after registration, and attached by
+   default — the alternative was threading a header through forty calls. */
+let shopperCookie = '';
+
 const jpost = (url, body, headers = {}) =>
   fetch(BASE + url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: BASE,
+      ...(shopperCookie ? { Cookie: shopperCookie } : {}),
+      ...headers,
+    },
     body: JSON.stringify(body),
   });
 
@@ -77,6 +87,24 @@ try {
   const login = await jpost('/api/auth/login', { user: 'admin', pass: 'khyeast-1404' });
   const token = (await login.json()).token;
   const auth = { Authorization: `Bearer ${token}` };
+
+  /* Sign up the shopper whose orders the rest of this file places. The
+     verification code is read back out of the SMS log, exactly as a
+     customer reads it off their phone — no test-only shortcut exists in the
+     server, and adding one would be a hole in production. */
+  {
+    await jpost('/api/account/otp', { phone: CUSTOMER.phone, purpose: 'register' });
+    const smsLog = await (await fetch(`${BASE}/api/shop-admin/sms`, { headers: auth })).json();
+    const code = (smsLog.log || []).find((l) => l.kind === 'otp')?.text.match(/(\d{5})/)?.[1];
+    const verified = await (await jpost('/api/account/otp/verify', { phone: CUSTOMER.phone, code, purpose: 'register' })).json();
+    const reg = await jpost('/api/account/register', {
+      ticket: verified.ticket,
+      password: 'behaviour-test-1404',
+      name: CUSTOMER.name,
+    });
+    shopperCookie = (reg.headers.get('set-cookie') || '').split(';')[0];
+    check(Boolean(shopperCookie), 'the test shopper has a session', `register returned ${reg.status}`);
+  }
 
   /* The rate-limit checks below place many orders. They use their own product
      with unlimited stock (-1) so a 400 can only ever mean "rate limited",

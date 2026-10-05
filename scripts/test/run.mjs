@@ -221,6 +221,27 @@ for (const [file, label, timeout] of [['images.mjs', 'upload optimisation checks
   if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
 }
 
+console.log('\nAccounts — a phone, a password, and no sight of anyone else orders');
+for (const [file, label, timeout] of [
+  ['accounts.mjs', 'hashing, codes, sessions and addresses', 40000],
+  ['account-http.mjs', 'signup, login, ownership and snapshots', 90000],
+]) {
+  const name = file.replace('.mjs', '');
+  try {
+    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
+    const line = stdout.trim().split('\n').pop();
+    const m = line.match(/(\d+)\/(\d+)/);
+    const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+    const ok = Boolean(m) && m[1] === m[2];
+    record(ok, name, leaks.join('; ').slice(0, 200));
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} ${label}`);
+    leaks.forEach((l) => console.log('       ' + l));
+  } catch (e) {
+    record(false, name, String(e.message).slice(0, 90));
+    console.log(`  FAIL ${name} harness error`);
+  }
+}
+
 console.log('\nBehaviour — limits, errors and inventory must not cost a sale');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'behaviour.mjs')], { cwd: HERE, timeout: 90000 });

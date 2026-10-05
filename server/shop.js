@@ -9,6 +9,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { createPayment, verifyPayment, normalizePayment } from './payment.js';
+import { formatAddress } from './accounts.js';
 import {
   sendSms,
   normalizeSms,
@@ -112,6 +113,11 @@ const tooMany = (res) => {
 };
 
 export function createShopRouter({ database, requireAuth }) {
+  /* Set by index.js once the account router exists. The two routers need
+     each other — orders need the signed-in customer, accounts need the
+     logged-and-capped SMS sender — so one of the two links is late-bound
+     rather than making them a single 1200-line file. */
+  let getCustomer = () => null;
   const r = express.Router();
   const D = database;
 
@@ -203,11 +209,28 @@ export function createShopRouter({ database, requireAuth }) {
     if (!d.enabled) return res.status(403).json({ error: 'shop disabled' });
     if (!Array.isArray(items) || !items.length || items.length > 50)
       return res.status(400).json({ error: 'invalid items' });
+    /* Ordering requires an account with a verified phone. That is the whole
+       point of the phone being verified: the order confirmation, the
+       tracking link and any delivery call all go to a number somebody has
+       actually proved they hold. */
+    const account = getCustomer(req);
+    if (!account) return res.status(401).json({ error: 'برای ثبت سفارش وارد حساب خود شوید.' });
+
     const c = customer || {};
-    const name = String(c.name || '').trim();
-    const phone = String(c.phone || '').trim();
-    const city = String(c.city || '').trim();
-    const address = String(c.address || '').trim();
+    /* A saved address is copied into the order as a snapshot. Pointing at
+       the address row instead would mean that editing an address later
+       silently rewrites where past orders were sent. */
+    const saved = c.addressId ? db.getAddress(D, account.id, c.addressId) : null;
+    if (c.addressId && !saved) return res.status(400).json({ error: 'نشانی انتخاب‌شده پیدا نشد.' });
+
+    const src = saved
+      ? { name: saved.receiver, phone: saved.phone, city: `${saved.province}، ${saved.city}`, address: formatAddress(saved), postal: saved.postal, note: c.note }
+      : c;
+
+    const name = String(src.name || '').trim();
+    const phone = String(src.phone || '').trim();
+    const city = String(src.city || '').trim();
+    const address = String(src.address || '').trim();
     if (name.length < 3 || city.length < 2 || address.length < 10)
       return res.status(400).json({ error: 'customer fields required' });
     /* normalizePhone, not a regex: an Iranian visitor typing on a Persian
@@ -249,14 +272,16 @@ export function createShopRouter({ database, requireAuth }) {
       id: crypto.randomUUID(),
       code: orderCode(),
       token: rand(16),
+      customerId: account.id,
       items: lines,
       customer: {
         name: name.slice(0, 200),
         phone: localPhone,
         city: city.slice(0, 100),
         address: address.slice(0, 600),
-        postal: String(c.postal || '').slice(0, 20),
-        note: String(c.note || '').slice(0, 1000),
+        postal: String(src.postal || '').slice(0, 20),
+        note: String(src.note || c.note || '').slice(0, 1000),
+        addressId: saved ? saved.id : null,
       },
       subtotal,
       shipping,
@@ -298,7 +323,9 @@ export function createShopRouter({ database, requireAuth }) {
       const url = orderStatusUrl(origin, order);
       dispatchSms({
         kind: 'order',
-        to: order.customer.phone,
+        /* the account's verified number, not whatever was typed into the
+           delivery address — the latter may be a neighbour's */
+        to: account.phone,
         ref: order.code,
         text: orderSmsText(order, url),
         templateId: sms.orderTemplateId || 0,
@@ -528,6 +555,12 @@ export function createShopRouter({ database, requireAuth }) {
     db.setSetting(D, 'shop.payment', next);
     res.json({ ok: true, payment: next });
   });
+
+  r.dispatchSms = dispatchSms;
+  r.smsSettings = smsCfg;
+  r.useCustomer = (fn) => {
+    getCustomer = fn;
+  };
 
   return r;
 }

@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { createShopRouter } from './shop.js';
+import { createAccountRouter } from './accountRoutes.js';
 import { optimizeImage, optimiserAvailable } from './images.js';
 import { UPLOAD_LADDER } from '../shared/uploadSizes.js';
 import * as store from './db.js';
@@ -657,8 +658,24 @@ app.use(
   }),
 );
 
-/* ---------------- online shop ---------------- */
-app.use(createShopRouter({ database: db, requireAuth }));
+/* ---------------- online shop + customer accounts ---------------- */
+const shopRouter = createShopRouter({ database: db, requireAuth });
+app.use(shopRouter);
+
+/* The account router borrows the shop's SMS sender so the daily cap and the
+   sms_log stay in one place, and the shop borrows the account router's
+   session reader so an order knows who placed it. */
+const accountRouter = createAccountRouter({
+  database: db,
+  dispatchSms: shopRouter.dispatchSms,
+  smsSettings: shopRouter.smsSettings,
+  /* Same rule as the payment callbacks: PUBLIC_ORIGIN wins, and a Host
+     header from the client is never trusted to describe us. */
+  selfOrigin: (req) =>
+    process.env.PUBLIC_ORIGIN || `${req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http'}://${req.get('host')}`,
+});
+shopRouter.useCustomer(accountRouter.currentCustomer);
+app.use(accountRouter);
 
 /* ---------------- production static site ---------------- */
 if (fs.existsSync(DIST)) {

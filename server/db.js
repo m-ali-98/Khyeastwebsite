@@ -135,7 +135,82 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_sms_at ON sms_log(at DESC);
     CREATE INDEX IF NOT EXISTS idx_sms_phone ON sms_log(phone);
+
+    /* ---------------- customer accounts ----------------
+       phone is the identity and the login name, always in canonical
+       98xxxxxxxxxx form so one person cannot become three accounts by
+       typing their number three ways. */
+    CREATE TABLE IF NOT EXISTS customers (
+      id            TEXT PRIMARY KEY,
+      phone         TEXT NOT NULL UNIQUE,
+      name          TEXT NOT NULL DEFAULT '',
+      email         TEXT NOT NULL DEFAULT '',
+      pass_hash     TEXT NOT NULL,
+      at            TEXT NOT NULL,
+      last_login_at TEXT,
+      blocked       INTEGER NOT NULL DEFAULT 0
+    );
+
+    /* Only the SHA-256 of the cookie is stored, so a dump of this table
+       cannot be replayed as a login. */
+    CREATE TABLE IF NOT EXISTS customer_sessions (
+      token_hash  TEXT PRIMARY KEY,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      at          TEXT NOT NULL,
+      expires_at  TEXT NOT NULL,
+      ua          TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_customer ON customer_sessions(customer_id);
+
+    /* One live code per phone+purpose: requesting a new one replaces the
+       old, so an attacker cannot keep a pool of valid codes alive. */
+    CREATE TABLE IF NOT EXISTS otps (
+      phone      TEXT NOT NULL,
+      purpose    TEXT NOT NULL,
+      code_hash  TEXT NOT NULL,
+      at         TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts   INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (phone, purpose)
+    );
+
+    /* Proof that a code was verified, exchanged for the actual registration
+       or password reset. Short-lived and single use, so the password step
+       cannot be replayed later. */
+    CREATE TABLE IF NOT EXISTS otp_tickets (
+      ticket_hash TEXT PRIMARY KEY,
+      phone       TEXT NOT NULL,
+      purpose     TEXT NOT NULL,
+      expires_at  TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS addresses (
+      id          TEXT PRIMARY KEY,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      pos         INTEGER NOT NULL DEFAULT 0,
+      is_default  INTEGER NOT NULL DEFAULT 0,
+      title       TEXT NOT NULL DEFAULT '',
+      receiver    TEXT NOT NULL DEFAULT '',
+      phone       TEXT NOT NULL DEFAULT '',
+      province    TEXT NOT NULL DEFAULT '',
+      city        TEXT NOT NULL DEFAULT '',
+      address     TEXT NOT NULL DEFAULT '',
+      plaque      TEXT NOT NULL DEFAULT '',
+      unit        TEXT NOT NULL DEFAULT '',
+      postal      TEXT NOT NULL DEFAULT '',
+      note        TEXT NOT NULL DEFAULT '',
+      at          TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_addresses_customer ON addresses(customer_id);
   `);
+
+  /* orders.customer_id is added separately: the table predates accounts and
+     ALTER TABLE ... ADD COLUMN throws if it is already there. */
+  const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+  if (!orderCols.includes('customer_id')) {
+    db.exec('ALTER TABLE orders ADD COLUMN customer_id TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)');
+  }
 }
 
 /* ------------------------------------------------------- small utilities */
@@ -282,6 +357,7 @@ const orderOut = (r, items) => ({
   adminNote: r.admin_note,
   at: r.at,
   paidAt: r.paid_at,
+  customerId: r.customer_id || null,
 });
 
 const itemsOf = (db, id) =>
@@ -305,9 +381,9 @@ export function getOrderById(db, id) {
 export function insertOrder(db, o) {
   const ins = db.prepare(`
     INSERT INTO orders (id, code, token, customer, subtotal, shipping, total, currency, status,
-                        provider, pay_ref, admin_note, at, paid_at)
+                        provider, pay_ref, admin_note, at, paid_at, customer_id)
     VALUES (@id, @code, @token, @customer, @subtotal, @shipping, @total, @currency, @status,
-            @provider, @pay_ref, @admin_note, @at, @paid_at)
+            @provider, @pay_ref, @admin_note, @at, @paid_at, @customer_id)
   `);
   const insItem = db.prepare(`
     INSERT INTO order_items (order_id, pos, slug, title, unit, price, qty, sum)
@@ -329,6 +405,7 @@ export function insertOrder(db, o) {
       admin_note: o.adminNote || '',
       at: o.at,
       paid_at: o.paidAt || null,
+      customer_id: o.customerId || null,
     });
     (o.items || []).forEach((l, i) =>
       insItem.run(o.id, i, l.slug, l.title, l.unit || '', l.price, l.qty, l.sum),
@@ -540,4 +617,237 @@ export function listSmsLog(db, limit = 50) {
       messageId: r.message_id,
       ref: r.ref,
     }));
+}
+
+/* ------------------------------------------------------------- accounts */
+const customerRow = (r) =>
+  r && {
+    id: r.id,
+    phone: r.phone,
+    name: r.name,
+    email: r.email,
+    at: r.at,
+    lastLoginAt: r.last_login_at,
+    blocked: !!r.blocked,
+  };
+
+export function getCustomerByPhone(db, phone) {
+  return db.prepare('SELECT * FROM customers WHERE phone = ?').get(String(phone || ''));
+}
+export function getCustomerById(db, id) {
+  return db.prepare('SELECT * FROM customers WHERE id = ?').get(String(id || ''));
+}
+export const publicCustomer = customerRow;
+
+export function insertCustomer(db, c) {
+  db.prepare(
+    `INSERT INTO customers (id, phone, name, email, pass_hash, at)
+     VALUES (@id, @phone, @name, @email, @pass_hash, @at)`
+  ).run({ id: c.id, phone: c.phone, name: c.name || '', email: c.email || '', pass_hash: c.passHash, at: c.at });
+  return getCustomerById(db, c.id);
+}
+
+export function updateCustomer(db, id, patch) {
+  const map = { name: 'name', email: 'email', passHash: 'pass_hash', lastLoginAt: 'last_login_at', blocked: 'blocked' };
+  const sets = [];
+  const vals = {};
+  for (const [k, col] of Object.entries(map)) {
+    if (patch[k] === undefined) continue;
+    sets.push(`${col} = @${k}`);
+    vals[k] = typeof patch[k] === 'boolean' ? (patch[k] ? 1 : 0) : patch[k];
+  }
+  if (!sets.length) return getCustomerById(db, id);
+  db.prepare(`UPDATE customers SET ${sets.join(', ')} WHERE id = @id`).run({ ...vals, id });
+  return getCustomerById(db, id);
+}
+
+export function countCustomers(db) {
+  return Number(db.prepare('SELECT COUNT(*) AS n FROM customers').get()?.n || 0);
+}
+
+export function listCustomers(db, limit = 200) {
+  return db
+    .prepare('SELECT * FROM customers ORDER BY at DESC LIMIT ?')
+    .all(Math.max(1, Math.min(1000, Number(limit) || 200)))
+    .map(customerRow);
+}
+
+/* -------- sessions -------- */
+export function insertSession(db, { tokenHash, customerId, expiresAt, ua }) {
+  db.prepare(
+    `INSERT INTO customer_sessions (token_hash, customer_id, at, expires_at, ua)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(tokenHash, customerId, new Date().toISOString(), expiresAt, String(ua || '').slice(0, 200));
+}
+
+export function getSession(db, tokenHash) {
+  const row = db.prepare('SELECT * FROM customer_sessions WHERE token_hash = ?').get(String(tokenHash || ''));
+  if (!row) return null;
+  /* Expiry is enforced on read as well as by the sweep: a session must not
+     stay usable just because the cleanup has not run yet. */
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    deleteSession(db, tokenHash);
+    return null;
+  }
+  return row;
+}
+
+export function deleteSession(db, tokenHash) {
+  db.prepare('DELETE FROM customer_sessions WHERE token_hash = ?').run(String(tokenHash || ''));
+}
+
+export function deleteSessionsFor(db, customerId) {
+  db.prepare('DELETE FROM customer_sessions WHERE customer_id = ?').run(String(customerId || ''));
+}
+
+export function sweepSessions(db) {
+  db.prepare('DELETE FROM customer_sessions WHERE expires_at <= ?').run(new Date().toISOString());
+  db.prepare('DELETE FROM otps WHERE expires_at <= ?').run(new Date(Date.now() - 3600_000).toISOString());
+  db.prepare('DELETE FROM otp_tickets WHERE expires_at <= ?').run(new Date().toISOString());
+}
+
+/* -------- otp -------- */
+export function putOtp(db, { phone, purpose, codeHash, expiresAt }) {
+  db.prepare(
+    `INSERT INTO otps (phone, purpose, code_hash, at, expires_at, attempts)
+     VALUES (@phone, @purpose, @code_hash, @at, @expires_at, 0)
+     ON CONFLICT(phone, purpose) DO UPDATE SET
+       code_hash = @code_hash, at = @at, expires_at = @expires_at, attempts = 0`
+  ).run({ phone, purpose, code_hash: codeHash, at: new Date().toISOString(), expires_at: expiresAt });
+}
+
+export function getOtp(db, phone, purpose) {
+  return db.prepare('SELECT * FROM otps WHERE phone = ? AND purpose = ?').get(String(phone), String(purpose));
+}
+
+export function bumpOtpAttempts(db, phone, purpose) {
+  db.prepare('UPDATE otps SET attempts = attempts + 1 WHERE phone = ? AND purpose = ?').run(String(phone), String(purpose));
+}
+
+export function deleteOtp(db, phone, purpose) {
+  db.prepare('DELETE FROM otps WHERE phone = ? AND purpose = ?').run(String(phone), String(purpose));
+}
+
+export function putTicket(db, { ticketHash, phone, purpose, expiresAt }) {
+  db.prepare('INSERT OR REPLACE INTO otp_tickets (ticket_hash, phone, purpose, expires_at) VALUES (?, ?, ?, ?)').run(
+    ticketHash,
+    phone,
+    purpose,
+    expiresAt
+  );
+}
+
+/** Single use: the row is deleted as it is read, so the same proof cannot
+ *  register two accounts or reset a password twice. */
+export function consumeTicket(db, ticketHash, purpose) {
+  const row = db.prepare('SELECT * FROM otp_tickets WHERE ticket_hash = ?').get(String(ticketHash || ''));
+  if (!row) return null;
+  db.prepare('DELETE FROM otp_tickets WHERE ticket_hash = ?').run(String(ticketHash));
+  if (row.purpose !== purpose) return null;
+  if (new Date(row.expires_at).getTime() <= Date.now()) return null;
+  return row;
+}
+
+/** Successful OTP sends to one phone since a timestamp — the per-phone
+ *  throttle, which is the one that protects the customer's inbox and the
+ *  SMS credit at the same time. */
+export function countOtpSends(db, phone, sinceIso) {
+  const row = db
+    .prepare("SELECT COUNT(*) AS n FROM sms_log WHERE phone = ? AND kind = 'otp' AND at >= ?")
+    .get(String(phone), sinceIso);
+  return Number(row?.n || 0);
+}
+
+/* -------- addresses -------- */
+const addressRow = (r) =>
+  r && {
+    id: r.id,
+    isDefault: !!r.is_default,
+    title: r.title,
+    receiver: r.receiver,
+    phone: r.phone,
+    province: r.province,
+    city: r.city,
+    address: r.address,
+    plaque: r.plaque,
+    unit: r.unit,
+    postal: r.postal,
+    note: r.note,
+    at: r.at,
+  };
+
+export function listAddresses(db, customerId) {
+  return db
+    .prepare('SELECT * FROM addresses WHERE customer_id = ? ORDER BY is_default DESC, pos ASC, at ASC')
+    .all(String(customerId))
+    .map(addressRow);
+}
+
+export function getAddress(db, customerId, id) {
+  return addressRow(db.prepare('SELECT * FROM addresses WHERE id = ? AND customer_id = ?').get(String(id), String(customerId)));
+}
+
+export function insertAddress(db, customerId, a, makeDefault) {
+  const id = crypto.randomUUID();
+  const first = listAddresses(db, customerId).length === 0;
+  db.prepare(
+    `INSERT INTO addresses (id, customer_id, pos, is_default, title, receiver, phone, province, city, address, plaque, unit, postal, note, at)
+     VALUES (@id, @customer_id, @pos, @is_default, @title, @receiver, @phone, @province, @city, @address, @plaque, @unit, @postal, @note, @at)`
+  ).run({
+    id,
+    customer_id: customerId,
+    pos: Date.now() % 100000,
+    is_default: makeDefault || first ? 1 : 0,
+    title: a.title,
+    receiver: a.receiver,
+    phone: a.phone,
+    province: a.province,
+    city: a.city,
+    address: a.address,
+    plaque: a.plaque,
+    unit: a.unit,
+    postal: a.postal,
+    note: a.note,
+    at: new Date().toISOString(),
+  });
+  if (makeDefault || first) setDefaultAddress(db, customerId, id);
+  return getAddress(db, customerId, id);
+}
+
+export function updateAddress(db, customerId, id, a) {
+  const existing = getAddress(db, customerId, id);
+  if (!existing) return null;
+  db.prepare(
+    `UPDATE addresses SET title=@title, receiver=@receiver, phone=@phone, province=@province, city=@city,
+       address=@address, plaque=@plaque, unit=@unit, postal=@postal, note=@note
+     WHERE id=@id AND customer_id=@customer_id`
+  ).run({ ...a, id, customer_id: customerId });
+  return getAddress(db, customerId, id);
+}
+
+export function deleteAddress(db, customerId, id) {
+  const row = getAddress(db, customerId, id);
+  if (!row) return false;
+  db.prepare('DELETE FROM addresses WHERE id = ? AND customer_id = ?').run(String(id), String(customerId));
+  /* Never leave a customer with addresses but no default. */
+  if (row.isDefault) {
+    const next = listAddresses(db, customerId)[0];
+    if (next) setDefaultAddress(db, customerId, next.id);
+  }
+  return true;
+}
+
+export function setDefaultAddress(db, customerId, id) {
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE addresses SET is_default = 0 WHERE customer_id = ?').run(String(customerId));
+    db.prepare('UPDATE addresses SET is_default = 1 WHERE id = ? AND customer_id = ?').run(String(id), String(customerId));
+  });
+  tx();
+  return listAddresses(db, customerId);
+}
+
+/* -------- orders by customer -------- */
+export function listOrdersForCustomer(db, customerId) {
+  const rows = db.prepare('SELECT * FROM orders WHERE customer_id = ? ORDER BY at DESC').all(String(customerId));
+  return rows.map((r) => orderOut(r, itemsOf(db, r.id)));
 }
