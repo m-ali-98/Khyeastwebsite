@@ -3,7 +3,7 @@
    ========================================================================== */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Icons, Reveal, PageHero, faNum, PasswordInput } from '../components/ui';
+import { Icons, Reveal, PageHero, faNum, faId, PasswordInput } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
 import { useShop } from '../shop/ShopContext';
@@ -198,7 +198,7 @@ export default function ShopAccount() {
           <aside className="acc-side">
             <div className="acc-who">
               <strong>{account.customer.name}</strong>
-              <span dir="ltr">{faNum(account.customer.phoneLocal)}</span>
+              <span dir="ltr">{faId(account.customer.phoneLocal)}</span>
             </div>
             <nav className="acc-nav">
               {TABS.map(([id, label, icon]) => {
@@ -245,7 +245,7 @@ export default function ShopAccount() {
                           <span className={`acc-order__status is-${o.status}`}>{STATUS_FA[o.status] || o.status}</span>
                         </header>
                         <div className="acc-order__body">
-                          <span>{faNum(new Date(o.at).toLocaleDateString('fa-IR'))}</span>
+                          <span>{faId(new Date(o.at).toLocaleDateString('fa-IR'))}</span>
                           <span>{money(o.total)}</span>
                           <span>
                             {faNum(o.items.length)} {t('shop.cart.items') || 'قلم'}
@@ -286,12 +286,12 @@ export default function ShopAccount() {
                           </header>
                           <p>
                             {a.province}، {a.city}، {a.address}
-                            {a.plaque && `، پلاک ${faNum(a.plaque)}`}
-                            {a.unit && `، واحد ${faNum(a.unit)}`}
+                            {a.plaque && `، پلاک ${faId(a.plaque)}`}
+                            {a.unit && `، واحد ${faId(a.unit)}`}
                           </p>
                           <p className="acc-addr__meta">
-                            {a.receiver} — <span dir="ltr">{faNum(a.phone.replace(/^98/, '0'))}</span> — {t('shop.account.postal')}:{' '}
-                            <span dir="ltr">{faNum(a.postal)}</span>
+                            {a.receiver} — <span dir="ltr">{faId(a.phone.replace(/^98/, '0'))}</span> — {t('shop.account.postal')}:{' '}
+                            <span dir="ltr">{faId(a.postal)}</span>
                           </p>
                           <div className="acc-addr__actions">
                             <button className="linkish" onClick={() => setEditing(a.id)}>

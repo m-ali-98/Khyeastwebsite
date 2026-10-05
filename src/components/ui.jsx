@@ -9,7 +9,16 @@ import { imgProps, SIZES } from '../lib/img';
 export const hl = renderHighlight;
 
 /* Persian digits — used by the shop, which is the Persian site only. */
+/* QUANTITIES. Grouped with thousands separators: ۹٬۲۱۰٬۷۵۰ rial, ۱۲ items. */
 export const faNum = (n) => Number(n).toLocaleString('fa-IR');
+
+/* IDENTIFIERS. Phone numbers, postal codes, plaques, order codes, dates.
+   These are digit strings, not amounts: running a phone number through the
+   quantity formatter printed ۹٬۲۱۰٬۷۵۰٬۴۱۲ — a price, not a number anyone
+   can dial. It also survives a value that is not purely numeric (a date
+   like ۱۴۰۴/۰۷/۱۳, or a plaque like 12/B), where Number() yields NaN and
+   the quantity formatter prints «ناعدد». */
+export const faId = (v) => String(v ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
 /* Digit shapes per language: Persian, Arabic-Indic and Latin respectively. */
 export const NUM_LOCALE = { fa: 'fa-IR', ar: 'ar-EG', en: 'en-US' };

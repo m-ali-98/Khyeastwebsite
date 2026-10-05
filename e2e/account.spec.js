@@ -189,6 +189,40 @@ test.describe('customer accounts', () => {
     await expect(adminField.locator('input')).toHaveAttribute('type', 'text');
   });
 
+  test('phone numbers and postal codes are not printed as prices', async ({ page }) => {
+    /* ۰۹۲۱۰۷۵۰۴۱۲ through a quantity formatter becomes ۹٬۲۱۰٬۷۵۰٬۴۱۲ — a
+       price, not a number anyone can dial. Identifiers must never be
+       grouped, and a date must never come out as «ناعدد». */
+    const phone = uniquePhone();
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone });
+    await addAddress(page, { phone: '09210750412', postal: '1619637511' });
+
+    await gotoReady(page, '/shop/account');
+    const header = await page.locator('.acc-who span').innerText();
+    expect(header, 'the account phone').not.toContain('٬');
+
+    await page.locator('.acc-nav__item', { hasText: 'نشانی‌ها' }).click();
+    const card = page.locator('.acc-addr').first();
+    const meta = await card.locator('.acc-addr__meta').innerText();
+    expect(meta, 'the receiver phone and postal code').not.toContain('٬');
+    expect(meta).toContain('۰۹۲۱۰۷۵۰۴۱۲');
+    expect(meta).toContain('۱۶۱۹۶۳۷۵۱۱');
+
+    /* Order dates were running through the same formatter, which yields
+       NaN for a date string. */
+    await gotoReady(page, '/shop/dezmaye-gold-80');
+    await page.locator('.sp-buy__row .btn').click();
+    await gotoReady(page, '/shop/checkout');
+    await page.locator('.checkout-form button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
+
+    await gotoReady(page, '/shop/account');
+    const order = await page.locator('.acc-order__body').first().innerText();
+    expect(order, 'the order date').not.toContain('ناعدد');
+    expect(order, 'the order date').not.toContain('NaN');
+  });
+
   test('the account panel is not reachable without signing in', async ({ page }) => {
     await page.goto('/shop/account', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(/\/shop\/login/, { timeout: 20_000 });
@@ -208,16 +242,24 @@ test.describe('customer accounts', () => {
     /* Search by the number as it was typed, with a leading zero — the
        stored form is 98…, so this only works if both sides are normalised. */
     await page.locator('.admin__search input').fill(phone);
-    const row = page.locator('.msg__head', { hasText: 'مشتری قابل مسدودسازی' });
+    const row = page.locator('.cust__row', { hasText: 'مشتری قابل مسدودسازی' });
     await expect(row).toHaveCount(1);
 
+    /* The phone is an identifier, not an amount: no thousands separators. */
+    const shown = await row.locator('.cust__id small').innerText();
+    expect(shown, 'the listed phone is not formatted as a price').not.toContain('٬');
+    expect(shown.replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).toBe(phone);
+
     await row.click();
-    const body = page.locator('.msg__body');
+    const body = page.locator('.cust__detail');
     await expect(body).toContainText('دزفول'); // their address
     await expect(body).toContainText('نشانی‌ها');
+    await expect(body.locator('.cust__table')).toBeVisible(); // orders, as a table
+    const addrPhone = await body.locator('.cust__addr dd[dir="ltr"]').first().innerText();
+    expect(addrPhone, 'the address phone is not formatted as a price').not.toContain('٬');
 
     await body.getByRole('button', { name: 'مسدود کردن حساب' }).click();
-    await expect(page.locator('.msg__badge', { hasText: 'مسدود' })).toBeVisible();
+    await expect(page.locator('.cust__pill.is-blocked')).toBeVisible();
 
     /* And the block is real: the customer's own session is gone. */
     const me = await page.request.get('/api/account/me');

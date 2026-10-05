@@ -783,10 +783,132 @@ export function ShopSmsTab() {
 }
 
 /* ================= customers ================= */
-/* Read-mostly on purpose: the admin can see who someone is, what they have
+/* Read-mostly on purpose. The admin can see who someone is, what they have
    ordered and where they want it, and can block an abusive account. There is
    no edit-their-address button — a shipping address the customer did not
    write is a parcel sent to the wrong door with nobody to blame. */
+
+/* Identifiers, not amounts: a phone number through a quantity formatter
+   comes out as ۹٬۲۱۰٬۷۵۰٬۴۱۲. */
+const faId = (v) => String(v ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
+const faQty = (n) => Number(n || 0).toLocaleString('fa-IR');
+const localPhone = (p) => faId(String(p || '').replace(/^98/, '0'));
+const faDate = (iso) => (iso ? faId(new Date(iso).toLocaleDateString('fa-IR')) : '—');
+
+const CUSTOMER_STATUS = {
+  pending_payment: 'در انتظار پرداخت',
+  paid: 'پرداخت‌شده',
+  shipped: 'ارسال‌شده',
+  delivered: 'تحویل‌شده',
+  cancelled: 'لغو شده',
+};
+
+function CustomerDetail({ data, blocked, onBlock }) {
+  if (!data) return <p className="cust__loading">در حال دریافت…</p>;
+  const { customer, orders, addresses } = data;
+  const spent = orders.filter((o) => o.status !== 'cancelled').reduce((n, o) => n + Number(o.total || 0), 0);
+
+  return (
+    <div className="cust__detail">
+      <div className="cust__facts">
+        <div>
+          <span>ایمیل</span>
+          <b dir="ltr">{customer.email || '—'}</b>
+        </div>
+        <div>
+          <span>عضویت</span>
+          <b>{faDate(customer.at)}</b>
+        </div>
+        <div>
+          <span>آخرین ورود</span>
+          <b>{faDate(customer.lastLoginAt)}</b>
+        </div>
+        <div>
+          <span>مجموع خرید</span>
+          <b>{faQty(spent)} ریال</b>
+        </div>
+      </div>
+
+      <section className="cust__block">
+        <h3>سفارش‌ها</h3>
+        {orders.length === 0 ? (
+          <p className="cust__none">سفارشی ثبت نشده است.</p>
+        ) : (
+          <table className="cust__table">
+            <thead>
+              <tr>
+                <th>کد</th>
+                <th>تاریخ</th>
+                <th>مبلغ</th>
+                <th>وضعیت</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <tr key={o.code}>
+                  <td dir="ltr" className="cust__mono">{o.code}</td>
+                  <td>{faDate(o.at)}</td>
+                  <td>{faQty(o.total)} ریال</td>
+                  <td>
+                    <span className={`cust__pill is-${o.status}`}>{CUSTOMER_STATUS[o.status] || o.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="cust__block">
+        <h3>نشانی‌ها</h3>
+        {addresses.length === 0 ? (
+          <p className="cust__none">نشانی ثبت نشده است.</p>
+        ) : (
+          <div className="cust__addrs">
+            {addresses.map((a) => (
+              <article className={`cust__addr ${a.isDefault ? 'is-default' : ''}`} key={a.id}>
+                <header>
+                  <b>{a.title}</b>
+                  {a.isDefault && <span className="cust__pill is-default">پیش‌فرض</span>}
+                </header>
+                <p>
+                  {a.province}، {a.city}، {a.address}
+                  {a.plaque && `، پلاک ${faId(a.plaque)}`}
+                  {a.unit && `، واحد ${faId(a.unit)}`}
+                </p>
+                <dl>
+                  <div>
+                    <dt>گیرنده</dt>
+                    <dd>{a.receiver}</dd>
+                  </div>
+                  <div>
+                    <dt>موبایل</dt>
+                    <dd dir="ltr">{localPhone(a.phone)}</dd>
+                  </div>
+                  <div>
+                    <dt>کد پستی</dt>
+                    <dd dir="ltr">{faId(a.postal)}</dd>
+                  </div>
+                </dl>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <footer className="cust__danger">
+        <div>
+          <b>{blocked ? 'این حساب مسدود است' : 'مسدود کردن حساب'}</b>
+          <span>مسدودسازی ورودهای فعلی را هم قطع می‌کند، برگشت‌پذیر است و سفارش‌ها را حذف نمی‌کند.</span>
+        </div>
+        <button className={`btn ${blocked ? 'btn--outline' : 'btn--primary'}`} onClick={onBlock}>
+          {blocked ? 'رفع مسدودی حساب' : 'مسدود کردن حساب'}
+        </button>
+      </footer>
+    </div>
+  );
+}
+
 export function ShopCustomersTab() {
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState(null);
@@ -823,17 +945,15 @@ export function ShopCustomersTab() {
 
   const setBlocked = async (id, blocked) => {
     await api(`/api/shop-admin/customers/${id}`, { method: 'PATCH', body: { blocked }, auth: true });
-    load();
-    if (open === id) show(id);
+    const d = await api('/api/shop-admin/customers', { auth: true });
+    setRows(d.customers || []);
+    setDetail(await api(`/api/shop-admin/customers/${id}`, { auth: true }));
   };
 
-  const fa = (n) => String(n ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
-  const local = (p) => fa(String(p || '').replace(/^98/, '0'));
-  const date = (iso) => (iso ? fa(new Date(iso).toLocaleDateString('fa-IR')) : '—');
-
-  /* Searching by digits has to work whichever way the number is written, so
-     the needle and the haystack are both reduced to Latin digits first. */
-  const norm = (s) => String(s || '').replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  /* Searching by digits must work whichever way the number is written, so
+     needle and haystack are both reduced to Latin digits and the leading
+     zero is dropped — stored numbers are 98…, typed ones are 0…. */
+  const norm = (v) => String(v || '').replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
   const needle = norm(q).trim().replace(/^0/, '');
   const list = (rows || []).filter((c) => !needle || norm(c.phone).includes(needle) || c.name.includes(q.trim()));
 
@@ -844,91 +964,48 @@ export function ShopCustomersTab() {
           <h1>مشتریان</h1>
           <p>حساب‌های ثبت‌شده با شماره موبایل تأییدشده</p>
         </div>
-        {rows && <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--muted)' }}>{fa(rows.length)} حساب</span>}
+        {rows && <span className="cust__count">{faQty(rows.length)} حساب</span>}
       </div>
 
-      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+      {err && <p className="cust__err">{err}</p>}
 
       <div className="admin__search">
         <input placeholder="جست‌وجو با نام یا شماره موبایل…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
-      {!rows && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
+      {!rows && !err && <p className="cust__loading">در حال دریافت…</p>}
       {rows && list.length === 0 && (
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>{rows.length ? 'مشتری‌ای با این مشخصات پیدا نشد.' : 'هنوز مشتری‌ای ثبت‌نام نکرده است.'}</p>
+        <p className="cust__none">{rows.length ? 'مشتری‌ای با این مشخصات پیدا نشد.' : 'هنوز مشتری‌ای ثبت‌نام نکرده است.'}</p>
       )}
 
-      <div className="admin__list">
+      <div className="cust__list">
         {list.map((c) => (
-          <div key={c.id} style={{ display: 'grid' }}>
-            <div className={`msg__head ${c.blocked ? '' : 'unread'}`} onClick={() => show(c.id)}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <b>{c.name || '—'}</b>
-                <span style={{ color: 'var(--muted)', marginInlineStart: 10 }} dir="ltr">
-                  {local(c.phone)}
-                </span>
-              </div>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {fa(c.orderCount)} سفارش · {fa(c.addressCount)} نشانی · عضویت {date(c.at)}
+          <article className={`cust ${open === c.id ? 'is-open' : ''} ${c.blocked ? 'is-blocked' : ''}`} key={c.id}>
+            <button className="cust__row" onClick={() => show(c.id)} aria-expanded={open === c.id}>
+              <span className="cust__avatar" aria-hidden="true">
+                {(c.name || '؟').trim().charAt(0)}
               </span>
-              {c.blocked && <span className="msg__badge">مسدود</span>}
-            </div>
+              <span className="cust__id">
+                <b>{c.name || '—'}</b>
+                <small dir="ltr">{localPhone(c.phone)}</small>
+              </span>
+              <span className="cust__stats">
+                <span>
+                  <b>{faQty(c.orderCount)}</b> سفارش
+                </span>
+                <span>
+                  <b>{faQty(c.addressCount)}</b> نشانی
+                </span>
+                <span className="cust__since">عضویت {faDate(c.at)}</span>
+              </span>
+              {c.blocked && <span className="cust__pill is-blocked">مسدود</span>}
+              <Icons.arrow size={16} className="cust__chev" />
+            </button>
 
             {open === c.id && (
-              <div className="msg__body">
-                {!detail && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
-                {detail && (
-                  <>
-                    <div className="admin__row" style={{ gap: 18, flexWrap: 'wrap', fontSize: 13 }}>
-                      <span>
-                        ایمیل: <b dir="ltr">{detail.customer.email || '—'}</b>
-                      </span>
-                      <span>
-                        آخرین ورود: <b>{date(detail.customer.lastLoginAt)}</b>
-                      </span>
-                    </div>
-
-                    <h3 style={{ fontSize: 14, margin: '16px 0 8px' }}>سفارش‌ها</h3>
-                    {detail.orders.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>سفارشی ثبت نشده است.</p>}
-                    {detail.orders.map((o) => (
-                      <div key={o.code} className="admin__text-row" style={{ justifyContent: 'space-between' }}>
-                        <span dir="ltr">{o.code}</span>
-                        <span>{date(o.at)}</span>
-                        <span>{fa(Number(o.total).toLocaleString('en-US'))} ریال</span>
-                        <span>{o.status}</span>
-                      </div>
-                    ))}
-
-                    <h3 style={{ fontSize: 14, margin: '16px 0 8px' }}>نشانی‌ها</h3>
-                    {detail.addresses.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>نشانی ثبت نشده است.</p>}
-                    {detail.addresses.map((a) => (
-                      <div key={a.id} className="admin__text-row" style={{ display: 'block', lineHeight: 2 }}>
-                        <b>{a.title}</b> — {a.province}، {a.city}، {a.address}
-                        {a.plaque && `، پلاک ${fa(a.plaque)}`}
-                        {a.unit && `، واحد ${fa(a.unit)}`}
-                        <br />
-                        <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>
-                          {a.receiver} — <span dir="ltr">{local(a.phone)}</span> — کد پستی <span dir="ltr">{fa(a.postal)}</span>
-                        </span>
-                      </div>
-                    ))}
-
-                    <div className="admin__row" style={{ marginTop: 18 }}>
-                      <button
-                        className={`btn ${c.blocked ? 'btn--outline' : 'btn--primary'}`}
-                        onClick={() => setBlocked(c.id, !c.blocked)}
-                      >
-                        {c.blocked ? 'رفع مسدودی حساب' : 'مسدود کردن حساب'}
-                      </button>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        مسدودسازی، ورودهای فعلی را هم قطع می‌کند و قابل برگشت است؛ سفارش‌ها حذف نمی‌شوند.
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
+              <CustomerDetail data={detail} blocked={c.blocked} onBlock={() => setBlocked(c.id, !c.blocked)} />
             )}
-          </div>
+          </article>
         ))}
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
-import { Icons, Reveal, PageHero, faNum } from '../components/ui';
+import { Icons, Reveal, PageHero, faNum, faId } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop, orderTokenSave } from '../shop/ShopContext';
 import { useAccount } from '../shop/AccountContext';
@@ -118,7 +118,7 @@ export default function ShopCheckout() {
                 {account.customer && (
                   <p className="checkout-who">
                     {t('shop.checkout.signedInAs')} <b>{account.customer.name}</b>{' '}
-                    <span dir="ltr">{faNum(account.customer.phoneLocal)}</span>
+                    <span dir="ltr">{faId(account.customer.phoneLocal)}</span>
                   </p>
                 )}
 
@@ -133,10 +133,10 @@ export default function ShopCheckout() {
                         <b>{a.title}</b>
                         <small>
                           {a.province}، {a.city}، {a.address}
-                          {a.plaque && `، پلاک ${faNum(a.plaque)}`}
+                          {a.plaque && `، پلاک ${faId(a.plaque)}`}
                         </small>
                         <small>
-                          {a.receiver} — <span dir="ltr">{faNum(a.phone.replace(/^98/, '0'))}</span>
+                          {a.receiver} — <span dir="ltr">{faId(a.phone.replace(/^98/, '0'))}</span>
                         </small>
                       </span>
                     </label>

@@ -737,3 +737,221 @@
 [data-theme='dark'] .admin__boot { background:
   radial-gradient(70% 55% at 50% 28%, var(--crimson-soft), transparent 62%),
   var(--bg-soft); }
+
+/* ==========================================================================
+   Customers tab
+   --------------------------------------------------------------------------
+   The first version borrowed the messages inbox classes and patched the
+   gaps with inline styles, so nothing lined up: four different type sizes,
+   data running together in one sentence, and no column the eye could follow
+   down the list. This gives the tab its own small system — a scannable row,
+   then a detail panel built from a facts strip, a real table and address
+   cards.
+   ========================================================================== */
+.cust__count {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.cust__err { color: var(--crimson); font-size: 13.5px; }
+.cust__loading,
+.cust__none { color: var(--muted); font-size: 13.5px; margin: 10px 0; }
+
+.cust__list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.cust {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color 0.25s, box-shadow 0.25s;
+
+  &.is-open { border-color: var(--crimson); box-shadow: 0 14px 36px -24px rgba(0, 0, 0, 0.35); }
+  &.is-blocked .cust__avatar { background: var(--line); color: var(--muted); }
+}
+
+/* The row is a grid, not a flex line of spans: fixed columns mean the names
+   start at the same x down the whole list and the numbers line up under
+   each other, which is what makes a list scannable. */
+.cust__row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1.3fr) minmax(0, 1.7fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 0.2s;
+
+  &:hover { background-color: var(--bg-soft); }
+}
+
+.cust__avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--crimson-soft);
+  color: var(--crimson-ink);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.cust__id {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+
+  b { font-size: 14.5px; font-weight: 800; }
+  small { font-size: 12.5px; color: var(--muted); }
+}
+
+.cust__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+
+  b { color: var(--ink-2); font-weight: 800; }
+}
+.cust__since { opacity: 0.85; }
+
+.cust__chev {
+  color: var(--muted);
+  transition: transform 0.3s var(--ease, cubic-bezier(0.22, 1, 0.36, 1));
+  transform: rotate(90deg);
+}
+.cust.is-open .cust__chev { transform: rotate(-90deg); }
+
+/* ---------------- detail ---------------- */
+.cust__detail {
+  border-top: 1px solid var(--line);
+  padding: 18px 16px 16px;
+  display: grid;
+  gap: 20px;
+}
+
+.cust__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  background: var(--bg-soft);
+  border-radius: 12px;
+  padding: 14px 16px;
+
+  > div { display: grid; gap: 3px; min-width: 0; }
+  span { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+  b { font-size: 13.5px; font-weight: 800; overflow-wrap: anywhere; }
+}
+
+.cust__block h3 {
+  font-size: 13.5px;
+  font-weight: 800;
+  margin: 0 0 10px;
+  color: var(--ink-2);
+}
+
+.cust__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th {
+    text-align: start;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: var(--muted);
+    padding: 0 10px 8px;
+  }
+  td {
+    padding: 9px 10px;
+    border-top: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  tr:hover td { background: var(--bg-soft); }
+}
+.cust__mono { font-weight: 800; }
+
+.cust__pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--line);
+  color: var(--ink-2);
+  white-space: nowrap;
+
+  &.is-paid,
+  &.is-delivered { background: var(--admin-ok-soft); color: var(--admin-ok); }
+  &.is-cancelled,
+  &.is-blocked { background: var(--crimson-soft); color: var(--crimson-ink); }
+  &.is-default { background: var(--crimson-soft); color: var(--crimson-ink); }
+}
+
+.cust__addrs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.cust__addr {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px 15px;
+
+  &.is-default { border-color: var(--crimson); }
+
+  header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  header b { font-size: 13.5px; }
+  p { margin: 0 0 10px; font-size: 13px; line-height: 2; }
+
+  /* A definition list, so each value has its own label instead of three
+     facts run together in one line separated by dashes. */
+  dl {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding-top: 9px;
+    border-top: 1px solid var(--line);
+
+    > div { display: flex; gap: 8px; font-size: 12.5px; }
+    dt { color: var(--muted); min-width: 56px; }
+    dd { margin: 0; font-weight: 700; }
+  }
+}
+
+.cust__danger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border: 1px solid var(--crimson-soft);
+  background: var(--crimson-soft);
+  border-radius: 12px;
+  padding: 14px 16px;
+
+  div { display: grid; gap: 3px; }
+  b { font-size: 13.5px; }
+  span { font-size: 12px; color: var(--ink-2); opacity: 0.85; }
+}
+
+@media (max-width: 820px) {
+  .cust__row {
+    grid-template-columns: 38px 1fr auto;
+    row-gap: 8px;
+  }
+  .cust__stats { grid-column: 2 / -1; }
+  .cust__chev { display: none; }
+}
