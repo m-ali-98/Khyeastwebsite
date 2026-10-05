@@ -307,7 +307,7 @@ export const TEXTS = {
   'shop.auth.phoneHint': 'مثال: ۰۹۱۲۳۴۵۶۷۸۹',
   'shop.auth.password': 'رمز عبور',
   'shop.auth.passwordNew': 'رمز عبور جدید',
-  'shop.auth.passwordHint': 'حداقل ۸ نویسه؛ فقط عدد نباشد.',
+  'shop.auth.passwordHint': 'حداقل ۸ کاراکتر؛ فقط عدد نباشد.',
   'shop.auth.name': 'نام و نام خانوادگی',
   'shop.auth.code': 'کد پیامک‌شده',
   'shop.auth.sendCode': 'ارسال کد تأیید',

@@ -127,7 +127,17 @@ test.describe('customer accounts', () => {
     await page.getByRole('button', { name: 'افزودن نشانی' }).click();
 
     const form = page.locator('.addr-form');
-    await form.locator('.field', { hasText: 'عنوان نشانی' }).locator('input').fill('خانه');
+
+    /* Typed key by key, not filled in one call. A form that re-creates its
+       inputs on every render loses focus after the first character, and
+       fill() sets the value in one shot so it would sail past the bug.
+       This is the regression: the caret must survive a whole word. */
+    const title = form.locator('.field', { hasText: 'عنوان نشانی' }).locator('input');
+    await title.click();
+    await title.pressSequentially('خانه پدری', { delay: 20 });
+    await expect(title).toHaveValue('خانه پدری');
+    await expect(title).toBeFocused();
+
     await form.locator('.field', { hasText: 'نام گیرنده' }).locator('input').fill('گیرنده آزمون');
     await form.locator('.field', { hasText: 'موبایل گیرنده' }).locator('input').fill('09120000099');
     await form.locator('select').selectOption('خوزستان');
@@ -147,6 +157,36 @@ test.describe('customer accounts', () => {
     /* the first address is automatically the default */
     await expect(card.first()).toHaveClass(/is-default/);
     await expect(card.first()).toContainText('دزفول');
+    await expect(card.first()).toContainText('خانه پدری');
+  });
+
+  test('the password can be revealed while typing, on both login screens', async ({ page }) => {
+    await gotoReady(page, '/shop/login');
+    const field = page.locator('.auth-card .pw-field');
+    const input = field.locator('input');
+    const eye = field.locator('.pw-field__eye');
+
+    await input.fill('a-secret-1404');
+    await expect(input).toHaveAttribute('type', 'password');
+
+    await eye.click();
+    await expect(input).toHaveAttribute('type', 'text');
+    await expect(eye).toHaveAttribute('aria-pressed', 'true');
+    /* Revealing must not submit the half-typed form, which is what a button
+       with no explicit type inside a form would do. */
+    await expect(page).toHaveURL(/\/shop\/login/);
+    await expect(input).toHaveValue('a-secret-1404');
+
+    await eye.click();
+    await expect(input).toHaveAttribute('type', 'password');
+
+    /* and the same control on the admin login */
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
+    const adminField = page.locator('.admin__login-card .pw-field');
+    await expect(adminField).toBeVisible({ timeout: 30_000 });
+    await adminField.locator('input').fill('whatever');
+    await adminField.locator('.pw-field__eye').click();
+    await expect(adminField.locator('input')).toHaveAttribute('type', 'text');
   });
 
   test('the account panel is not reachable without signing in', async ({ page }) => {

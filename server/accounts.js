@@ -69,7 +69,7 @@ const COMMON = new Set([
 export function passwordProblems(password) {
   const p = String(password ?? '');
   const out = [];
-  if (p.length < 8) out.push('رمز عبور باید حداقل ۸ نویسه باشد.');
+  if (p.length < 8) out.push('رمز عبور باید حداقل ۸ کاراکتر باشد.');
   if (p.length > 200) out.push('رمز عبور بیش از حد طولانی است.');
   if (/^\d+$/.test(p)) out.push('رمز عبور نباید فقط عدد باشد.');
   if (COMMON.has(p.toLowerCase())) out.push('این رمز عبور بسیار رایج است؛ رمز دیگری انتخاب کنید.');

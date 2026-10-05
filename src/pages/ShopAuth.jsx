@@ -7,7 +7,7 @@
    ========================================================================== */
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Icons, Reveal, PageHero } from '../components/ui';
+import { Icons, Reveal, PageHero, PasswordInput } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
 import usePageMeta from '../hooks/usePageMeta';
@@ -179,7 +179,7 @@ export default function ShopAuth() {
               {mode === 'login' && (
                 <label className="field">
                   <span>{t('shop.auth.password')}</span>
-                  <input type="password" autoComplete="current-password" value={form.password} onChange={set('password')} required />
+                  <PasswordInput autoComplete="current-password" value={form.password} onChange={set('password')} required />
                 </label>
               )}
 
@@ -220,7 +220,7 @@ export default function ShopAuth() {
                   )}
                   <label className="field">
                     <span>{mode === 'reset' ? t('shop.auth.passwordNew') : t('shop.auth.password')}</span>
-                    <input type="password" autoComplete="new-password" value={form.password} onChange={set('password')} required />
+                    <PasswordInput autoComplete="new-password" value={form.password} onChange={set('password')} required />
                     <small className="field__hint">{t('shop.auth.passwordHint')}</small>
                   </label>
                 </>

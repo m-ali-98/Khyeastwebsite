@@ -3,7 +3,7 @@
    ========================================================================== */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Icons, Reveal, PageHero, faNum } from '../components/ui';
+import { Icons, Reveal, PageHero, faNum, PasswordInput } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
 import { useShop } from '../shop/ShopContext';
@@ -31,6 +31,22 @@ const EMPTY_ADDRESS = {
   note: '',
 };
 
+/* Defined at module scope, not inside AddressForm.
+   A component declared inside another component is a brand-new type on every
+   render, so React cannot match it to the previous tree: it unmounts the old
+   input and mounts a fresh one. The DOM node the visitor was typing into no
+   longer exists, so focus — and the caret — go with it, which is why typing
+   stopped dead after a single character. */
+function AddrField({ name, label, value, onChange, error, type = 'text', dir, children }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children || <input type={type} dir={dir} value={value ?? ''} onChange={onChange} />}
+      {error && <small className="field__err">{error}</small>}
+    </label>
+  );
+}
+
 function AddressForm({ initial, onSave, onCancel, t }) {
   const [a, setA] = useState({ ...EMPTY_ADDRESS, ...initial });
   const [fields, setFields] = useState({});
@@ -55,21 +71,19 @@ function AddressForm({ initial, onSave, onCancel, t }) {
     }
   };
 
-  const F = ({ k, label, type = 'text', dir, children }) => (
-    <label className="field">
-      <span>{label}</span>
-      {children || <input type={type} dir={dir} value={a[k] ?? ''} onChange={set(k)} />}
-      {fields[k] && <small className="field__err">{fields[k]}</small>}
-    </label>
-  );
+  /* Bound explicitly rather than through a local wrapper component: a
+     component defined inside this function would itself be a new type on
+     every render, which is the bug being fixed. A plain object of shared
+     props keeps the element type stable. */
+  const bind = (name) => ({ name, value: a[name], onChange: set(name), error: fields[name] });
 
   return (
     <form className="addr-form" onSubmit={submit} noValidate>
       <div className="addr-form__grid">
-        <F k="title" label={t('shop.account.addrTitle')} />
-        <F k="receiver" label={t('shop.account.receiver')} />
-        <F k="phone" label={t('shop.account.receiverPhone')} type="tel" dir="ltr" />
-        <F k="province" label={t('shop.account.province')}>
+        <AddrField {...bind('title')} label={t('shop.account.addrTitle')} />
+        <AddrField {...bind('receiver')} label={t('shop.account.receiver')} />
+        <AddrField {...bind('phone')} label={t('shop.account.receiverPhone')} type="tel" dir="ltr" />
+        <AddrField {...bind('province')} label={t('shop.account.province')}>
           <select value={a.province} onChange={set('province')}>
             <option value="">{t('shop.account.selectProvince')}</option>
             {PROVINCES.map((p) => (
@@ -78,16 +92,16 @@ function AddressForm({ initial, onSave, onCancel, t }) {
               </option>
             ))}
           </select>
-        </F>
-        <F k="city" label={t('shop.account.city')} />
-        <F k="postal" label={t('shop.account.postal')} dir="ltr" />
-        <F k="plaque" label={t('shop.account.plaque')} />
-        <F k="unit" label={t('shop.account.unit')} />
+        </AddrField>
+        <AddrField {...bind('city')} label={t('shop.account.city')} />
+        <AddrField {...bind('postal')} label={t('shop.account.postal')} dir="ltr" />
+        <AddrField {...bind('plaque')} label={t('shop.account.plaque')} />
+        <AddrField {...bind('unit')} label={t('shop.account.unit')} />
       </div>
-      <F k="address" label={t('shop.account.address')}>
+      <AddrField {...bind('address')} label={t('shop.account.address')}>
         <textarea rows={2} value={a.address} onChange={set('address')} />
-      </F>
-      <F k="note" label={t('shop.account.addrNote')} />
+      </AddrField>
+      <AddrField {...bind('note')} label={t('shop.account.addrNote')} />
 
       {err && <p className="note err">{err}</p>}
 
@@ -332,11 +346,11 @@ export default function ShopAccount() {
                   <h3>{t('shop.account.pwTitle')}</h3>
                   <label className="field">
                     <span>{t('shop.account.pwCurrent')}</span>
-                    <input type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+                    <PasswordInput autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
                   </label>
                   <label className="field">
                     <span>{t('shop.account.pwNew')}</span>
-                    <input type="password" autoComplete="new-password" value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} />
+                    <PasswordInput autoComplete="new-password" value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} />
                   </label>
                   <button className="btn btn--outline" type="submit">
                     {t('shop.account.pwSave')}

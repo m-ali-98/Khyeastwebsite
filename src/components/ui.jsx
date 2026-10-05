@@ -112,6 +112,18 @@ export const Icons = {
       <path d="m11 18-6-6 6-6" />
     </S>
   ),
+  eye: (p) => (
+    <S {...p}>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </S>
+  ),
+  eyeOff: (p) => (
+    <S {...p}>
+      <path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a16 16 0 0 1-3.1 3.6M6.5 7.6A16 16 0 0 0 2 12s3.6 6 10 6c1.6 0 3-.3 4.2-.8" />
+      <path d="m4 3 16 18" />
+    </S>
+  ),
   shield: (p) => (
     <S {...p}>
       <path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z" />
@@ -421,5 +433,44 @@ export function CTABand({ title, text, primary, secondary }) {
         </Reveal>
       </div>
     </section>
+  );
+}
+
+/* ==========================================================================
+   Password input with a reveal toggle.
+
+   Shared by the customer login and the admin login so the two behave the
+   same way. Points worth keeping:
+
+   - It is a <button type="button">. Inside a form, a button with no type
+     submits it, so the first tap on the eye would post a half-typed login.
+   - The label says what the next press will do and is announced to screen
+     readers; the icon alone is not a label.
+   - Revealing is per-field and resets on unmount — nothing remembers that a
+     password was once visible.
+   ========================================================================== */
+export function PasswordInput({ value, onChange, autoComplete = 'current-password', dir = 'ltr', showLabel = 'نمایش رمز عبور', hideLabel = 'پنهان کردن رمز عبور', ...rest }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <span className="pw-field">
+      <input
+        {...rest}
+        type={shown ? 'text' : 'password'}
+        dir={dir}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+      />
+      <button
+        type="button"
+        className="pw-field__eye"
+        onClick={() => setShown((v) => !v)}
+        aria-label={shown ? hideLabel : showLabel}
+        aria-pressed={shown}
+        title={shown ? hideLabel : showLabel}
+      >
+        {shown ? <Icons.eyeOff size={18} /> : <Icons.eye size={18} />}
+      </button>
+    </span>
   );
 }

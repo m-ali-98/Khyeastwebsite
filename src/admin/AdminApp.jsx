@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { m as mo } from 'framer-motion';
 import Logo from '../components/Logo';
-import { Icons } from '../components/ui';
+import { Icons, PasswordInput } from '../components/ui';
 import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, ContactTab, MessagesTab } from './tabs';
 import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab } from './shopTabs';
@@ -151,7 +151,7 @@ function Login({ onDone }) {
         </label>
         <label className="field">
           <span style={{ fontSize: 13, fontWeight: 700 }}>رمز عبور</span>
-          <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} dir="ltr" />
+          <PasswordInput value={pass} onChange={(e) => setPass(e.target.value)} dir="ltr" />
         </label>
         <button className="btn btn--primary" disabled={busy} type="submit">
           ورود به پنل

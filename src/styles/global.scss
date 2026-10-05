@@ -1709,3 +1709,45 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
 }
+
+/* ==========================================================================
+   Password field with a reveal toggle
+   --------------------------------------------------------------------------
+   The eye sits inside the field, so the input gets padding on that side
+   rather than the button overlapping the text. Logical properties, because
+   the control has to work in an RTL form and an LTR one — the password
+   itself is typed left-to-right in both.
+   ========================================================================== */
+.pw-field {
+  position: relative;
+  display: block;
+
+  input {
+    width: 100%;
+    /* room for the button, on whichever side the text ends */
+    padding-inline-end: 46px;
+  }
+
+  &__eye {
+    position: absolute;
+    inset-inline-end: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    background: none;
+    border-radius: 10px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.2s var(--ease-soft), background-color 0.2s var(--ease-soft);
+
+    &:hover { color: var(--crimson-ink); background-color: var(--crimson-soft); }
+    &:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
+  }
+}
+
+/* The admin login field is LTR and sits on its own card. */
+.admin__login-card .pw-field input { padding-inline-end: 44px; }
