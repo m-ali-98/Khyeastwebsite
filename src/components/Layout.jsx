@@ -206,6 +206,15 @@ function Navbar() {
             </Link>
           )}
 
+          {/* One destination either way: the panel bounces a signed-out
+              visitor to the login page, so the header does not have to know
+              the session state to render the right link. */}
+          {shopEnabled && (
+            <Link to="/shop/account" className="nav__cart nav__account" aria-label={t('shop.account.title')}>
+              <Icons.users size={20} />
+            </Link>
+          )}
+
           <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
             {t('nav.cta')}
           </Link>

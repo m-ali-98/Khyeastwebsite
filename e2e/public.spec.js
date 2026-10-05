@@ -6,7 +6,7 @@
    harness is finally proved to render its real content.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
-import { gotoReady, routeSettled, one, watchConsole, faNum } from './helpers.js';
+import { gotoReady, routeSettled, one, watchConsole, faNum, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
 
 /* Every route, with a selector that must be present and the minimum amount of
    text the page must render. The minimum matters: asserting "the page loaded"
@@ -138,6 +138,13 @@ test.describe('shop purchase flow', () => {
   test('add to cart, see the badge, reach checkout and place an order', async ({ page }) => {
     const errors = watchConsole(page);
 
+    /* Ordering requires a verified account now, so the journey starts with
+       one. The signup itself is covered in account.spec.js; here it is
+       setup, driven through the API to keep this test about buying. */
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone: uniquePhone() });
+    await addAddress(page);
+
     await gotoReady(page, '/shop/dezmaye-gold-80');
     await page.locator('.sp-buy__row .btn').click();
     await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(1));
@@ -149,12 +156,10 @@ test.describe('shop purchase flow', () => {
     await (await one(page, '.cart-summary button.btn--primary')).click();
     await routeSettled(page, /\/shop\/checkout$/);
 
+    /* The saved address is preselected — most customers have exactly one and
+       should not have to choose anything. */
     const form = page.locator('.checkout-form');
-    const inputs = form.locator('.checkout-form__grid input');
-    await inputs.nth(0).fill('آزمون خودکار');
-    await inputs.nth(1).fill('09123456789');
-    await inputs.nth(2).fill('اهواز');
-    await form.locator('textarea').first().fill('خیابان نمونه، پلاک ۱۲، واحد ۳');
+    await expect(form.locator('.checkout-addr__item.is-on')).toHaveCount(1);
 
     await form.locator('button[type="submit"]').click();
 
@@ -167,7 +172,9 @@ test.describe('shop purchase flow', () => {
     expect(errors).toEqual([]);
   });
 
-  test('checkout refuses an incomplete form with a visible message', async ({ page }) => {
+  test('checkout without an address says so instead of failing silently', async ({ page }) => {
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone: uniquePhone() }); // no address saved
     await gotoReady(page, '/shop/dezmaye-gold-500');
     await page.locator('.sp-buy__row .btn').click();
     await gotoReady(page, '/shop/checkout');
@@ -176,6 +183,14 @@ test.describe('shop purchase flow', () => {
     await expect(page.locator('.checkout-form .note.err')).toBeVisible();
     /* and it must not have navigated away */
     await expect(page).toHaveURL(/\/shop\/checkout$/);
+  });
+
+  test('a signed-out visitor is sent to sign in, not to a dead end', async ({ page }) => {
+    await gotoReady(page, '/shop/dezmaye-gold-80');
+    await page.locator('.sp-buy__row .btn').click();
+    await page.goto('/shop/checkout', { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/\/shop\/login/, { timeout: 20_000 });
+    await expect(page.locator('.auth-card')).toBeVisible();
   });
 
   test('the cart survives a reload', async ({ page }) => {

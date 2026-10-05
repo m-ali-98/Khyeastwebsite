@@ -119,3 +119,58 @@ export const adminTab = (page, label) => page.locator('.admin__side button', { h
 export const faNum = (n) => String(n).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 
 export { E2E };
+
+/* ==========================================================================
+   Customer accounts.
+
+   Checkout requires a signed-in customer, so most shop journeys start here.
+   The verification code is read back out of the admin SMS log — the same way
+   the headless suites do it, and the same way a customer reads it off their
+   phone. There is deliberately no test-only shortcut in the server to
+   shorten this: a backdoor that exists for the tests exists in production.
+   ========================================================================== */
+
+/** Signs a brand-new customer up through the API, in the page's own cookie
+ *  jar, so the UI that follows is already authenticated.
+ *  `page.request` shares cookies with the browser context, which is what
+ *  makes this work without driving three forms. */
+export async function signUpCustomer(page, { phone, password = 'e2e-customer-1404', name = 'مشتری آزمون' } = {}) {
+  const admin = await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
+  const { token } = await admin.json();
+
+  await page.request.post('/api/account/otp', { data: { phone, purpose: 'register' } });
+
+  const log = await (await page.request.get('/api/shop-admin/sms', { headers: { Authorization: `Bearer ${token}` } })).json();
+  const row = (log.log || []).find((l) => l.kind === 'otp' && l.phone.endsWith(phone.slice(-4)));
+  const code = row?.text.match(/(\d{5})/)?.[1];
+  if (!code) throw new Error(`no verification code was sent to ${phone}`);
+
+  const verified = await (await page.request.post('/api/account/otp/verify', { data: { phone, code, purpose: 'register' } })).json();
+  const reg = await page.request.post('/api/account/register', { data: { ticket: verified.ticket, password, name } });
+  if (!reg.ok()) throw new Error(`register failed: ${reg.status()} ${await reg.text()}`);
+  return { phone, password, name };
+}
+
+/** A saved, default address — checkout needs one to post against. */
+export async function addAddress(page, over = {}) {
+  const res = await page.request.post('/api/account/addresses', {
+    data: {
+      title: 'خانه',
+      receiver: 'گیرنده آزمون',
+      phone: '09120000099',
+      province: 'خوزستان',
+      city: 'دزفول',
+      address: 'خیابان شریعتی، کوچه دوم',
+      plaque: '12',
+      unit: '3',
+      postal: '1619637511',
+      ...over,
+    },
+  });
+  if (!res.ok()) throw new Error(`address failed: ${res.status()} ${await res.text()}`);
+  return (await res.json()).address;
+}
+
+/** A phone number unique to one test, so parallel or repeated runs never
+ *  collide on "this number is already registered". */
+export const uniquePhone = () => `0912${String(Date.now()).slice(-7)}`;

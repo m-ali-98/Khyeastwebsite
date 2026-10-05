@@ -1285,3 +1285,395 @@
 [data-theme='dark'] .shop-card .badge-off,
 [data-theme='dark'] .shop-card__badges .badge-off,
 [data-theme='dark'] .sp-buy .off { background: var(--crimson-600); }
+
+/* ==========================================================================
+   Customer accounts — sign in, the panel, and the checkout address chooser
+   ========================================================================== */
+
+/* ---------------- shared form bits ---------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+
+  > span {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-2);
+  }
+  input,
+  select,
+  textarea {
+    width: 100%;
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 11px 14px;
+    font-family: inherit;
+    font-size: 14.5px;
+    color: var(--ink);
+    transition: border-color 0.25s var(--ease-soft);
+
+    &:focus-visible {
+      outline: none;
+      border-color: var(--crimson);
+    }
+    &:disabled {
+      color: var(--muted);
+      background: var(--bg-soft);
+    }
+  }
+  &__hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  &__err {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--crimson-ink);
+  }
+}
+
+/* A button that reads as a link. Kept a <button> because it performs an
+   action rather than navigating — a real <a> would promise a destination. */
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--crimson-ink);
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+  &:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+  &.danger { color: var(--crimson); }
+}
+
+.btn--block {
+  width: 100%;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+/* ---------------- auth card ---------------- */
+.auth-card {
+  max-width: 460px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 28px;
+
+  &__title {
+    font-size: 17px;
+    font-weight: 900;
+    margin: 0 0 16px;
+  }
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: var(--bg-soft);
+  border-radius: 999px;
+  padding: 5px;
+  margin-bottom: 22px;
+}
+
+.auth-tab {
+  border: 0;
+  background: none;
+  border-radius: 999px;
+  padding: 10px 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--muted);
+  cursor: pointer;
+  /* colour and background only: the pill does not move, so there is no
+     layout cost to switching tabs */
+  transition: background 0.28s var(--ease-soft), color 0.28s var(--ease-soft);
+
+  &.is-active {
+    background: var(--surface);
+    color: var(--crimson-ink);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.auth-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -6px 0 14px;
+}
+
+.auth-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.auth-back {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 13.5px;
+
+  a { color: var(--muted); font-weight: 700; }
+  a:hover { color: var(--crimson-ink); }
+}
+
+.note.ok {
+  background: rgba(23, 132, 63, 0.1);
+  color: var(--ok);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+/* ---------------- account panel ---------------- */
+.acc-layout {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  gap: 26px;
+  align-items: start;
+}
+
+.acc-side {
+  position: sticky;
+  top: calc(var(--nav-h) + 18px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+}
+
+.acc-who {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 14px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+
+  strong { font-size: 15px; }
+  span { font-size: 13px; color: var(--muted); }
+}
+
+.acc-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 0;
+    background: none;
+    border-radius: 12px;
+    padding: 11px 13px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink-2);
+    cursor: pointer;
+    text-align: start;
+    transition: background 0.25s var(--ease-soft), color 0.25s var(--ease-soft);
+
+    &:hover { background: var(--bg-soft); }
+    &.is-active { background: var(--crimson-soft); color: var(--crimson-ink); }
+    &--out { color: var(--crimson); margin-top: 8px; }
+  }
+}
+
+.acc-main { min-width: 0; }
+
+.acc-empty {
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 36px;
+  text-align: center;
+  color: var(--muted);
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+}
+
+.acc-orders {
+  display: grid;
+  gap: 12px;
+}
+
+.acc-order {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px;
+  display: grid;
+  gap: 10px;
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  &__code {
+    font-weight: 900;
+    font-size: 14px;
+  }
+  &__status {
+    font-size: 12px;
+    font-weight: 800;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--muted);
+
+    &.is-paid,
+    &.is-delivered { background: rgba(23, 132, 63, 0.12); color: var(--ok); }
+    &.is-cancelled { background: var(--crimson-soft); color: var(--crimson-ink); }
+  }
+  &__body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .btn { justify-self: start; }
+}
+
+.acc-addresses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.acc-addr {
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+
+  &.is-default { border-color: var(--crimson); }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  &__badge {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--crimson-soft);
+    color: var(--crimson-ink);
+  }
+  p {
+    margin: 0 0 6px;
+    font-size: 13.5px;
+    line-height: 2;
+  }
+  &__meta {
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  &__actions {
+    display: flex;
+    gap: 14px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+}
+
+.addr-form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0 14px;
+  }
+  &__actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+  }
+}
+
+.acc-profile {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 22px;
+
+  form {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+  h3 {
+    font-size: 15px;
+    margin: 0 0 14px;
+  }
+}
+
+/* ---------------- checkout address chooser ---------------- */
+.checkout-who {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.checkout-addr {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+
+  &__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    border: 1.5px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.25s var(--ease-soft), background 0.25s var(--ease-soft);
+
+    &:hover { border-color: var(--crimson-soft); }
+    &.is-on { border-color: var(--crimson); background: var(--crimson-soft); }
+
+    input { margin-top: 4px; accent-color: var(--crimson); }
+    span { display: grid; gap: 4px; }
+    small { font-size: 12.5px; color: var(--muted); line-height: 1.9; }
+  }
+}
+
+@media (max-width: 900px) {
+  .acc-layout { grid-template-columns: 1fr; }
+  .acc-side { position: static; }
+  .acc-nav { flex-direction: row; flex-wrap: wrap; }
+}

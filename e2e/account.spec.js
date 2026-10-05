@@ -1,0 +1,169 @@
+/* ==========================================================================
+   The account journey, driven through the actual forms.
+
+   The API-level guarantees (hashing, ownership, enumeration, rate limits)
+   are covered by scripts/test/account-http.mjs. What only a browser can
+   answer is whether a customer can get through the flow at all: does the
+   code field appear, does the countdown stop them resending, does the panel
+   show their order, does signing out really sign them out.
+   ========================================================================== */
+import { test, expect } from '@playwright/test';
+import { gotoReady, routeSettled, watchConsole, loginAdmin, E2E, uniquePhone, signUpCustomer, addAddress } from './helpers.js';
+
+/* The customer's inbox, read through the admin API. */
+async function codeFor(page, phone) {
+  const admin = await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
+  const { token } = await admin.json();
+  const log = await (await page.request.get('/api/shop-admin/sms', { headers: { Authorization: `Bearer ${token}` } })).json();
+  const row = (log.log || []).find((l) => l.kind === 'otp' && l.phone.endsWith(phone.slice(-4)));
+  return row?.text.match(/(\d{5})/)?.[1];
+}
+
+test.describe('customer accounts', () => {
+  test('a visitor can register with their phone and land in their panel', async ({ page }) => {
+    const errors = watchConsole(page);
+    const phone = uniquePhone();
+
+    await gotoReady(page, '/shop/login');
+    await page.locator('.auth-tab', { hasText: 'ثبت‌نام' }).click();
+
+    /* step 1 — the number */
+    await page.locator('input[type="tel"]').fill(phone);
+    await page.locator('.auth-card button[type="submit"]').click();
+
+    /* step 2 — the code that was actually sent */
+    const code = await codeFor(page, phone);
+    expect(code, 'a verification code was sent').toMatch(/^\d{5}$/);
+    const codeField = page.locator('input[autocomplete="one-time-code"]');
+    await expect(codeField).toBeVisible({ timeout: 15_000 });
+
+    /* The wrong code must not get anyone in. */
+    await codeField.fill('00000');
+    await page.locator('.auth-card button[type="submit"]').click();
+    await expect(page.locator('.note.err')).toBeVisible();
+
+    await codeField.fill(code);
+    await page.locator('.auth-card button[type="submit"]').click();
+
+    /* step 3 — name and password */
+    const pw = page.locator('input[autocomplete="new-password"]');
+    await expect(pw).toBeVisible({ timeout: 15_000 });
+    await page.locator('input[autocomplete="name"]').fill('مشتری آزمون');
+    await pw.fill('e2e-customer-1404');
+    await page.locator('.auth-card button[type="submit"]').click();
+
+    await routeSettled(page, /\/shop\/account$/);
+    await expect(page.locator('.acc-who')).toContainText('مشتری آزمون');
+    expect(errors).toEqual([]);
+  });
+
+  test('a weak password is refused with a reason, not a silent failure', async ({ page }) => {
+    const phone = uniquePhone();
+    await gotoReady(page, '/shop/login');
+    await page.locator('.auth-tab', { hasText: 'ثبت‌نام' }).click();
+    await page.locator('input[type="tel"]').fill(phone);
+    await page.locator('.auth-card button[type="submit"]').click();
+
+    const code = await codeFor(page, phone);
+    await page.locator('input[autocomplete="one-time-code"]').fill(code);
+    await page.locator('.auth-card button[type="submit"]').click();
+
+    await page.locator('input[autocomplete="name"]').fill('رمز ضعیف');
+    await page.locator('input[autocomplete="new-password"]').fill('123');
+    await page.locator('.auth-card button[type="submit"]').click();
+
+    await expect(page.locator('.note.err')).toBeVisible();
+    await expect(page).toHaveURL(/\/shop\/login/);
+  });
+
+  test('the resend button is disabled while the previous code is still live', async ({ page }) => {
+    await gotoReady(page, '/shop/login');
+    await page.locator('.auth-tab', { hasText: 'ثبت‌نام' }).click();
+    await page.locator('input[type="tel"]').fill(uniquePhone());
+    await page.locator('.auth-card button[type="submit"]').click();
+
+    const resend = page.locator('.auth-row button').last();
+    await expect(resend).toBeDisabled();
+    /* and it tells the customer how long, rather than just not working */
+    await expect(resend).toContainText('ثانیه');
+  });
+
+  test('an existing customer signs in, sees their order, and signing out really signs them out @mobile', async ({ page }) => {
+    const phone = uniquePhone();
+    await gotoReady(page, '/shop');
+    const who = await signUpCustomer(page, { phone });
+    await addAddress(page);
+
+    /* place an order so the panel has something in it */
+    await gotoReady(page, '/shop/dezmaye-gold-80');
+    await page.locator('.sp-buy__row .btn').click();
+    await gotoReady(page, '/shop/checkout');
+    await page.locator('.checkout-form button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
+
+    await gotoReady(page, '/shop/account');
+    await expect(page.locator('.acc-order')).toHaveCount(1);
+
+    /* sign out */
+    await page.locator('.acc-nav__item--out').click();
+    await routeSettled(page, /\/shop$/);
+    await page.goto('/shop/account', { waitUntil: 'domcontentloaded' });
+    await expect(page, 'the panel is closed once signed out').toHaveURL(/\/shop\/login/, { timeout: 20_000 });
+
+    /* sign back in with the password */
+    await page.locator('input[type="tel"]').fill(who.phone);
+    await page.locator('input[autocomplete="current-password"]').fill(who.password);
+    await page.locator('.auth-card button[type="submit"]').click();
+    await routeSettled(page, /\/shop\/account$/);
+    await expect(page.locator('.acc-order')).toHaveCount(1);
+  });
+
+  test('an address can be added, edited and made default from the panel', async ({ page }) => {
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone: uniquePhone() });
+
+    await gotoReady(page, '/shop/account');
+    await page.locator('.acc-nav__item', { hasText: 'نشانی‌ها' }).click();
+    await page.getByRole('button', { name: 'افزودن نشانی' }).click();
+
+    const form = page.locator('.addr-form');
+    await form.locator('.field', { hasText: 'عنوان نشانی' }).locator('input').fill('خانه');
+    await form.locator('.field', { hasText: 'نام گیرنده' }).locator('input').fill('گیرنده آزمون');
+    await form.locator('.field', { hasText: 'موبایل گیرنده' }).locator('input').fill('09120000099');
+    await form.locator('select').selectOption('خوزستان');
+    await form.locator('.field', { hasText: 'شهر' }).locator('input').fill('دزفول');
+
+    /* A bad postal code must be refused by field, not as a vague error. */
+    await form.locator('.field', { hasText: 'کد پستی' }).locator('input').fill('123');
+    await form.locator('textarea').fill('خیابان شریعتی، کوچه دوم');
+    await form.getByRole('button', { name: 'ذخیره نشانی' }).click();
+    await expect(form.locator('.field__err')).toBeVisible();
+
+    await form.locator('.field', { hasText: 'کد پستی' }).locator('input').fill('1619637511');
+    await form.getByRole('button', { name: 'ذخیره نشانی' }).click();
+
+    const card = page.locator('.acc-addr');
+    await expect(card).toHaveCount(1);
+    /* the first address is automatically the default */
+    await expect(card.first()).toHaveClass(/is-default/);
+    await expect(card.first()).toContainText('دزفول');
+  });
+
+  test('the account panel is not reachable without signing in', async ({ page }) => {
+    await page.goto('/shop/account', { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/\/shop\/login/, { timeout: 20_000 });
+    await expect(page.locator('.auth-card')).toBeVisible();
+  });
+
+  test('the admin can see that a code was sent, but not the customer password', async ({ page }) => {
+    const phone = uniquePhone();
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone, password: 'super-secret-1404' });
+
+    await loginAdmin(page);
+    await page.locator('.admin__side button', { hasText: 'پیامک' }).click();
+    await expect(page.locator('.admin__panel h1')).toContainText('پیامک');
+    await expect(page.locator('.admin__list')).toContainText(phone.replace(/^0/, '98'));
+    await expect(page.locator('body')).not.toContainText('super-secret-1404');
+  });
+});

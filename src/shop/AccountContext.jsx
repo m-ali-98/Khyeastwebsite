@@ -1,0 +1,139 @@
+/* ==========================================================================
+   Customer account state.
+   --------------------------------------------------------------------------
+   The session lives in an HttpOnly cookie, so there is deliberately nothing
+   to store here: this file never holds a token, and a refresh re-reads the
+   session from the server rather than trusting anything in the tab. The only
+   client state is the profile, the addresses and the orders, all of which
+   come from one /api/account/me call.
+   ========================================================================== */
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+
+const AccountCtx = createContext(null);
+
+/* Every call is same-origin and must carry the cookie; fetch does not send
+   credentials cross-origin by default, and 'same-origin' says exactly what
+   is meant. The Origin header the browser attaches is what the server's
+   CSRF check reads. */
+async function call(url, { method = 'GET', body } = {}) {
+  const res = await fetch(url, {
+    method,
+    credentials: 'same-origin',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = {};
+  try {
+    data = await res.json();
+  } catch {
+    /* an empty or non-JSON body is not an error by itself */
+  }
+  if (!res.ok) {
+    const err = new Error(data.error || 'request failed');
+    err.status = res.status;
+    err.fields = data.fields || null;
+    err.retryAfter = data.retryAfter || null;
+    throw err;
+  }
+  return data;
+}
+
+export function AccountProvider({ children }) {
+  const [customer, setCustomer] = useState(null);
+  const [addresses, setAddresses] = useState([]);
+  const [orders, setOrders] = useState([]);
+  /* 'loading' until the first /me resolves. Pages must be able to tell "not
+     signed in" from "we do not know yet", or a protected page flashes its
+     signed-out state on every refresh. */
+  const [status, setStatus] = useState('loading');
+
+  const apply = useCallback((d) => {
+    setCustomer(d.customer || null);
+    setAddresses(d.addresses || []);
+    setOrders(d.orders || []);
+    setStatus(d.customer ? 'in' : 'out');
+  }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      apply(await call('/api/account/me'));
+    } catch {
+      /* Network trouble is not "signed out": clearing the session here
+         would log someone out every time their phone lost signal. */
+      setStatus((s) => (s === 'loading' ? 'out' : s));
+    }
+  }, [apply]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const api = useMemo(
+    () => ({
+      requestCode: (phone, purpose = 'register') => call('/api/account/otp', { method: 'POST', body: { phone, purpose } }),
+      verifyCode: (phone, code, purpose = 'register') =>
+        call('/api/account/otp/verify', { method: 'POST', body: { phone, code, purpose } }),
+      register: async (payload) => {
+        const d = await call('/api/account/register', { method: 'POST', body: payload });
+        await refresh();
+        return d;
+      },
+      login: async (phone, password) => {
+        const d = await call('/api/account/login', { method: 'POST', body: { phone, password } });
+        await refresh();
+        return d;
+      },
+      resetPassword: async (ticket, password) => {
+        const d = await call('/api/account/reset', { method: 'POST', body: { ticket, password } });
+        await refresh();
+        return d;
+      },
+      logout: async () => {
+        await call('/api/account/logout', { method: 'POST', body: {} });
+        setCustomer(null);
+        setAddresses([]);
+        setOrders([]);
+        setStatus('out');
+      },
+      saveProfile: async (profile) => {
+        const d = await call('/api/account/profile', { method: 'PUT', body: profile });
+        setCustomer(d.customer);
+        return d;
+      },
+      changePassword: (current, password) => call('/api/account/password', { method: 'POST', body: { current, password } }),
+      addAddress: async (a) => {
+        const d = await call('/api/account/addresses', { method: 'POST', body: a });
+        setAddresses(d.addresses);
+        return d;
+      },
+      updateAddress: async (id, a) => {
+        const d = await call(`/api/account/addresses/${id}`, { method: 'PUT', body: a });
+        setAddresses(d.addresses);
+        return d;
+      },
+      removeAddress: async (id) => {
+        const d = await call(`/api/account/addresses/${id}`, { method: 'DELETE' });
+        setAddresses(d.addresses);
+        return d;
+      },
+      makeDefault: async (id) => {
+        const d = await call(`/api/account/addresses/${id}/default`, { method: 'POST', body: {} });
+        setAddresses(d.addresses);
+        return d;
+      },
+      refresh,
+    }),
+    [refresh]
+  );
+
+  const value = useMemo(
+    () => ({ customer, addresses, orders, status, signedIn: status === 'in', ...api }),
+    [customer, addresses, orders, status, api]
+  );
+
+  return <AccountCtx.Provider value={value}>{children}</AccountCtx.Provider>;
+}
+
+export function useAccount() {
+  return useContext(AccountCtx) || { status: 'out', signedIn: false, customer: null, addresses: [], orders: [] };
+}

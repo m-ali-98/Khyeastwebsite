@@ -28,6 +28,8 @@ const ShopProduct = lazy(() => import('./pages/ShopProduct'));
 const ShopCart = lazy(() => import('./pages/ShopCart'));
 const ShopCheckout = lazy(() => import('./pages/ShopCheckout'));
 const ShopOrder = lazy(() => import('./pages/ShopOrder'));
+const ShopAuth = lazy(() => import('./pages/ShopAuth'));
+const ShopAccount = lazy(() => import('./pages/ShopAccount'));
 
 /* The admin panel is intentionally NOT linked anywhere on the public site.
    It is reachable only by typing its address directly. */
@@ -50,6 +52,8 @@ function PublicRoutes() {
           <Route path="/shop/cart" element={<ShopCart />} />
           <Route path="/shop/checkout" element={<ShopCheckout />} />
           <Route path="/shop/order/:code" element={<ShopOrder />} />
+          <Route path="/shop/login" element={<ShopAuth />} />
+          <Route path="/shop/account" element={<ShopAccount />} />
           <Route path="/shop/:slug" element={<ShopProduct />} />
         </>
       )}

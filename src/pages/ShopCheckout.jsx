@@ -1,16 +1,30 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop, orderTokenSave } from '../shop/ShopContext';
-
-const PHONE_RE = /^(\+98|0098|0)?9\d{9}$/;
+import { useAccount } from '../shop/AccountContext';
 
 export default function ShopCheckout() {
   const { t } = useContent();
   const { rows, subtotal, shipping, total, money, clear, paymentProvider } = useShop();
+  const account = useAccount();
   const navigate = useNavigate();
+
+  /* Checkout is for account holders now. Send them to sign in, remembering
+     where they were, and carry the cart with them — it lives in
+     localStorage, so it survives the round trip. */
+  useEffect(() => {
+    if (account.status === 'out') navigate('/shop/login?next=/shop/checkout', { replace: true });
+  }, [account.status, navigate]);
+
+  /* The default address, preselected: most people have one and should not
+     have to choose anything. */
+  const [addressId, setAddressId] = useState('');
+  useEffect(() => {
+    if (!addressId && account.addresses.length) setAddressId((account.addresses.find((a) => a.isDefault) || account.addresses[0]).id);
+  }, [account.addresses, addressId]);
 
   const [form, setForm] = useState({ name: '', phone: '', city: '', address: '', postal: '', note: '' });
   const [note, setNote] = useState(null);
@@ -22,10 +36,7 @@ export default function ShopCheckout() {
   const submit = async (e) => {
     e.preventDefault();
     setNote(null);
-    if (!form.name.trim() || !form.phone.trim() || !form.city.trim() || form.address.trim().length < 10)
-      return setNote({ kind: 'err', msg: t('shop.checkout.errFields') });
-    if (!PHONE_RE.test(form.phone.replace(/[\s-]/g, '')))
-      return setNote({ kind: 'err', msg: t('shop.checkout.errPhone') });
+    if (!addressId) return setNote({ kind: 'err', msg: t('shop.checkout.needAddress') });
     if (!rows.length) return navigate('/shop');
 
     setBusy(true);
@@ -35,17 +46,18 @@ export default function ShopCheckout() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: rows.map((r) => ({ slug: r.product.slug, qty: r.qty })),
-          customer: {
-            name: form.name.trim(),
-            phone: form.phone.trim(),
-            city: form.city.trim(),
-            address: form.address.trim(),
-            postal: form.postal.trim(),
-            note: form.note.trim(),
-          },
+          /* The address is identified, not re-typed: the server copies the
+             saved one into the order, so what ships is what the customer
+             saw and chose. */
+          customer: { addressId, note: form.note.trim() },
         }),
+        credentials: 'same-origin',
       });
       if (!res.ok) {
+        if (res.status === 401) {
+          navigate('/shop/login?next=/shop/checkout');
+          return;
+        }
         const msg =
           res.status === 409
             ? t('shop.checkout.errStock')
@@ -100,34 +112,45 @@ export default function ShopCheckout() {
               <form className="checkout-form" onSubmit={submit}>
                 <h2>
                   <Icons.pin size={19} />
-                  اطلاعات گیرنده
+                  {t('shop.checkout.chooseAddress')}
                 </h2>
-                <div className="checkout-form__grid">
-                  <label>
-                    {t('shop.checkout.name')} *
-                    <input value={form.name} onChange={set('name')} maxLength={200} />
-                  </label>
-                  <label>
-                    {t('shop.checkout.phone')} *
-                    <input value={form.phone} onChange={set('phone')} dir="ltr" placeholder="09xxxxxxxxx" maxLength={20} />
-                  </label>
-                  <label>
-                    {t('shop.checkout.city')} *
-                    <input value={form.city} onChange={set('city')} maxLength={100} />
-                  </label>
-                  <label>
-                    {t('shop.checkout.postal')}
-                    <input value={form.postal} onChange={set('postal')} dir="ltr" maxLength={20} />
-                  </label>
-                  <label className="full">
-                    {t('shop.checkout.address')} *
-                    <textarea value={form.address} onChange={set('address')} maxLength={600} />
-                  </label>
-                  <label className="full">
-                    {t('shop.checkout.note')}
-                    <textarea value={form.note} onChange={set('note')} maxLength={1000} />
-                  </label>
+
+                {account.customer && (
+                  <p className="checkout-who">
+                    {t('shop.checkout.signedInAs')} <b>{account.customer.name}</b>{' '}
+                    <span dir="ltr">{faNum(account.customer.phoneLocal)}</span>
+                  </p>
+                )}
+
+                {/* A radio list, not a dropdown: the full address has to be
+                    readable before paying, and a <select> hides all but one
+                    line of it. */}
+                <div className="checkout-addr">
+                  {account.addresses.map((a) => (
+                    <label key={a.id} className={`checkout-addr__item ${addressId === a.id ? 'is-on' : ''}`}>
+                      <input type="radio" name="addr" checked={addressId === a.id} onChange={() => setAddressId(a.id)} />
+                      <span>
+                        <b>{a.title}</b>
+                        <small>
+                          {a.province}، {a.city}، {a.address}
+                          {a.plaque && `، پلاک ${faNum(a.plaque)}`}
+                        </small>
+                        <small>
+                          {a.receiver} — <span dir="ltr">{faNum(a.phone.replace(/^98/, '0'))}</span>
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                  <Link className="btn btn--outline btn--sm" to="/shop/account">
+                    <Icons.pin size={16} />
+                    {account.addresses.length ? t('shop.checkout.newAddress') : t('shop.account.addAddress')}
+                  </Link>
                 </div>
+
+                <label className="field">
+                  <span>{t('shop.checkout.note')}</span>
+                  <textarea value={form.note} onChange={set('note')} maxLength={1000} rows={2} />
+                </label>
                 <AnimatePresence>
                   {note && (
                     <mo.div className={`note ${note.kind}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>

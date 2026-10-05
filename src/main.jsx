@@ -8,6 +8,7 @@ import './styles/shop.scss';
 import App from './App';
 import { ContentProvider } from './content/ContentContext';
 import { ShopProvider } from './shop/ShopContext';
+import { AccountProvider } from './shop/AccountContext';
 import { LocaleProvider } from './i18n/LocaleContext';
 import { loadPack } from '../shared/i18n/index.js';
 import { localeFromPath } from './i18n/LocaleContext';
@@ -49,9 +50,11 @@ loadPack(localeFromPath(window.location.pathname)).finally(() => {
         <MotionConfig reducedMotion="user">
           <LocaleProvider>
             <ContentProvider>
-              <ShopProvider>
+              <AccountProvider>
+                <ShopProvider>
                 <App />
               </ShopProvider>
+              </AccountProvider>
             </ContentProvider>
           </LocaleProvider>
         </MotionConfig>
