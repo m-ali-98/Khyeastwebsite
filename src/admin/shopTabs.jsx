@@ -527,6 +527,12 @@ export function ShopPaymentTab() {
   const [fee, setFee] = useState(null);
   const [tx, setTx] = useState(null);
   const [txFilter, setTxFilter] = useState('PAID');
+  /* A refund is keyed on a ledger row's session id, so the form is opened
+     from a row rather than asking the admin to paste an id from somewhere
+     else — that is the mistake this UI exists to prevent. */
+  const [refundFor, setRefundFor] = useState(null);
+  const [refund, setRefund] = useState({ amount: '', orderCode: '', method: 'PAYA', reason: 'CUSTOMER_REQUEST', description: '' });
+  const [refunds, setRefunds] = useState(null);
 
   const faQ = (n) => Number(n || 0).toLocaleString('fa-IR');
   const say = (kind, msg) => {
@@ -599,6 +605,36 @@ export function ShopPaymentTab() {
       setTx(await api(`/api/shop-admin/payment/transactions?filter=${txFilter}&limit=20`, { auth: true }));
     } catch {
       setTx({ ok: false, error: 'دریافت تراکنش‌ها ممکن نشد.', transactions: [] });
+    }
+  };
+
+  const openRefund = (row) => {
+    setRefundFor(row);
+    setRefund({ amount: String(row.amount || ''), orderCode: '', method: 'PAYA', reason: 'CUSTOMER_REQUEST', description: '' });
+  };
+
+  const sendRefund = async () => {
+    try {
+      await api('/api/shop-admin/payment/refunds', {
+        method: 'POST',
+        body: { sessionId: refundFor.id, ...refund },
+        auth: true,
+      });
+      say('ok', `برگشت وجه ثبت شد${refund.orderCode ? ` و سفارش ${refund.orderCode} لغو شد` : ''}.`);
+      setRefundFor(null);
+      loadRefunds();
+    } catch (e) {
+      say('err', e.message || 'برگشت وجه ممکن نشد.');
+    }
+  };
+
+  const loadRefunds = async () => {
+    setRefunds('loading');
+    try {
+      const d = await api('/api/shop-admin/payment/refunds?limit=20', { auth: true });
+      setRefunds(d);
+    } catch {
+      setRefunds({ ok: false, error: 'دریافت فهرست برگشت‌ها ممکن نشد.', refunds: [] });
     }
   };
 
@@ -797,6 +833,7 @@ export function ShopPaymentTab() {
                     <th>وضعیت</th>
                     <th>مبلغ</th>
                     <th>تاریخ</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -806,6 +843,97 @@ export function ShopPaymentTab() {
                       <td>{t.status}</td>
                       <td>{faQ(t.amount)} ریال</td>
                       <td dir="ltr">{String(t.created_at || '').slice(0, 16)}</td>
+                      <td>
+                        <button className="btn btn--outline btn--sm" onClick={() => openRefund(t)}>
+                          برگشت وجه
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          {/* ---------- refunds ---------- */}
+          <section className="pay__tool">
+            <header>
+              <div>
+                <h2>برگشت وجه</h2>
+                <p>
+                  بازگرداندن مبلغ پس از بسته‌شدن مهلت ۳۰ دقیقه‌ای «ریورس». برای هر تراکنش، از دکمه «برگشت وجه» در جدول بالا شروع کنید.
+                  نیازمند Access Token و شناسه ترمینال است.
+                </p>
+              </div>
+              <button className="btn btn--outline btn--sm" onClick={loadRefunds} disabled={!cfg.canLedger}>
+                فهرست برگشت‌ها
+              </button>
+            </header>
+
+            {refundFor && (
+              <div className="pay__refund">
+                <p>
+                  تراکنش <b dir="ltr">{String(refundFor.id).slice(0, 18)}</b> — مبلغ اصلی {faQ(refundFor.amount)} ریال
+                </p>
+                <div className="pay__refund-grid">
+                  <Field label="مبلغ برگشتی (ریال)" type="number" dir="ltr" value={refund.amount} onChange={(v) => setRefund({ ...refund, amount: v })} />
+                  <Field
+                    label="روش"
+                    type="select"
+                    value={refund.method}
+                    onChange={(v) => setRefund({ ...refund, method: v })}
+                    options={[
+                      { value: 'PAYA', label: 'پایا (واریز به حساب)' },
+                      { value: 'CARD', label: 'کارت به کارت' },
+                    ]}
+                  />
+                  <Field
+                    label="دلیل"
+                    type="select"
+                    value={refund.reason}
+                    onChange={(v) => setRefund({ ...refund, reason: v })}
+                    options={[
+                      { value: 'CUSTOMER_REQUEST', label: 'درخواست مشتری' },
+                      { value: 'DUPLICATE_TRANSACTION', label: 'تراکنش تکراری' },
+                      { value: 'SUSPICIOUS_TRANSACTION', label: 'تراکنش مشکوک' },
+                      { value: 'OTHER', label: 'سایر' },
+                    ]}
+                  />
+                  <Field label="کد سفارش (اختیاری — سفارش لغو و موجودی برگردانده می‌شود)" dir="ltr" value={refund.orderCode} onChange={(v) => setRefund({ ...refund, orderCode: v })} />
+                </div>
+                <Field label="توضیح (اختیاری)" value={refund.description} onChange={(v) => setRefund({ ...refund, description: v })} />
+                <div className="admin__row" style={{ gap: 10 }}>
+                  <button className="btn btn--primary btn--sm" onClick={sendRefund}>
+                    ثبت برگشت وجه
+                  </button>
+                  <button className="btn btn--outline btn--sm" onClick={() => setRefundFor(null)}>
+                    انصراف
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!cfg.canLedger && <p className="pay__none">برای برگشت وجه، Access Token و شناسه ترمینال را در بالا وارد کنید.</p>}
+            {refunds === 'loading' && <p className="pay__none">در حال دریافت…</p>}
+            {refunds && refunds !== 'loading' && !refunds.ok && <p className="pay__msg is-err">{refunds.error}</p>}
+            {refunds && refunds !== 'loading' && refunds.ok && refunds.refunds.length === 0 && <p className="pay__none">برگشت وجهی ثبت نشده است.</p>}
+            {refunds && refunds !== 'loading' && refunds.ok && refunds.refunds.length > 0 && (
+              <table className="pay__table">
+                <thead>
+                  <tr>
+                    <th>شناسه</th>
+                    <th>مبلغ</th>
+                    <th>وضعیت</th>
+                    <th>تاریخ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {refunds.refunds.map((rf) => (
+                    <tr key={rf.id}>
+                      <td dir="ltr" className="pay__mono">{String(rf.id).slice(0, 14)}</td>
+                      <td>{faQ(rf.amount)} ریال</td>
+                      <td>{rf.status}</td>
+                      <td dir="ltr">{String(rf.created_at || '').slice(0, 16)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -819,7 +947,8 @@ export function ShopPaymentTab() {
               <li>مبالغ فروشگاه به <b>ریال</b> ذخیره و با واحد صریح <code dir="ltr">IRR</code> به زرین‌پال ارسال می‌شوند؛ هیچ تبدیلی به تومان انجام نمی‌شود.</li>
               <li>حداقل مبلغ قابل پرداخت <b>۱۰٬۰۰۰ ریال</b> است.</li>
               <li>مبلغِ تأیید همیشه از دیتابیس خودمان خوانده می‌شود، نه از آدرس بازگشت؛ دستکاری لینک بازگشت نمی‌تواند سفارش را با مبلغ دیگری تسویه کند.</li>
-              <li>«بازگرداندن وجه» فقط تا <b>۳۰ دقیقه</b> پس از پرداخت ممکن است و آی‌پی سرور باید روی درگاه ثبت شده باشد (در غیر این صورت خطای ۶۲-).</li>
+              <li><b>ریورس</b> («بازگرداندن وجه» در تب سفارش‌ها) فقط تا <b>۳۰ دقیقه</b> پس از پرداخت، بدون کارمزد و با merchant_id انجام می‌شود؛ آی‌پی سرور باید روی درگاه ثبت باشد (در غیر این صورت خطای ۶۲-).</li>
+              <li><b>برگشت وجه</b> محدودیت زمانی ندارد ولی از مسیر دیگری (GraphQL) و با Access Token انجام می‌شود و شناسه‌اش از «لیست تراکنش‌ها» می‌آید، نه از کد بازگشت پرداخت.</li>
               <li>کلیدها فقط سمت سرور نگهداری می‌شوند و در این صفحه ماسک‌شده دیده می‌شوند.</li>
               <li>اتصال از طریق نمونه‌کد رسمی <code dir="ltr">zarinpal-node-sdk</code> انجام می‌شود.</li>
             </ul>

@@ -15,7 +15,15 @@
      unverified.list          → listUnverified     (money paid, never settled)
      reversals.reverse        → reversePayment     (give it back, <30 min)
      transactions.list        → listTransactions   (terminal ledger)
+     refunds.create/.list     → createRefund, listRefunds
      feeCalculation           → calculateFee       (see the cut beforehand)
+
+   REVERSAL IS NOT REFUND. reversals.reverse undoes a payment inside 30
+   minutes, free, through the merchant id. refunds.create gives money back
+   after that — any time — through the GraphQL API, needs an access token
+   and a session id, carries a reason, and settles by PAYA or card. The
+   panel offers both and says which is which, because picking the wrong one
+   is a support conversation.
 
    UNITS. This is the part that costs real money if it is wrong, so it is
    stated once and respected everywhere: the shop stores RIAL, ZarinPal is
@@ -292,6 +300,74 @@ export async function listTransactions(payment, { filter, limit = 20, offset = 0
     return { ok: true, transactions: Array.isArray(list) ? list : [] };
   } catch (e) {
     return { ...failed(e), transactions: [] };
+  }
+}
+
+export const REFUND_METHODS = ['PAYA', 'CARD'];
+export const REFUND_REASONS = ['CUSTOMER_REQUEST', 'DUPLICATE_TRANSACTION', 'SUSPICIOUS_TRANSACTION', 'OTHER'];
+
+const needLedger = (cfg) =>
+  cfg.zarinpalAccessToken && cfg.zarinpalTerminalId
+    ? null
+    : { ok: false, error: 'برای برگشت وجه، Access Token و شناسه ترمینال لازم است.' };
+
+/** Give money back after the reversal window has closed.
+ *
+ *  Unlike every other call here this one is a GraphQL mutation against a
+ *  different host, authenticated by the access token rather than the
+ *  merchant id, and it is keyed on a SESSION id — the `id` from the
+ *  transaction ledger, not the authority from the callback. Mixing those two
+ *  up is the easiest mistake to make here, so the panel only ever offers a
+ *  refund from a ledger row. */
+export async function createRefund(payment, { sessionId, amount, description, method = 'PAYA', reason = 'CUSTOMER_REQUEST' } = {}, deps) {
+  const cfg = normalizePayment(payment);
+  const bad = needLedger(cfg);
+  if (bad) return bad;
+  if (!sessionId) return { ok: false, error: 'شناسه تراکنش (session id) لازم است.' };
+
+  const rial = Math.round(Number(amount) || 0);
+  if (rial < 1000) return { ok: false, error: 'مبلغ برگشتی باید حداقل ۱۰۰۰ ریال باشد.' };
+  /* The SDK throws on an unknown method or reason, so neither is passed
+     through from a request body unchecked. */
+  if (!REFUND_METHODS.includes(method)) return { ok: false, error: 'روش برگشت وجه نامعتبر است.' };
+  if (!REFUND_REASONS.includes(reason)) return { ok: false, error: 'دلیل برگشت وجه نامعتبر است.' };
+
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const res = await z.refunds.create({
+      sessionId: String(sessionId),
+      amount: rial,
+      description: String(description || '').slice(0, 255) || undefined,
+      method,
+      reason,
+    });
+    /* GraphQL answers 200 with an errors array rather than an HTTP error,
+       so a failure here looks like success unless it is checked. */
+    if (res?.errors?.length) return { ok: false, error: String(res.errors[0]?.message || 'refund failed').slice(0, 300) };
+    const r = res?.data?.resource || res?.resource || {};
+    return { ok: true, id: r.id || null, amount: Number(r.amount ?? rial), timeline: r.timeline || null };
+  } catch (e) {
+    return failed(e);
+  }
+}
+
+/** Refunds already issued on this terminal. */
+export async function listRefunds(payment, { limit = 20, offset = 0 } = {}, deps) {
+  const cfg = normalizePayment(payment);
+  const bad = needLedger(cfg);
+  if (bad) return { ...bad, refunds: [] };
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const res = await z.refunds.list({
+      terminalId: cfg.zarinpalTerminalId,
+      limit: Math.max(1, Math.min(100, Number(limit) || 20)),
+      offset: Math.max(0, Number(offset) || 0),
+    });
+    if (res?.errors?.length) return { ok: false, error: String(res.errors[0]?.message || 'failed').slice(0, 300), refunds: [] };
+    const list = res?.data?.refunds || res?.refunds || [];
+    return { ok: true, refunds: Array.isArray(list) ? list : [] };
+  } catch (e) {
+    return { ...failed(e), refunds: [] };
   }
 }
 

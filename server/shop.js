@@ -18,6 +18,8 @@ import {
   listUnverified,
   reversePayment,
   listTransactions,
+  createRefund,
+  listRefunds,
   calculateFee,
 } from './payment.js';
 import { formatAddress } from './accounts.js';
@@ -663,6 +665,33 @@ export function createShopRouter({ database, requireAuth }) {
   r.get('/api/shop-admin/payment/transactions', requireAuth, async (req, res) => {
     const { filter, limit, offset } = req.query;
     res.json(await listTransactions(payment(), { filter, limit, offset }));
+  });
+
+  /* Refunds are the after-the-fact counterpart to a reversal: no time
+     limit, but they need the ledger credentials and a session id from the
+     transaction list rather than a callback authority. */
+  r.get('/api/shop-admin/payment/refunds', requireAuth, async (req, res) => {
+    res.json(await listRefunds(payment(), { limit: req.query.limit, offset: req.query.offset }));
+  });
+
+  r.post('/api/shop-admin/payment/refunds', requireAuth, async (req, res) => {
+    const out = await createRefund(payment(), req.body || {});
+    if (!out.ok) return res.status(409).json({ error: out.error || 'برگشت وجه ممکن نشد.' });
+
+    /* If the refund belongs to an order we know about, the order has to
+       follow: money returned while the shop still holds reserved stock for
+       it is a slow inventory leak nobody notices. The link is best-effort —
+       a refund can legitimately be for something with no order behind it. */
+    const code = String(req.body?.orderCode || '').trim();
+    const order = code ? db.getOrderByCode(D, code) : null;
+    if (order && order.status !== 'cancelled') {
+      db.restoreStock(D, order.items);
+      db.updateOrder(D, order.id, {
+        status: 'cancelled',
+        adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال برگشت داده شد.`.trim(),
+      });
+    }
+    res.json({ ...out, order: order ? db.getOrderByCode(D, code) : null });
   });
 
   r.get('/api/shop-admin/payment/fee', requireAuth, async (req, res) => {

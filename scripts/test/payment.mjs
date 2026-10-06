@@ -356,6 +356,75 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
   check(tooSmall.ok === false, 'fee: below the 1000 rial floor is refused');
 }
 
+/* ---- 1d. refunds ------------------------------------------------------- */
+{
+  const { createRefund, listRefunds, REFUND_METHODS, REFUND_REASONS } = await import(
+    pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href
+  );
+
+  const LEDGER = { provider: 'zarinpal', zarinpalMerchant: MERCHANT, zarinpalAccessToken: 'tok', zarinpalTerminalId: 'T1' };
+  let sent = null;
+  const client = (over) => ({
+    refunds: {
+      create: async (d) => {
+        sent = d;
+        return { data: { resource: { id: 'RF1', amount: d.amount, timeline: { refund_status: 'IN_PROGRESS' } } } };
+      },
+      list: async (d) => {
+        sent = d;
+        return { data: { refunds: [{ id: 'RF1', amount: 910000, status: 'DONE' }] } };
+      },
+      ...over,
+    },
+  });
+
+  const ok = await createRefund(LEDGER, { sessionId: 'S1', amount: 910000 }, { zarinpal: client() });
+  check(ok.ok === true && ok.id === 'RF1', 'refund: a valid request succeeds', JSON.stringify(ok));
+  check(sent.sessionId === 'S1', 'refund: keyed on the session id from the ledger, not an authority');
+  check(sent.amount === 910000, 'refund: the amount is rial, like everything else', String(sent.amount));
+  check(sent.method === 'PAYA' && sent.reason === 'CUSTOMER_REQUEST', 'refund: sensible defaults are sent');
+
+  /* GraphQL answers 200 with an errors array rather than an HTTP status, so
+     a failure looks exactly like a success unless it is checked. */
+  const graphqlErr = await createRefund(LEDGER, { sessionId: 'S1', amount: 910000 }, {
+    zarinpal: client({ create: async () => ({ errors: [{ message: 'insufficient balance' }] }) }),
+  });
+  check(graphqlErr.ok === false, 'refund: a GraphQL errors array is a failure, not a success');
+  check(graphqlErr.error.includes('insufficient balance'), 'refund: and the reason survives', graphqlErr.error);
+
+  /* The SDK throws on an unknown method or reason, so neither may be
+     forwarded from a request body unchecked. */
+  for (const [field, body] of [
+    ['method', { sessionId: 'S1', amount: 910000, method: 'CASH' }],
+    ['reason', { sessionId: 'S1', amount: 910000, reason: 'BECAUSE' }],
+  ]) {
+    const out = await createRefund(LEDGER, body, { zarinpal: client() });
+    check(out.ok === false, `refund: an invalid ${field} is refused before the SDK sees it`, JSON.stringify(out));
+  }
+  check(REFUND_METHODS.join(',') === 'PAYA,CARD', 'refund: the SDK methods are mirrored');
+  check(REFUND_REASONS.length === 4, 'refund: all four reasons are offered', String(REFUND_REASONS.length));
+
+  check((await createRefund(LEDGER, { amount: 910000 }, { zarinpal: client() })).ok === false, 'refund: no session id, no refund');
+  check((await createRefund(LEDGER, { sessionId: 'S1', amount: 10 }, { zarinpal: client() })).ok === false, 'refund: below the floor is refused');
+
+  /* Refunds use the ledger credentials, not the merchant id. */
+  const noToken = await createRefund({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, { sessionId: 'S1', amount: 910000 }, { zarinpal: client() });
+  check(noToken.ok === false, 'refund: refused without an access token');
+  check(noToken.error.includes('Access Token'), 'refund: and says which credential is missing', noToken.error);
+
+  const thrown = await createRefund(LEDGER, { sessionId: 'S1', amount: 910000 }, {
+    zarinpal: client({ create: () => { throw new Error('ECONNRESET'); } }),
+  });
+  check(thrown.ok === false && Boolean(thrown.error), 'refund: a transport failure is reported, not thrown');
+
+  const list = await listRefunds(LEDGER, {}, { zarinpal: client() });
+  check(list.ok === true && list.refunds.length === 1, 'refund: the list comes back');
+  check(sent.terminalId === 'T1', 'refund: the configured terminal is used');
+  await listRefunds(LEDGER, { limit: 9999 }, { zarinpal: client() });
+  check(sent.limit <= 100, 'refund: the page size is capped', String(sent.limit));
+  check((await listRefunds({ provider: 'zarinpal' }, {}, { zarinpal: client() })).refunds.length === 0, 'refund: an unavailable list is still an array');
+}
+
 /* ---- 2. callback origin must ignore a hostile Host header ----------------- */
 
 /* safeOrigin lives inside shop.js, which pulls in the database on import, so
