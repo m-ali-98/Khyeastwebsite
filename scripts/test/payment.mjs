@@ -405,7 +405,13 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
   check(REFUND_REASONS.length === 4, 'refund: all four reasons are offered', String(REFUND_REASONS.length));
 
   check((await createRefund(LEDGER, { amount: 910000 }, { zarinpal: client() })).ok === false, 'refund: no session id, no refund');
-  check((await createRefund(LEDGER, { sessionId: 'S1', amount: 10 }, { zarinpal: client() })).ok === false, 'refund: below the floor is refused');
+  /* ZarinPal's documented refund floor is 20,000 rial — not the 1,000 the
+     payment side uses, and not the SDK's generic validator. A refund just
+     under it must be refused here rather than by the gateway. */
+  const { REFUND_MIN_RIAL } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
+  check(REFUND_MIN_RIAL === 20000, 'refund: the floor is the documented 20,000 rial', String(REFUND_MIN_RIAL));
+  check((await createRefund(LEDGER, { sessionId: 'S1', amount: 19999 }, { zarinpal: client() })).ok === false, 'refund: one rial under the floor is refused');
+  check((await createRefund(LEDGER, { sessionId: 'S1', amount: 20000 }, { zarinpal: client() })).ok === true, 'refund: exactly the floor is allowed');
 
   /* Refunds use the ledger credentials, not the merchant id. */
   const noToken = await createRefund({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, { sessionId: 'S1', amount: 910000 }, { zarinpal: client() });
@@ -416,6 +422,42 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     zarinpal: client({ create: () => { throw new Error('ECONNRESET'); } }),
   });
   check(thrown.ok === false && Boolean(thrown.error), 'refund: a transport failure is reported, not thrown');
+
+  /* STATUS — via the documented SessionById query, because GetRefunds is
+     not in ZarinPal's published schema and must not be what we rely on to
+     answer "did the customer get their money". */
+  {
+    const { refundStatus } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
+    let asked = null;
+    const gql = (res) => ({
+      graphql: async (query, variables) => {
+        asked = { query, variables };
+        return res;
+      },
+    });
+
+    const done = await refundStatus(LEDGER, '829492417', {
+      zarinpal: gql({ data: { Session: [{ id: '829492417', amount: 10000, status: 'PAID', timeline: { refund_status: 'SUCCESS', refund_amount: 10000, refund_time: '2026-02-17T13:35:59+03:30' } } ] } }),
+    });
+    check(done.ok === true && done.refundStatus === 'SUCCESS', 'refund status: a completed refund is reported', JSON.stringify(done));
+    check(done.refundAmount === 10000, 'refund status: with its amount');
+    check(asked.query.includes('SessionById'), 'refund status: the documented query is used');
+    check(asked.variables.terminal_id === 'T1' && asked.variables.id === '829492417', 'refund status: terminal and session are both sent');
+
+    /* A paid session that has never been refunded has an empty timeline —
+       that is "not refunded", not an error. */
+    const none = await refundStatus(LEDGER, '1', { zarinpal: gql({ data: { Session: [{ id: '1', amount: 10000, status: 'PAID', timeline: {} }] } }) });
+    check(none.ok === true && none.refundStatus === '', 'refund status: an un-refunded session is not an error');
+
+    const missing = await refundStatus(LEDGER, '1', { zarinpal: gql({ data: { Session: [] } }) });
+    check(missing.ok === false, 'refund status: an unknown session is reported as not found');
+
+    const errored = await refundStatus(LEDGER, '1', { zarinpal: gql({ errors: [{ message: 'unauthorized' }] }) });
+    check(errored.ok === false && errored.error.includes('unauthorized'), 'refund status: a GraphQL errors array is a failure');
+
+    check((await refundStatus(LEDGER, '', { zarinpal: gql({}) })).ok === false, 'refund status: no session id, no lookup');
+    check((await refundStatus({ provider: 'zarinpal' }, '1', { zarinpal: gql({}) })).ok === false, 'refund status: needs the ledger credentials');
+  }
 
   const list = await listRefunds(LEDGER, {}, { zarinpal: client() });
   check(list.ok === true && list.refunds.length === 1, 'refund: the list comes back');

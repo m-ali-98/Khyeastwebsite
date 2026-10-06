@@ -20,6 +20,7 @@ import {
   listTransactions,
   createRefund,
   listRefunds,
+  refundStatus,
   calculateFee,
 } from './payment.js';
 import { formatAddress } from './accounts.js';
@@ -692,6 +693,12 @@ export function createShopRouter({ database, requireAuth }) {
       });
     }
     res.json({ ...out, order: order ? db.getOrderByCode(D, code) : null });
+  });
+
+  /* "Did the customer actually get their money" — the documented answer,
+     from the session timeline rather than the undocumented refunds list. */
+  r.get('/api/shop-admin/payment/refunds/:sessionId', requireAuth, async (req, res) => {
+    res.json(await refundStatus(payment(), req.params.sessionId));
   });
 
   r.get('/api/shop-admin/payment/fee', requireAuth, async (req, res) => {

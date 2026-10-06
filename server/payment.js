@@ -303,6 +303,13 @@ export async function listTransactions(payment, { filter, limit = 20, offset = 0
   }
 }
 
+/* ZarinPal's documented floor for a refund is 20,000 rial — twice the
+   payment minimum and twenty times the generic amount validator in the
+   SDK, which is why it has to be stated here. Refusing it locally turns a
+   gateway rejection into a sentence the admin can act on.
+   https://www.zarinpal.com/docs/apiDocs/query/refund */
+export const REFUND_MIN_RIAL = 20000;
+
 export const REFUND_METHODS = ['PAYA', 'CARD'];
 export const REFUND_REASONS = ['CUSTOMER_REQUEST', 'DUPLICATE_TRANSACTION', 'SUSPICIOUS_TRANSACTION', 'OTHER'];
 
@@ -326,7 +333,7 @@ export async function createRefund(payment, { sessionId, amount, description, me
   if (!sessionId) return { ok: false, error: 'شناسه تراکنش (session id) لازم است.' };
 
   const rial = Math.round(Number(amount) || 0);
-  if (rial < 1000) return { ok: false, error: 'مبلغ برگشتی باید حداقل ۱۰۰۰ ریال باشد.' };
+  if (rial < REFUND_MIN_RIAL) return { ok: false, error: 'مبلغ برگشتی باید حداقل ۲۰٬۰۰۰ ریال باشد.' };
   /* The SDK throws on an unknown method or reason, so neither is passed
      through from a request body unchecked. */
   if (!REFUND_METHODS.includes(method)) return { ok: false, error: 'روش برگشت وجه نامعتبر است.' };
@@ -351,7 +358,55 @@ export async function createRefund(payment, { sessionId, amount, description, me
   }
 }
 
-/** Refunds already issued on this terminal. */
+/** The state of one refund, by the session it belongs to.
+ *
+ *  This uses the SessionById query from ZarinPal's refund documentation
+ *  rather than the SDK's refunds.list: GetRefunds does not appear anywhere
+ *  in their published schema, so it is not something to rely on for
+ *  "did the customer get their money". The documented answer lives on the
+ *  session's timeline. */
+export async function refundStatus(payment, sessionId, deps) {
+  const cfg = normalizePayment(payment);
+  const bad = needLedger(cfg);
+  if (bad) return bad;
+  if (!sessionId) return { ok: false, error: 'شناسه تراکنش (session id) لازم است.' };
+
+  const query = `
+    query SessionById($terminal_id: ID, $id: ID) {
+      Session(terminal_id: $terminal_id, id: $id) {
+        id
+        amount
+        status
+        timeline { refund_status refund_amount refund_time }
+      }
+    }
+  `;
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const res = await z.graphql(query, { terminal_id: cfg.zarinpalTerminalId, id: String(sessionId) });
+    if (res?.errors?.length) return { ok: false, error: String(res.errors[0]?.message || 'failed').slice(0, 300) };
+    /* Session comes back as an array of one. */
+    const row = (res?.data?.Session || [])[0] || null;
+    if (!row) return { ok: false, error: 'تراکنشی با این شناسه پیدا نشد.' };
+    return {
+      ok: true,
+      id: row.id,
+      amount: Number(row.amount ?? 0),
+      status: String(row.status || ''),
+      refundStatus: String(row.timeline?.refund_status || ''),
+      refundAmount: Number(row.timeline?.refund_amount ?? 0),
+      refundTime: String(row.timeline?.refund_time || ''),
+    };
+  } catch (e) {
+    return failed(e);
+  }
+}
+
+/** Refunds already issued on this terminal.
+ *
+ *  Kept because the SDK offers it, but GetRefunds is not in ZarinPal's
+ *  published documentation — treat an error here as "this query is not
+ *  available on your terminal", not as "something is broken". */
 export async function listRefunds(payment, { limit = 20, offset = 0 } = {}, deps) {
   const cfg = normalizePayment(payment);
   const bad = needLedger(cfg);

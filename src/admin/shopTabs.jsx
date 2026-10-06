@@ -533,6 +533,8 @@ export function ShopPaymentTab() {
   const [refundFor, setRefundFor] = useState(null);
   const [refund, setRefund] = useState({ amount: '', orderCode: '', method: 'PAYA', reason: 'CUSTOMER_REQUEST', description: '' });
   const [refunds, setRefunds] = useState(null);
+  const [statusId, setStatusId] = useState('');
+  const [rStatus, setRStatus] = useState(null);
 
   const faQ = (n) => Number(n || 0).toLocaleString('fa-IR');
   const say = (kind, msg) => {
@@ -621,10 +623,22 @@ export function ShopPaymentTab() {
         auth: true,
       });
       say('ok', `برگشت وجه ثبت شد${refund.orderCode ? ` و سفارش ${refund.orderCode} لغو شد` : ''}.`);
+      /* Prefill the status box with the session just refunded, so checking
+         it is one click rather than copying an id around. */
+      setStatusId(String(refundFor.id));
       setRefundFor(null);
       loadRefunds();
     } catch (e) {
       say('err', e.message || 'برگشت وجه ممکن نشد.');
+    }
+  };
+
+  const checkRefund = async () => {
+    setRStatus('loading');
+    try {
+      setRStatus(await api(`/api/shop-admin/payment/refunds/${encodeURIComponent(statusId)}`, { auth: true }));
+    } catch {
+      setRStatus({ ok: false, error: 'بررسی وضعیت ممکن نشد.' });
     }
   };
 
@@ -865,9 +879,11 @@ export function ShopPaymentTab() {
                   نیازمند Access Token و شناسه ترمینال است.
                 </p>
               </div>
-              <button className="btn btn--outline btn--sm" onClick={loadRefunds} disabled={!cfg.canLedger}>
-                فهرست برگشت‌ها
-              </button>
+              <div className="admin__row" style={{ gap: 8 }}>
+                <button className="btn btn--outline btn--sm" onClick={loadRefunds} disabled={!cfg.canLedger}>
+                  فهرست برگشت‌ها
+                </button>
+              </div>
             </header>
 
             {refundFor && (
@@ -876,15 +892,15 @@ export function ShopPaymentTab() {
                   تراکنش <b dir="ltr">{String(refundFor.id).slice(0, 18)}</b> — مبلغ اصلی {faQ(refundFor.amount)} ریال
                 </p>
                 <div className="pay__refund-grid">
-                  <Field label="مبلغ برگشتی (ریال)" type="number" dir="ltr" value={refund.amount} onChange={(v) => setRefund({ ...refund, amount: v })} />
+                  <Field label="مبلغ برگشتی (ریال — حداقل ۲۰٬۰۰۰)" type="number" dir="ltr" value={refund.amount} onChange={(v) => setRefund({ ...refund, amount: v })} />
                   <Field
                     label="روش"
                     type="select"
                     value={refund.method}
                     onChange={(v) => setRefund({ ...refund, method: v })}
                     options={[
-                      { value: 'PAYA', label: 'پایا (واریز به حساب)' },
-                      { value: 'CARD', label: 'کارت به کارت' },
+                      { value: 'PAYA', label: 'عادی (پایا) — واریز در سیکل بعدی پایا' },
+                      { value: 'CARD', label: 'آنی (کارت) — واریز فوری' },
                     ]}
                   />
                   <Field
@@ -911,6 +927,27 @@ export function ShopPaymentTab() {
                   </button>
                 </div>
               </div>
+            )}
+
+            {/* The documented way to answer "did it go through": the session's
+                own timeline, looked up by the id the refund was made against. */}
+            <div className="admin__row" style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 12 }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <Field label="بررسی وضعیت استرداد — شناسه تراکنش (session id)" dir="ltr" value={statusId} onChange={setStatusId} />
+              </div>
+              <button className="btn btn--outline btn--sm" onClick={checkRefund} disabled={!cfg.canLedger || !statusId}>
+                بررسی وضعیت
+              </button>
+            </div>
+            {rStatus === 'loading' && <p className="pay__none">در حال بررسی…</p>}
+            {rStatus && rStatus !== 'loading' && (
+              <p className={`pay__msg ${rStatus.ok ? '' : 'is-err'}`}>
+                {rStatus.ok
+                  ? rStatus.refundStatus
+                    ? `وضعیت استرداد: ${rStatus.refundStatus} · مبلغ ${faQ(rStatus.refundAmount)} ریال · ${String(rStatus.refundTime).slice(0, 16)}`
+                    : `این تراکنش (${rStatus.status}) هنوز استردادی ندارد.`
+                  : rStatus.error}
+              </p>
             )}
 
             {!cfg.canLedger && <p className="pay__none">برای برگشت وجه، Access Token و شناسه ترمینال را در بالا وارد کنید.</p>}
@@ -948,7 +985,8 @@ export function ShopPaymentTab() {
               <li>حداقل مبلغ قابل پرداخت <b>۱۰٬۰۰۰ ریال</b> است.</li>
               <li>مبلغِ تأیید همیشه از دیتابیس خودمان خوانده می‌شود، نه از آدرس بازگشت؛ دستکاری لینک بازگشت نمی‌تواند سفارش را با مبلغ دیگری تسویه کند.</li>
               <li><b>ریورس</b> («بازگرداندن وجه» در تب سفارش‌ها) فقط تا <b>۳۰ دقیقه</b> پس از پرداخت، بدون کارمزد و با merchant_id انجام می‌شود؛ آی‌پی سرور باید روی درگاه ثبت باشد (در غیر این صورت خطای ۶۲-).</li>
-              <li><b>برگشت وجه</b> محدودیت زمانی ندارد ولی از مسیر دیگری (GraphQL) و با Access Token انجام می‌شود و شناسه‌اش از «لیست تراکنش‌ها» می‌آید، نه از کد بازگشت پرداخت.</li>
+              <li><b>برگشت وجه</b> محدودیت زمانی ندارد ولی از مسیر دیگری (GraphQL) و با Access Token انجام می‌شود و شناسه‌اش از «لیست تراکنش‌ها» می‌آید، نه از کد بازگشت پرداخت. حداقل مبلغ قابل استرداد <b>۲۰٬۰۰۰ ریال</b> است.</li>
+              <li>روش <b>پایا</b> مبلغ را در سیکل بعدی پایا واریز می‌کند و روش <b>آنی (کارت)</b> بلافاصله؛ وضعیت نهایی را از «بررسی وضعیت استرداد» دنبال کنید.</li>
               <li>کلیدها فقط سمت سرور نگهداری می‌شوند و در این صفحه ماسک‌شده دیده می‌شوند.</li>
               <li>اتصال از طریق نمونه‌کد رسمی <code dir="ltr">zarinpal-node-sdk</code> انجام می‌شود.</li>
             </ul>
