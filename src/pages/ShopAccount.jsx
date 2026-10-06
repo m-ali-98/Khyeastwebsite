@@ -199,7 +199,7 @@ export default function ShopAccount() {
 
   return (
     <>
-      <PageHero title={t('shop.account.title')} sub={t('shop.account.sub')} crumb={t('shop.title')} />
+      <PageHero title={t('shop.account.title')} sub={t('shop.account.sub')} crumb={t('nav.shop')} />
 
       <section className="section">
         <div className="container acc-layout">

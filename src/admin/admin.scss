@@ -840,7 +840,10 @@
 
   b { color: var(--ink-2); font-weight: 800; }
 }
-.cust__since { opacity: 0.85; }
+/* --muted on white is 5.0:1; the 0.85 opacity this used to carry dropped
+   it to 3.74:1, under the 4.5 threshold. Dimming already-muted text is how
+   small print quietly becomes unreadable. */
+.cust__since { color: var(--muted); }
 
 .cust__chev {
   color: var(--muted);

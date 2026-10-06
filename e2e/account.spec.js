@@ -281,7 +281,8 @@ test.describe('customer accounts', () => {
     /* With no merchant id configured the panel must say so plainly rather
        than offering buttons that are guaranteed to fail. */
     await expect(page.locator('.pay__state')).toHaveAttribute('data-ok', '0');
-    await expect(page.getByRole('button', { name: 'بررسی' })).toBeDisabled();
+    /* exact: 'بررسی' is also a prefix of 'بررسی وضعیت' */
+    await expect(page.getByRole('button', { name: 'بررسی', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'محاسبه' })).toBeDisabled();
 
     /* The ledger needs credentials the payment path does not, and says so. */

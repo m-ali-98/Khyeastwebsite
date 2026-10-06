@@ -130,7 +130,7 @@ export default function ShopAuth() {
 
   return (
     <>
-      <PageHero title={t('shop.auth.title')} sub={t('shop.auth.sub')} crumb={t('shop.title')} />
+      <PageHero title={t('shop.auth.title')} sub={t('shop.auth.sub')} crumb={t('nav.shop')} />
 
       <section className="section">
         <div className="container">

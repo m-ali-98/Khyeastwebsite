@@ -43,13 +43,30 @@ import {
 
 /* ------------------------------------------------------------ throttles */
 
+/* Per-phone and per-IP, because either alone is trivially sidestepped: one
+   IP can walk a thousand numbers, and a thousand IPs can hammer one number.
+
+   The two axes are deliberately tuned differently. The PER-PHONE cap is the
+   real guard — it is what stops an attacker spending SMS credit and burying
+   someone's inbox, and it is strict. The PER-IP caps are blunt, and in Iran
+   they are blunter than they look: the mobile networks sit behind
+   carrier-grade NAT, so a large number of unrelated customers share one
+   public address. An IP cap tight enough to be meaningful against a bot is
+   also tight enough to lock out a street. They are set to the loosest value
+   that still bounds bulk abuse, and the money is protected by the per-phone
+   cap and the daily send ceiling instead.
+
+   The e2e suite also runs every request from one address, and hitting these
+   is how that was noticed. */
 const LIMITS = {
   /* OTP is the expensive one: every send costs money and lands on someone's
-     phone. Deliberately tight. */
+     phone. Deliberately tight — per phone. */
   otpPhone: { max: 5, windowMs: 60 * 60 * 1000 },
-  otpIp: { max: 15, windowMs: 60 * 60 * 1000 },
+  otpIp: { max: 30, windowMs: 60 * 60 * 1000 },
   login: { max: 10, windowMs: 15 * 60 * 1000 },
-  register: { max: 10, windowMs: 60 * 60 * 1000 },
+  /* Registering costs nothing by itself — the SMS that precedes it is
+     already capped twice over — so this one can be generous. */
+  register: { max: 40, windowMs: 60 * 60 * 1000 },
 };
 
 function makeLimiter() {

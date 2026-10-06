@@ -25,7 +25,7 @@ const ROUTES = [
   '/', '/about', '/products', '/products/dezmaye-gold-80', '/products/shetab-90',
   '/products/xpower-70', '/products/nanmaye-10', '/shop', '/shop/cart',
   '/shop/checkout', '/shop/dezmaye-gold-80', '/export', '/quality', '/blog',
-  '/blog/reduce-bread-production-costs', '/contact',
+  '/blog/reduce-bread-production-costs', '/contact', '/shop/login', '/shop/account',
   '/en', '/en/about', '/en/products', '/en/blog', '/en/contact', '/en/shop',
   '/ar', '/ar/about', '/ar/products', '/ar/contact', '/ar/shop',
   '/dezmaye', '/shetab', '/nonexistent-page',
@@ -73,9 +73,11 @@ console.log('\nRoutes — every page must mount and render real content');
 for (const route of ROUTES) {
   try {
     const r = await child('route-one.mjs', route);
-    const ok = r.chars > 40 && !r.errors.length;
-    record(ok, `route ${route}`, r.errors[0]?.slice(0, 90) || `${r.chars} chars`);
-    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${route.padEnd(38)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 60) || ''}`);
+    const nameless = r.namelessLinks || [];
+    const ok = r.chars > 40 && !r.errors.length && !nameless.length;
+    const why = r.errors[0]?.slice(0, 90) || (nameless.length ? `nameless link: ${nameless.join(', ')}` : `${r.chars} chars`);
+    record(ok, `route ${route}`, why);
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${route.padEnd(38)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 60) || (nameless.length ? why : '')}`);
   } catch (e) {
     record(false, `route ${route}`, String(e.message).split('\n')[0].slice(0, 90));
     console.log(`  FAIL ${route.padEnd(38)} harness error`);

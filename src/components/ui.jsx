@@ -383,7 +383,12 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
 /* ------------------------------------------------------------------ */
 export function PageHero({ title, sub, image, crumb }) {
   const { t } = useContent();
-  crumb = crumb ?? t('nav.breadcrumb.home');
+  /* `||`, not `??`: a caller passing t('some.missing.key') gets an empty
+     string, not undefined, and an empty string here renders a link with no
+     text at all — invisible to a mouse and nameless to a screen reader.
+     Falling back on any falsy value means a mistyped key degrades to the
+     home label instead of producing an unusable link. */
+  crumb = crumb || t('nav.breadcrumb.home');
   return (
     <header className="page-hero">
       {image && (
