@@ -10,7 +10,7 @@
    server/data/.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
-import { loginAdmin, adminTab, watchConsole, gotoReady, routeSettled, one, E2E } from './helpers.js';
+import { loginAdmin, adminTab, watchConsole, gotoReady, routeSettled, one, E2E, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
 
 const field = (page, label) => page.locator('label.field', { hasText: label }).locator('input, textarea, select').first();
 
@@ -278,17 +278,20 @@ test('the shop products tab can refresh live stock without clobbering it', async
 });
 
 test('an order placed on the site is visible in the orders tab and its status can change', async ({ page }) => {
-  /* place a real order through the storefront */
+  /* place a real order through the storefront. Ordering needs a verified
+     account now, so the journey starts with one — set up through the API,
+     to keep this test about the admin panel. */
+  await gotoReady(page, '/shop');
+  await signUpCustomer(page, { phone: uniquePhone(), name: 'سفارش آزمایشی' });
+  await addAddress(page, { receiver: 'سفارش آزمایشی' });
+
   await gotoReady(page, '/shop/dezmaye-gold-80');
   await page.locator('.sp-buy__row .btn').click();
   await gotoReady(page, '/shop/checkout');
   await routeSettled(page);
   const form = page.locator('.checkout-form');
-  const inputs = form.locator('.checkout-form__grid input');
-  await inputs.nth(0).fill('سفارش آزمایشی');
-  await inputs.nth(1).fill('09123456789');
-  await inputs.nth(2).fill('دزفول');
-  await form.locator('textarea').first().fill('نشانی آزمایشی برای سفارش خودکار، پلاک ۷');
+  /* the saved address is preselected */
+  await expect(form.locator('.checkout-addr__item.is-on')).toHaveCount(1);
   await form.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
   const code = (await (await one(page, '.order-hero .code')).innerText()).trim();

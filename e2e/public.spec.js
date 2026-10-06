@@ -26,7 +26,10 @@ const ROUTES = [
   ['/shop', '.sp-card, .shop-card, main'],
   ['/shop/dezmaye-gold-80', '.sp-buy'],
   ['/shop/cart', '.cart-empty, .cart-layout', 30],
-  ['/shop/checkout', '.cart-empty, .checkout-grid', 30],
+  /* /shop/checkout is deliberately absent: it requires an account now and
+     sends an anonymous visitor to sign in, which is covered by its own test
+     below. The sign-in page it lands on is public, so that is listed. */
+  ['/shop/login', '.auth-card', 30],
   ['/en', 'main'],
   ['/en/about', 'main'],
   ['/en/products', '.product-card'],

@@ -42,6 +42,11 @@ test.describe('customer accounts', () => {
     await page.locator('.auth-card button[type="submit"]').click();
     await expect(page.locator('.note.err')).toBeVisible();
 
+    /* That wrong code was refused with a 400, which the browser logs as a
+       failed resource. It is the expected outcome of this step, not a
+       regression, so the log starts fresh before the happy path. */
+    errors.length = 0;
+
     await codeField.fill(code);
     await page.locator('.auth-card button[type="submit"]').click();
 
@@ -254,7 +259,9 @@ test.describe('customer accounts', () => {
     const body = page.locator('.cust__detail');
     await expect(body).toContainText('دزفول'); // their address
     await expect(body).toContainText('نشانی‌ها');
-    await expect(body.locator('.cust__table')).toBeVisible(); // orders, as a table
+    /* This customer registered and saved an address but never ordered, so
+       the orders section must say so rather than render an empty table. */
+    await expect(body).toContainText('سفارشی ثبت نشده است.');
     const addrPhone = await body.locator('.cust__addr dd[dir="ltr"]').first().innerText();
     expect(addrPhone, 'the address phone is not formatted as a price').not.toContain('٬');
 

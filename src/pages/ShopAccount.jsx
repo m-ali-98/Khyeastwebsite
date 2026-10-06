@@ -1,7 +1,7 @@
 /* ==========================================================================
    The customer's own panel: orders, addresses, profile.
    ========================================================================== */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Icons, Reveal, PageHero, faNum, faId, PasswordInput } from '../components/ui';
 import { useContent } from '../content/ContentContext';
@@ -131,8 +131,16 @@ export default function ShopAccount() {
   usePageMeta(t('shop.account.title'));
 
   /* 'loading' is distinct from 'out' so a refresh does not bounce a
-     signed-in customer to the login page for one frame. */
+     signed-in customer to the login page for one frame.
+
+     `leaving` covers the other direction: signing out also makes the status
+     'out', and without it this guard raced the logout button and sent the
+     visitor to a login page asking them to sign in again — immediately
+     after they asked to sign out. A ref, not state, because the guard must
+     see the new value in the same tick. */
+  const leaving = useRef(false);
   useEffect(() => {
+    if (leaving.current) return;
     if (account.status === 'out') navigate('/shop/login?next=/shop/account', { replace: true });
   }, [account.status, navigate]);
 
@@ -213,8 +221,11 @@ export default function ShopAccount() {
               <button
                 className="acc-nav__item acc-nav__item--out"
                 onClick={async () => {
+                  leaving.current = true;
                   await account.logout();
-                  navigate('/shop');
+                  /* replace, so Back does not return to a panel that is no
+                     longer readable */
+                  navigate('/shop', { replace: true });
                 }}
               >
                 {t('shop.account.logout')}
