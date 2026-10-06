@@ -529,16 +529,40 @@ export function ShopPaymentTab() {
 
           {cfg.provider === 'zarinpal' && (
             <div style={{ marginTop: 14 }}>
-              <Field label="Merchant ID زرین‌پال" dir="ltr" value={cfg.zarinpalMerchant} onChange={(v) => setCfg({ ...cfg, zarinpalMerchant: v })} />
+              <Field
+                label={cfg.hasZarinpalMerchant ? 'Merchant ID زرین‌پال — برای تغییر، شناسه جدید را وارد کنید' : 'Merchant ID زرین‌پال'}
+                dir="ltr"
+                value={cfg.zarinpalMerchant}
+                onChange={(v) => setCfg({ ...cfg, zarinpalMerchant: v })}
+              />
+              <label className="admin__row" style={{ marginTop: 10, gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!cfg.zarinpalSandbox}
+                  onChange={(e) => setCfg({ ...cfg, zarinpalSandbox: e.target.checked })}
+                />
+                حالت آزمایشی (Sandbox)
+              </label>
+              {cfg.hasZarinpalMerchant && !cfg.zarinpalMerchantValid && (
+                <p style={{ fontSize: 12, color: 'var(--crimson)', marginTop: 8, lineHeight: 2 }}>
+                  شناسه ذخیره‌شده قالب درست (UUID ۳۶ کاراکتری) ندارد؛ تا اصلاح آن، سفارش‌ها بدون پرداخت آنلاین ثبت می‌شوند.
+                </p>
+              )}
               <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, lineHeight: 2 }}>
-                merchant_id را از پنل زرین‌پال کپی کنید (برای محیط آزمایشگاه، شناسه‌هایی که با test شروع می‌شوند به‌صورت sandbox استفاده می‌شوند).
+                merchant_id را از بخش «تنظیمات درگاه» پنل زرین‌پال کپی کنید؛ یک شناسه ۳۶ کاراکتری مانند{' '}
+                <code dir="ltr">xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>. مبالغ به <b>ریال</b> و با واحد صریح <code dir="ltr">IRR</code> ارسال می‌شوند.
               </p>
             </div>
           )}
 
           {cfg.provider === 'idpay' && (
             <div style={{ marginTop: 14 }}>
-              <Field label="API Key آیدی‌پی" dir="ltr" value={cfg.idpayApiKey} onChange={(v) => setCfg({ ...cfg, idpayApiKey: v })} />
+              <Field
+                label={cfg.hasIdpayApiKey ? 'API Key آیدی‌پی — برای تغییر، کلید جدید را وارد کنید' : 'API Key آیدی‌پی'}
+                dir="ltr"
+                value={cfg.idpayApiKey}
+                onChange={(v) => setCfg({ ...cfg, idpayApiKey: v })}
+              />
               <label className="admin__row" style={{ marginTop: 10, gap: 8 }}>
                 <input type="checkbox" checked={!!cfg.idpaySandbox} onChange={(e) => setCfg({ ...cfg, idpaySandbox: e.target.checked })} />
                 حالت آزمایشی (Sandbox)
@@ -571,7 +595,8 @@ export function ShopPaymentTab() {
             <ul style={{ margin: '6px 18px 0', listStyle: 'disc' }}>
               <li>مبالغ فروشگاه به <b>ریال</b> ذخیره می‌شوند و به‌صورت خودکار به <b>تومان</b> (واحد درگاه‌های ایرانی) تبدیل می‌گردند.</li>
               <li>پس از پرداخت موفق، درگاه به نشانی بازگشت (Callback) سایت هدایت می‌شود و وضعیت سفارش خودکار «پرداخت‌شده» می‌گردد.</li>
-              <li>کلیدها و شناسه‌ها فقط سمت سرور نگهداری می‌شوند و هرگز در API عمومی سایت منتشر نمی‌شوند.</li>
+              <li>کلیدها و شناسه‌ها فقط سمت سرور نگهداری می‌شوند؛ در همین صفحه هم به‌صورت ماسک‌شده دیده می‌شوند و هرگز کامل بازگردانده نمی‌شوند.</li>
+              <li>اتصال زرین‌پال از طریق نمونه‌کد رسمی <code dir="ltr">zarinpal-node-sdk</code> انجام می‌شود.</li>
               <li>تا زمانی که درگاه فعال نشده، سفارش‌ها با وضعیت «در انتظار پرداخت» ثبت می‌شوند و در تب «سفارش‌ها» قابل تغییر وضعیت هستند.</li>
             </ul>
           </div>

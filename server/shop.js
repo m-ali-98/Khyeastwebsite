@@ -8,7 +8,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
-import { createPayment, verifyPayment, normalizePayment } from './payment.js';
+import { createPayment, verifyPayment, normalizePayment, publicPayment, mergePayment } from './payment.js';
 import { formatAddress } from './accounts.js';
 import {
   sendSms,
@@ -382,11 +382,19 @@ export function createShopRouter({ database, requireAuth }) {
       ok = out.ok;
       ref = out.ref;
       if (out.amountMismatch) {
+        /* The unit differs by provider — ZarinPal is billed in rial, IDPay
+           settles in toman — so the log says which, or the number is
+           unreadable at 3am. */
+        const unit = provider === 'idpay' ? 'toman' : 'rial';
         console.error(
           `[shop] REJECTED payment for ${order.code}: gateway settled ` +
-            `${out.amountMismatch.paid} toman but the order is ${out.amountMismatch.expected} toman`,
+            `${out.amountMismatch.paid} ${unit} but the order is ${out.amountMismatch.expected} ${unit}`,
         );
       }
+      /* A repeat callback for an order already settled is normal — the
+         customer pressed back, or the gateway retried. Worth a line, not an
+         error. */
+      if (out.alreadyVerified) console.log(`[shop] ${order.code}: gateway reports this payment was already verified`);
     } catch (e) {
       console.error('[shop] verify error:', e.message);
     }
@@ -548,12 +556,16 @@ export function createShopRouter({ database, requireAuth }) {
     res.json({ ok: !!out.ok, error: out.error || '', sent: out.ok });
   });
 
-  r.get('/api/shop-admin/payment', requireAuth, (_req, res) => res.json(payment()));
+  /* Masked, like the SMS settings: the merchant id and the IDPay key stay
+     on the server. They used to be returned in full to the admin tab. */
+  r.get('/api/shop-admin/payment', requireAuth, (_req, res) => res.json(publicPayment(payment())));
 
   r.put('/api/shop-admin/payment', requireAuth, (req, res) => {
-    const next = normalizePayment(req.body || {});
+    /* merge, not replace: a form that posts the mask back keeps the stored
+       credential instead of wiping it */
+    const next = mergePayment(payment(), req.body || {});
     db.setSetting(D, 'shop.payment', next);
-    res.json({ ok: true, payment: next });
+    res.json({ ok: true, payment: publicPayment(next) });
   });
 
   r.dispatchSms = dispatchSms;

@@ -60,7 +60,7 @@ const AMOUNT_CASES = [
 
 const realFetch = globalThis.fetch;
 
-async function runProvider(provider, buildBody, params) {
+async function runProvider(provider, buildBody, params, { deps } = {}) {
   for (const [name, amount, shouldSettle] of AMOUNT_CASES) {
     globalThis.fetch = async () => ({
       ok: true,
@@ -71,10 +71,11 @@ async function runProvider(provider, buildBody, params) {
     let res;
     try {
       res = await verifyPayment(
-        { provider, zarinpalMerchant: 'm', idpayApiKey: 'k' },
+        { provider, zarinpalMerchant: MERCHANT, idpayApiKey: 'k' },
         provider,
         params,
         EXPECTED_RIAL,
+        deps ? deps(amount) : undefined,
       );
     } catch (e) {
       res = { ok: false, error: e.message };
@@ -87,16 +88,100 @@ async function runProvider(provider, buildBody, params) {
   }
 }
 
-await runProvider(
-  'zarinpal',
-  (amount) => {
+/* The SDK validates this as a UUID and throws on anything else. */
+const MERCHANT = '0123abcd-4567-89ef-0123-456789abcdef';
+const AUTHORITY = `A${'0'.repeat(35)}`;
+
+/* A stand-in for the SDK. Nothing here touches the network, which is the
+   only reason the gateway paths can be tested at all. */
+const fakeZarinpal = (verifyBody, createBody) => ({
+  payments: {
+    create: async (data) => {
+      fakeZarinpal.lastCreate = data;
+      return createBody ? createBody(data) : { data: { code: 100, authority: AUTHORITY } };
+    },
+    getRedirectUrl: (a) => `https://www.zarinpal.com/pg/StartPay/${a}`,
+  },
+  verifications: {
+    verify: async (data) => {
+      fakeZarinpal.lastVerify = data;
+      return verifyBody(data);
+    },
+  },
+});
+
+/* ZARINPAL. Amounts are RIAL now, and the verify response does not echo an
+   amount — so "amount omitted" must SETTLE, where the old toman-based code
+   refused it. That refusal would have rejected every genuine payment the
+   shop ever took, because the real API never sends the field. */
+const ZARINPAL_CASES = [
+  ['amount absent from the response (the real API shape)', undefined, true],
+  ['amount echoed and correct', EXPECTED_RIAL, true],
+  ['amount echoed as a correct string', String(EXPECTED_RIAL), true],
+  ['amount echoed but underpaid', 1, false],
+  ['amount echoed but overpaid', EXPECTED_RIAL * 2, false],
+  ['amount echoed in toman instead of rial', EXPECTED_RIAL / 10, false],
+  ['amount echoed as nonsense', 'abc', false],
+  ['amount echoed as an array', [EXPECTED_RIAL], false],
+  ['amount echoed as an object', { v: EXPECTED_RIAL }, false],
+];
+
+for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
+  const z = fakeZarinpal(() => {
     const data = { code: 100, ref_id: 'R1' };
     if (amount !== undefined) data.amount = amount;
-    return { data, errors: [] };
-  },
-  { Authority: 'A1', Status: 'OK' },
-);
+    return { data };
+  });
+  const res = await verifyPayment(
+    { provider: 'zarinpal', zarinpalMerchant: MERCHANT },
+    'zarinpal',
+    { Authority: AUTHORITY, Status: 'OK' },
+    EXPECTED_RIAL,
+    { zarinpal: z },
+  );
+  check(Boolean(res.ok) === shouldSettle, `zarinpal: ${name}`, `ok=${res.ok} expected ${shouldSettle}`);
+}
 
+/* The amount we ask ZarinPal to verify must come from our own database and
+   be in rial — that is what makes a tampered callback harmless. */
+{
+  const z = fakeZarinpal(() => ({ data: { code: 100, ref_id: 'R1' } }));
+  await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, { zarinpal: z });
+  check(fakeZarinpal.lastVerify.amount === EXPECTED_RIAL, 'zarinpal: verify is sent the order total in RIAL', String(fakeZarinpal.lastVerify.amount));
+  check(fakeZarinpal.lastVerify.authority === AUTHORITY, 'zarinpal: verify is sent the callback authority');
+}
+
+/* Gateway status codes. */
+{
+  const code = async (c) => {
+    const z = fakeZarinpal(() => ({ data: { code: c, ref_id: 'R9' } }));
+    return verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, { zarinpal: z });
+  };
+  check((await code(100)).ok === true, 'zarinpal: code 100 settles');
+  /* 101 is "already verified" — the customer pressed back or the callback
+     arrived twice. Failing it would flip a paid order to failed. */
+  const repeat = await code(101);
+  check(repeat.ok === true, 'zarinpal: code 101 (already verified) settles, idempotently');
+  check(repeat.alreadyVerified === true, 'zarinpal: and says it was a repeat');
+  for (const bad of [-9, 51, 54, 0]) {
+    check((await code(bad)).ok === false, `zarinpal: code ${bad} does not settle`);
+  }
+}
+
+/* A cancelled payment never reaches the gateway at all. */
+{
+  let called = false;
+  const z = fakeZarinpal(() => {
+    called = true;
+    return { data: { code: 100 } };
+  });
+  const res = await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'NOK' }, EXPECTED_RIAL, { zarinpal: z });
+  check(res.ok === false, 'zarinpal: Status=NOK does not settle');
+  check(called === false, 'zarinpal: and a cancelled payment is not even sent for verification');
+}
+
+/* IDPAY still settles in toman — its amounts, and only its amounts, are
+   divided by ten. It does echo the amount, so the strict check stays. */
 await runProvider(
   'idpay',
   (amount) => {
@@ -108,6 +193,66 @@ await runProvider(
 );
 
 globalThis.fetch = realFetch;
+
+/* ---- 1b. the request side: units, minimums and credentials ------------- */
+{
+  const { createPayment, isZarinpalMerchant, publicPayment, mergePayment, ZARINPAL_MIN_RIAL } = await import(
+    pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href
+  );
+
+  const order = { code: 'KY-1', total: EXPECTED_RIAL, customer: { phone: '09123456789', email: 'a@b.co' } };
+  const z = fakeZarinpal(() => ({ data: { code: 100 } }));
+  const out = await createPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, order, { origin: 'https://example.com', deps: { zarinpal: z } });
+
+  /* The unit bug this rewrite exists to fix: the shop stores rial, and the
+     old client sent total/10 with no currency field. */
+  check(fakeZarinpal.lastCreate.amount === EXPECTED_RIAL, 'zarinpal: the request carries the order total in RIAL, not toman', String(fakeZarinpal.lastCreate.amount));
+  check(fakeZarinpal.lastCreate.currency === 'IRR', 'zarinpal: the currency is stated explicitly');
+  check(out.payUrl.includes(AUTHORITY), 'zarinpal: the pay URL carries the authority', out.payUrl);
+  check(out.provider === 'zarinpal', 'zarinpal: the provider is reported');
+  check(fakeZarinpal.lastCreate.callback_url.startsWith('https://example.com/api/shop-pay/zarinpal/callback'), 'zarinpal: the callback returns to our own origin');
+
+  /* The SDK throws on a mobile that is not 09xxxxxxxxx, which must never
+     take checkout down over an optional field. */
+  for (const [phone, expected] of [
+    ['09123456789', '09123456789'],
+    ['989123456789', '09123456789'],
+    ['۰۹۱۲۳۴۵۶۷۸۹', '09123456789'],
+    ['02122578242', undefined],
+    ['', undefined],
+  ]) {
+    await createPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, { ...order, customer: { phone } }, { origin: 'https://e.com', deps: { zarinpal: z } });
+    check(fakeZarinpal.lastCreate.mobile === expected, `zarinpal: mobile ${JSON.stringify(phone)} → ${expected}`, String(fakeZarinpal.lastCreate.mobile));
+  }
+
+  /* Below the gateway minimum, and with an unusable merchant id, checkout
+     must degrade to an offline order rather than erroring out. */
+  let threw = '';
+  try {
+    await createPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, { ...order, total: 500 }, { origin: 'https://e.com', deps: { zarinpal: z } });
+  } catch (e) {
+    threw = e.message;
+  }
+  check(threw.includes('minimum'), 'zarinpal: an amount under the gateway minimum is refused by name', threw);
+  check(ZARINPAL_MIN_RIAL === 10000, 'zarinpal: the minimum is the documented 10,000 rial');
+
+  const unusable = await createPayment({ provider: 'zarinpal', zarinpalMerchant: 'not-a-uuid' }, order, { origin: 'https://e.com', deps: { zarinpal: z } });
+  check(unusable.provider === 'offline', 'a malformed merchant id degrades to an offline order');
+  check(unusable.payUrl === null, 'and offers no pay URL');
+  check(isZarinpalMerchant(MERCHANT) === true, 'a real UUID merchant id is accepted');
+  check(isZarinpalMerchant('test-merchant') === false, 'the old test- prefix is not a valid merchant id');
+
+  /* Credentials are write-only in the admin API. */
+  const stored = { provider: 'zarinpal', zarinpalMerchant: MERCHANT, idpayApiKey: 'IDPAY-SECRET-KEY' };
+  const shown = publicPayment(stored);
+  check(!JSON.stringify(shown).includes(MERCHANT), 'the merchant id is not serialised to the admin client');
+  check(!JSON.stringify(shown).includes('IDPAY-SECRET-KEY'), 'nor the IDPay key');
+  check(shown.hasZarinpalMerchant === true && shown.zarinpalMerchantValid === true, 'but the admin is told it is set and valid');
+  const resaved = mergePayment(stored, { ...shown, zarinpalSandbox: true });
+  check(resaved.zarinpalMerchant === MERCHANT, 'saving the form with the mask keeps the stored merchant id');
+  check(resaved.idpayApiKey === 'IDPAY-SECRET-KEY', 'and the stored IDPay key');
+  check(resaved.zarinpalSandbox === true, 'while other fields still save');
+}
 
 /* ---- 2. callback origin must ignore a hostile Host header ----------------- */
 
