@@ -971,3 +971,94 @@
   .cust__stats { grid-column: 2 / -1; }
   .cust__chev { display: none; }
 }
+
+/* ==========================================================================
+   Payment tab — gateway tools
+   ========================================================================== */
+.pay__state {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 2;
+  color: var(--crimson);
+  margin: 0 0 16px;
+
+  &[data-ok='1'] { color: var(--admin-ok); }
+}
+
+.pay__msg {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 2;
+  color: var(--admin-ok);
+  background: var(--admin-ok-soft);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 12px 0 0;
+
+  &.is-err { color: var(--crimson-ink); background: var(--crimson-soft); }
+}
+
+.pay__more {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+
+  summary { font-size: 13px; font-weight: 800; cursor: pointer; }
+  > *:not(summary) { margin-top: 10px; }
+}
+
+/* Each gateway tool is a card with its own heading, explanation and
+   action, so the tab reads as a list of things you can do rather than a
+   wall of controls. */
+.pay__tool {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin-top: 18px;
+
+  > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  h2 { font-size: 14.5px; font-weight: 900; margin: 0 0 4px; }
+  header p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 2; max-width: 60ch; }
+
+  select {
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+}
+
+.pay__none { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+
+.pay__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 6px;
+
+  th {
+    text-align: start;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: var(--muted);
+    padding: 0 10px 8px;
+  }
+  td {
+    padding: 9px 10px;
+    border-top: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  td[dir='ltr'] { text-align: end; }
+  small { color: var(--muted); }
+}
+.pay__mono { font-weight: 800; }

@@ -266,6 +266,28 @@ test.describe('customer accounts', () => {
     expect((await me.json()).customer).toBeNull();
   });
 
+  test('the payment tab offers the gateway tools and hides what it cannot do', async ({ page }) => {
+    await loginAdmin(page);
+    await page.locator('.admin__side button', { hasText: 'درگاه پرداخت' }).click();
+    await expect(page.locator('.admin__panel h1')).toContainText('زرین‌پال');
+
+    /* With no merchant id configured the panel must say so plainly rather
+       than offering buttons that are guaranteed to fail. */
+    await expect(page.locator('.pay__state')).toHaveAttribute('data-ok', '0');
+    await expect(page.getByRole('button', { name: 'بررسی' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'محاسبه' })).toBeDisabled();
+
+    /* The ledger needs credentials the payment path does not, and says so. */
+    await expect(page.locator('.pay__tool', { hasText: 'لیست تراکنش‌های ترمینال' })).toContainText('Access Token');
+
+    /* Choosing ZarinPal reveals the credential fields; IDPay is gone. */
+    const provider = page.locator('.admin__panel select').first();
+    await expect(provider.locator('option')).toHaveCount(2);
+    await expect(page.locator('.admin__panel')).not.toContainText('آیدی‌پی');
+    await provider.selectOption('zarinpal');
+    await expect(page.getByText('Merchant ID', { exact: false }).first()).toBeVisible();
+  });
+
   test('the admin can see that a code was sent, but not the customer password', async ({ page }) => {
     const phone = uniquePhone();
     await gotoReady(page, '/shop');

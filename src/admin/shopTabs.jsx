@@ -266,6 +266,7 @@ export function ShopOrdersTab() {
   const [err, setErr] = useState('');
   const [open, setOpen] = useState(null);
   const [notes, setNotes] = useState({});
+  const [gw, setGw] = useState({}); // per-order gateway result
 
   const load = async () => {
     try {
@@ -279,6 +280,26 @@ export function ShopOrdersTab() {
   useEffect(() => {
     load();
   }, []);
+
+  /* Ask the gateway, or hand the money back. Both answer into the same
+     per-order slot, so a result can never appear under the wrong order. */
+  const gateway = async (id, action) => {
+    setGw((g) => ({ ...g, [id]: { msg: 'در حال ارتباط با درگاه…' } }));
+    try {
+      const d = await api(`/api/shop-admin/orders/${id}/${action}`, { method: 'POST', auth: true });
+      if (action === 'reverse') {
+        setGw((g) => ({ ...g, [id]: { msg: 'مبلغ بازگردانده و سفارش لغو شد.' } }));
+        load();
+      } else {
+        setGw((g) => ({
+          ...g,
+          [id]: { msg: d.settled ? 'درگاه: این پرداخت تأیید شده است.' : `درگاه: ${d.status || d.message || 'بدون نتیجه'}`, err: !d.ok },
+        }));
+      }
+    } catch (e) {
+      setGw((g) => ({ ...g, [id]: { msg: e.message || 'ارتباط با درگاه ممکن نشد.', err: true } }));
+    }
+  };
 
   const patch = async (id, body, method = 'PATCH') => {
     setErr('');
@@ -344,7 +365,7 @@ export function ShopOrdersTab() {
                 {o.customer.note ? ` — توضیحات: ${o.customer.note}` : ''}
               </p>
               <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-                درگاه: {o.provider === 'zarinpal' ? 'زرین‌پال' : o.provider === 'idpay' ? 'آیدی‌پی' : '—'}
+                درگاه: {o.provider === 'zarinpal' ? 'زرین‌پال' : '—'}
                 {o.payRef ? ` · شناسه پرداخت: ${String(o.payRef).slice(0, 30)}` : ''}
                 {o.paidAt ? ` · پرداخت: ${new Date(o.paidAt).toLocaleString('fa-IR')}` : ''}
               </p>
@@ -364,6 +385,29 @@ export function ShopOrdersTab() {
                   حذف سفارش
                 </button>
               </div>
+
+              {/* Gateway actions, only where they can do something: an order
+                  with no payment reference has nothing to ask about. */}
+              {o.payRef && o.provider === 'zarinpal' && (
+                <div className="admin__row" style={{ marginTop: 10, flexWrap: 'wrap', gap: 10 }}>
+                  <button className="btn btn--outline btn--sm" onClick={() => gateway(o.id, 'inquire')}>
+                    استعلام وضعیت از درگاه
+                  </button>
+                  {o.status === 'paid' && (
+                    <button
+                      className="btn btn--outline btn--sm"
+                      style={{ color: 'var(--crimson)' }}
+                      onClick={() =>
+                        window.confirm('مبلغ این سفارش به خریدار بازگردانده شود؟ این کار فقط تا ۳۰ دقیقه پس از پرداخت ممکن است و سفارش لغو می‌شود.') &&
+                        gateway(o.id, 'reverse')
+                      }
+                    >
+                      بازگرداندن وجه
+                    </button>
+                  )}
+                  {gw[o.id] && <span className={`pay__msg ${gw[o.id].err ? 'is-err' : ''}`} style={{ margin: 0 }}>{gw[o.id].msg}</span>}
+                </div>
+              )}
               <div style={{ marginTop: 10 }}>
                 <Field label="یادداشت داخلی (فقط برای مدیر)" textarea rows={2} value={notes[o.id] ?? o.adminNote ?? ''} onChange={(v) => setNotes({ ...notes, [o.id]: v })} />
                 <button className="btn btn--outline btn--sm" style={{ marginTop: 8 }} onClick={() => patch(o.id, { adminNote: notes[o.id] ?? o.adminNote ?? '' })}>
@@ -476,6 +520,20 @@ export function ShopPaymentTab() {
   const [ok, setOk] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  /* gateway tools */
+  const [unverified, setUnverified] = useState(null);
+  const [tools, setTools] = useState({ msg: '', kind: 'ok' });
+  const [feeAmount, setFeeAmount] = useState('1000000');
+  const [fee, setFee] = useState(null);
+  const [tx, setTx] = useState(null);
+  const [txFilter, setTxFilter] = useState('PAID');
+
+  const faQ = (n) => Number(n || 0).toLocaleString('fa-IR');
+  const say = (kind, msg) => {
+    setTools({ kind, msg });
+    setTimeout(() => setTools({ kind: 'ok', msg: '' }), 5000);
+  };
+
   const load = async () => {
     try {
       setErr('');
@@ -492,7 +550,8 @@ export function ShopPaymentTab() {
     setBusy(true);
     setOk(false);
     try {
-      await api('/api/shop-admin/payment', { method: 'PUT', body: cfg, auth: true });
+      const d = await api('/api/shop-admin/payment', { method: 'PUT', body: cfg, auth: true });
+      setCfg(d.payment);
       setOk(true);
       setTimeout(() => setOk(false), 2500);
     } catch {
@@ -502,19 +561,67 @@ export function ShopPaymentTab() {
     }
   };
 
+  const loadUnverified = async () => {
+    setUnverified('loading');
+    try {
+      const d = await api('/api/shop-admin/payment/unverified', { auth: true });
+      setUnverified(d.unverified || []);
+      if (!d.ok && d.error) say('err', d.error);
+    } catch {
+      setUnverified([]);
+      say('err', 'دریافت فهرست تراکنش‌های تأیید‌نشده ممکن نشد.');
+    }
+  };
+
+  const settle = async (authority) => {
+    try {
+      const d = await api(`/api/shop-admin/payment/unverified/${authority}/verify`, { method: 'POST', auth: true });
+      say('ok', `سفارش ${d.order.code} تأیید و «پرداخت‌شده» شد.`);
+      loadUnverified();
+    } catch (e) {
+      say('err', e.message || 'تأیید این تراکنش ممکن نشد.');
+    }
+  };
+
+  const getFee = async () => {
+    setFee('loading');
+    try {
+      const d = await api(`/api/shop-admin/payment/fee?amount=${encodeURIComponent(feeAmount)}`, { auth: true });
+      setFee(d);
+    } catch {
+      setFee({ ok: false, error: 'محاسبه کارمزد ممکن نشد.' });
+    }
+  };
+
+  const loadTx = async () => {
+    setTx('loading');
+    try {
+      setTx(await api(`/api/shop-admin/payment/transactions?filter=${txFilter}&limit=20`, { auth: true }));
+    } catch {
+      setTx({ ok: false, error: 'دریافت تراکنش‌ها ممکن نشد.', transactions: [] });
+    }
+  };
+
   if (!cfg && !err) return <div className="admin__panel"><p style={{ color: 'var(--muted)' }}>در حال دریافت…</p></div>;
 
   return (
     <div className="admin__panel">
       <div className="admin__head">
         <div>
-          <h1>درگاه پرداخت</h1>
-          <p>اتصال فروشگاه به درگاه پرداخت ایرانی — بدون نیاز به تغییر کد</p>
+          <h1>درگاه پرداخت — زرین‌پال</h1>
+          <p>اتصال، تأیید تراکنش‌های معلق، بازگرداندن وجه و گزارش‌ها</p>
         </div>
       </div>
       {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+
       {cfg && (
         <>
+          <p className="pay__state" data-ok={cfg.canPay ? '1' : '0'}>
+            {cfg.canPay
+              ? `● آماده دریافت پرداخت — ${cfg.zarinpalSandbox ? 'محیط آزمایشی' : 'محیط اصلی'}`
+              : '● پرداخت آنلاین غیرفعال است؛ سفارش‌ها با وضعیت «در انتظار پرداخت» ثبت می‌شوند.'}
+          </p>
+
           <Field
             label="درگاه فعال"
             value={cfg.provider}
@@ -523,63 +630,50 @@ export function ShopPaymentTab() {
             options={[
               { value: 'offline', label: 'غیرفعال — سفارش‌ها بدون پرداخت آنلاین ثبت می‌شوند' },
               { value: 'zarinpal', label: 'زرین‌پال (ZarinPal)' },
-              { value: 'idpay', label: 'آیدی‌پی (IDPay)' },
             ]}
           />
 
           {cfg.provider === 'zarinpal' && (
-            <div style={{ marginTop: 14 }}>
+            <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
               <Field
-                label={cfg.hasZarinpalMerchant ? 'Merchant ID زرین‌پال — برای تغییر، شناسه جدید را وارد کنید' : 'Merchant ID زرین‌پال'}
+                label={cfg.hasZarinpalMerchant ? 'Merchant ID — برای تغییر، شناسه جدید را وارد کنید' : 'Merchant ID'}
                 dir="ltr"
                 value={cfg.zarinpalMerchant}
                 onChange={(v) => setCfg({ ...cfg, zarinpalMerchant: v })}
               />
-              <label className="admin__row" style={{ marginTop: 10, gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={!!cfg.zarinpalSandbox}
-                  onChange={(e) => setCfg({ ...cfg, zarinpalSandbox: e.target.checked })}
-                />
-                حالت آزمایشی (Sandbox)
-              </label>
               {cfg.hasZarinpalMerchant && !cfg.zarinpalMerchantValid && (
-                <p style={{ fontSize: 12, color: 'var(--crimson)', marginTop: 8, lineHeight: 2 }}>
+                <p style={{ fontSize: 12, color: 'var(--crimson)', lineHeight: 2, margin: 0 }}>
                   شناسه ذخیره‌شده قالب درست (UUID ۳۶ کاراکتری) ندارد؛ تا اصلاح آن، سفارش‌ها بدون پرداخت آنلاین ثبت می‌شوند.
                 </p>
               )}
-              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, lineHeight: 2 }}>
-                merchant_id را از بخش «تنظیمات درگاه» پنل زرین‌پال کپی کنید؛ یک شناسه ۳۶ کاراکتری مانند{' '}
-                <code dir="ltr">xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>. مبالغ به <b>ریال</b> و با واحد صریح <code dir="ltr">IRR</code> ارسال می‌شوند.
-              </p>
-            </div>
-          )}
-
-          {cfg.provider === 'idpay' && (
-            <div style={{ marginTop: 14 }}>
-              <Field
-                label={cfg.hasIdpayApiKey ? 'API Key آیدی‌پی — برای تغییر، کلید جدید را وارد کنید' : 'API Key آیدی‌پی'}
-                dir="ltr"
-                value={cfg.idpayApiKey}
-                onChange={(v) => setCfg({ ...cfg, idpayApiKey: v })}
-              />
-              <label className="admin__row" style={{ marginTop: 10, gap: 8 }}>
-                <input type="checkbox" checked={!!cfg.idpaySandbox} onChange={(e) => setCfg({ ...cfg, idpaySandbox: e.target.checked })} />
+              <label className="admin__row" style={{ gap: 8 }}>
+                <input type="checkbox" checked={!!cfg.zarinpalSandbox} onChange={(e) => setCfg({ ...cfg, zarinpalSandbox: e.target.checked })} />
                 حالت آزمایشی (Sandbox)
               </label>
+
+              <details className="pay__more">
+                <summary>تنظیمات گزارش تراکنش‌ها (اختیاری)</summary>
+                <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 2 }}>
+                  فقط برای «لیست تراکنش‌های ترمینال» لازم است؛ پرداخت بدون این دو کار می‌کند. Access Token را از بخش «نشست‌های فعال» پنل زرین‌پال بگیرید.
+                </p>
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <Field
+                    label={cfg.hasZarinpalAccessToken ? 'Access Token — برای تغییر، مقدار جدید را وارد کنید' : 'Access Token'}
+                    dir="ltr"
+                    value={cfg.zarinpalAccessToken}
+                    onChange={(v) => setCfg({ ...cfg, zarinpalAccessToken: v })}
+                  />
+                  <Field label="شناسه ترمینال (Terminal ID)" dir="ltr" value={cfg.zarinpalTerminalId} onChange={(v) => setCfg({ ...cfg, zarinpalTerminalId: v })} />
+                </div>
+              </details>
             </div>
           )}
 
           <div style={{ marginTop: 14 }}>
-            <Field
-              label="نشانی پایه بازگشت از درگاه (اختیاری)"
-              dir="ltr"
-              value={cfg.callbackBase}
-              onChange={(v) => setCfg({ ...cfg, callbackBase: v })}
-            />
+            <Field label="نشانی پایه بازگشت از درگاه (اختیاری)" dir="ltr" value={cfg.callbackBase} onChange={(v) => setCfg({ ...cfg, callbackBase: v })} />
             <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, lineHeight: 2 }}>
               اگر سایت پشت پروکسی یا دامنه دیگری سرو می‌شود، نشانی کامل سایت را وارد کنید؛ مثال:{' '}
-              <code dir="ltr">https://khuzestanyeast-co.com</code> — در غیر این صورت خالی بگذارید تا از همان دامنه درخواست استفاده شود.
+              <code dir="ltr">https://khuzestanyeast-co.com</code> — در غیر این صورت خالی بگذارید.
             </p>
           </div>
 
@@ -590,14 +684,144 @@ export function ShopPaymentTab() {
             {ok && <span style={{ color: 'var(--admin-ok)', fontWeight: 800, fontSize: 13 }}>✓ ذخیره شد</span>}
           </div>
 
+          {tools.msg && <p className={`pay__msg ${tools.kind === 'err' ? 'is-err' : ''}`}>{tools.msg}</p>}
+
+          {/* ---------- unverified: money paid but never settled ---------- */}
+          <section className="pay__tool">
+            <header>
+              <div>
+                <h2>تراکنش‌های تأیید‌نشده</h2>
+                <p>پرداخت‌هایی که مشتری انجام داده ولی تأیید نشده‌اند — مثلاً وقتی صفحه بازگشت بسته شده است. این مبلغ از حساب مشتری خارج شده و تا تأیید نشدن، به حساب شما ننشسته است.</p>
+              </div>
+              <button className="btn btn--outline btn--sm" onClick={loadUnverified} disabled={!cfg.canPay}>
+                بررسی
+              </button>
+            </header>
+
+            {unverified === 'loading' && <p className="pay__none">در حال دریافت…</p>}
+            {Array.isArray(unverified) && unverified.length === 0 && <p className="pay__none">تراکنش تأیید‌نشده‌ای وجود ندارد.</p>}
+            {Array.isArray(unverified) && unverified.length > 0 && (
+              <table className="pay__table">
+                <thead>
+                  <tr>
+                    <th>سفارش</th>
+                    <th>مبلغ درگاه</th>
+                    <th>کد پرداخت</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {unverified.map((u) => (
+                    <tr key={u.authority}>
+                      <td>
+                        {u.order ? (
+                          <>
+                            <b dir="ltr">{u.order.code}</b>
+                            <small> — {u.order.customer}</small>
+                          </>
+                        ) : (
+                          <small>سفارش متناظری پیدا نشد</small>
+                        )}
+                      </td>
+                      <td>{faQ(u.amount)} ریال</td>
+                      <td dir="ltr" className="pay__mono">{u.authority.slice(0, 12)}…</td>
+                      <td>
+                        {u.order && (
+                          <button className="btn btn--primary btn--sm" onClick={() => settle(u.authority)}>
+                            تأیید و ثبت پرداخت
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          {/* ---------- fee ---------- */}
+          <section className="pay__tool">
+            <header>
+              <div>
+                <h2>محاسبه کارمزد</h2>
+                <p>کارمزد زرین‌پال برای یک مبلغ مشخص، پیش از ساخت تراکنش.</p>
+              </div>
+            </header>
+            <div className="admin__row" style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <Field label="مبلغ (ریال)" type="number" dir="ltr" value={feeAmount} onChange={setFeeAmount} />
+              </div>
+              <button className="btn btn--outline" onClick={getFee} disabled={!cfg.canPay}>
+                محاسبه
+              </button>
+            </div>
+            {fee === 'loading' && <p className="pay__none">در حال محاسبه…</p>}
+            {fee && fee !== 'loading' && (
+              <p className={`pay__msg ${fee.ok ? '' : 'is-err'}`}>
+                {fee.ok
+                  ? `مبلغ ${faQ(fee.amount)} ریال · کارمزد ${faQ(fee.fee)} ریال · پرداخت‌کننده کارمزد: ${fee.feeType === 'Payer' ? 'مشتری' : 'پذیرنده'}`
+                  : fee.error}
+              </p>
+            )}
+          </section>
+
+          {/* ---------- terminal ledger ---------- */}
+          <section className="pay__tool">
+            <header>
+              <div>
+                <h2>لیست تراکنش‌های ترمینال</h2>
+                <p>گزارش مستقیم از زرین‌پال. نیازمند Access Token و شناسه ترمینال.</p>
+              </div>
+              <div className="admin__row" style={{ gap: 8 }}>
+                <select value={txFilter} onChange={(e) => setTxFilter(e.target.value)}>
+                  {['PAID', 'VERIFIED', 'ACTIVE', 'REFUNDED', 'TRASH'].map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn btn--outline btn--sm" onClick={loadTx} disabled={!cfg.canLedger}>
+                  دریافت
+                </button>
+              </div>
+            </header>
+            {!cfg.canLedger && <p className="pay__none">برای این گزارش، Access Token و شناسه ترمینال را در بالا وارد کنید.</p>}
+            {tx === 'loading' && <p className="pay__none">در حال دریافت…</p>}
+            {tx && tx !== 'loading' && !tx.ok && <p className="pay__msg is-err">{tx.error}</p>}
+            {tx && tx !== 'loading' && tx.ok && tx.transactions.length === 0 && <p className="pay__none">تراکنشی با این فیلتر وجود ندارد.</p>}
+            {tx && tx !== 'loading' && tx.ok && tx.transactions.length > 0 && (
+              <table className="pay__table">
+                <thead>
+                  <tr>
+                    <th>شناسه</th>
+                    <th>وضعیت</th>
+                    <th>مبلغ</th>
+                    <th>تاریخ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tx.transactions.map((t) => (
+                    <tr key={t.id}>
+                      <td dir="ltr" className="pay__mono">{String(t.id).slice(0, 14)}</td>
+                      <td>{t.status}</td>
+                      <td>{faQ(t.amount)} ریال</td>
+                      <td dir="ltr">{String(t.created_at || '').slice(0, 16)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
           <div style={{ background: 'var(--bg-soft)', borderRadius: 14, padding: '16px 20px', marginTop: 22, fontSize: 13, lineHeight: 2.3 }}>
             <b>نکات مهم:</b>
             <ul style={{ margin: '6px 18px 0', listStyle: 'disc' }}>
-              <li>مبالغ فروشگاه به <b>ریال</b> ذخیره می‌شوند و به‌صورت خودکار به <b>تومان</b> (واحد درگاه‌های ایرانی) تبدیل می‌گردند.</li>
-              <li>پس از پرداخت موفق، درگاه به نشانی بازگشت (Callback) سایت هدایت می‌شود و وضعیت سفارش خودکار «پرداخت‌شده» می‌گردد.</li>
-              <li>کلیدها و شناسه‌ها فقط سمت سرور نگهداری می‌شوند؛ در همین صفحه هم به‌صورت ماسک‌شده دیده می‌شوند و هرگز کامل بازگردانده نمی‌شوند.</li>
-              <li>اتصال زرین‌پال از طریق نمونه‌کد رسمی <code dir="ltr">zarinpal-node-sdk</code> انجام می‌شود.</li>
-              <li>تا زمانی که درگاه فعال نشده، سفارش‌ها با وضعیت «در انتظار پرداخت» ثبت می‌شوند و در تب «سفارش‌ها» قابل تغییر وضعیت هستند.</li>
+              <li>مبالغ فروشگاه به <b>ریال</b> ذخیره و با واحد صریح <code dir="ltr">IRR</code> به زرین‌پال ارسال می‌شوند؛ هیچ تبدیلی به تومان انجام نمی‌شود.</li>
+              <li>حداقل مبلغ قابل پرداخت <b>۱۰٬۰۰۰ ریال</b> است.</li>
+              <li>مبلغِ تأیید همیشه از دیتابیس خودمان خوانده می‌شود، نه از آدرس بازگشت؛ دستکاری لینک بازگشت نمی‌تواند سفارش را با مبلغ دیگری تسویه کند.</li>
+              <li>«بازگرداندن وجه» فقط تا <b>۳۰ دقیقه</b> پس از پرداخت ممکن است و آی‌پی سرور باید روی درگاه ثبت شده باشد (در غیر این صورت خطای ۶۲-).</li>
+              <li>کلیدها فقط سمت سرور نگهداری می‌شوند و در این صفحه ماسک‌شده دیده می‌شوند.</li>
+              <li>اتصال از طریق نمونه‌کد رسمی <code dir="ltr">zarinpal-node-sdk</code> انجام می‌شود.</li>
             </ul>
           </div>
         </>

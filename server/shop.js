@@ -8,7 +8,18 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
-import { createPayment, verifyPayment, normalizePayment, publicPayment, mergePayment } from './payment.js';
+import {
+  createPayment,
+  verifyPayment,
+  normalizePayment,
+  publicPayment,
+  mergePayment,
+  inquirePayment,
+  listUnverified,
+  reversePayment,
+  listTransactions,
+  calculateFee,
+} from './payment.js';
 import { formatAddress } from './accounts.js';
 import {
   sendSms,
@@ -370,8 +381,11 @@ export function createShopRouter({ database, requireAuth }) {
 
   /* ---------------- gateway callbacks ---------------- */
   r.get('/api/shop-pay/:provider/callback', async (req, res) => {
+    /* ZarinPal is the only gateway; an unknown provider in the path is not
+       a route we should be running verification for. */
+    if (req.params.provider !== 'zarinpal') return res.redirect(302, '/shop');
     const provider = req.params.provider;
-    if (!['zarinpal', 'idpay'].includes(provider)) return res.status(404).send('unknown gateway');
+    if (provider !== 'zarinpal') return res.status(404).send('unknown gateway');
     const code = provider === 'zarinpal' ? String(req.query.code || '') : String(req.query.order_id || '');
     const order = db.getOrderByCode(D, code);
     if (!order) return res.status(404).send('unknown order');
@@ -382,13 +396,9 @@ export function createShopRouter({ database, requireAuth }) {
       ok = out.ok;
       ref = out.ref;
       if (out.amountMismatch) {
-        /* The unit differs by provider — ZarinPal is billed in rial, IDPay
-           settles in toman — so the log says which, or the number is
-           unreadable at 3am. */
-        const unit = provider === 'idpay' ? 'toman' : 'rial';
         console.error(
           `[shop] REJECTED payment for ${order.code}: gateway settled ` +
-            `${out.amountMismatch.paid} ${unit} but the order is ${out.amountMismatch.expected} ${unit}`,
+            `${out.amountMismatch.paid} rial but the order is ${out.amountMismatch.expected} rial`,
         );
       }
       /* A repeat callback for an order already settled is normal — the
@@ -556,8 +566,8 @@ export function createShopRouter({ database, requireAuth }) {
     res.json({ ok: !!out.ok, error: out.error || '', sent: out.ok });
   });
 
-  /* Masked, like the SMS settings: the merchant id and the IDPay key stay
-     on the server. They used to be returned in full to the admin tab. */
+  /* Masked, like the SMS settings: the merchant id and the access token
+     stay on the server. They used to be returned in full to the admin tab. */
   r.get('/api/shop-admin/payment', requireAuth, (_req, res) => res.json(publicPayment(payment())));
 
   r.put('/api/shop-admin/payment', requireAuth, (req, res) => {
@@ -566,6 +576,97 @@ export function createShopRouter({ database, requireAuth }) {
     const next = mergePayment(payment(), req.body || {});
     db.setSetting(D, 'shop.payment', next);
     res.json({ ok: true, payment: publicPayment(next) });
+  });
+
+  /* ---------------- gateway operations ----------------
+     Everything below is admin-only and read-or-recover: look up what the
+     gateway thinks happened, settle money that was paid but never
+     verified, hand money back, and see the terminal ledger. */
+
+  /** Payments the customer completed that were never verified — a dropped
+   *  callback, a closed tab, a restart at the wrong moment. Each one is
+   *  matched to the order that started it, so the admin sees "this
+   *  customer, this order", not a bare authority string. */
+  r.get('/api/shop-admin/payment/unverified', requireAuth, async (_req, res) => {
+    const out = await listUnverified(payment());
+    const orders = db.listOrders(D);
+    const rows = out.authorities.map((a) => {
+      const authority = String(a.authority || a.Authority || a);
+      const order = orders.find((o) => o.payRef === authority);
+      return {
+        authority,
+        amount: Number(a.amount ?? 0),
+        callbackUrl: String(a.callback_url || ''),
+        referer: String(a.referer || ''),
+        at: String(a.date || ''),
+        order: order ? { id: order.id, code: order.code, total: order.total, status: order.status, customer: order.customer?.name || '' } : null,
+      };
+    });
+    res.json({ ok: out.ok, error: out.error || '', unverified: rows });
+  });
+
+  /** Settle one of them. The amount comes from OUR order, never from the
+   *  gateway's listing — the same rule as the checkout callback, for the
+   *  same reason. */
+  r.post('/api/shop-admin/payment/unverified/:authority/verify', requireAuth, async (req, res) => {
+    const authority = String(req.params.authority || '');
+    const order = db.listOrders(D).find((o) => o.payRef === authority);
+    if (!order) return res.status(404).json({ error: 'سفارشی با این کد پرداخت پیدا نشد.' });
+
+    const out = await verifyPayment(payment(), 'zarinpal', { Authority: authority, Status: 'OK' }, order.total);
+    if (!out.ok) return res.status(409).json({ error: out.message || out.error || 'تأیید پرداخت ممکن نشد.', code: out.gatewayCode });
+
+    if (order.status === 'pending_payment') {
+      db.updateOrder(D, order.id, { status: 'paid', payRef: out.ref, paidAt: new Date().toISOString() });
+      const sms = smsCfg();
+      if (sms.onStatus) {
+        dispatchSms({
+          kind: 'status',
+          to: order.customer?.phone,
+          ref: order.code,
+          text: `خمیرمایه خوزستان\nپرداخت سفارش ${order.code} تأیید شد.`,
+          templateId: sms.statusTemplateId || 0,
+          params: [{ name: 'CODE', value: order.code }],
+        });
+      }
+    }
+    res.json({ ok: true, ref: out.ref, order: db.getOrderById(D, order.id) });
+  });
+
+  /** What does the gateway say happened to this order's payment? */
+  r.post('/api/shop-admin/orders/:id/inquire', requireAuth, async (req, res) => {
+    const order = db.getOrderById(D, req.params.id);
+    if (!order) return res.status(404).json({ error: 'not found' });
+    if (!order.payRef) return res.status(400).json({ error: 'این سفارش کد پرداخت ندارد.' });
+    res.json(await inquirePayment(payment(), order.payRef));
+  });
+
+  /** Give the money back, inside ZarinPal's 30-minute window. */
+  r.post('/api/shop-admin/orders/:id/reverse', requireAuth, async (req, res) => {
+    const order = db.getOrderById(D, req.params.id);
+    if (!order) return res.status(404).json({ error: 'not found' });
+    if (!order.payRef) return res.status(400).json({ error: 'این سفارش کد پرداخت ندارد.' });
+
+    const out = await reversePayment(payment(), order.payRef);
+    if (!out.ok) return res.status(409).json({ error: out.message || out.error || 'بازگرداندن مبلغ ممکن نشد.', code: out.code });
+
+    /* A reversed payment is a cancelled order, and cancelling is what puts
+       the stock back — doing one without the other leaves the shop holding
+       reserved stock for an order nobody paid for. */
+    if (order.status !== 'cancelled') {
+      db.restoreStock(D, order.items);
+      db.updateOrder(D, order.id, { status: 'cancelled', adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال بازگردانده شد.`.trim() });
+    }
+    res.json({ ok: true, order: db.getOrderById(D, order.id) });
+  });
+
+  r.get('/api/shop-admin/payment/transactions', requireAuth, async (req, res) => {
+    const { filter, limit, offset } = req.query;
+    res.json(await listTransactions(payment(), { filter, limit, offset }));
+  });
+
+  r.get('/api/shop-admin/payment/fee', requireAuth, async (req, res) => {
+    res.json(await calculateFee(payment(), req.query.amount));
   });
 
   r.dispatchSms = dispatchSms;

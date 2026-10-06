@@ -1,29 +1,32 @@
 /* ==========================================================================
-   Iranian payment gateway adapters — "ready to connect".
-   Set the provider + credentials in the admin panel (shop settings) and
-   online payment works with no code change:
+   ZarinPal — the whole gateway, through the official zarinpal-node-sdk.
+   --------------------------------------------------------------------------
+   Credentials live in the admin panel, so connecting a live terminal is a
+   form submission rather than a deployment. Two providers exist:
+
      - 'offline'  : no gateway; orders are recorded as pending payment
-     - 'zarinpal' : ZarinPal, through the official zarinpal-node-sdk
-     - 'idpay'    : IDPay (v1.1) — needs api key (sandbox toggle)
+     - 'zarinpal' : the real thing
+
+   Covered, matching the SDK documentation one to one:
+
+     payments.create          → createPayment      (start a payment)
+     verifications.verify     → verifyPayment      (settle it)
+     inquiries.inquire        → inquirePayment     (what happened to it?)
+     unverified.list          → listUnverified     (money paid, never settled)
+     reversals.reverse        → reversePayment     (give it back, <30 min)
+     transactions.list        → listTransactions   (terminal ledger)
+     feeCalculation           → calculateFee       (see the cut beforehand)
 
    UNITS. This is the part that costs real money if it is wrong, so it is
-   stated once here and respected everywhere below.
+   stated once and respected everywhere: the shop stores RIAL, ZarinPal is
+   billed in RIAL, and every call that carries an amount also carries an
+   explicit `currency: 'IRR'` so the unit is never inferred.
 
-     - The shop stores every price in RIAL.
-     - ZarinPal takes the amount in RIAL and accepts an explicit `currency`
-       of 'IRR'. We send both, so the unit is never inferred.
-     - IDPay settles in TOMAN, so its amounts — and only its amounts — are
-       divided by ten.
-
-   The previous hand-rolled ZarinPal client converted to toman before
-   sending, with no currency field. Against an API whose default is IRR
-   that asks the customer for a tenth of the order. The conversion is gone
-   from the ZarinPal path, and a test pins the unit.
+   TESTING. Every function takes an optional injected client. A gateway
+   integration that can only be reached over the internet is one that never
+   gets tested, and this is the money path.
    ========================================================================== */
-
 import { normalizePhone, toLocalPhone } from './sms.js';
-
-const toToman = (rial) => Math.max(10, Math.round(Number(rial) / 10));
 
 /* ---------- ZarinPal (official SDK) ---------- */
 
@@ -131,60 +134,8 @@ function parseAmount(v) {
   return NaN;
 }
 
-/* ---------- IDPay (v1.1) ---------- */
-async function idpayCreate(cfg, order, callbackUrl) {
-  const res = await fetch('https://api.idpay.ir/v1.1/payment', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'X-API-KEY': cfg.idpayApiKey,
-      'X-SANDBOX': cfg.idpaySandbox ? '1' : '0',
-    },
-    body: JSON.stringify({
-      order_id: order.code,
-      amount: toToman(order.total),
-      name: order.customer?.name || '',
-      phone: order.customer?.phone || '',
-      mail: order.customer?.email || '',
-      desc: `سفارش ${order.code} — خمیرمایه خوزستان`,
-      callback: callbackUrl,
-    }),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!json?.id || !json?.link) throw new Error(`idpay request failed: ${json?.error_message || res.status}`);
-  return { ref: json.id, payUrl: json.link };
-}
-
-async function idpayVerify(cfg, params, expectedRial) {
-  // statuses: 200 = paid, 150 = settled/paid-at-gateway — treat both as success candidates
-  const status = Number(params.status || 0);
-  if (![200, 150].includes(status)) return { ok: false, ref: String(params.id || '') };
-  const res = await fetch('https://api.idpay.ir/v1.1/payment/inquiry', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'X-API-KEY': cfg.idpayApiKey,
-      'X-SANDBOX': cfg.idpaySandbox ? '1' : '0',
-    },
-    body: JSON.stringify({ id: params.id, order_id: params.order_id }),
-  });
-  const json = await res.json().catch(() => ({}));
-  const ok = [150, 200].includes(Number(json?.status));
-  if (!ok) return { ok: false, ref: String(params.id || '') };
-  /* IDPay echoes the settled amount; refuse anything that is not what the
-     order actually costs. */
-  const expected = toToman(expectedRial);
-  const paid = parseAmount(json?.amount);
-  if (!Number.isFinite(paid) || paid !== expected) {
-    return { ok: false, ref: String(params.id || ''), amountMismatch: { paid, expected } };
-  }
-  return { ok: true, ref: String(params.id || '') };
-}
-
 /* ---------- public helpers ---------- */
-export const PROVIDERS = ['offline', 'zarinpal', 'idpay'];
+export const PROVIDERS = ['offline', 'zarinpal'];
 
 export function normalizePayment(p = {}) {
   return {
@@ -192,10 +143,13 @@ export function normalizePayment(p = {}) {
     zarinpalMerchant: String(p.zarinpalMerchant || '').trim(),
     /* An explicit toggle. The old code decided sandbox by looking for a
        'test' prefix on the merchant id, but the SDK requires a real UUID,
-       so that heuristic now describes an id it would reject anyway. */
+       so that heuristic described an id it would reject anyway. */
     zarinpalSandbox: Boolean(p.zarinpalSandbox),
-    idpayApiKey: String(p.idpayApiKey || '').trim(),
-    idpaySandbox: Boolean(p.idpaySandbox),
+    /* Only the terminal ledger needs these two; payments work without them.
+       They come from a different place in the ZarinPal panel (active
+       sessions), which is why they are separate fields and not assumed. */
+    zarinpalAccessToken: String(p.zarinpalAccessToken || '').trim(),
+    zarinpalTerminalId: String(p.zarinpalTerminalId || '').trim(),
     callbackBase: String(p.callbackBase || '').trim().replace(/\/+$/, ''),
   };
 }
@@ -203,7 +157,7 @@ export function normalizePayment(p = {}) {
 /* Credentials are write-only, the same rule the SMS settings follow: the
    admin screen gets a mask, and posting the mask back means "unchanged".
    An admin session should not be a way to read the merchant id and the
-   IDPay key out of a browser tab. */
+   access token out of a browser tab. */
 export const SECRET_MASK = '••••••••';
 export const maskSecret = (v) => {
   const s = String(v || '');
@@ -211,55 +165,187 @@ export const maskSecret = (v) => {
   return s.length <= 4 ? SECRET_MASK : `${SECRET_MASK}${s.slice(-4)}`;
 };
 
+const SECRET_FIELDS = ['zarinpalMerchant', 'zarinpalAccessToken'];
+
 export function publicPayment(cfg) {
   const c = normalizePayment(cfg);
   return {
     ...c,
     zarinpalMerchant: maskSecret(c.zarinpalMerchant),
-    idpayApiKey: maskSecret(c.idpayApiKey),
+    zarinpalAccessToken: maskSecret(c.zarinpalAccessToken),
     hasZarinpalMerchant: Boolean(c.zarinpalMerchant),
-    hasIdpayApiKey: Boolean(c.idpayApiKey),
+    hasZarinpalAccessToken: Boolean(c.zarinpalAccessToken),
     zarinpalMerchantValid: isZarinpalMerchant(c.zarinpalMerchant),
+    /* What the panel can actually offer, so the UI never shows a button
+       that is guaranteed to fail. */
+    canPay: c.provider === 'zarinpal' && isZarinpalMerchant(c.zarinpalMerchant),
+    canLedger: Boolean(c.zarinpalAccessToken && c.zarinpalTerminalId),
   };
 }
 
 export function mergePayment(current, incoming = {}) {
   const cur = normalizePayment(current);
   const next = { ...cur, ...incoming };
-  for (const field of ['zarinpalMerchant', 'idpayApiKey']) {
+  for (const field of SECRET_FIELDS) {
     const sent = String(incoming[field] ?? '');
     if (!sent || sent.startsWith(SECRET_MASK)) next[field] = cur[field];
   }
   return normalizePayment(next);
 }
 
+/* --------------------------------------------------------------------------
+   Gateway operations beyond the checkout round trip.
+
+   All of them answer the same shape — { ok, ... , error } — and none of
+   them throw. They are called from admin screens, and an admin screen that
+   shows a stack trace because a terminal is misconfigured is worse than one
+   that says what is wrong.
+   -------------------------------------------------------------------------- */
+
+const needMerchant = (cfg) =>
+  isZarinpalMerchant(cfg.zarinpalMerchant) ? null : { ok: false, error: 'شناسه پذیرنده (merchant_id) تنظیم نشده یا معتبر نیست.' };
+
+const failed = (e) => ({ ok: false, error: String(e?.response?.data?.errors?.message || e?.message || e).slice(0, 300) });
+
+/** What actually happened to one payment. Answers for an order whose
+ *  customer closed the tab before the callback came back. */
+export async function inquirePayment(payment, authority, deps) {
+  const cfg = normalizePayment(payment);
+  const bad = needMerchant(cfg);
+  if (bad) return bad;
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const data = zpData(await z.inquiries.inquire({ authority: String(authority) }));
+    return {
+      ok: Number(data.code) === 100,
+      code: Number(data.code),
+      status: String(data.status || ''),
+      message: String(data.message || ''),
+      /* The gateway's own word on whether this money was ever settled. */
+      settled: String(data.status || '').toUpperCase() === 'VERIFIED',
+    };
+  } catch (e) {
+    return failed(e);
+  }
+}
+
+/** Payments the customer completed but that were never verified — a dropped
+ *  callback, a closed tab, a server restart at the wrong moment. This is
+ *  money that has left a customer's account and not been settled, so it is
+ *  the single most valuable call in this file. */
+export async function listUnverified(payment, deps) {
+  const cfg = normalizePayment(payment);
+  const bad = needMerchant(cfg);
+  if (bad) return { ...bad, authorities: [] };
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const data = zpData(await z.unverified.list());
+    const authorities = Array.isArray(data.authorities) ? data.authorities : [];
+    return { ok: Number(data.code) === 100, code: Number(data.code), authorities };
+  } catch (e) {
+    return { ...failed(e), authorities: [] };
+  }
+}
+
+/** Return the money, inside ZarinPal's 30-minute window. Needs the server's
+ *  IP registered on the terminal or the gateway answers -62. */
+export async function reversePayment(payment, authority, deps) {
+  const cfg = normalizePayment(payment);
+  const bad = needMerchant(cfg);
+  if (bad) return bad;
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const data = zpData(await z.reversals.reverse({ authority: String(authority) }));
+    const code = Number(data.code);
+    return {
+      ok: code === 100,
+      code,
+      message:
+        code === -62
+          ? 'آی‌پی سرور روی درگاه ثبت نشده است (خطای ۶۲-).'
+          : String(data.message || ''),
+    };
+  } catch (e) {
+    return failed(e);
+  }
+}
+
+/** The terminal's own ledger. Unlike everything else here this goes through
+ *  ZarinPal's GraphQL endpoint and needs an access token plus a terminal
+ *  id, which come from a different page of their panel. */
+export async function listTransactions(payment, { filter, limit = 20, offset = 0 } = {}, deps) {
+  const cfg = normalizePayment(payment);
+  if (!cfg.zarinpalAccessToken || !cfg.zarinpalTerminalId)
+    return { ok: false, error: 'برای مشاهده تراکنش‌ها، Access Token و شناسه ترمینال لازم است.', transactions: [] };
+  const ALLOWED = ['PAID', 'VERIFIED', 'TRASH', 'ACTIVE', 'REFUNDED'];
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const res = await z.transactions.list({
+      terminalId: cfg.zarinpalTerminalId,
+      /* The SDK throws on an unknown filter, so an unexpected value is
+         dropped rather than passed through. */
+      filter: ALLOWED.includes(filter) ? filter : undefined,
+      limit: Math.max(1, Math.min(100, Number(limit) || 20)),
+      offset: Math.max(0, Number(offset) || 0),
+    });
+    const list = res?.data?.transactions || res?.transactions || [];
+    return { ok: true, transactions: Array.isArray(list) ? list : [] };
+  } catch (e) {
+    return { ...failed(e), transactions: [] };
+  }
+}
+
+/** ZarinPal's cut, before anyone pays anything.
+ *
+ *  Documented as payments.feeCalculation, but SDK 2.2.0 does not implement
+ *  it — the method is simply absent from the Payments class. Rather than
+ *  drop the feature we call the documented endpoint through the SDK's own
+ *  request(), which supplies the base URL, the headers and the merchant id,
+ *  so this stays correct for sandbox and production alike and starts using
+ *  the real method the moment the SDK ships one. */
+export async function calculateFee(payment, rial, deps) {
+  const cfg = normalizePayment(payment);
+  const bad = needMerchant(cfg);
+  if (bad) return bad;
+  const amount = Math.round(Number(rial) || 0);
+  if (amount < 1000) return { ok: false, error: 'مبلغ باید حداقل ۱۰۰۰ ریال باشد.' };
+  try {
+    const z = await zarinpalClient(cfg, deps);
+    const call = z.payments.feeCalculation
+      ? z.payments.feeCalculation({ amount, currency: 'IRR' })
+      : z.request('POST', '/pg/v4/payment/feeCalculation.json', { amount, currency: 'IRR' });
+    const data = zpData(await call);
+    if (Number(data.code) !== 100) return { ok: false, error: String(data.message || `code ${data.code}`) };
+    return {
+      ok: true,
+      amount: Number(data.amount ?? amount),
+      fee: Number(data.fee ?? 0),
+      feeType: String(data.fee_type || ''),
+      suggestedAmount: Number(data.suggested_amount ?? 0) || null,
+    };
+  } catch (e) {
+    return failed(e);
+  }
+}
+
 /* returns { provider, ref, payUrl } — payUrl is null for offline */
 export async function createPayment(payment, order, { origin, deps } = {}) {
   const cfg = normalizePayment(payment);
   const base = cfg.callbackBase || origin;
-  if (cfg.provider === 'zarinpal') {
-    /* A merchant id the SDK would reject is the same situation as no
-       merchant id at all: record the order, do not break checkout. */
-    if (!isZarinpalMerchant(cfg.zarinpalMerchant)) return { provider: 'offline', ref: null, payUrl: null };
-    const out = await zarinpalCreate(cfg, order, `${base}/api/shop-pay/zarinpal/callback?code=${order.code}`, deps);
-    return { provider: 'zarinpal', ...out };
-  }
-  if (cfg.provider === 'idpay') {
-    if (!cfg.idpayApiKey) return { provider: 'offline', ref: null, payUrl: null };
-    const out = await idpayCreate(cfg, order, `${base}/api/shop-pay/idpay/callback`);
-    return { provider: 'idpay', ...out };
-  }
-  return { provider: 'offline', ref: null, payUrl: null };
+  if (cfg.provider !== 'zarinpal') return { provider: 'offline', ref: null, payUrl: null };
+  /* A merchant id the SDK would reject is the same situation as no merchant
+     id at all: record the order, do not break checkout. */
+  if (!isZarinpalMerchant(cfg.zarinpalMerchant)) return { provider: 'offline', ref: null, payUrl: null };
+  const out = await zarinpalCreate(cfg, order, `${base}/api/shop-pay/zarinpal/callback?code=${order.code}`, deps);
+  return { provider: 'zarinpal', ...out };
 }
 
-/* returns { ok, ref } */
 /** Confirm a gateway callback.
  *  @param expectedRial the order total, in RIAL. Required: a callback that
- *  settled for a different amount than the order costs must NOT be accepted,
- *  otherwise an order can be marked paid for a fraction of its value. */
+ *  settled for a different amount than the order costs must NOT be accepted.
+ */
 export async function verifyPayment(payment, provider, params, expectedRial, deps) {
   const cfg = normalizePayment(payment);
   if (provider === 'zarinpal') return zarinpalVerify(cfg, params, expectedRial, deps);
-  if (provider === 'idpay') return idpayVerify(cfg, params, expectedRial);
   return { ok: false, ref: '' };
 }

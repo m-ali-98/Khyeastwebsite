@@ -36,57 +36,9 @@ const check = (ok, name, detail = '') => {
    starts with a drive letter and Node rejects it as an unknown "c:" scheme
    (ERR_UNSUPPORTED_ESM_URL_SCHEME). pathToFileURL works on every platform. */
 const { verifyPayment } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
-/* Orders are priced in rial; both gateways settle in toman (rial / 10), so
-   the amount the gateway echoes back is a tenth of the order total. */
+/* Orders are priced in rial, and ZarinPal is billed in rial. There is no
+   conversion left anywhere in this file — that is the point. */
 const EXPECTED_RIAL = 910000;
-const EXPECTED_TOMAN = EXPECTED_RIAL / 10;
-
-/* Each case: what the gateway replies with, and whether settlement is allowed. */
-const AMOUNT_CASES = [
-  ['amount correct', EXPECTED_TOMAN, true],
-  ['amount correct as string', String(EXPECTED_TOMAN), true],
-  ['amount omitted', undefined, false],
-  ['amount null', null, false],
-  ['amount NaN string', 'abc', false],
-  ['amount empty string', '', false],
-  ['amount underpaid', 1, false],
-  ['amount overpaid', EXPECTED_TOMAN * 2, false],
-  ['amount negative', -EXPECTED_TOMAN, false],
-  ['amount in rial not toman', EXPECTED_RIAL, false],
-  ['amount object', { v: EXPECTED_TOMAN }, false],
-  ['amount array', [EXPECTED_TOMAN], false],
-  ['amount Infinity', 'Infinity', false],
-];
-
-const realFetch = globalThis.fetch;
-
-async function runProvider(provider, buildBody, params, { deps } = {}) {
-  for (const [name, amount, shouldSettle] of AMOUNT_CASES) {
-    globalThis.fetch = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => buildBody(amount),
-      text: async () => '',
-    });
-    let res;
-    try {
-      res = await verifyPayment(
-        { provider, zarinpalMerchant: MERCHANT, idpayApiKey: 'k' },
-        provider,
-        params,
-        EXPECTED_RIAL,
-        deps ? deps(amount) : undefined,
-      );
-    } catch (e) {
-      res = { ok: false, error: e.message };
-    }
-    check(
-      Boolean(res.ok) === shouldSettle,
-      `${provider}: ${name}`,
-      `ok=${res.ok} expected ok=${shouldSettle}`,
-    );
-  }
-}
 
 /* The SDK validates this as a UUID and throws on anything else. */
 const MERCHANT = '0123abcd-4567-89ef-0123-456789abcdef';
@@ -182,17 +134,14 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
 
 /* IDPAY still settles in toman — its amounts, and only its amounts, are
    divided by ten. It does echo the amount, so the strict check stays. */
-await runProvider(
-  'idpay',
-  (amount) => {
-    const b = { status: 200, track_id: 'T1' };
-    if (amount !== undefined) b.amount = amount;
-    return b;
-  },
-  { id: 'I1', order_id: 'O1', status: '200' },
-);
-
-globalThis.fetch = realFetch;
+/* IDPay is gone. An unknown provider must settle nothing, rather than
+   falling through to a default that says yes. */
+{
+  const gone = await verifyPayment({ provider: 'idpay', idpayApiKey: 'k' }, 'idpay', { id: 'I1', status: '200' }, EXPECTED_RIAL);
+  check(gone.ok === false, 'a removed provider cannot settle an order');
+  const { PROVIDERS } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
+  check(PROVIDERS.join(',') === 'offline,zarinpal', 'the provider list is offline and zarinpal only', PROVIDERS.join(','));
+}
 
 /* ---- 1b. the request side: units, minimums and credentials ------------- */
 {
@@ -243,15 +192,168 @@ globalThis.fetch = realFetch;
   check(isZarinpalMerchant('test-merchant') === false, 'the old test- prefix is not a valid merchant id');
 
   /* Credentials are write-only in the admin API. */
-  const stored = { provider: 'zarinpal', zarinpalMerchant: MERCHANT, idpayApiKey: 'IDPAY-SECRET-KEY' };
+  const stored = { provider: 'zarinpal', zarinpalMerchant: MERCHANT, zarinpalAccessToken: 'ACCESS-TOKEN-SECRET', zarinpalTerminalId: 'T1' };
   const shown = publicPayment(stored);
   check(!JSON.stringify(shown).includes(MERCHANT), 'the merchant id is not serialised to the admin client');
-  check(!JSON.stringify(shown).includes('IDPAY-SECRET-KEY'), 'nor the IDPay key');
+  check(!JSON.stringify(shown).includes('ACCESS-TOKEN-SECRET'), 'nor the access token');
   check(shown.hasZarinpalMerchant === true && shown.zarinpalMerchantValid === true, 'but the admin is told it is set and valid');
+  check(shown.canPay === true, 'and that the gateway can take payments');
+  check(shown.canLedger === true, 'and that the ledger is available');
+  check(publicPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }).canLedger === false, 'no access token, no ledger');
+  check(publicPayment({ provider: 'offline' }).canPay === false, 'an offline shop cannot take payments');
+
   const resaved = mergePayment(stored, { ...shown, zarinpalSandbox: true });
   check(resaved.zarinpalMerchant === MERCHANT, 'saving the form with the mask keeps the stored merchant id');
-  check(resaved.idpayApiKey === 'IDPAY-SECRET-KEY', 'and the stored IDPay key');
+  check(resaved.zarinpalAccessToken === 'ACCESS-TOKEN-SECRET', 'and the stored access token');
   check(resaved.zarinpalSandbox === true, 'while other fields still save');
+}
+
+/* ---- 1c. the rest of the gateway: inquiry, unverified, reverse, fee ---- */
+{
+  const {
+    inquirePayment,
+    listUnverified,
+    reversePayment,
+    listTransactions,
+    calculateFee,
+  } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
+
+  const CFG = { provider: 'zarinpal', zarinpalMerchant: MERCHANT };
+  const client = (over) => ({
+    payments: { create: async () => ({}), getRedirectUrl: (a) => a },
+    verifications: { verify: async () => ({}) },
+    inquiries: { inquire: async () => ({ data: { code: 100, status: 'VERIFIED', message: 'ok' } }) },
+    unverified: { list: async () => ({ data: { code: 100, authorities: [] } }) },
+    reversals: { reverse: async () => ({ data: { code: 100, message: 'ok' } }) },
+    transactions: { list: async () => ({ data: { transactions: [] } }) },
+    request: async () => ({ data: { code: 100, amount: 1000000, fee: 40000, fee_type: 'Merchant' } }),
+    ...over,
+  });
+
+  /* Every one of these is called from an admin screen. None may throw: a
+     panel that shows a stack trace because a terminal is misconfigured is
+     worse than one that says what is wrong. */
+  const exploding = {
+    inquiries: { inquire: () => { throw new Error('ECONNRESET'); } },
+    unverified: { list: () => Promise.reject(new Error('ETIMEDOUT')) },
+    reversals: { reverse: () => { throw new Error('boom'); } },
+    transactions: { list: () => Promise.reject(new Error('gone')) },
+    request: () => { throw new Error('nope'); },
+  };
+  const LEDGER = { ...CFG, zarinpalAccessToken: 'tok', zarinpalTerminalId: 'T1' };
+  for (const [name, call] of [
+    ['inquiry', () => inquirePayment(CFG, AUTHORITY, { zarinpal: client(exploding) })],
+    ['unverified', () => listUnverified(CFG, { zarinpal: client(exploding) })],
+    ['reverse', () => reversePayment(CFG, AUTHORITY, { zarinpal: client(exploding) })],
+    ['transactions', () => listTransactions(LEDGER, {}, { zarinpal: client(exploding) })],
+    ['fee', () => calculateFee(CFG, 1000000, { zarinpal: client(exploding) })],
+  ]) {
+    const out = await call();
+    check(out.ok === false && Boolean(out.error), `${name}: a transport failure is reported, not thrown`, JSON.stringify(out));
+  }
+
+  /* Without a usable merchant id they must refuse before calling out. */
+  for (const [name, call] of [
+    ['inquiry', () => inquirePayment({ provider: 'zarinpal' }, AUTHORITY, { zarinpal: client() })],
+    ['unverified', () => listUnverified({ provider: 'zarinpal' }, { zarinpal: client() })],
+    ['reverse', () => reversePayment({ provider: 'zarinpal' }, AUTHORITY, { zarinpal: client() })],
+    ['fee', () => calculateFee({ provider: 'zarinpal' }, 1000000, { zarinpal: client() })],
+  ]) {
+    const out = await call();
+    check(out.ok === false, `${name}: refuses without a merchant id`);
+  }
+
+  /* INQUIRY — the gateway's own word on whether money was settled. */
+  const inq = await inquirePayment(CFG, AUTHORITY, { zarinpal: client() });
+  check(inq.ok === true && inq.settled === true, 'inquiry: VERIFIED is reported as settled', JSON.stringify(inq));
+  const unpaid = await inquirePayment(CFG, AUTHORITY, {
+    zarinpal: client({ inquiries: { inquire: async () => ({ data: { code: 100, status: 'IN_BANK' } }) } }),
+  });
+  check(unpaid.settled === false, 'inquiry: anything other than VERIFIED is not settled', unpaid.status);
+
+  /* UNVERIFIED — money the customer paid that was never settled. */
+  const list = await listUnverified(CFG, {
+    zarinpal: client({
+      unverified: {
+        list: async () => ({ data: { code: 100, authorities: [{ authority: AUTHORITY, amount: 910000 }] } }),
+      },
+    }),
+  });
+  check(list.ok === true && list.authorities.length === 1, 'unverified: the list comes back');
+  const emptyList = await listUnverified(CFG, {
+    zarinpal: client({ unverified: { list: async () => ({ data: { code: 100 } }) } }),
+  });
+  check(Array.isArray(emptyList.authorities), 'unverified: a response with no array is still an array', typeof emptyList.authorities);
+
+  /* REVERSE — and the documented -62, which means the server IP is not
+     registered on the terminal. A bare code there is unhelpful at 3am. */
+  const rev = await reversePayment(CFG, AUTHORITY, { zarinpal: client() });
+  check(rev.ok === true, 'reverse: code 100 succeeds');
+  const noIp = await reversePayment(CFG, AUTHORITY, {
+    zarinpal: client({ reversals: { reverse: async () => ({ data: { code: -62 } }) } }),
+  });
+  check(noIp.ok === false, 'reverse: -62 fails');
+  check(noIp.message.includes('آی‌پی'), 'reverse: and -62 is explained in Persian', noIp.message);
+
+  /* TRANSACTIONS — needs credentials the payment path does not. */
+  const noToken = await listTransactions(CFG, {}, { zarinpal: client() });
+  check(noToken.ok === false, 'transactions: refused without an access token');
+  check(noToken.transactions.length === 0, 'and the list is still an array');
+
+  let sentFilter;
+  const txClient = client({
+    transactions: {
+      list: async (d) => {
+        sentFilter = d;
+        return { data: { transactions: [{ id: '1', status: 'PAID', amount: 910000 }] } };
+      },
+    },
+  });
+  const tx = await listTransactions(LEDGER, { filter: 'PAID', limit: 5 }, { zarinpal: txClient });
+  check(tx.ok === true && tx.transactions.length === 1, 'transactions: the ledger comes back');
+  check(sentFilter.terminalId === 'T1', 'transactions: the configured terminal is used');
+  /* The SDK throws on an unknown filter, so one must never reach it. */
+  await listTransactions(LEDGER, { filter: 'DROP TABLE' }, { zarinpal: txClient });
+  check(sentFilter.filter === undefined, 'transactions: an unknown filter is dropped, not forwarded', String(sentFilter.filter));
+  await listTransactions(LEDGER, { limit: 9999 }, { zarinpal: txClient });
+  check(sentFilter.limit <= 100, 'transactions: the page size is capped', String(sentFilter.limit));
+  await listTransactions(LEDGER, { offset: -5 }, { zarinpal: txClient });
+  check(sentFilter.offset === 0, 'transactions: a negative offset is clamped', String(sentFilter.offset));
+
+  /* FEE — documented on payments.feeCalculation, which SDK 2.2.0 does not
+     implement, so this falls back to the documented endpoint through the
+     SDK's own request(). Both routes must work. */
+  let viaRequest = null;
+  const feeFallback = await calculateFee(CFG, 1000000, {
+    zarinpal: client({
+      request: async (method, url, data) => {
+        viaRequest = { method, url, data };
+        return { data: { code: 100, amount: 1000000, fee: 40000, fee_type: 'Merchant' } };
+      },
+    }),
+  });
+  check(feeFallback.ok === true && feeFallback.fee === 40000, 'fee: the fallback endpoint returns a fee', JSON.stringify(feeFallback));
+  check(viaRequest.url.includes('feeCalculation'), 'fee: the documented endpoint is used', viaRequest?.url);
+  check(viaRequest.data.currency === 'IRR', 'fee: in rial, explicitly');
+
+  let viaSdk = false;
+  const feeNative = await calculateFee(CFG, 1000000, {
+    zarinpal: client({
+      payments: {
+        create: async () => ({}),
+        getRedirectUrl: (a) => a,
+        feeCalculation: async () => {
+          viaSdk = true;
+          return { data: { code: 100, amount: 1000000, fee: 40000, fee_type: 'Payer' } };
+        },
+      },
+    }),
+  });
+  check(viaSdk && feeNative.ok === true, 'fee: the SDK method is preferred the moment it exists');
+  check(feeNative.feeType === 'Payer', 'fee: who pays the fee is reported', feeNative.feeType);
+
+  const tooSmall = await calculateFee(CFG, 100, { zarinpal: client() });
+  check(tooSmall.ok === false, 'fee: below the 1000 rial floor is refused');
 }
 
 /* ---- 2. callback origin must ignore a hostile Host header ----------------- */

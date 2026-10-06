@@ -35,5 +35,5 @@ export const SHOP_SEED = () => ({
       replyAt: new Date(Date.now() - 20 * 36e5).toISOString(),
     },
   ],
-  payment: { provider: 'offline', zarinpalMerchant: '', idpayApiKey: '', idpaySandbox: true, callbackBase: '' },
+  payment: { provider: 'offline', zarinpalMerchant: '', zarinpalSandbox: true, zarinpalAccessToken: '', zarinpalTerminalId: '', callbackBase: '' },
 });
