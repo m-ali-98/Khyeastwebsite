@@ -1657,8 +1657,11 @@
     border-radius: var(--radius);
     padding: 22px;
   }
-  h3 {
+  /* h2 for structure, sized like the section heading it looks like — the
+     level says where it sits in the document, not how big it is. */
+  h2 {
     font-size: 15px;
+    font-weight: 900;
     margin: 0 0 14px;
   }
 }

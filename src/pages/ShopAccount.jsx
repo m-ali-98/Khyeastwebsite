@@ -333,6 +333,12 @@ export default function ShopAccount() {
             {tab === 'profile' && (
               <Reveal className="acc-profile">
                 <form onSubmit={saveProfile}>
+                  {/* The page's h1 is the hero title, so these are h2. They
+                      are also siblings doing the same job: giving one of
+                      them a heading and not the other left the second form
+                      looking like part of the first to anyone navigating by
+                      structure. */}
+                  <h2>{t('shop.account.tabProfile')}</h2>
                   <label className="field">
                     <span>{t('shop.account.phoneFixed')}</span>
                     {/* The phone is the account identity and is verified, so
@@ -354,7 +360,7 @@ export default function ShopAccount() {
                 </form>
 
                 <form onSubmit={savePassword} className="acc-pw">
-                  <h3>{t('shop.account.pwTitle')}</h3>
+                  <h2>{t('shop.account.pwTitle')}</h2>
                   <label className="field">
                     <span>{t('shop.account.pwCurrent')}</span>
                     <PasswordInput autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />

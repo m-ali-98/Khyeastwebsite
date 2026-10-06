@@ -74,10 +74,15 @@ for (const route of ROUTES) {
   try {
     const r = await child('route-one.mjs', route);
     const nameless = r.namelessLinks || [];
-    const ok = r.chars > 40 && !r.errors.length && !nameless.length;
-    const why = r.errors[0]?.slice(0, 90) || (nameless.length ? `nameless link: ${nameless.join(', ')}` : `${r.chars} chars`);
+    const skips = r.headingSkips || [];
+    const ok = r.chars > 40 && !r.errors.length && !nameless.length && !skips.length;
+    const why =
+      r.errors[0]?.slice(0, 90) ||
+      (nameless.length ? `nameless link: ${nameless.join(', ')}` : '') ||
+      (skips.length ? `heading level skipped: ${skips.join(', ')}` : '') ||
+      `${r.chars} chars`;
     record(ok, `route ${route}`, why);
-    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${route.padEnd(38)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 60) || (nameless.length ? why : '')}`);
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${route.padEnd(38)} ${String(r.chars).padStart(5)}ch ${ok ? '' : why.slice(0, 60)}`);
   } catch (e) {
     record(false, `route ${route}`, String(e.message).split('\n')[0].slice(0, 90));
     console.log(`  FAIL ${route.padEnd(38)} harness error`);
