@@ -18,7 +18,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { gotoReady } from './helpers.js';
+import { gotoReady, loginAdmin, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const AXE_PATH = path.join(path.dirname(require.resolve('axe-core/package.json')), 'axe.min.js');
@@ -98,7 +98,7 @@ const describe = (v) =>
    collect violations), which is exactly how the invisible white navbar on the
    hero-less pages went unnoticed. public.spec.js measures that case
    directly; this still covers everything below the header. */
-const PAGES = ['/', '/about', '/products', '/products/dezmaye-gold-80', '/blog', '/contact', '/shop', '/shop/dezmaye-gold-80', '/shop/cart', '/en', '/ar'];
+const PAGES = ['/', '/about', '/products', '/products/dezmaye-gold-80', '/blog', '/contact', '/shop', '/shop/dezmaye-gold-80', '/shop/cart', '/shop/login', '/en', '/ar'];
 
 for (const url of PAGES) {
   for (const theme of ['light', 'dark']) {
@@ -114,6 +114,34 @@ for (const url of PAGES) {
     });
   }
 }
+
+/* The pages behind a session were not audited at all, which is a gap worth
+   closing rather than explaining: the account panel is a form-heavy page
+   built after the rest of the site, and the admin tabs added with the shop
+   work have never been through axe. Each signs in first, so the audit sees
+   what the person using it sees. */
+test('a11y the customer account panel', async ({ page }) => {
+  await gotoReady(page, '/shop');
+  await signUpCustomer(page, { phone: uniquePhone() });
+  await addAddress(page);
+
+  for (const tab of ['سفارش‌های من', 'نشانی‌ها', 'اطلاعات حساب']) {
+    await gotoReady(page, '/shop/account');
+    await page.locator('.acc-nav__item', { hasText: tab }).click();
+    const results = await audit(page);
+    expect(results.violations.length, `\n  ${tab}:\n  ${describe(results)}\n`).toBe(0);
+  }
+});
+
+test('a11y the admin tabs added with the shop', async ({ page }) => {
+  await loginAdmin(page);
+  for (const tab of ['سفارش‌ها', 'مشتریان', 'پیامک', 'درگاه پرداخت']) {
+    await page.locator('.admin__side button', { hasText: tab }).click();
+    await expect(page.locator('.admin__panel h1')).toBeVisible();
+    const results = await audit(page);
+    expect(results.violations.length, `\n  ${tab}:\n  ${describe(results)}\n`).toBe(0);
+  }
+});
 
 test('a11y /admin login', async ({ page }) => {
   await page.goto('/admin', { waitUntil: 'domcontentloaded' });
