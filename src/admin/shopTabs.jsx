@@ -809,7 +809,9 @@ export function ShopPaymentTab() {
             {fee && fee !== 'loading' && (
               <p className={`pay__msg ${fee.ok ? '' : 'is-err'}`}>
                 {fee.ok
-                  ? `مبلغ ${faQ(fee.amount)} ریال · کارمزد ${faQ(fee.fee)} ریال · پرداخت‌کننده کارمزد: ${fee.feeType === 'Payer' ? 'مشتری' : 'پذیرنده'}`
+                  ? `مبلغ ${faQ(fee.amount)} ریال · کارمزد ${faQ(fee.fee)} ریال · پرداخت‌کننده کارمزد: ${
+                      fee.feeType === 'Payer' ? 'مشتری' : 'پذیرنده'
+                    }${fee.suggestedAmount ? ` · مبلغ پیشنهادی برای تسویه: ${faQ(fee.suggestedAmount)} ریال` : ''}`
                   : fee.error}
               </p>
             )}

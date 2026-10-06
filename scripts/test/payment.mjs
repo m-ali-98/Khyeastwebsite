@@ -110,6 +110,16 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     return verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, { zarinpal: z });
   };
   check((await code(100)).ok === true, 'zarinpal: code 100 settles');
+
+  /* card_pan and fee are documented on the verify response and exist
+     nowhere else afterwards. */
+  {
+    const z = fakeZarinpal(() => ({ data: { code: 100, ref_id: 'R1', card_pan: '6219********9007', fee: 4500, fee_type: 'Merchant' } }));
+    const out = await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, { zarinpal: z });
+    check(out.cardPan === '6219********9007', 'zarinpal: the masked card is kept', out.cardPan);
+    check(out.fee === 4500, 'zarinpal: the gateway fee is kept', String(out.fee));
+    check(out.feeType === 'Merchant', 'zarinpal: and who paid it');
+  }
   /* 101 is "already verified" — the customer pressed back or the callback
      arrived twice. Failing it would flip a paid order to failed. */
   const repeat = await code(101);
@@ -206,6 +216,30 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
   check(resaved.zarinpalMerchant === MERCHANT, 'saving the form with the mask keeps the stored merchant id');
   check(resaved.zarinpalAccessToken === 'ACCESS-TOKEN-SECRET', 'and the stored access token');
   check(resaved.zarinpalSandbox === true, 'while other fields still save');
+}
+
+/* ---- 1b2. what the SDK constructor is actually given -------------------
+   Tested because it was wrong and nothing caught it: every other test
+   injects a ready-made client, so the line that builds the real one was
+   never exercised. The access token lives here, and without it every
+   GraphQL call — the ledger, refunds, refund status — authenticates as
+   `Bearer undefined`. */
+{
+  const { zarinpalConfig } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
+
+  const plain = zarinpalConfig({ zarinpalMerchant: MERCHANT, zarinpalSandbox: true });
+  check(plain.merchantId === MERCHANT, 'config: the merchant id is passed');
+  check(plain.sandbox === true, 'config: sandbox is passed');
+  check(!('accessToken' in plain), 'config: no token configured means no token key at all');
+
+  const withToken = zarinpalConfig({ zarinpalMerchant: MERCHANT, zarinpalAccessToken: 'tok-123' });
+  check(withToken.accessToken === 'tok-123', 'config: the access token reaches the SDK');
+  check(withToken.sandbox === false, 'config: sandbox defaults off');
+
+  /* An empty string is worse than an absent key: the SDK interpolates it
+     into the Authorization header unconditionally. */
+  check(!('accessToken' in zarinpalConfig({ zarinpalMerchant: MERCHANT, zarinpalAccessToken: '' })), 'config: an empty token is omitted, not sent blank');
+  check(!('accessToken' in zarinpalConfig({ zarinpalMerchant: MERCHANT, zarinpalAccessToken: '   ' })), 'config: nor a whitespace one');
 }
 
 /* ---- 1c. the rest of the gateway: inquiry, unverified, reverse, fee ---- */

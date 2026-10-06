@@ -394,6 +394,7 @@ export function createShopRouter({ database, requireAuth }) {
     if (!order) return res.status(404).send('unknown order');
     let ok = false;
     let ref = '';
+    let paymentNote = '';
     try {
       const out = await verifyPayment(payment(), provider, req.query, order.total);
       ok = out.ok;
@@ -408,6 +409,18 @@ export function createShopRouter({ database, requireAuth }) {
          customer pressed back, or the gateway retried. Worth a line, not an
          error. */
       if (out.alreadyVerified) console.log(`[shop] ${order.code}: gateway reports this payment was already verified`);
+      /* The masked card and the fee only exist on this one response. The
+         customer quotes the card when they ring about a payment and the
+         fee is what reconciliation needs, so they are written onto the
+         order rather than left in a log line that rotates away. */
+      if (out.ok && (out.cardPan || out.fee)) {
+        paymentNote = [
+          out.cardPan ? `کارت: ${out.cardPan}` : '',
+          out.fee ? `کارمزد درگاه: ${Number(out.fee).toLocaleString('en-US')} ریال${out.feeType === 'Payer' ? ' (پرداخت‌کننده: مشتری)' : ''}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+      }
     } catch (e) {
       console.error('[shop] verify error:', e.message);
     }
@@ -417,6 +430,7 @@ export function createShopRouter({ database, requireAuth }) {
         provider,
         payRef: ref || order.payRef,
         paidAt: new Date().toISOString(),
+        adminNote: [order.adminNote, paymentNote].filter(Boolean).join('\n'),
       });
     }
     res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=${ok ? 'ok' : 'fail'}`);

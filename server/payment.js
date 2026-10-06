@@ -61,13 +61,32 @@ const sdkMobile = (raw) => toLocalPhone(normalizePhone(raw)) || undefined;
    id. A gateway client that can only be reached over the internet is a
    gateway client that never gets tested. */
 let ZarinPalCtor = null;
+/** What the SDK constructor is given.
+ *
+ *  Pulled out as a pure function so it can be tested. It could not be
+ *  before, and that is exactly how the accessToken came to be missing: the
+ *  tests inject a ready-made client, so nothing ever exercised the line
+ *  that builds the real one. Everything that goes over GraphQL — the
+ *  terminal ledger, refunds, refund status — authenticates with this token
+ *  and not with the merchant id, so leaving it out sent
+ *  `Authorization: Bearer undefined` and those features could never have
+ *  worked against a live terminal. */
+export function zarinpalConfig(cfg) {
+  const c = normalizePayment(cfg);
+  const out = { merchantId: c.zarinpalMerchant, sandbox: Boolean(c.zarinpalSandbox) };
+  /* Only when set: the SDK interpolates it into an Authorization header
+     unconditionally, so an empty string is worse than an absent key. */
+  if (c.zarinpalAccessToken) out.accessToken = c.zarinpalAccessToken;
+  return out;
+}
+
 async function zarinpalClient(cfg, deps = {}) {
   if (deps.zarinpal) return deps.zarinpal;
   if (!ZarinPalCtor) {
     const mod = await import('zarinpal-node-sdk');
     ZarinPalCtor = mod.ZarinPal || mod.default?.ZarinPal || mod.default;
   }
-  return new ZarinPalCtor({ merchantId: cfg.zarinpalMerchant, sandbox: Boolean(cfg.zarinpalSandbox) });
+  return new ZarinPalCtor(zarinpalConfig(cfg));
 }
 
 /* Both SDK calls answer { data: { code, ... } }; some transports hand back
@@ -128,7 +147,18 @@ async function zarinpalVerify(cfg, params, expectedRial, deps) {
     }
   }
 
-  return { ok: true, ref: String(data.ref_id ?? authority), alreadyVerified: code === 101, cardPan: data.card_pan || '' };
+  /* card_pan and fee are documented on the verify response. The masked PAN
+     is what a customer quotes when they ring about a payment, and the fee
+     is what reconciliation needs — neither can be recovered later from the
+     callback alone. */
+  return {
+    ok: true,
+    ref: String(data.ref_id ?? authority),
+    alreadyVerified: code === 101,
+    cardPan: data.card_pan || '',
+    fee: Number(data.fee ?? 0) || 0,
+    feeType: String(data.fee_type || ''),
+  };
 }
 
 /* Coerce a gateway-supplied amount to a number, but only from a genuine number
