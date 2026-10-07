@@ -174,6 +174,16 @@ test.describe('customer accounts', () => {
     await input.fill('a-secret-1404');
     await expect(input).toHaveAttribute('type', 'password');
 
+    /* The eye belongs at the end of the typed text — the right, since a
+       password is typed left to right even on this RTL page. Measured
+       rather than asserted from CSS: the bug was that the input and the
+       button resolved their logical sides against different directions,
+       which only shows up in the geometry. */
+    const box = await field.boundingBox();
+    const eyeBox = await eye.boundingBox();
+    const eyeCentre = eyeBox.x + eyeBox.width / 2;
+    expect(eyeCentre, 'the reveal button sits in the right-hand half of the field').toBeGreaterThan(box.x + box.width / 2);
+
     await eye.click();
     await expect(input).toHaveAttribute('type', 'text');
     await expect(eye).toHaveAttribute('aria-pressed', 'true');

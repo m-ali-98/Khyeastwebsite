@@ -1721,10 +1721,17 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
 .pw-field {
   position: relative;
   display: block;
+  /* The field is LTR because a password is typed left to right, and this
+     line is what makes the button agree with it. Without it the input
+     resolved its own inline-end to the right while the button resolved
+     inset-inline-end against the RTL page — to the left — so the eye sat
+     at the opposite end of the field from the padding reserved for it,
+     overlapping the first characters typed. */
+  direction: ltr;
 
   input {
     width: 100%;
-    /* room for the button, on whichever side the text ends */
+    /* room for the button, at the end of the typed text */
     padding-inline-end: 46px;
   }
 
