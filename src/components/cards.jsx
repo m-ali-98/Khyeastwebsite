@@ -31,7 +31,7 @@ export function ProductCard({ product, index = 0 }) {
         <div className="product-card__foot">
           <Link className="link-arrow" to={`/products/${product.slug}`}>
             {t('product.view')}
-            <Icons.arrow size={17} className="arr" />
+            <Icons.arrow size={17} />
           </Link>
         </div>
       </div>
@@ -55,7 +55,7 @@ export function PostCard({ post, index = 0 }) {
         <div className="post-card__foot">
           <Link className="link-arrow" to={`/blog/${post.slug}`}>
             {t('blog.readMore')}
-            <Icons.arrow size={17} className="arr" />
+            <Icons.arrow size={17} />
           </Link>
         </div>
       </div>

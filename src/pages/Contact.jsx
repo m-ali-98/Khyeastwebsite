@@ -72,38 +72,26 @@ function ContactForm() {
   };
 
   return (
-    <div className="card" style={{ padding: '40px 40px', position: 'relative', overflow: 'hidden' }}>
+    <div className="card form-card">
       <AnimatePresence mode="wait">
         {sent ? (
           <mo.div
             key="sent"
+            className="form-card__success"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            style={{ textAlign: 'center', padding: '50px 10px' }}
           >
             <mo.div
+              className="form-card__success-icon"
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 200, damping: 14, delay: 0.1 }}
-              style={{
-                width: 92,
-                height: 92,
-                margin: '0 auto 24px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, var(--crimson), var(--crimson-700))',
-                display: 'grid',
-                placeItems: 'center',
-                color: '#fff',
-                boxShadow: '0 24px 60px -18px var(--crimson-glow)',
-              }}
             >
               <Icons.check size={44} />
             </mo.div>
-            <h2 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 10px' }}>{t('contact.form.successTitle')}</h2>
-            <p style={{ color: 'var(--muted)', maxWidth: 420, margin: '0 auto 26px' }}>
-              {t('contact.form.successText')}
-            </p>
+            <h2>{t('contact.form.successTitle')}</h2>
+            <p>{t('contact.form.successText')}</p>
             <button className="btn btn--outline" onClick={() => setSent(false)}>
               {t('contact.form.again')}
             </button>
@@ -117,8 +105,8 @@ function ContactForm() {
             onSubmit={submit}
             noValidate
           >
-            <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800 }}>{t('contact.form.title')}</h2>
-            <p style={{ color: 'var(--muted)', margin: '0 0 26px', fontSize: 14.5 }}>{t('contact.form.sub')}</p>
+            <h2 className="form-card__title">{t('contact.form.title')}</h2>
+            <p className="form-card__intro">{t('contact.form.sub')}</p>
             <div className="form-grid">
               <div className="field">
                 <label htmlFor="name">{t('contact.form.name')}</label>

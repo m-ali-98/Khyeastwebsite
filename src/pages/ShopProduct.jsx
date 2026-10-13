@@ -232,9 +232,13 @@ export default function ShopProduct() {
                     disabled={out}
                     onClick={() => add(p.slug, qty) && setAdded(true)}
                     whileTap={{ scale: 0.96 }}
+                    aria-live="polite"
                   >
                     {added ? (
-                      t('shop.detail.added')
+                      <>
+                        <Icons.check size={18} className="confirm-icon" />
+                        {t('shop.detail.added')}
+                      </>
                     ) : (
                       <>
                         <Icons.cart size={18} />

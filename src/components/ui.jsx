@@ -135,9 +135,13 @@ const brandIcon = (path, name) => {
 
 const ArrowLeftIcon = lineIcon(ArrowLeft);
 const ArrowRightIcon = lineIcon(ArrowRight);
-function DirectionalArrow(props) {
+function DirectionalArrow({ className = '', ...props }) {
   const { isRTL } = useLocale();
-  return isRTL ? <ArrowLeftIcon {...props} /> : <ArrowRightIcon {...props} />;
+  const arrowProps = {
+    ...props,
+    className: `icon-directional ${className}`.trim(),
+  };
+  return isRTL ? <ArrowLeftIcon {...arrowProps} /> : <ArrowRightIcon {...arrowProps} />;
 }
 
 const WhatsAppMark = brandIcon(

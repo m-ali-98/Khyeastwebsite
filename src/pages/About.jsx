@@ -17,8 +17,8 @@ function Mission() {
           {cards.map((c, i) => {
             const Ic = Icons[c.icon];
             return (
-              <Reveal key={c.title} delay={i * 0.12} className="card contact-card">
-                <div className="contact-card__icon">
+              <Reveal key={c.title} delay={i * 0.12} className="card principle-card">
+                <div className="principle-card__icon">
                   <Ic size={26} />
                 </div>
                 <div>
@@ -120,8 +120,8 @@ export default function About() {
           />
           <div className="certs-grid">
             {managers.map((mg, i) => (
-              <Reveal key={mg.name} delay={i * 0.1} className="card cert-card">
-                <div className="cert-card__icon">
+              <Reveal key={mg.name} delay={i * 0.1} className="card person-card">
+                <div className="person-card__icon">
                   <Icons.users size={30} />
                 </div>
                 <h3>{mg.name}</h3>

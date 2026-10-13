@@ -77,7 +77,7 @@ export default function ProductDetail() {
                 <span className="filter-chip">{t('product.chipShelf')}</span>
               </div>
 
-              <div className="card detail-spec">
+              <div className="card data-card detail-spec">
                 <table className="spec-table">
                   <tbody>
                     {(product.specs || []).map(([k, v]) => (
@@ -140,8 +140,7 @@ export default function ProductDetail() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-              className="card"
-              style={{ padding: '34px 36px' }}
+              className="card data-card data-card--panel"
             >
               {tab === 'usage' && (
                 <>

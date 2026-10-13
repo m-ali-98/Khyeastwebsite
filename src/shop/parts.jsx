@@ -85,8 +85,16 @@ export function ShopCard({ p, index = 0 }) {
             onClick={() => add(p.slug, 1) && setAdded(true)}
             title={added ? t('shop.detail.added') : t('shop.detail.addToCart')}
             aria-label={added ? t('shop.detail.added') : t('shop.detail.addToCart')}
+            aria-live="polite"
           >
-            {added ? t('shop.detail.added') : <Icons.cart size={17} />}
+            {added ? (
+              <>
+                <Icons.check size={17} className="confirm-icon" />
+                {t('shop.detail.added')}
+              </>
+            ) : (
+              <Icons.cart size={17} />
+            )}
           </button>
         </div>
       </div>

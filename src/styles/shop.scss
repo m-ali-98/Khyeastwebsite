@@ -25,14 +25,7 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     padding: 16px 18px;
-    box-shadow: var(--shadow-sm);
-    /* a quiet lift, matching the cards elsewhere rather than sitting flat */
-    transition: transform 0.35s var(--ease), border-color 0.35s var(--ease);
-
-    &:hover {
-      transform: translateY(-3px);
-      border-color: var(--crimson-soft);
-    }
+    box-shadow: none;
 
     .ico {
       flex: none;
@@ -43,7 +36,9 @@
       border-radius: 50%;
       background: var(--crimson-soft);
       color: var(--crimson-ink);
+      transition: transform 0.28s var(--ease-soft);
     }
+    &:hover .ico { transform: scale(1.055); }
     span {
       font-size: 13.5px;
       font-weight: 700;
@@ -111,23 +106,43 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  overflow: hidden;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  /* Large card surfaces only animate transform; border and shadow tweens
-     repaint the full card. The image scale is the product-specific signal. */
-  transition: transform 0.35s var(--ease);
 
-  &:hover {
-    transform: translateY(-4px);
-
-    .shop-card__img img {
-      transform: scale(1.05);
-    }
+  /* Commerce cards signal interactivity through their merchandise and a
+     small accent rail, not by making the whole surface float. */
+  &::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    height: 3px;
+    background: var(--crimson);
+    transform: scaleX(0.18);
+    opacity: 0.7;
+    transition: transform 0.32s var(--ease-soft), opacity 0.32s var(--ease-soft);
+    pointer-events: none;
   }
-  /* promoted only while hovered, so the photo scales on its own layer */
-  &:hover .shop-card__img img { will-change: transform; }
+
+  &:hover::after,
+  &:focus-within::after {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+
+  &:focus-within {
+    outline: 2px solid var(--crimson);
+    outline-offset: 4px;
+  }
+
+  &:hover .shop-card__img img,
+  &:focus-within .shop-card__img img {
+    transform: scale(1.04);
+    will-change: transform;
+  }
 
   &__img {
     position: relative;
@@ -226,10 +241,14 @@
 
     a {
       color: inherit;
+      transition: color 0.24s var(--ease-soft);
       &:hover {
         color: var(--crimson-ink);
       }
     }
+
+    .shop-card:hover & a,
+    .shop-card:focus-within & a { color: var(--crimson-ink); }
   }
 
   &__unit {
@@ -323,8 +342,9 @@
   }
 
   &__box {
-    background: var(--surface);
-    border: 1px solid var(--line);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-strong);
+    border-inline-start: 3px solid var(--crimson);
     border-radius: var(--radius);
     padding: 22px;
     box-shadow: var(--shadow-sm);
@@ -431,11 +451,10 @@
 }
 
 .sp-specs {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: var(--surface-tint);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   padding: 24px;
-  box-shadow: var(--shadow-sm);
 
   h2 {
     font-size: 17px;
@@ -472,11 +491,10 @@
 }
 
 .sp-desc {
-  background: var(--surface);
+  background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 26px 28px;
-  box-shadow: var(--shadow-sm);
 
   h2 {
     font-size: 17px;
