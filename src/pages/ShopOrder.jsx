@@ -112,7 +112,7 @@ export default function ShopOrder() {
                     transition={{ delay: 0.15 + i * 0.12, duration: 0.45 }}
                   >
                     <span className="dot">
-                      {i < currentIdx ? <Icons.check size={19} /> : i === 0 ? <Icons.clock size={18} /> : i === 1 ? <Icons.discount size={18} /> : i === 2 ? <Icons.send size={18} /> : <Icons.star size={18} />}
+                      {i < currentIdx ? <Icons.check size={19} /> : i === 0 ? <Icons.clock size={18} /> : i === 1 ? <Icons.payment size={18} /> : i === 2 ? <Icons.shipping size={18} /> : <Icons.check size={18} />}
                     </span>
                     <small>{t(`shop.order.st.${s}`)}</small>
                   </mo.div>

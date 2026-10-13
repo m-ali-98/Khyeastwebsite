@@ -187,7 +187,8 @@ export function ShopProductsTab() {
         </div>
         <div className="admin__row" style={{ gap: 8 }}>
           <button className="btn btn--outline" onClick={refresh} disabled={busy}>
-            {busy ? '… در حال بروزرسانی' : '⟳ بروزرسانی'}
+            <Icons.refresh size={16} />
+            {busy ? 'در حال بروزرسانی…' : 'بروزرسانی'}
           </button>
           <button className="btn btn--primary" onClick={startNew}>
             + محصول جدید
@@ -212,10 +213,10 @@ export function ShopProductsTab() {
             </div>
             <div className="admin__actions">
               <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft(clone(p))}>
-                ✎
+                <Icons.edit size={16} />
               </button>
               <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>
-                ✕
+                <Icons.trash size={16} />
               </button>
             </div>
           </div>
@@ -330,7 +331,8 @@ export function ShopOrdersTab() {
           <p>مشاهده، تغییر وضعیت و پیگیری سفارش‌های ثبت‌شده</p>
         </div>
         <button className="btn btn--outline" onClick={load}>
-          ⟳ به‌روزرسانی
+          <Icons.refresh size={16} />
+          به‌روزرسانی
         </button>
       </div>
       {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
@@ -458,7 +460,8 @@ export function ShopCommentsTab() {
           <p>تأیید، پاسخ‌گویی و حذف دیدگاه‌ها؛ قفل بخش دیدگاه‌ها از تب «فروشگاه — محصولات»</p>
         </div>
         <button className="btn btn--outline" onClick={load}>
-          ⟳ به‌روزرسانی
+          <Icons.refresh size={16} />
+          به‌روزرسانی
         </button>
       </div>
       {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}

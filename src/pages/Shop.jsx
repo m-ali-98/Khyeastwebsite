@@ -7,7 +7,7 @@ import { ShopCard } from '../shop/parts';
 
 const TRUST = [
   { icon: 'shield', key: 'shop.trust.guarantee' },
-  { icon: 'box', key: 'shop.trust.shipping' },
+  { icon: 'shipping', key: 'shop.trust.shipping' },
   { icon: 'check', key: 'shop.trust.payment' },
   { icon: 'phone', key: 'shop.trust.support' },
 ];
@@ -90,7 +90,7 @@ export default function Shop() {
           ) : (
             <Reveal className="cart-empty">
               <span className="ico">
-                <Icons.box size={40} />
+                <Icons.store size={40} />
               </span>
               <h2>{t('shop.empty')}</h2>
             </Reveal>

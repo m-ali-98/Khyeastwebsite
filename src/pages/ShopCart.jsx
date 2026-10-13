@@ -22,7 +22,7 @@ export default function ShopCart() {
           {rows.length === 0 ? (
             <Reveal className="cart-empty">
               <span className="ico">
-                <Icons.box size={40} />
+                <Icons.cart size={40} />
               </span>
               <h2>{t('shop.cart.empty')}</h2>
               <Link to="/shop" className="btn btn--primary">
@@ -71,7 +71,7 @@ export default function ShopCart() {
                         <span className="cart-table__price">{money(r.product.price)}</span>
                         <span className="cart-table__sum">{money(r.sum)}</span>
                         <button className="cart-table__del" onClick={() => remove(r.product.slug)} aria-label={t('shop.cart.remove')}>
-                          ✕
+                          <Icons.trash size={17} />
                         </button>
                       </mo.div>
                     ))}

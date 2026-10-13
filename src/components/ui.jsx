@@ -5,6 +5,61 @@ import { observeReveal } from '../lib/motion';
 import { renderHighlight } from '../content/sanitize';
 import { useLocale } from '../i18n/LocaleContext';
 import { imgProps, SIZES } from '../lib/img';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BadgePercent,
+  Bold,
+  CircleCheck,
+  ClipboardList,
+  Clock3,
+  ContactRound,
+  CreditCard,
+  Croissant,
+  Eye,
+  EyeOff,
+  Factory,
+  FilePenLine,
+  FileText,
+  FlaskConical,
+  Globe2,
+  Image,
+  Images,
+  Inbox,
+  Italic,
+  Languages,
+  Leaf,
+  Link2,
+  List,
+  ListOrdered,
+  Mail,
+  MapPin,
+  MessageSquareText,
+  Moon,
+  Newspaper,
+  Package,
+  PackageCheck,
+  Phone,
+  RefreshCw,
+  ScanLine,
+  Send,
+  Settings2,
+  ShieldCheck,
+  ShoppingCart,
+  Sparkles,
+  Star,
+  Store,
+  Sun,
+  Thermometer,
+  Trash2,
+  Truck,
+  Unlink2,
+  Upload,
+  Users,
+  Video,
+  Wheat,
+  Pencil,
+} from 'lucide-react';
 
 export const hl = renderHighlight;
 
@@ -28,238 +83,135 @@ export const useNum = () => {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Icons (inline SVG, stroke-based)                                   */
+/*  Icon system                                                       */
 /* ------------------------------------------------------------------ */
-const S = ({ children, size = 22, ...rest }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.9"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    {...rest}
-  >
-    {children}
-  </svg>
+/*
+   Product/UI symbols come from one optical family (Lucide) rather than a
+   mixture of hand-drawn paths. A slightly lighter shared stroke keeps 14px
+   utility icons and 30px feature icons visually consistent.
+
+   Social networks are the exception: their recognisable official marks are
+   filled artwork, not generic line symbols. The three paths below are the
+   Simple Icons v16.35 marks (CC0), embedded directly so three tiny marks do
+   not pull a second icon package into the public bundle.
+*/
+const lineIcon = (Glyph) => {
+  function AppIcon({ strokeWidth = 1.8, ...props }) {
+    const labelled = Boolean(props['aria-label']);
+    return (
+      <Glyph
+        strokeWidth={strokeWidth}
+        aria-hidden={labelled ? undefined : 'true'}
+        focusable="false"
+        {...props}
+      />
+    );
+  }
+  AppIcon.displayName = `Icon(${Glyph.displayName || Glyph.name || 'Lucide'})`;
+  return AppIcon;
+};
+
+const brandIcon = (path, name) => {
+  function BrandIcon({ size = 22, ...props }) {
+    const labelled = Boolean(props['aria-label']);
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        stroke="none"
+        aria-hidden={labelled ? undefined : 'true'}
+        focusable="false"
+        {...props}
+      >
+        <path d={path} />
+      </svg>
+    );
+  }
+  BrandIcon.displayName = `${name}Mark`;
+  return BrandIcon;
+};
+
+const ArrowLeftIcon = lineIcon(ArrowLeft);
+const ArrowRightIcon = lineIcon(ArrowRight);
+function DirectionalArrow(props) {
+  const { isRTL } = useLocale();
+  return isRTL ? <ArrowLeftIcon {...props} /> : <ArrowRightIcon {...props} />;
+}
+
+const WhatsAppMark = brandIcon(
+  'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z',
+  'WhatsApp',
+);
+const TelegramMark = brandIcon(
+  'M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z',
+  'Telegram',
+);
+const FacebookMark = brandIcon(
+  'M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z',
+  'Facebook',
 );
 
 export const Icons = {
-  sun: (p) => (
-    <S {...p}>
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-    </S>
-  ),
-  moon: (p) => (
-    <S {...p}>
-      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-    </S>
-  ),
-  wheat: (p) => (
-    <S {...p}>
-      <path d="M12 22V8" />
-      <path d="M12 12c-3.5-.6-5.5-2.8-5.5-6 3.2 0 5.5 2.4 5.5 6z" />
-      <path d="M12 12c3.5-.6 5.5-2.8 5.5-6-3.2 0-5.5 2.4-5.5 6z" />
-      <path d="M12 17c-3.5-.6-5.5-2.8-5.5-6 3.2 0 5.5 2.4 5.5 6z" />
-      <path d="M12 17c3.5-.6 5.5-2.8 5.5-6-3.2 0-5.5 2.4-5.5 6z" />
-      <path d="M12 8c0-2.5.8-4.5 0-6-.8 1.5 0 3.5 0 6z" />
-    </S>
-  ),
-  phone: (p) => (
-    <S {...p}>
-      <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.13.96.36 1.9.7 2.8a2 2 0 0 1-.45 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.45c.9.34 1.84.57 2.8.7A2 2 0 0 1 22 16.9z" />
-    </S>
-  ),
-  mail: (p) => (
-    <S {...p}>
-      <rect x="2" y="4" width="20" height="16" rx="3" />
-      <path d="m22 7-10 6L2 7" />
-    </S>
-  ),
-  whatsapp: (p) => (
-    <S {...p}>
-      <path d="M3 21l1.65-4.8a8.5 8.5 0 1 1 3.4 3.4L3 21z" />
-      <path d="M9 10a5 5 0 0 0 5 5l1-1.5 2 1a1.5 1.5 0 0 1-2 2 8 8 0 0 1-7-7 1.5 1.5 0 0 1 2-2l1 2L9 10z" />
-    </S>
-  ),
-  telegram: (p) => (
-    <S {...p}>
-      <path d="m22 3-19 8 6 2 2 6 3-4 5 3 3-15z" />
-      <path d="m9 13 9-8" />
-    </S>
-  ),
-  facebook: (p) => (
-    <S {...p}>
-      <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3V2z" />
-    </S>
-  ),
-  pin: (p) => (
-    <S {...p}>
-      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
-      <circle cx="12" cy="10" r="3" />
-    </S>
-  ),
-  globe: (p) => (
-    <S {...p}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M2 12h20" />
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-    </S>
-  ),
-  check: (p) => (
-    <S {...p}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="m8 12.5 2.7 2.7L16 9.5" />
-    </S>
-  ),
-  arrow: (p) => (
-    <S {...p}>
-      <path d="M19 12H5" />
-      <path d="m11 18-6-6 6-6" />
-    </S>
-  ),
-  eye: (p) => (
-    <S {...p}>
-      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
-      <circle cx="12" cy="12" r="3" />
-    </S>
-  ),
-  eyeOff: (p) => (
-    <S {...p}>
-      <path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a16 16 0 0 1-3.1 3.6M6.5 7.6A16 16 0 0 0 2 12s3.6 6 10 6c1.6 0 3-.3 4.2-.8" />
-      <path d="m4 3 16 18" />
-    </S>
-  ),
-  shield: (p) => (
-    <S {...p}>
-      <path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z" />
-      <path d="m9 11.5 2.2 2.2L15.5 9" />
-    </S>
-  ),
-  pack: (p) => (
-    <S {...p}>
-      <path d="M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8z" />
-      <path d="m3.3 7 8.7 5 8.7-5" />
-      <path d="M12 22V12" />
-    </S>
-  ),
-  send: (p) => (
-    <S {...p}>
-      <path d="M5 18H3V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" />
-      <path d="M18 9h3l-3 9h-2" />
-      <circle cx="7.5" cy="18" r="2" />
-      <circle cx="15.5" cy="18" r="2" />
-      <path d="M9.5 18H14" />
-    </S>
-  ),
-  discount: (p) => (
-    <S {...p}>
-      <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z" />
-      <path d="M7 7h.01" />
-      <path d="m16 8-8 8" />
-      <circle cx="9" cy="15" r="1.4" />
-      <circle cx="15" cy="9" r="1.4" />
-    </S>
-  ),
-  flask: (p) => (
-    <S {...p}>
-      <path d="M10 2v7L4.5 19a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V2" />
-      <path d="M8.5 2h7" />
-      <path d="M7 15h10" />
-    </S>
-  ),
-  factory: (p) => (
-    <S {...p}>
-      <path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z" />
-      <path d="M17 18h1" />
-      <path d="M12 18h1" />
-      <path d="M7 18h1" />
-    </S>
-  ),
-  gear: (p) => (
-    <S {...p}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h0a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
-    </S>
-  ),
-  area: (p) => (
-    <S {...p}>
-      <path d="M3 3h18v18H3z" />
-      <path d="M3 9h6V3" />
-      <path d="M21 15h-6v6" />
-    </S>
-  ),
-  temp: (p) => (
-    <S {...p}>
-      <path d="M14 4a2 2 0 1 0-4 0v10.5a4 4 0 1 0 4 0V4z" />
-      <path d="M12 14V9" />
-    </S>
-  ),
-  box: (p) => (
-    <S {...p}>
-      <rect x="3" y="7" width="18" height="14" rx="2" />
-      <path d="M3 11h18" />
-      <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </S>
-  ),
-  clock: (p) => (
-    <S {...p}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 6v6l4 2" />
-    </S>
-  ),
-  doc: (p) => (
-    <S {...p}>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-      <path d="M9 13h6" />
-      <path d="M9 17h6" />
-    </S>
-  ),
-  star: (p) => (
-    <S {...p}>
-      <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z" />
-    </S>
-  ),
-  users: (p) => (
-    <S {...p}>
-      <path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9.5" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M15 3.13a4 4 0 0 1 0 7.75" />
-    </S>
-  ),
-  leaf: (p) => (
-    <S {...p}>
-      <path d="M11 20A7 7 0 0 1 4 13c0-5 4-9 10-10 4.5-.8 7 1 7 1s-1 8-4 12a7.5 7.5 0 0 1-6 4z" />
-      <path d="M4 21c4-6 8-9 12-11" />
-    </S>
-  ),
-  bread: (p) => (
-    <S {...p}>
-      <path d="M4 10a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3c0 1.3-.8 2.2-2 2.6V19a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-6.4c-1.2-.4-2-1.3-2-2.6z" />
-      <path d="M10 12v4" />
-      <path d="M14 12v4" />
-    </S>
-  ),
-  spark: (p) => (
-    <S {...p}>
-      <path d="M12 2v4" />
-      <path d="M12 18v4" />
-      <path d="m4.9 4.9 2.8 2.8" />
-      <path d="m16.3 16.3 2.8 2.8" />
-      <path d="M2 12h4" />
-      <path d="M18 12h4" />
-      <path d="m4.9 19.1 2.8-2.8" />
-      <path d="m16.3 7.7 2.8-2.8" />
-    </S>
-  ),
+  sun: lineIcon(Sun),
+  moon: lineIcon(Moon),
+  wheat: lineIcon(Wheat),
+  phone: lineIcon(Phone),
+  mail: lineIcon(Mail),
+  pin: lineIcon(MapPin),
+  globe: lineIcon(Globe2),
+  check: lineIcon(CircleCheck),
+  arrow: DirectionalArrow,
+  eye: lineIcon(Eye),
+  eyeOff: lineIcon(EyeOff),
+  shield: lineIcon(ShieldCheck),
+  pack: lineIcon(PackageCheck),
+  box: lineIcon(Package),
+  cart: lineIcon(ShoppingCart),
+  shipping: lineIcon(Truck),
+  store: lineIcon(Store),
+  orders: lineIcon(ClipboardList),
+  send: lineIcon(Send),
+  discount: lineIcon(BadgePercent),
+  flask: lineIcon(FlaskConical),
+  factory: lineIcon(Factory),
+  gear: lineIcon(Settings2),
+  area: lineIcon(ScanLine),
+  temp: lineIcon(Thermometer),
+  clock: lineIcon(Clock3),
+  doc: lineIcon(FileText),
+  star: lineIcon(Star),
+  users: lineIcon(Users),
+  leaf: lineIcon(Leaf),
+  bread: lineIcon(Croissant),
+  spark: lineIcon(Sparkles),
+  edit: lineIcon(Pencil),
+  trash: lineIcon(Trash2),
+  refresh: lineIcon(RefreshCw),
+  upload: lineIcon(Upload),
+  link: lineIcon(Link2),
+  unlink: lineIcon(Unlink2),
+  image: lineIcon(Image),
+  media: lineIcon(Images),
+  video: lineIcon(Video),
+  bold: lineIcon(Bold),
+  italic: lineIcon(Italic),
+  list: lineIcon(List),
+  listOrdered: lineIcon(ListOrdered),
+  comments: lineIcon(MessageSquareText),
+  payment: lineIcon(CreditCard),
+  translations: lineIcon(Languages),
+  posts: lineIcon(Newspaper),
+  text: lineIcon(FilePenLine),
+  contact: lineIcon(ContactRound),
+  inbox: lineIcon(Inbox),
+  whatsapp: WhatsAppMark,
+  telegram: TelegramMark,
+  facebook: FacebookMark,
 };
 
-export const socialIcon = (id) => Icons[id] || Icons.globe;
+export const socialIcon = (id) => Icons[String(id || '').toLowerCase()] || Icons.globe;
 
 /* ------------------------------------------------------------------ */
 /*  Scroll reveal wrapper                                              */

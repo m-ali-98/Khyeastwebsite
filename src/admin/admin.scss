@@ -39,6 +39,7 @@
 .admin__login-card .field { text-align: right; margin-bottom: 14px; }
 .admin__login-card .btn { width: 100%; }
 .admin__login-err { color: var(--crimson-ink); font-size: 13px; margin-top: 10px; }
+.admin__back-link { display: inline-flex; align-items: center; gap: 6px; }
 
 .admin__shell { display: grid; grid-template-columns: 250px 1fr; min-height: 100svh; }
 .admin__side {
@@ -142,6 +143,10 @@
   min-width: 34px;
   height: 32px;
   padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 700;
   color: var(--ink-2);

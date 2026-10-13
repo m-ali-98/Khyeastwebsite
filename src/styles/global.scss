@@ -1109,7 +1109,12 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   padding: 22px 26px;
   margin: 30px 0;
 }
-.post-callout strong { color: var(--crimson-700); }
+.post-callout strong {
+  color: var(--crimson-700);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 /* ---------- CTA band ---------- */
 .cta-band {

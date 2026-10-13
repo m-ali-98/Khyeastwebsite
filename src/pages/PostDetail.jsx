@@ -82,7 +82,10 @@ export default function PostDetail() {
 
             <Reveal>
               <div className="post-callout">
-                <strong>🔬 {t('blog.callout.title')}</strong>
+                <strong>
+                  <Icons.flask size={18} />
+                  {t('blog.callout.title')}
+                </strong>
                 <p style={{ margin: '8px 0 0' }}>{t('blog.callout.text')}</p>
               </div>
             </Reveal>

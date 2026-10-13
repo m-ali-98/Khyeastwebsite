@@ -80,8 +80,8 @@ function TransList({ items, title, sub, subtitle, onEdit, translatedOf }) {
                 <span className={`admin__badge ${done === 'full' ? 'ok' : done === 'part' ? 'warn' : ''}`}>
                   {done === 'full' ? 'ترجمه شده' : done === 'part' ? 'ناقص' : 'پیش‌فرض'}
                 </span>
-                <button className="admin__iconbtn" title="ویرایش ترجمه" onClick={() => onEdit(it)}>
-                  ✎
+                <button className="admin__iconbtn" title="ویرایش ترجمه" aria-label="ویرایش ترجمه" onClick={() => onEdit(it)}>
+                  <Icons.edit size={16} />
                 </button>
               </div>
             </div>

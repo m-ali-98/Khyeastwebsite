@@ -203,7 +203,7 @@ function Navbar() {
             {shopEnabled && (
               <div className="nav__icons">
                 <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
-                  <Icons.box size={19} />
+                  <Icons.cart size={19} />
                   {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
                 </Link>
 
@@ -267,7 +267,7 @@ function Navbar() {
                     the menu has to carry them or the account is unreachable
                     from the header. */}
                 <NavLink to="/shop/cart" className="m-pill">
-                  <Icons.box size={18} />
+                  <Icons.cart size={18} />
                   {t('shop.cart.title')}
                   {count > 0 && <span className="m-pill__badge">{faNum(count)}</span>}
                 </NavLink>

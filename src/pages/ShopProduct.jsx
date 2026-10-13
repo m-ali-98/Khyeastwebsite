@@ -174,7 +174,7 @@ export default function ShopProduct() {
         <div className="container">
           <Reveal className="cart-empty">
             <span className="ico">
-              <Icons.box size={40} />
+              <Icons.store size={40} />
             </span>
             <h2>{t('shop.order.notFound')}</h2>
             <Link to="/shop" className="btn btn--primary">
@@ -237,7 +237,7 @@ export default function ShopProduct() {
                       t('shop.detail.added')
                     ) : (
                       <>
-                        <Icons.box size={18} />
+                        <Icons.cart size={18} />
                         {t('shop.detail.addToCart')}
                       </>
                     )}
@@ -256,7 +256,7 @@ export default function ShopProduct() {
               <div className="shop-trust" style={{ marginBottom: 0 }}>
                 {[
                   { icon: 'shield', key: 'shop.trust.guarantee' },
-                  { icon: 'box', key: 'shop.trust.shipping' },
+                  { icon: 'shipping', key: 'shop.trust.shipping' },
                 ].map((item) => {
                   const Ic = Icons[item.icon];
                   return (

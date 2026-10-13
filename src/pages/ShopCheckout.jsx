@@ -88,7 +88,7 @@ export default function ShopCheckout() {
         <div className="container">
           <Reveal className="cart-empty">
             <span className="ico">
-              <Icons.box size={40} />
+              <Icons.cart size={40} />
             </span>
             <h2>{t('shop.cart.empty')}</h2>
             <Link to="/shop" className="btn btn--primary">

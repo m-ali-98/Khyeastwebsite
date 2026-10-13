@@ -52,7 +52,12 @@ export function ShopCard({ p, index = 0 }) {
         </Link>
         <div className="shop-card__badges">
           {off > 0 && <span className="badge-off">{faNum(off)}٪ {t('shop.card.off')}</span>}
-          {p.featured && <span className="badge-featured">★ {t('shop.card.featured')}</span>}
+          {p.featured && (
+            <span className="badge-featured">
+              <Icons.star size={12} />
+              {t('shop.card.featured')}
+            </span>
+          )}
         </div>
         <span className={`shop-card__stock ${out ? 'is-out' : low ? 'is-low' : ''}`}>
           {out ? t('shop.card.outOfStock') : low ? t('shop.card.lowStock') : t('shop.card.inStock')}
@@ -78,9 +83,10 @@ export function ShopCard({ p, index = 0 }) {
             className={`btn ${added ? 'btn--primary' : 'btn--outline'} btn--sm`}
             disabled={out}
             onClick={() => add(p.slug, 1) && setAdded(true)}
-            title={t('shop.detail.addToCart')}
+            title={added ? t('shop.detail.added') : t('shop.detail.addToCart')}
+            aria-label={added ? t('shop.detail.added') : t('shop.detail.addToCart')}
           >
-            {added ? t('shop.detail.added') : <Icons.box size={17} />}
+            {added ? t('shop.detail.added') : <Icons.cart size={17} />}
           </button>
         </div>
       </div>

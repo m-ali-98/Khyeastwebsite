@@ -32,9 +32,10 @@ const kb = (n) =>
     ? `${(n / 1024 / 1024).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} مگابایت`
     : `${Math.round(n / 1024).toLocaleString('fa-IR')} کیلوبایت`;
 
-export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/webm', label = 'بارگذاری فایل', small = false }) {
+export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/webm', label = 'بارگذاری فایل', icon = 'upload', small = false }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
+  const UploadIcon = Icons[icon] || Icons.upload;
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
 
@@ -73,7 +74,7 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
         onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])}
       />
       <button type="button" className={`btn btn--outline ${small ? 'btn--sm' : ''}`} onClick={() => ref.current?.click()} disabled={busy}>
-        <Icons.pack size={16} />
+        <UploadIcon size={16} />
         {busy ? 'در حال بارگذاری…' : label}
       </button>
       {err && <small style={{ color: 'var(--crimson)' }}>{err}</small>}
@@ -96,7 +97,7 @@ export function StringListEditor({ items = [], onChange, label = 'مورد', add
             style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' }}
           />
           <button type="button" className="admin__iconbtn danger" onClick={() => remove(i)} title="حذف">
-            <Icons.arrow size={15} style={{ transform: 'rotate(90deg)' }} />
+            <Icons.trash size={15} />
           </button>
         </div>
       ))}
@@ -130,7 +131,7 @@ export function PairListEditor({ items = [], onChange, kLabel = 'عنوان', vL
               style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' }}
             />
             <button type="button" className="admin__iconbtn danger" onClick={() => remove(i)} title="حذف">
-              ✕
+              <Icons.trash size={15} />
             </button>
           </div>
         </div>
@@ -176,7 +177,7 @@ export function RichEditor({ value, onChange }) {
   };
 
   const B = ({ onClick, children, title }) => (
-    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick}>
+    <button type="button" title={title} aria-label={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick}>
       {children}
     </button>
   );
@@ -188,28 +189,36 @@ export function RichEditor({ value, onChange }) {
         <B title="زیرسرتیتر" onClick={() => exec('formatBlock', '<h3>')}>H3</B>
         <B title="پاراگراف" onClick={() => exec('formatBlock', '<p>')}>P</B>
         <B title="درشت" onClick={() => exec('bold')}>
-          <b>B</b>
+          <Icons.bold size={15} />
         </B>
         <B title="کج" onClick={() => exec('italic')}>
-          <i>I</i>
+          <Icons.italic size={15} />
         </B>
-        <B title="فهرست نقطه‌ای" onClick={() => exec('insertUnorderedList')}>• list</B>
-        <B title="فهرست شماره‌ای" onClick={() => exec('insertOrderedList')}>1. list</B>
+        <B title="فهرست نقطه‌ای" onClick={() => exec('insertUnorderedList')}>
+          <Icons.list size={15} />
+        </B>
+        <B title="فهرست شماره‌ای" onClick={() => exec('insertOrderedList')}>
+          <Icons.listOrdered size={15} />
+        </B>
         <B title="افزودن پیوند به متن انتخاب‌شده" onClick={addLink}>
-          🔗 پیوند
+          <Icons.link size={15} />
+          پیوند
         </B>
         <B title="حذف پیوند" onClick={() => exec('unlink')}>
-          ⛓️‍💥 حذف پیوند
+          <Icons.unlink size={15} />
+          حذف پیوند
         </B>
         <UploadButton
           small
-          label="📷 تصویر"
+          label="تصویر"
+          icon="image"
           accept="image/*"
           onUploaded={(url) => insertMedia(url, 'image')}
         />
         <UploadButton
           small
-          label="🎬 ویدیو"
+          label="ویدیو"
+          icon="video"
           accept="video/mp4,video/webm"
           onUploaded={(url) => insertMedia(url, 'video')}
         />

@@ -231,10 +231,10 @@ export function ProductsTab() {
             <div className="admin__actions">
               <TransStatus bucket="products" slug={p.slug} state={state} />
               <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft({ ...clone(p), _orig: p.slug })}>
-                ✎
+                <Icons.edit size={16} />
               </button>
               <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>
-                ✕
+                <Icons.trash size={16} />
               </button>
             </div>
           </div>
@@ -365,10 +365,10 @@ export function PostsTab() {
             <div className="admin__actions">
               <TransStatus bucket="posts" slug={p.slug} state={state} />
               <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft({ ...clone(p), _orig: p.slug })}>
-                ✎
+                <Icons.edit size={16} />
               </button>
               <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>
-                ✕
+                <Icons.trash size={16} />
               </button>
             </div>
           </div>
@@ -576,9 +576,11 @@ export function ContactTab() {
                 />
                 <button
                   className="admin__iconbtn danger"
+                  title="حذف"
+                  aria-label="حذف"
                   onClick={() => setOffice(o.id, { phones: o.phones.filter((_, idx) => idx !== i) })}
                 >
-                  ✕
+                  <Icons.trash size={16} />
                 </button>
               </div>
             </div>
@@ -608,8 +610,8 @@ export function ContactTab() {
               onChange={(e) => setSocial(s.id, { href: e.target.value })}
               style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '10px 14px', fontSize: 13.5 }}
             />
-            <button className="admin__iconbtn danger" onClick={() => removeSocial(s.id)}>
-              ✕
+            <button className="admin__iconbtn danger" title="حذف" aria-label="حذف" onClick={() => removeSocial(s.id)}>
+              <Icons.trash size={16} />
             </button>
           </div>
         </div>
@@ -655,7 +657,8 @@ export function MessagesTab() {
           <p>پیام‌های ارسال‌شده از فرم «ارسال پیام و استعلام قیمت»</p>
         </div>
         <button className="btn btn--outline" onClick={load}>
-          ⟳ به‌روزرسانی
+          <Icons.refresh size={16} />
+          به‌روزرسانی
         </button>
       </div>
       {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}

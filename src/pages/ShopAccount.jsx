@@ -192,7 +192,7 @@ export default function ShopAccount() {
   };
 
   const TABS = [
-    ['orders', t('shop.account.tabOrders'), 'box'],
+    ['orders', t('shop.account.tabOrders'), 'orders'],
     ['addresses', t('shop.account.tabAddresses'), 'pin'],
     ['profile', t('shop.account.tabProfile'), 'users'],
   ];

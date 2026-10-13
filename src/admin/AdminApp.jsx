@@ -20,19 +20,19 @@ import './admin.scss';
    stay available. */
 const TABS = [
   { id: 'products', label: 'محصولات', icon: 'pack' },
-  { id: 'posts', label: 'وبلاگ', icon: 'doc' },
-  { id: 'shop', label: 'فروشگاه — محصولات', icon: 'box', faOnly: true },
-  { id: 'orders', label: 'سفارش‌ها', icon: 'send', faOnly: true },
-  { id: 'comments', label: 'دیدگاه‌ها', icon: 'users', faOnly: true },
-  { id: 'payment', label: 'درگاه پرداخت', icon: 'gear', faOnly: true },
+  { id: 'posts', label: 'وبلاگ', icon: 'posts' },
+  { id: 'shop', label: 'فروشگاه — محصولات', icon: 'store', faOnly: true },
+  { id: 'orders', label: 'سفارش‌ها', icon: 'orders', faOnly: true },
+  { id: 'comments', label: 'دیدگاه‌ها', icon: 'comments', faOnly: true },
+  { id: 'payment', label: 'درگاه پرداخت', icon: 'payment', faOnly: true },
   { id: 'customers', label: 'مشتریان', icon: 'users', faOnly: true },
   { id: 'sms', label: 'پیامک', icon: 'send', faOnly: true },
-  { id: 'texts', label: 'متون سایت', icon: 'spark', base: true },
-  { id: 'translations', label: 'متون و فهرست‌ها', icon: 'globe', transOnly: true },
-  { id: 'media', label: 'تصاویر صفحات', icon: 'star' },
-  { id: 'links', label: 'پیوندها', icon: 'globe' },
-  { id: 'contact', label: 'اطلاعات تماس', icon: 'phone', base: true },
-  { id: 'messages', label: 'پیام‌های مردم', icon: 'mail' },
+  { id: 'texts', label: 'متون سایت', icon: 'text', base: true },
+  { id: 'translations', label: 'متون و فهرست‌ها', icon: 'translations', transOnly: true },
+  { id: 'media', label: 'تصاویر صفحات', icon: 'media' },
+  { id: 'links', label: 'پیوندها', icon: 'link' },
+  { id: 'contact', label: 'اطلاعات تماس', icon: 'contact', base: true },
+  { id: 'messages', label: 'پیام‌های مردم', icon: 'inbox' },
 ];
 
 /* Light / dark switch for the panel. Shares the site-wide theme, so whichever
@@ -158,7 +158,10 @@ function Login({ onDone }) {
         </button>
         {err && <div className="admin__login-err">{err}</div>}
         <p style={{ marginTop: 18, fontSize: 12 }}>
-          <Link to="/">← بازگشت به وب‌سایت</Link>
+          <Link to="/" className="admin__back-link">
+            <Icons.arrow size={14} />
+            بازگشت به وب‌سایت
+          </Link>
         </p>
       </mo.form>
     </main>

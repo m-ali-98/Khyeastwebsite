@@ -100,7 +100,7 @@ export default function ProductDetail() {
                     second rule that could drift away from it. */}
                 {shopEnabled && (
                   <Link className="btn btn--primary" to="/shop">
-                    <Icons.box size={18} />
+                    <Icons.store size={18} />
                     {t('product.btnShop')}
                   </Link>
                 )}
