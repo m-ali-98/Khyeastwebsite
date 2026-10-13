@@ -52,7 +52,7 @@ export default function Products() {
             </AnimatePresence>
           </mo.div>
 
-          <Reveal className="mt-56">
+          <Reveal className="section-break">
             <div className="cta-band">
               <div>
                 <h2>{t('products.catalog.title')}</h2>

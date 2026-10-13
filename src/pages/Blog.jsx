@@ -13,10 +13,10 @@ export default function Blog() {
       <PageHero title={t('blog.hero.title')} sub={t('blog.hero.sub')} image={m('blog.hero.img')} />
 
       <section className="section">
-        <div className="container">
+        <div className="container section-stack">
           {featuredPost && (
             <Reveal>
-              <Link to={`/blog/${featuredPost.slug}`} className="card featured-post" style={{ overflow: 'hidden', marginBottom: 44 }}>
+              <Link to={`/blog/${featuredPost.slug}`} className="card featured-post" style={{ overflow: 'hidden' }}>
                 <div style={{ position: 'relative', minHeight: 320 }}>
                   <img
                     {...imgProps(featuredPost.image, SIZES.full)}

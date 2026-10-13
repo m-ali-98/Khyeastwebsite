@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { m as mo } from 'framer-motion';
-import { Icons, Reveal, hl } from '../components/ui';
+import { Icons, Reveal, SectionHead, hl } from '../components/ui';
 import { PostCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
@@ -73,7 +73,7 @@ export default function PostDetail() {
 
       <section className="section">
         <div className="container">
-          <Reveal className="gallery-img" style={{ maxWidth: 900, margin: '0 auto 44px' }}>
+          <Reveal className="gallery-img post-hero-image">
             <img {...imgProps(post.image, SIZES.full)} alt={post.title} style={{ height: 400 }} loading="lazy" />
           </Reveal>
 
@@ -103,9 +103,7 @@ export default function PostDetail() {
       {related.length > 0 && (
         <section className="section section--soft">
           <div className="container">
-            <Reveal className="section-head">
-              <h2 className="section-title">{hl(t('blog.related'))}</h2>
-            </Reveal>
+            <SectionHead title={hl(t('blog.related'))} align="start" />
             <div className="posts-grid">
               {related.map((p, i) => (
                 <PostCard key={p.slug} post={p} index={i} />

@@ -10,7 +10,7 @@ function Mission() {
     { icon: 'globe', title: 'چشم‌انداز ما', text: t('about.mission.vision') },
   ];
   return (
-    <section className="section">
+    <section className="section section--continuation">
       <div className="container">
         <SectionHead overline={t('about.mission.overline')} title={hl(t('about.mission.title'))} />
         <div className="contact-grid">
@@ -45,15 +45,15 @@ export default function About() {
     <>
       <PageHero title={t('about.hero.title')} sub={t('about.hero.sub')} image={m('about.hero.img')} />
 
-      <section className="section">
+      <section className="section section--airy">
         <div className="container">
           <div className="split">
-            <Reveal x={40} y={0}>
+            <Reveal className="section-copy" x={40} y={0}>
               <span className="overline">{t('about.story.overline')}</span>
               <h2 className="section-title">{hl(t('about.story.title'))}</h2>
-              <p style={{ color: 'var(--muted)' }}>{t('about.story.p1')}</p>
-              <p style={{ color: 'var(--muted)' }}>{t('about.story.p2')}</p>
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 26 }}>
+              <p>{t('about.story.p1')}</p>
+              <p>{t('about.story.p2')}</p>
+              <div className="button-row">
                 <Link to="/products" className="btn btn--primary">
                   {t('about.story.btnProducts')}
                   <Icons.arrow size={18} />
@@ -112,7 +112,12 @@ export default function About() {
 
       <section className="section">
         <div className="container">
-          <SectionHead overline={t('about.managers.overline')} title={hl(t('about.managers.title'))} sub={t('about.managers.sub')} />
+          <SectionHead
+            overline={t('about.managers.overline')}
+            title={hl(t('about.managers.title'))}
+            sub={t('about.managers.sub')}
+            align="start"
+          />
           <div className="certs-grid">
             {managers.map((mg, i) => (
               <Reveal key={mg.name} delay={i * 0.1} className="card cert-card">
@@ -127,7 +132,7 @@ export default function About() {
         </div>
       </section>
 
-      <section className="section section--soft">
+      <section className="section section--soft section--airy">
         <div className="container">
           <div className="split">
             <Reveal x={40} y={0}>
@@ -138,26 +143,26 @@ export default function About() {
                 </div>
               </div>
             </Reveal>
-            <Reveal x={-40} y={0} delay={0.1}>
+            <Reveal className="section-copy" x={-40} y={0} delay={0.1}>
               <span className="overline">{t('about.factory.overline')}</span>
               <h2 className="section-title">{hl(t('about.factory.title'))}</h2>
-              <div className="features-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 26 }}>
+              <div className="fact-grid">
                 {facts.map((f) => {
                   const Ic = Icons[f.icon] || Icons.factory;
                   return (
-                    <div key={f.title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                      <div className="icon-badge" style={{ width: 44, height: 44, borderRadius: 13 }}>
+                    <div key={f.title} className="fact-item">
+                      <div className="icon-badge">
                         <Ic size={20} />
                       </div>
                       <div>
-                        <strong style={{ fontSize: 14.5 }}>{f.title}</strong>
-                        <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>{f.text}</p>
+                        <strong>{f.title}</strong>
+                        <p>{f.text}</p>
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <div style={{ marginTop: 30 }}>
+              <div className="fact-actions">
                 <Link to="/quality" className="btn btn--primary">
                   {t('about.factory.btn')}
                   <Icons.arrow size={18} />

@@ -261,9 +261,10 @@ export function Reveal({ children, delay = 0, y = 26, x = 0, className = '', sty
 /* ------------------------------------------------------------------ */
 /*  Section heading                                                    */
 /* ------------------------------------------------------------------ */
-export function SectionHead({ overline, title, sub, light = false }) {
+export function SectionHead({ overline, title, sub, light = false, align = 'center' }) {
+  const alignment = align === 'start' ? 'start' : 'center';
   return (
-    <Reveal className="section-head">
+    <Reveal className={`section-head section-head--${alignment}`}>
       {overline && <span className="overline">{overline}</span>}
       <h2 className="section-title" style={light ? { color: '#fff' } : undefined}>
         {title}
@@ -378,7 +379,7 @@ export function CTABand({ title, text, primary, secondary }) {
   primary = primary ?? { to: l('home.cta.primary'), label: t('home.cta.btnPrimary') };
   secondary = secondary ?? { href: l('sales.tel'), label: t('home.cta.btnPhone') };
   return (
-    <section className="section section--tight">
+    <section className="section section--compact">
       <div className="container">
         <Reveal>
           <div className="cta-band">

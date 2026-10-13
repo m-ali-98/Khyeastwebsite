@@ -82,7 +82,7 @@ function Hero() {
 function Intro() {
   const { t, m, l } = useContent();
   return (
-    <section className="section">
+    <section className="section section--airy">
       <div className="container">
         <div className="split">
           <Reveal x={40} y={0}>
@@ -97,10 +97,10 @@ function Intro() {
             </div>
           </Reveal>
 
-          <Reveal x={-40} y={0} delay={0.1}>
+          <Reveal className="section-copy" x={-40} y={0} delay={0.1}>
             <span className="overline">{t('home.intro.overline')}</span>
             <h2 className="section-title">{hl(t('home.intro.title'))}</h2>
-            <p style={{ color: 'var(--muted)', fontSize: 16 }}>{t('home.intro.p1')}</p>
+            <p>{t('home.intro.p1')}</p>
             <ul className="check-list">
               {[1, 2, 3, 4].map((i) => (
                 <li key={i}>
@@ -109,7 +109,7 @@ function Intro() {
                 </li>
               ))}
             </ul>
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <div className="button-row">
               <Link to={l('home.intro.more')} className="btn btn--primary">
                 {t('home.intro.btnMore')}
                 <Icons.arrow size={18} />
@@ -128,7 +128,7 @@ function Intro() {
 function Brands() {
   const { t, brands } = useContent();
   return (
-    <section className="section section--soft">
+    <section className="section section--soft section--compact">
       <div className="container">
         <SectionHead overline={t('home.brands.overline')} title={hl(t('home.brands.title'))} sub={t('home.brands.sub')} />
         <div className="brands-grid">
@@ -147,13 +147,18 @@ function FeaturedProducts() {
   return (
     <section className="section">
       <div className="container">
-        <SectionHead overline={t('home.products.overline')} title={hl(t('home.products.title'))} sub={t('home.products.sub')} />
+        <SectionHead
+          overline={t('home.products.overline')}
+          title={hl(t('home.products.title'))}
+          sub={t('home.products.sub')}
+          align="start"
+        />
         <div className="products-grid">
           {featured.map((p, i) => (
             <ProductCard key={p.slug} product={p} index={i} />
           ))}
         </div>
-        <Reveal className="text-center mt-40">
+        <Reveal className="section-action">
           <Link to="/products" className="btn btn--outline">
             {t('home.products.btnAll')}
             <Icons.arrow size={18} />
@@ -190,7 +195,7 @@ function Features() {
   return (
     <section className="section">
       <div className="container">
-        <SectionHead overline={t('home.features.overline')} title={hl(t('home.features.title'))} />
+        <SectionHead overline={t('home.features.overline')} title={hl(t('home.features.title'))} align="start" />
         <div className="features-grid">
           {col('features').map((f, i) => {
             const Ic = Icons[f.icon] || Icons.star;
@@ -252,7 +257,7 @@ function CertsPreview() {
               );
             })}
         </div>
-        <Reveal className="text-center mt-40">
+        <Reveal className="section-action">
           <Link to="/quality" className="link-arrow">
             {t('home.certs.link')}
             <Icons.arrow size={18} />
@@ -268,13 +273,18 @@ function BlogTeaser() {
   return (
     <section className="section">
       <div className="container">
-        <SectionHead overline={t('home.blog.overline')} title={hl(t('home.blog.title'))} sub={t('home.blog.sub')} />
+        <SectionHead
+          overline={t('home.blog.overline')}
+          title={hl(t('home.blog.title'))}
+          sub={t('home.blog.sub')}
+          align="start"
+        />
         <div className="posts-grid">
           {posts.slice(0, 3).map((p, i) => (
             <PostCard key={p.slug} post={p} index={i} />
           ))}
         </div>
-        <Reveal className="text-center mt-40">
+        <Reveal className="section-action">
           <Link to="/blog" className="btn btn--outline">
             {t('home.blog.btnAll')}
             <Icons.arrow size={18} />
@@ -294,32 +304,14 @@ function BreadBanner() {
   const y = reduce ? 0 : yRaw;
 
   return (
-    <section className="section" style={{ padding: 0 }} ref={ref}>
-      <div style={{ position: 'relative', height: '62vh', minHeight: 420, overflow: 'hidden' }}>
-        <mo.img className="parallax-img" {...imgProps(m('home.banner.bg'), SIZES.full)} alt={t('global.slogan')} style={{ y, scale: 1.15 }} />
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(to top, rgba(27,4,10,.88), rgba(77,5,20,.35))',
-            display: 'grid',
-            placeItems: 'center',
-            textAlign: 'center',
-            padding: 24,
-          }}
-        >
-          <Reveal>
-            <p style={{ color: 'rgba(255,255,255,.85)', fontSize: 15, letterSpacing: '.14em', margin: '0 0 10px' }}>
-              {t('home.banner.en')}
-            </p>
-            <h2 style={{ color: '#fff', fontSize: 'clamp(26px, 4.4vw, 52px)', fontWeight: 900, margin: 0, lineHeight: 1.8 }}>
-              «{t('global.slogan')}»
-            </h2>
-            <p style={{ color: 'rgba(255,255,255,.75)', maxWidth: 560, margin: '14px auto 0' }}>
-              {t('home.banner.note')}
-            </p>
-          </Reveal>
-        </div>
+    <section className="section section--flush media-band media-band--tall" ref={ref}>
+      <mo.img className="parallax-img" {...imgProps(m('home.banner.bg'), SIZES.full)} alt={t('global.slogan')} style={{ y, scale: 1.15 }} />
+      <div className="media-band__overlay">
+        <Reveal>
+          <p className="media-band__eyebrow">{t('home.banner.en')}</p>
+          <h2 className="media-band__title">«{t('global.slogan')}»</h2>
+          <p className="media-band__text">{t('home.banner.note')}</p>
+        </Reveal>
       </div>
     </section>
   );

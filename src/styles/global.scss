@@ -46,6 +46,33 @@
   --font: 'Vazirmatn Variable', 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
 
   --nav-h: 78px;
+
+  /* Spacing primitives. Components should consume these (or the semantic
+     rhythm tokens below) instead of inventing one-off margins. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 2.5rem;
+  --space-8: 3.5rem;
+  --space-9: 4.5rem;
+
+  /* Page rhythm. These fluid values preserve generous desktop spacing while
+     avoiding the old all-or-nothing 104px/72px jump on narrow screens. */
+  --container-gutter: clamp(1.125rem, 3vw, 1.5rem);
+  --section-space-compact: clamp(3.25rem, 5.25vw, 4.5rem);
+  --section-space-default: clamp(4.5rem, 7.5vw, 6.5rem);
+  --section-space-airy: clamp(5.5rem, 9vw, 8rem);
+  --page-hero-space-start: clamp(4rem, 6.75vw, 5.75rem);
+  --page-hero-space-end: clamp(3.5rem, 6.15vw, 5.25rem);
+  --section-head-gap: clamp(2.25rem, 4vw, 3.5rem);
+  --section-content-gap: clamp(2.25rem, 3.5vw, 2.5rem);
+  --grid-gap: clamp(1rem, 1.9vw, 1.625rem);
+  --grid-gap-wide: clamp(1.375rem, 2.4vw, 1.875rem);
+  --split-gap: clamp(3.5rem, 5vw, 4.5rem);
+
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   /* Decelerating curve for things entering the screen: fast at the start, so
      the motion registers immediately, then settling. Used by the scroll
@@ -183,12 +210,26 @@ input, select, textarea { font-family: inherit; }
   width: 100%;
   max-width: 1240px;
   margin-inline: auto;
-  padding-inline: 24px;
+  padding-inline: var(--container-gutter);
 }
+.container--narrow { max-width: 980px; }
 
-.section { padding: 104px 0; position: relative; }
+/* Section density is selected semantically rather than being reset at a
+   breakpoint. Logical block properties keep every treatment direction-safe. */
+.section {
+  --section-block-space: var(--section-space-default);
+  position: relative;
+  padding-block: var(--section-block-space);
+}
 .section--soft { background: var(--bg-soft); }
-.section--tight { padding: 72px 0; }
+.section--compact,
+.section--tight { --section-block-space: var(--section-space-compact); }
+.section--airy { --section-block-space: var(--section-space-airy); }
+.section--flush { --section-block-space: 0px; }
+/* A continuation is a new semantic region on the same visual surface. Its
+   predecessor already supplied the inter-section space, so do not double it. */
+.section--continuation { padding-block-start: 0; }
+.section--nav-offset { padding-block-start: calc(var(--nav-h) + var(--section-space-compact)); }
 
 .overline {
   display: inline-flex;
@@ -231,7 +272,59 @@ input, select, textarea { font-family: inherit; }
   max-width: 640px;
   margin: 0 auto;
 }
-.section-head { text-align: center; margin-bottom: 56px; }
+.section-head {
+  max-width: 760px;
+  margin-inline: auto;
+  margin-block-end: var(--section-head-gap);
+  text-align: center;
+}
+.section-head .overline { margin-block-end: var(--space-4); }
+.section-head .section-title {
+  margin-block-end: 0;
+  text-wrap: balance;
+}
+.section-head .section-sub {
+  margin-block-start: var(--space-3);
+  text-wrap: balance;
+}
+/* `start`, not `left`/`right`: Persian and Arabic align right, English left. */
+.section-head--start {
+  margin-inline: 0;
+  text-align: start;
+}
+.section-head--start .section-sub { margin-inline: 0; }
+
+.section-action {
+  margin-block-start: var(--section-content-gap);
+  text-align: center;
+}
+.section-break { margin-block-start: var(--section-head-gap); }
+.section-stack {
+  display: grid;
+  gap: var(--section-content-gap);
+}
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-block-start: var(--space-5);
+}
+.section-copy > p {
+  margin-block: 0;
+  color: var(--muted);
+}
+.section-copy > p + p { margin-block-start: var(--space-4); }
+.detail-layout { margin-block-start: var(--space-6); }
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-4) var(--space-5);
+}
+.detail-spec {
+  overflow: hidden;
+  margin-block-end: var(--space-5);
+}
 
 /* ---------- Buttons ---------- */
 .btn {
@@ -688,7 +781,7 @@ input, select, textarea { font-family: inherit; }
 .brands-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 22px;
+  gap: var(--grid-gap);
 }
 .brand-card {
   position: relative;
@@ -740,7 +833,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .products-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 24px;
+  gap: var(--grid-gap);
 }
 .product-card {
   position: relative;
@@ -790,7 +883,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+  gap: var(--grid-gap);
 }
 .feature-card { padding: 34px 28px; position: relative; overflow: hidden; }
 .feature-card__icon {
@@ -812,7 +905,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .steps {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 26px;
+  gap: var(--grid-gap);
   position: relative;
 }
 .steps::before {
@@ -847,6 +940,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 
 /* ---------- Stats band ---------- */
 .stats-band {
+  --section-block-space: var(--section-space-compact);
   background:
     radial-gradient(90% 140% at 90% 0%, rgba(244, 59, 94, 0.35), transparent 55%),
     linear-gradient(140deg, var(--crimson-800), var(--crimson-900));
@@ -865,7 +959,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 30px;
+  gap: var(--grid-gap-wide);
   position: relative;
   z-index: 1;
 }
@@ -885,7 +979,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .split {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 64px;
+  gap: var(--split-gap);
   align-items: center;
 }
 .split__media { position: relative; }
@@ -918,14 +1012,45 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   font-size: 15px;
   box-shadow: 0 18px 40px -14px var(--crimson-glow);
 }
-.check-list { list-style: none; padding: 0; margin: 26px 0 34px; display: grid; gap: 14px; }
-.check-list li { display: flex; gap: 12px; align-items: flex-start; font-size: 15.5px; color: var(--ink-2); }
+.check-list {
+  display: grid;
+  gap: var(--space-3);
+  list-style: none;
+  margin-block: var(--space-5) var(--space-6);
+  padding: 0;
+}
+.check-list li { display: flex; gap: var(--space-3); align-items: flex-start; font-size: 15.5px; color: var(--ink-2); }
 .check-list li svg { flex: none; margin-top: 5px; color: var(--crimson-ink); }
+
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-block-start: var(--space-5);
+}
+.fact-item {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+.fact-item .icon-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+}
+.fact-item strong { font-size: 14.5px; }
+.fact-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.fact-actions { margin-block-start: var(--space-6); }
 
 /* ---------- Page hero (inner pages) ---------- */
 .page-hero {
   position: relative;
-  padding: calc(var(--nav-h) + 92px) 0 84px;
+  padding-block-start: calc(var(--nav-h) + var(--page-hero-space-start));
+  padding-block-end: var(--page-hero-space-end);
   color: #fff;
   overflow: hidden;
   background:
@@ -1051,7 +1176,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .spec-table tr:last-child th, .spec-table tr:last-child td { border-bottom: none; }
 
 /* ---------- Forms ---------- */
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1rem, 1.5vw, 1.125rem); }
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field--full { grid-column: 1 / -1; }
 .field label { font-size: 14px; font-weight: 700; color: var(--ink-2); }
@@ -1072,7 +1197,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 
 /* ---------- Blog ---------- */
-.posts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+.posts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--grid-gap); }
 .post-card { display: flex; flex-direction: column; }
 .post-card__media {
   position: relative;
@@ -1125,10 +1250,10 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
     radial-gradient(120% 160% at 0% 0%, rgba(244, 59, 94, 0.5), transparent 55%),
     linear-gradient(140deg, var(--crimson-700), var(--crimson-900));
   color: #fff;
-  padding: 64px 56px;
+  padding: clamp(2.75rem, 4.7vw, 4rem) clamp(1.5rem, 4vw, 3.5rem);
   display: grid;
   grid-template-columns: 1.4fr 1fr;
-  gap: 40px;
+  gap: var(--section-content-gap);
   align-items: center;
   box-shadow: var(--shadow-lg);
 }
@@ -1144,7 +1269,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .cta-band__actions { display: flex; flex-direction: column; gap: 14px; position: relative; }
 
 /* ---------- Contact cards ---------- */
-.contact-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+.contact-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--grid-gap); }
 .contact-card { padding: 30px 28px; display: flex; gap: 18px; align-items: flex-start; }
 .contact-card__icon {
   width: 56px; height: 56px;
@@ -1160,7 +1285,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .contact-card a { color: var(--crimson-ink); font-weight: 700; }
 
 /* ---------- Certifications ---------- */
-.certs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; }
+.certs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--grid-gap); }
 .cert-card { padding: 30px 22px; text-align: center; }
 .cert-card__icon {
   width: 74px; height: 74px;
@@ -1291,7 +1416,50 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .featured-post { grid-template-columns: 1fr; }
 }
 
-/* ---------- Parallax image ---------- */
+/* ---------- Immersive media band ---------- */
+.media-band {
+  position: relative;
+  height: 52vh;
+  min-height: 380px;
+  overflow: hidden;
+}
+.media-band--tall {
+  height: 62vh;
+  min-height: 420px;
+}
+.media-band__overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--container-gutter);
+  text-align: center;
+  background: linear-gradient(to top, rgba(27, 4, 10, 0.9), rgba(77, 5, 20, 0.25));
+}
+.media-band--tall .media-band__overlay {
+  background: linear-gradient(to top, rgba(27, 4, 10, 0.88), rgba(77, 5, 20, 0.35));
+}
+.media-band__eyebrow {
+  margin: 0 0 var(--space-2);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+}
+.media-band__title {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(24px, 4vw, 46px);
+  font-weight: 900;
+  line-height: 1.8;
+  text-wrap: balance;
+}
+.media-band--tall .media-band__title { font-size: clamp(26px, 4.4vw, 52px); }
+.media-band__text {
+  max-width: 620px;
+  margin: var(--space-3) auto 0;
+  color: rgba(255, 255, 255, 0.8);
+}
+.media-band--tall .media-band__text { max-width: 560px; color: rgba(255, 255, 255, 0.75); }
 .parallax-img {
   position: absolute;
   will-change: transform;
@@ -1302,16 +1470,12 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 
 /* ---------- Misc ---------- */
-.text-center { text-align: center; }
-.mt-40 { margin-top: 40px; }
-.mt-56 { margin-top: 56px; }
-
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   justify-content: center;
-  margin-bottom: 44px;
+  margin-block-end: var(--section-content-gap);
 }
 .filter-chip {
   border: 1.5px solid var(--line);
@@ -1335,6 +1499,10 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 
 .gallery-img { border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
 .gallery-img img { width: 100%; height: 100%; object-fit: cover; }
+.post-hero-image {
+  max-width: 900px;
+  margin: 0 auto var(--section-content-gap);
+}
 
 /* Product photography is square and already framed, so it is shown whole
    rather than cropped to the container. Scoped to a modifier because
@@ -1374,26 +1542,29 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 
 @media (max-width: 900px) {
-  .split { grid-template-columns: 1fr; gap: 56px; }
-  .steps { grid-template-columns: repeat(2, 1fr); gap: 40px; }
+  .split { grid-template-columns: 1fr; }
+  .steps {
+    grid-template-columns: repeat(2, 1fr);
+    column-gap: var(--grid-gap);
+    row-gap: var(--section-content-gap);
+  }
   .steps::before { display: none; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .posts-grid { grid-template-columns: repeat(2, 1fr); }
-  .cta-band { grid-template-columns: 1fr; padding: 44px 32px; }
+  .cta-band { grid-template-columns: 1fr; }
   .timeline::before { right: 12px; }
   .tl-item, .tl-item:nth-child(even) { width: 100%; margin: 0; padding: 0 44px 44px 0; }
   .tl-item::after, .tl-item:nth-child(even)::after { right: 5px; left: auto; }
 }
 
 @media (max-width: 640px) {
-  .section { padding: 72px 0; }
-  .products-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .products-grid { grid-template-columns: repeat(2, 1fr); }
   .posts-grid { grid-template-columns: 1fr; }
   .features-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .contact-grid { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; }
-  .brands-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .brands-grid { grid-template-columns: repeat(2, 1fr); }
   .footer__grid { grid-template-columns: 1fr; gap: 34px; }
   .nav__topbar-socials { display: none; }
   .hero__inner { padding-bottom: 140px; }
@@ -1402,7 +1573,8 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 
 @media (max-width: 460px) {
   .products-grid { grid-template-columns: 1fr; }
-  .stats-grid { grid-template-columns: 1fr 1fr; gap: 22px; }
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .fact-grid { grid-template-columns: 1fr; }
 }
 
 /* Reduced motion */
@@ -1436,8 +1608,8 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   &__grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 22px;
-    margin-top: 42px;
+    gap: var(--grid-gap);
+    margin-block-start: var(--section-content-gap);
     @media (max-width: 880px) { grid-template-columns: 1fr; }
   }
 }

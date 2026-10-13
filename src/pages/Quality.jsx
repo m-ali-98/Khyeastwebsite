@@ -11,7 +11,7 @@ export default function Quality() {
     <>
       <PageHero title={t('quality.hero.title')} sub={t('quality.hero.sub')} image={m('quality.hero.img')} />
 
-      <section className="section">
+      <section className="section section--airy">
         <div className="container">
           <div className="split">
             <Reveal x={40} y={0}>
@@ -22,11 +22,11 @@ export default function Quality() {
                 </div>
               </div>
             </Reveal>
-            <Reveal x={-40} y={0} delay={0.1}>
+            <Reveal className="section-copy" x={-40} y={0} delay={0.1}>
               <span className="overline">{t('quality.lab.overline')}</span>
               <h2 className="section-title">{hl(t('quality.lab.title'))}</h2>
-              <p style={{ color: 'var(--muted)' }}>{t('quality.lab.p1')}</p>
-              <p style={{ color: 'var(--muted)' }}>{t('quality.lab.p2')}</p>
+              <p>{t('quality.lab.p1')}</p>
+              <p>{t('quality.lab.p2')}</p>
               <ul className="check-list">
                 {[1, 2, 3].map((i) => (
                   <li key={i}>
@@ -42,7 +42,7 @@ export default function Quality() {
 
       <section className="section section--soft">
         <div className="container">
-          <SectionHead overline={t('quality.certs.overline')} title={hl(t('quality.certs.title'))} />
+          <SectionHead overline={t('quality.certs.overline')} title={hl(t('quality.certs.title'))} align="start" />
           <div className="certs-grid">
             {certs.map((c, i) => {
               const Ic = Icons[c.icon] || Icons.shield;
@@ -80,7 +80,7 @@ export default function Quality() {
         </div>
       </section>
 
-      <section className="section section--soft">
+      <section className="section section--soft section--compact">
         <div className="container">
           <Reveal>
             <div className="cta-band">

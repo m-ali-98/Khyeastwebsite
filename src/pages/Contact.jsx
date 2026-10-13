@@ -178,9 +178,9 @@ export default function Contact() {
     <>
       <PageHero title={t('contact.hero.title')} sub={t('contact.hero.sub')} image={m('contact.hero.img')} />
 
-      <section className="section">
-        <div className="container">
-          <div className="contact-grid" style={{ marginBottom: 24 }}>
+      <section className="section section--airy">
+        <div className="container section-stack">
+          <div className="contact-grid">
             {offices.map((o, i) => (
               <OfficeCard key={o.id} office={o} index={i} />
             ))}

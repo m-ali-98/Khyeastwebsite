@@ -21,33 +21,19 @@ export default function Export() {
     <>
       <PageHero title={t('export.hero.title')} sub={t('export.hero.sub')} image={m('export.hero.img')} />
 
-      <section ref={ref} style={{ position: 'relative', height: '52vh', minHeight: 380, overflow: 'hidden' }}>
+      <section ref={ref} className="section section--flush media-band">
         <mo.img className="parallax-img" {...imgProps(m('export.banner.img'), SIZES.full)} alt={t('export.hero.title')} style={{ y, scale: 1.15 }} loading="lazy" decoding="async" />
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(to top, rgba(27,4,10,.9), rgba(77,5,20,.25))',
-            display: 'grid',
-            placeItems: 'center',
-            textAlign: 'center',
-            padding: 24,
-          }}
-        >
+        <div className="media-band__overlay">
           <Reveal>
-            <h2 style={{ color: '#fff', fontSize: 'clamp(24px, 4vw, 46px)', fontWeight: 900, margin: 0, lineHeight: 1.8 }}>
-              {t('export.banner.title')}
-            </h2>
-            <p style={{ color: 'rgba(255,255,255,.8)', maxWidth: 620, margin: '12px auto 0' }}>
-              {t('export.banner.text')}
-            </p>
+            <h2 className="media-band__title">{t('export.banner.title')}</h2>
+            <p className="media-band__text">{t('export.banner.text')}</p>
           </Reveal>
         </div>
       </section>
 
       <section className="section">
         <div className="container">
-          <SectionHead overline={t('export.regions.overline')} title={hl(t('export.regions.title'))} />
+          <SectionHead overline={t('export.regions.overline')} title={hl(t('export.regions.title'))} align="start" />
           <div className="features-grid">
             {regions.map((r, i) => {
               const Ic = Icons[r.icon] || Icons.globe;

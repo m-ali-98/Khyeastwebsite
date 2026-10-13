@@ -85,7 +85,7 @@ function Comments({ product }) {
   const open = display.commentsEnabled !== false && !product.commentsLocked;
 
   return (
-    <section className="section" style={{ paddingTop: 0 }}>
+    <section className="section section--continuation">
       <div className="container">
         <Reveal className="shop-comments__head">
           <h2>{hl(t('shop.comments.title'))}</h2>
@@ -253,7 +253,7 @@ export default function ShopProduct() {
                 )}
               </div>
 
-              <div className="shop-trust" style={{ marginBottom: 0 }}>
+              <div className="shop-trust shop-trust--inline">
                 {[
                   { icon: 'shield', key: 'shop.trust.guarantee' },
                   { icon: 'shipping', key: 'shop.trust.shipping' },
@@ -274,7 +274,7 @@ export default function ShopProduct() {
         </div>
       </section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
+      <section className="section section--continuation">
         <div className="container">
           <div className="sp-info">
             {p.specs?.length > 0 && (
@@ -307,7 +307,7 @@ export default function ShopProduct() {
       </section>
 
       {relatedFinal.length > 0 && (
-        <section className="section" style={{ paddingTop: 0 }}>
+        <section className="section section--continuation">
           <div className="container">
             <Reveal className="shop-comments__head">
               <h2>{hl(t('shop.detail.related'))}</h2>

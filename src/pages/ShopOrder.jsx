@@ -120,7 +120,7 @@ export default function ShopOrder() {
               )}
             </div>
 
-            <div className="order-grid" style={{ marginTop: 40 }}>
+            <div className="order-grid section-break">
               <Reveal>
                 <div className="order-card">
                   <h3>

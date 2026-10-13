@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
-import { Icons, Reveal, CTABand, hl } from '../components/ui';
+import { Icons, Reveal, SectionHead, CTABand, hl } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { useLocale } from '../i18n/LocaleContext';
@@ -40,7 +40,7 @@ export default function ProductDetail() {
 
   return (
     <>
-      <section className="section" style={{ paddingTop: 'calc(var(--nav-h) + 80px)' }}>
+      <section className="section section--nav-offset">
         <div className="container">
           <Reveal className="breadcrumb">
             <Link to="/">{t('nav.breadcrumb.home')}</Link>
@@ -50,7 +50,7 @@ export default function ProductDetail() {
             <span>{product.title}</span>
           </Reveal>
 
-          <div className="split" style={{ marginTop: 30 }}>
+          <div className="split detail-layout">
             <Reveal x={40} y={0}>
               <div
                 className="gallery-img gallery-img--square"
@@ -71,13 +71,13 @@ export default function ProductDetail() {
               </h1>
               <p style={{ color: 'var(--muted)', fontSize: 16 }}>{product.short}</p>
 
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '18px 0 26px' }}>
+              <div className="chip-row">
                 <span className="filter-chip is-active">{product.weight}</span>
                 <span className="filter-chip is-active">{product.pack}</span>
                 <span className="filter-chip">{t('product.chipShelf')}</span>
               </div>
 
-              <div className="card" style={{ overflow: 'hidden', marginBottom: 26 }}>
+              <div className="card detail-spec">
                 <table className="spec-table">
                   <tbody>
                     {(product.specs || []).map(([k, v]) => (
@@ -90,7 +90,7 @@ export default function ProductDetail() {
                 </table>
               </div>
 
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <div className="button-row">
                 <a className="btn btn--primary" href={l('sales.tel')}>
                   <Icons.phone size={18} />
                   {t('product.btnOrder')}
@@ -121,8 +121,8 @@ export default function ProductDetail() {
         </div>
       </section>
 
-      <section className="section section--soft">
-        <div className="container" style={{ maxWidth: 980 }}>
+      <section className="section section--soft section--compact">
+        <div className="container container--narrow">
           <Reveal>
             <div className="tabs">
               {TABS.map((tb) => (
@@ -179,9 +179,7 @@ export default function ProductDetail() {
 
       <section className="section">
         <div className="container">
-          <Reveal className="section-head">
-            <h2 className="section-title">{hl(t('product.related'))}</h2>
-          </Reveal>
+          <SectionHead title={hl(t('product.related'))} align="start" />
           <div className="products-grid">
             {related.map((p, i) => (
               <ProductCard key={p.slug} product={p} index={i} />

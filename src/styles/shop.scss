@@ -11,8 +11,10 @@
      two or three columns on its own, and the boxes stay the same height as
      each other because the grid stretches them. */
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 14px;
-  margin-bottom: 44px;
+  gap: var(--space-3);
+  margin-block-end: var(--section-content-gap);
+
+  &--inline { margin-block-end: 0; }
 
   &__item {
     display: flex;
@@ -59,9 +61,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   justify-content: space-between;
-  margin-bottom: 26px;
+  margin-block-end: var(--space-5);
 
   .filter-bar {
     margin: 0;
@@ -102,7 +104,7 @@
 .shop-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+  gap: var(--grid-gap);
 }
 
 .shop-card {
@@ -274,7 +276,7 @@
 .sp-detail {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 36px;
+  gap: var(--section-content-gap);
   align-items: start;
 }
 
@@ -424,7 +426,7 @@
 .sp-info {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: 28px;
+  gap: var(--grid-gap-wide);
   align-items: start;
 }
 
@@ -516,7 +518,7 @@
   &__grid {
     display: grid;
     grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-    gap: 28px;
+    gap: var(--grid-gap-wide);
     align-items: start;
   }
 }
@@ -667,7 +669,7 @@
 .cart-layout {
   display: grid;
   grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
-  gap: 28px;
+  gap: var(--grid-gap-wide);
   align-items: start;
 }
 
@@ -851,7 +853,7 @@
 .checkout-grid {
   display: grid;
   grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-  gap: 28px;
+  gap: var(--grid-gap-wide);
   align-items: start;
 }
 
@@ -1120,7 +1122,7 @@
 .order-grid {
   display: grid;
   grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-  gap: 28px;
+  gap: var(--grid-gap-wide);
   align-items: start;
 }
 
@@ -1457,7 +1459,7 @@
 .acc-layout {
   display: grid;
   grid-template-columns: 250px 1fr;
-  gap: 26px;
+  gap: var(--grid-gap);
   align-items: start;
 }
 
@@ -1639,7 +1641,7 @@
 .acc-profile {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 22px;
+  gap: var(--grid-gap);
 
   form {
     background: var(--surface);
