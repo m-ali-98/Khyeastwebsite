@@ -26,8 +26,8 @@ const ROUTES = [
   '/products/xpower-70', '/products/nanmaye-10', '/shop', '/shop/cart',
   '/shop/checkout', '/shop/dezmaye-gold-80', '/export', '/quality', '/blog',
   '/blog/reduce-bread-production-costs', '/contact', '/shop/login', '/shop/account',
-  '/en', '/en/about', '/en/products', '/en/blog', '/en/contact', '/en/shop',
-  '/ar', '/ar/about', '/ar/products', '/ar/contact', '/ar/shop',
+  '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/contact', '/en/shop',
+  '/ar', '/ar/about', '/ar/products', '/ar/products/dezmaye-gold-80', '/ar/contact', '/ar/shop',
   '/dezmaye', '/shetab', '/nonexistent-page',
 ];
 

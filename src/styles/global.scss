@@ -106,8 +106,6 @@
    built on logical properties (margin-inline, padding-inline) untouched.
    -------------------------------------------------------------------------- */
 [dir='ltr'] {
-  .scroll-progress { transform-origin: 0% 50%; }
-
   .hero__scroll { right: auto; left: 50%; transform: translateX(-50%); }
   .hero__scroll .mouse::after { right: auto; left: 50%; margin-right: 0; margin-left: -2px; }
 
@@ -247,29 +245,17 @@ input, select, textarea { font-family: inherit; }
   border: none;
   font-weight: 700;
   font-size: 15.5px;
-  overflow: hidden;
-  transition: transform 0.35s var(--ease), box-shadow 0.35s var(--ease), background 0.3s;
-  isolation: isolate;
+  transition: transform 0.25s var(--ease-soft), background-color 0.25s var(--ease-soft),
+    border-color 0.25s var(--ease-soft), color 0.25s var(--ease-soft);
 }
-.btn::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.35) 50%, transparent 60%);
-  transform: translateX(-120%);
-  transition: transform 0.7s var(--ease);
-}
-.btn:hover::after { transform: translateX(120%); }
-.btn:hover { transform: translateY(-3px); }
-.btn:active { transform: translateY(-1px) scale(0.98); }
+.btn:hover { transform: translateY(-2px); }
+.btn:active { transform: translateY(0) scale(0.98); }
 
 .btn--primary {
   background: linear-gradient(135deg, var(--crimson) 0%, var(--crimson-700) 100%);
   color: #fff;
   box-shadow: 0 14px 34px -12px var(--crimson-glow);
 }
-.btn--primary:hover { box-shadow: 0 22px 44px -12px var(--crimson-glow); }
 
 .btn--ghost {
   background: rgba(255, 255, 255, 0.08);
@@ -309,41 +295,17 @@ input, select, textarea { font-family: inherit; }
 [dir='ltr'] .link-arrow:hover .arr { transform: translateX(6px); }
 
 /* ---------- Cards ---------- */
+/* A restrained, consistent lift. Large card surfaces only animate transform;
+   border and shadow tweens would repaint the whole card on every frame. */
 .card {
   position: relative;
   background: var(--surface);
   border-radius: var(--radius);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
-  /* box-shadow is NOT transitioned. A 60px blur around a 400px card means the
-     browser repaints roughly a quarter of a megapixel on every frame of the
-     hover, on the main thread. The lifted shadow lives on the overlay below
-     and is faded in with opacity, which the compositor handles alone. */
-  transition: transform 0.45s var(--ease), border-color 0.3s;
+  transition: transform 0.35s var(--ease);
 }
-.card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: var(--shadow);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.45s var(--ease);
-}
-.card:hover {
-  transform: translateY(-8px);
-  border-color: rgba(220, 20, 60, 0.22);
-}
-.card:hover::after { opacity: 1; }
-
-/* .feature-card clips a decorative glow, and overflow:hidden would cut the
-   overlay's shadow off with it — it keeps the old, repainted hover. */
-.feature-card {
-  transition: transform 0.45s var(--ease), box-shadow 0.45s var(--ease), border-color 0.3s;
-}
-.feature-card::after { content: none; }
-.feature-card:hover { box-shadow: var(--shadow); }
+.card:hover { transform: translateY(-4px); }
 
 /* ---------- Navbar ---------- */
 .nav {
@@ -583,16 +545,6 @@ input, select, textarea { font-family: inherit; }
   font-size: 14px;
 }
 
-/* ---------- Scroll progress ---------- */
-.scroll-progress {
-  position: fixed;
-  top: 0; right: 0; left: 0;
-  height: 4px;
-  z-index: 200;
-  background: linear-gradient(90deg, var(--crimson-bright), var(--crimson-700));
-  transform-origin: 100% 50%;
-}
-
 /* ---------- Hero (home) ---------- */
 .hero {
   position: relative;
@@ -732,26 +684,6 @@ input, select, textarea { font-family: inherit; }
   100% { transform: translateY(0); opacity: 0; }
 }
 
-.hero__particles {
-  position: absolute;
-  inset: 0;
-  z-index: 2; /* between the gradient overlay and the hero copy */
-  pointer-events: none;
-}
-.hero__particles span {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255, 214, 165, 0.75);
-  filter: blur(0.5px);
-  animation: float-up linear infinite;
-}
-@keyframes float-up {
-  0% { transform: translateY(12vh) rotate(0deg); opacity: 0; }
-  12% { opacity: 0.9; }
-  85% { opacity: 0.5; }
-  100% { transform: translateY(-105vh) rotate(320deg); opacity: 0; }
-}
-
 /* ---------- Brand strip ---------- */
 .brands-grid {
   display: grid;
@@ -768,11 +700,10 @@ input, select, textarea { font-family: inherit; }
   position: absolute;
   inset: auto 0 0 0;
   height: 4px;
-  /* followed the card's clipped corners before overflow:hidden was dropped */
   border-radius: 0 0 var(--radius) var(--radius);
   background: linear-gradient(90deg, var(--crimson), var(--crimson-bright));
   transform: scaleX(0);
-  transition: transform 0.5s var(--ease);
+  transition: transform 0.4s var(--ease);
 }
 .brand-card:hover::before { transform: scaleX(1); }
 .brand-card__img {
@@ -780,9 +711,9 @@ input, select, textarea { font-family: inherit; }
   margin: 0 auto 18px;
   display: grid;
   place-items: center;
-  transition: transform 0.55s var(--ease);
+  transition: transform 0.4s var(--ease);
 }
-.brand-card:hover .brand-card__img { transform: translateY(-8px) scale(1.05); }
+.brand-card:hover .brand-card__img { transform: translateY(-6px); }
 .brand-card__img img { max-height: 130px; object-fit: contain; }
 .brand-card h2 { margin: 0 0 4px; font-size: 19px; font-weight: 800; }
 .brand-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
@@ -799,17 +730,11 @@ a.brand-card { display: block; color: inherit; text-decoration: none; }
   font-size: 13px;
   font-weight: 700;
   color: var(--crimson-ink);
-  /* opacity, not display: the arrow must not reflow the card on hover, and a
-     keyboard user needs to see it on focus too */
-  opacity: 0.75;
-  transition: opacity 0.35s var(--ease), transform 0.35s var(--ease);
+  opacity: 0.7;
+  transition: opacity 0.25s var(--ease-soft);
 }
-.brand-card__cta svg { transition: transform 0.35s var(--ease); }
 a.brand-card:hover .brand-card__cta,
 a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
-/* RTL: the arrow points right, so it travels left on hover */
-a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
-[dir='ltr'] a.brand-card:hover .brand-card__cta svg { transform: translateX(4px); }
 
 /* ---------- Product cards ---------- */
 .products-grid {
@@ -838,9 +763,9 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   /* `contain` rather than `cover`: the source is already square and framed,
      so scaling it to fit shows the whole pack instead of trimming its edges. */
   object-fit: contain;
-  transition: transform 0.8s var(--ease);
+  transition: transform 0.45s var(--ease);
 }
-.product-card:hover .product-card__media img { transform: scale(1.09) rotate(-1deg); }
+.product-card:hover .product-card__media img { transform: scale(1.045); }
 /* Promoted only while hovered: scaling a 720px photo on the main thread
    re-rasterises it every frame. One layer at a time, released on leave. */
 .product-card:hover .product-card__media img,
@@ -877,9 +802,9 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   color: #fff;
   margin-bottom: 20px;
   box-shadow: 0 14px 30px -12px var(--crimson-glow);
-  transition: transform 0.5s var(--ease);
+  transition: transform 0.35s var(--ease);
 }
-.feature-card:hover .feature-card__icon { transform: rotate(-8deg) scale(1.08); }
+.feature-card:hover .feature-card__icon { transform: translateY(-3px); }
 .feature-card h3 { margin: 0 0 8px; font-size: 18px; font-weight: 800; }
 .feature-card p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.95; }
 
@@ -914,9 +839,9 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   position: relative;
   z-index: 1;
   box-shadow: 0 16px 36px -14px var(--crimson-glow);
-  transition: transform 0.45s var(--ease), background 0.35s, color 0.35s;
+  transition: transform 0.35s var(--ease), background-color 0.25s var(--ease-soft), color 0.25s var(--ease-soft);
 }
-.step:hover .step__num { transform: translateY(-6px) scale(1.06); background: var(--crimson); color: #fff; }
+.step:hover .step__num { transform: translateY(-4px); background: var(--crimson); color: #fff; }
 .step h3 { font-size: 17.5px; font-weight: 800; margin: 0 0 8px; }
 .step p { color: var(--muted); font-size: 14px; margin: 0; }
 
@@ -992,11 +917,6 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   font-weight: 800;
   font-size: 15px;
   box-shadow: 0 18px 40px -14px var(--crimson-glow);
-  animation: bob 5s ease-in-out infinite;
-}
-@keyframes bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-12px); }
 }
 .check-list { list-style: none; padding: 0; margin: 26px 0 34px; display: grid; gap: 14px; }
 .check-list li { display: flex; gap: 12px; align-items: flex-start; font-size: 15.5px; color: var(--ink-2); }
@@ -1160,8 +1080,8 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   overflow: hidden;
   border-radius: var(--radius) var(--radius) 0 0;
 }
-.post-card__media img { width: 100%; height: 100%; object-fit: cover; transition: transform 1s var(--ease); }
-.post-card:hover .post-card__media img { transform: scale(1.08); }
+.post-card__media img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s var(--ease); }
+.post-card:hover .post-card__media img { transform: scale(1.045); }
 .post-card__date {
   position: absolute;
   bottom: 14px; right: 14px;
@@ -1246,9 +1166,9 @@ a.brand-card:hover .brand-card__cta svg { transform: translateX(-4px); }
   background: var(--surface);
   border: 2px solid rgba(220, 20, 60, 0.25);
   color: var(--crimson-ink);
-  transition: transform 0.5s var(--ease), background 0.35s, color 0.35s;
+  transition: transform 0.35s var(--ease), background-color 0.25s var(--ease-soft), color 0.25s var(--ease-soft);
 }
-.cert-card:hover .cert-card__icon { transform: scale(1.1) rotate(6deg); background: var(--crimson); color: #fff; }
+.cert-card:hover .cert-card__icon { transform: translateY(-3px); background: var(--crimson); color: #fff; }
 .cert-card h3 { margin: 0 0 6px; font-size: 16.5px; font-weight: 800; }
 .cert-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
 

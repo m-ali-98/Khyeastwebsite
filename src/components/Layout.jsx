@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { AnimatePresence, m as mo, useScroll } from 'framer-motion';
+import { AnimatePresence, m as mo } from 'framer-motion';
 import Logo from './Logo';
 import { Icons, socialIcon, hl, faNum, NUM_LOCALE } from './ui';
 import { useContent } from '../content/ContentContext';
@@ -61,19 +61,15 @@ function ThemeToggle() {
   );
 }
 
-function ScrollProgress() {
-  const { scrollYProgress } = useScroll();
-  return <mo.div className="scroll-progress" style={{ scaleX: scrollYProgress }} />;
-}
-
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const { t, l, col } = useContent();
   const { count } = useShop() || { count: 0 };
-  const { shopEnabled } = useLocale();
+  const { shopEnabled, isRTL } = useLocale();
   const navLinks = NAV_LINKS.filter((link) => !link.shopOnly || shopEnabled);
+  const menuOffset = isRTL ? 28 : -28;
 
   /* The scroll listener fires dozens of times a second, but the navbar only
      has two states. Read the scroll position inside rAF (so it is never a
@@ -242,17 +238,17 @@ function Navbar() {
         {open && (
           <mo.div
             className="mobile-menu"
-            initial={{ clipPath: 'circle(0% at 92% 6%)', opacity: 0 }}
-            animate={{ clipPath: 'circle(150% at 92% 6%)', opacity: 1 }}
-            exit={{ clipPath: 'circle(0% at 92% 6%)', opacity: 0 }}
-            transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0, x: menuOffset }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: menuOffset }}
+            transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
           >
             {navLinks.map((link, i) => (
               <mo.div
                 key={link.to}
-                initial={{ opacity: 0, x: 40 }}
+                initial={{ opacity: 0, x: menuOffset }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15 + i * 0.06, duration: 0.45 }}
+                transition={{ delay: 0.08 + Math.min(i, 3) * 0.04, duration: 0.32 }}
               >
                 <NavLink to={link.to} end={link.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
                   {t(link.key)}
@@ -262,9 +258,9 @@ function Navbar() {
             ))}
             {shopEnabled && (
               <mo.div
-                initial={{ opacity: 0, x: 40 }}
+                initial={{ opacity: 0, x: menuOffset }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15 + navLinks.length * 0.06, duration: 0.45 }}
+                transition={{ delay: 0.2, duration: 0.32 }}
                 className="m-shop"
               >
                 {/* On a phone the two icon buttons are gone from the bar, so
@@ -284,7 +280,7 @@ function Navbar() {
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.55 }}
+              transition={{ delay: 0.22, duration: 0.28 }}
               className="m-controls"
             >
               <LangSwitch block />
@@ -293,7 +289,7 @@ function Navbar() {
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.6 }}
+              transition={{ delay: 0.24, duration: 0.28 }}
               className="m-slogan"
             >
               {t('global.slogan')}
@@ -442,7 +438,6 @@ export default function Layout({ children }) {
 
   return (
     <>
-      <ScrollProgress />
       <Navbar />
       {children}
       <Footer />

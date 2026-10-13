@@ -52,16 +52,14 @@ export default function ProductDetail() {
 
           <div className="split" style={{ marginTop: 30 }}>
             <Reveal x={40} y={0}>
-              <mo.div
+              <div
                 className="gallery-img gallery-img--square"
                 style={{ background: 'radial-gradient(90% 90% at 50% 35%, #fff 30%, var(--bg-softer))' }}
-                animate={{ y: [0, -12, 0] }}
-                transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
               >
                 {/* Square to match the 1:1 source: the old fixed 440px height
                     with `cover` cropped the top and bottom off the packaging. */}
                 <img {...imgProps(product.image, SIZES.detail)} alt={product.title} width={720} height={720} loading="lazy" />
-              </mo.div>
+              </div>
             </Reveal>
 
             <Reveal x={-40} y={0} delay={0.1}>

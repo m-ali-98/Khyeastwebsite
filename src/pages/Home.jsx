@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { m as mo, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { Icons, Reveal, SectionHead, Counter, CTABand, hl, useNum } from '../components/ui';
@@ -19,27 +19,19 @@ function Hero() {
   const y = reduce ? 0 : yRaw;
   const opacity = reduce ? 1 : opacityRaw;
 
-  /* The hero entrance is a 1.5-second cascade — badge, then every word of the
-     slogan, then title, description and buttons. MotionConfig's reducedMotion
-     setting only drops the transform half of each of those; the opacity fade
-     keeps running, so a visitor who asked for less motion still watches the
-     page assemble itself. Skip the animation outright instead: `enter()`
-     returns nothing at all, and the element renders in its final state on the
-     first frame. */
-  const enter = (initial, animate, transition) => (reduce ? {} : { initial, animate, transition });
+  /* One composed entrance reads as a deliberate brand reveal. The previous
+     per-word cascade kept the primary call to action waiting for 1.45s and
+     made the hero feel assembled from effects. Reduced-motion visitors get
+     the final state immediately. */
+  const entrance = reduce
+    ? {}
+    : {
+        initial: { opacity: 0, y: 24 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.65, delay: 0.12, ease: [0.22, 1, 0.36, 1] },
+      };
 
   const sloganWords = t('global.slogan').split(' ');
-
-  const particles = useMemo(
-    () =>
-      Array.from({ length: 14 }).map((_, i) => ({
-        right: `${(i * 37 + 13) % 100}%`,
-        size: 3 + ((i * 7) % 6),
-        delay: `${(i * 0.9) % 12}s`,
-        duration: `${11 + ((i * 3) % 9)}s`,
-      })),
-    []
-  );
 
   return (
     <section className="hero" ref={ref}>
@@ -47,67 +39,27 @@ function Hero() {
         <img {...imgProps(m('home.hero.bg'), SIZES.full)} alt={t('global.company.name')} fetchPriority="high" />
       </div>
       <div className="hero__overlay" />
-      <div className="hero__particles" aria-hidden="true">
-        {particles.map((p, i) => (
-          <span
-            key={i}
-            style={{
-              right: p.right,
-              bottom: '-2vh',
-              width: p.size,
-              height: p.size,
-              animationDelay: p.delay,
-              animationDuration: p.duration,
-            }}
-          />
-        ))}
-      </div>
 
       <mo.div className="hero__inner" style={{ y, opacity }}>
-        <div className="container">
-          <mo.span
-            className="hero__badge"
-            {...enter({ opacity: 0, y: 20 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 0.2 })}
-          >
+        <mo.div className="container" {...entrance}>
+          <span className="hero__badge">
             <i />
             {t('home.hero.badge')}
-          </mo.span>
+          </span>
 
           <h1 className="hero__slogan">
             {sloganWords.map((w, i) => (
-              <mo.span
-                key={i}
-                className={`word ${i >= sloganWords.length - 3 ? 'accent' : ''}`}
-                {...enter(
-                  { opacity: 0, y: 46, rotate: 3 },
-                  { opacity: 1, y: 0, rotate: 0 },
-                  { duration: 0.8, delay: 0.35 + i * 0.11, ease: [0.22, 1, 0.36, 1] },
-                )}
-              >
+              <span key={i} className={`word ${i >= sloganWords.length - 3 ? 'accent' : ''}`}>
                 {w}
                 {'\u00A0'}
-              </mo.span>
+              </span>
             ))}
           </h1>
 
-          <mo.p
-            className="hero__title"
-            {...enter({ opacity: 0, y: 24 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 1.15 })}
-          >
-            {t('home.hero.title')}
-          </mo.p>
+          <p className="hero__title">{t('home.hero.title')}</p>
+          <p className="hero__desc">{t('home.hero.desc')}</p>
 
-          <mo.p
-            className="hero__desc"
-            {...enter({ opacity: 0, y: 24 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 1.3 })}
-          >
-            {t('home.hero.desc')}
-          </mo.p>
-
-          <mo.div
-            className="hero__actions"
-            {...enter({ opacity: 0, y: 24 }, { opacity: 1, y: 0 }, { duration: 0.7, delay: 1.45 })}
-          >
+          <div className="hero__actions">
             <Link to="/products" className="btn btn--primary">
               {t('home.hero.btnProducts')}
               <Icons.arrow size={18} />
@@ -115,8 +67,8 @@ function Hero() {
             <Link to="/about" className="btn btn--ghost">
               {t('home.hero.btnAbout')}
             </Link>
-          </mo.div>
-        </div>
+          </div>
+        </mo.div>
       </mo.div>
 
       <mo.div className="hero__scroll" style={{ opacity }}>

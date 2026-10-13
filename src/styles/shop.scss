@@ -113,34 +113,19 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  /* Same reasoning as .card in global.scss: the lifted shadow is an overlay
-     faded in with opacity, because transitioning box-shadow repaints the
-     whole blurred area on the main thread every frame. The photo is clipped
-     by __img now, so the card itself no longer needs overflow:hidden — which
-     would have cut the overlay's shadow off. */
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 24px 48px -24px var(--crimson-glow);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.35s;
-  }
-  &:hover::after { opacity: 1; }
-  /* promoted only while hovered, so the photo scales on its own layer */
-  &:hover .shop-card__img img { will-change: transform; }
+  /* Large card surfaces only animate transform; border and shadow tweens
+     repaint the full card. The image scale is the product-specific signal. */
+  transition: transform 0.35s var(--ease);
 
   &:hover {
-    transform: translateY(-6px);
+    transform: translateY(-4px);
 
     .shop-card__img img {
-      transform: scale(1.06) rotate(-1deg);
+      transform: scale(1.05);
     }
   }
+  /* promoted only while hovered, so the photo scales on its own layer */
+  &:hover .shop-card__img img { will-change: transform; }
 
   &__img {
     position: relative;

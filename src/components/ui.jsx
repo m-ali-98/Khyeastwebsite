@@ -278,8 +278,9 @@ export const socialIcon = (id) => Icons[id] || Icons.globe;
 /* Stagger delays are handed in per item (delay={i * 0.12}), which reads well
    for three or four cards but turns a twelve-item grid into a second and a
    half of drip-feed. Cap it: past this point every remaining item shares the
-   last slot, so long lists stay lively. */
-const MAX_STAGGER = 0.32;
+   last slot, so long lists stay lively. Reduced from 0.32 to 0.2 for snappier
+   page load feel. */
+const MAX_STAGGER = 0.2;
 
 export function Reveal({ children, delay = 0, y = 26, x = 0, className = '', style, as: Tag = 'div', ...rest }) {
   const ref = useRef(null);
