@@ -78,6 +78,185 @@
 .admin__side a { color: rgba(255,255,255,.6); font-size: 13px; padding: 8px 14px; }
 .admin__side a:hover { color: #fff; }
 
+/* A visible affordance teaches the shortcut instead of making Cmd/Ctrl+K a
+   hidden trick only returning operators know about. */
+.admin__side .admin__command-open {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding-block: 10px;
+  margin-bottom: 7px;
+
+  &:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.22); }
+  span { white-space: nowrap; }
+  kbd {
+    direction: ltr;
+    margin-inline-start: auto;
+    padding: 2px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.62);
+    font: 600 9.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: nowrap;
+  }
+}
+
+/* ---------------- command palette ---------------- */
+.admin-command {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: start center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: min(14vh, 120px) 16px 24px;
+  background: rgba(16, 7, 9, 0.58);
+  animation: admin-command-shade 0.14s ease-out both;
+}
+.admin-command__dialog {
+  width: min(620px, 100%);
+  max-height: min(70svh, 640px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 28px 80px rgba(12, 4, 6, 0.3);
+  animation: admin-command-enter 0.18s var(--ease, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+.admin-command__search {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+
+  > svg { color: var(--muted); }
+  input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    padding: 10px 0;
+    background: transparent;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.7;
+  }
+  input::placeholder { color: var(--muted); }
+}
+.admin-command__close {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-soft);
+  color: var(--muted);
+  padding: 3px 7px;
+  font: 700 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+.admin-command__results {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+
+  > button {
+    width: 100%;
+    min-height: 56px;
+    display: grid;
+    grid-template-columns: 38px 1fr auto;
+    align-items: center;
+    gap: 11px;
+    border: 0;
+    border-radius: 11px;
+    padding: 8px 10px;
+    background: transparent;
+    color: var(--ink);
+    text-align: start;
+    font: inherit;
+    cursor: pointer;
+
+    &.is-active { background: var(--crimson-soft); }
+    > span:nth-child(2) { display: grid; gap: 1px; min-width: 0; }
+    b { font-size: 14px; font-weight: 850; }
+    small { font-size: 11.5px; color: var(--muted); }
+  }
+}
+.admin-command__icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--ink-2);
+}
+.admin-command__results > button.is-active .admin-command__icon {
+  background: var(--surface);
+  color: var(--crimson-ink);
+}
+.admin-command__results > button:focus-visible,
+.admin-command__close:focus-visible,
+.admin__command-open:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: -2px;
+}
+.admin__command-open:focus-visible { outline-color: #fff; }
+.admin-command__current {
+  color: var(--crimson-ink);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.admin-command__empty {
+  min-height: 150px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.admin-command__help {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px;
+
+  span { display: inline-flex; align-items: center; gap: 5px; }
+  kbd {
+    min-width: 20px;
+    padding: 1px 4px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--bg-soft);
+    color: var(--ink-2);
+    text-align: center;
+    font: 700 9.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+}
+@keyframes admin-command-shade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes admin-command-enter {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (max-width: 560px) {
+  .admin-command { padding: 12px; place-items: center; }
+  .admin-command__dialog { max-height: calc(100svh - 24px); border-radius: 16px; }
+  .admin-command__help { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-command,
+  .admin-command__dialog { animation: none; }
+}
+
 .admin__main { padding: 34px 38px 80px; min-width: 0; }
 .admin__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; flex-wrap: wrap; }
 .admin__head h1 { margin: 0; font-size: 24px; font-weight: 900; }
@@ -541,6 +720,7 @@
   input::placeholder,
   textarea::placeholder { color: var(--muted); }
   select option { background: var(--surface-2); color: var(--ink); }
+  .admin-command__search input { background: transparent; border: 0; }
 
   /* checkboxes / radios render as light chrome unless told otherwise */
   input[type='checkbox'],
@@ -744,6 +924,295 @@
   var(--bg-soft); }
 
 /* ==========================================================================
+   Dense operational grids — orders and customers
+   ========================================================================== */
+.admin__head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+/* The picker lives outside the scrolling grid, so its menu is never clipped by
+   the sticky header or a horizontal scrollbar. */
+.column-picker { position: relative; }
+.column-picker__trigger {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.5;
+  cursor: pointer;
+
+  > span {
+    min-width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding-inline: 4px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--muted);
+    font-size: 10.5px;
+  }
+  &[aria-expanded='true'] { border-color: var(--crimson); color: var(--crimson-ink); }
+}
+.column-picker__menu {
+  position: absolute;
+  z-index: 30;
+  inset-block-start: calc(100% + 7px);
+  inset-inline-end: 0;
+  width: 240px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px -24px rgba(0, 0, 0, 0.38);
+  animation: column-picker-enter 0.14s ease-out both;
+}
+.column-picker__title {
+  display: grid;
+  gap: 2px;
+  padding: 4px 5px 9px;
+  border-bottom: 1px solid var(--line);
+
+  b { font-size: 12.5px; }
+  small { color: var(--muted); font-size: 10.5px; line-height: 1.7; }
+}
+.column-picker__options {
+  display: grid;
+  gap: 2px;
+  padding-block: 7px;
+
+  label {
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 7px;
+    border-radius: 8px;
+    color: var(--ink-2);
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  label:hover { background: var(--bg-soft); }
+  input { accent-color: var(--crimson); }
+}
+.column-picker__reset {
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--crimson-ink);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1.5;
+  cursor: pointer;
+}
+@keyframes column-picker-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.column-picker__trigger:focus-visible,
+.column-picker__reset:focus-visible,
+.ord__identity:focus-visible,
+.ord__expand:focus-visible,
+.cust__row:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .column-picker__menu { animation: none; }
+  .ord__expand svg,
+  .cust__chev { transition: none; }
+}
+
+.admin-data-grid {
+  max-height: min(68svh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+
+  &:focus-visible { outline: 2px solid var(--crimson); outline-offset: 3px; }
+}
+.admin-data-grid__header {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 6;
+  min-height: 39px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--muted);
+  box-shadow: 0 5px 12px -12px rgba(0, 0, 0, 0.6);
+
+  > span {
+    min-width: 0;
+    font-size: 10.5px;
+    font-weight: 850;
+    letter-spacing: 0.025em;
+    white-space: nowrap;
+  }
+}
+
+/* Order identity and action are stable bookends; the configurable columns in
+   between share the available width. Both header and rows consume the same
+   variables, so toggling a field cannot leave ghost gaps behind. */
+.ord__grid {
+  width: 100%;
+  min-width: var(--grid-min-width);
+  display: grid;
+  grid-template-columns: minmax(150px, 1.35fr) repeat(var(--visible-columns), minmax(98px, 1fr)) 30px;
+}
+.ord__list { min-width: var(--grid-min-width); }
+.ord__item {
+  position: relative;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+
+  &:last-child { border-bottom: 0; }
+  &.is-open { background: var(--bg-soft); }
+  &.is-attention::before {
+    content: '';
+    position: absolute;
+    z-index: 2;
+    inset-block: 10px;
+    inset-inline-start: 0;
+    width: 3px;
+    border-radius: 0 999px 999px 0;
+    background: var(--crimson);
+  }
+}
+.ord__row {
+  min-height: 61px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--surface);
+}
+.ord__item.is-open .ord__row { background: var(--bg-soft); }
+.ord__identity {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+
+  b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 850; letter-spacing: 0.025em; }
+  small { color: var(--muted); font-size: 10.5px; }
+}
+.ord__customer,
+.ord__date {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+
+  b, span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  small { color: var(--muted); font-size: 10.5px; }
+  small[dir='ltr'] { text-align: end; }
+}
+.ord__total {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+
+  small { color: var(--muted); font-size: 9.5px; font-weight: 650; }
+}
+.ord__status {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 4px 8px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 750;
+  line-height: 1.5;
+  outline: none;
+
+  &:focus { border-color: var(--crimson); box-shadow: 0 0 0 2px var(--crimson-soft); }
+  &:disabled { cursor: wait; opacity: 0.62; }
+  &.is-paid,
+  &.is-delivered { border-color: color-mix(in srgb, var(--admin-ok) 45%, var(--line)); color: var(--admin-ok); }
+  &.is-cancelled { border-color: color-mix(in srgb, var(--crimson) 45%, var(--line)); color: var(--crimson-ink); }
+}
+.ord__expand {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+
+  &:hover { background: var(--bg-softer); color: var(--ink); }
+  svg { transform: rotate(-90deg); transition: transform 0.24s var(--ease, ease); }
+}
+.ord__item.is-open .ord__expand svg { transform: rotate(90deg); }
+.ord__error { margin: -8px 0 14px; color: var(--crimson-ink); font-size: 12.5px; font-weight: 700; }
+.ord__detail {
+  min-width: var(--grid-min-width);
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-soft);
+  font-size: 12.5px;
+}
+.ord__detail-title { margin: 0 0 7px; color: var(--ink-2); font-weight: 850; }
+.ord__items {
+  max-width: 660px;
+  display: grid;
+
+  p {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    margin: 0;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  b { white-space: nowrap; }
+}
+.ord__summary { margin: 10px 0 0; }
+.ord__address { max-width: 82ch; margin: 10px 0 0; line-height: 2; }
+.ord__payment { margin: 7px 0 0; color: var(--muted); font-size: 11.5px; }
+.ord__detail-actions,
+.ord__gateway { margin-top: 11px; flex-wrap: wrap; gap: 9px; }
+.ord__gateway .pay__msg { margin: 0; }
+.ord__delete { color: var(--crimson-ink); }
+.ord__note { max-width: 680px; margin-top: 12px; }
+.ord__note .btn { margin-top: 8px; }
+
+/* ==========================================================================
    Customers tab
    --------------------------------------------------------------------------
    The first version borrowed the messages inbox classes and patched the
@@ -762,107 +1231,111 @@
 .cust__loading,
 .cust__none { color: var(--muted); font-size: 13.5px; margin: 10px 0; }
 
-.cust__list {
+.cust__search { margin-bottom: 12px; }
+.cust__grid {
+  width: 100%;
+  min-width: var(--grid-min-width);
   display: grid;
-  gap: 10px;
-  margin-top: 16px;
+  grid-template-columns: minmax(160px, 1.4fr) repeat(var(--visible-columns), minmax(88px, 1fr)) 30px;
+}
+.cust__list {
+  min-width: var(--grid-min-width);
+  margin: 0;
 }
 
 .cust {
-  border: 1px solid var(--line);
-  border-radius: 16px;
+  border-bottom: 1px solid var(--line);
   background: var(--surface);
-  overflow: hidden;
-  transition: border-color 0.25s, box-shadow 0.25s;
 
-  &.is-open { border-color: var(--crimson); box-shadow: 0 14px 36px -24px rgba(0, 0, 0, 0.35); }
+  &:last-child { border-bottom: 0; }
+  &.is-open { background: var(--bg-soft); }
   &.is-blocked .cust__avatar { background: var(--line); color: var(--muted); }
 }
 
-/* The row is a grid, not a flex line of spans: fixed columns mean the names
-   start at the same x down the whole list and the numbers line up under
-   each other, which is what makes a list scannable. */
+/* The summary remains one aligned grid, but every optional fact owns a real
+   column now. That lets the sticky labels and the merchant's visibility
+   choices stay in exact lockstep. */
 .cust__row {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1.3fr) minmax(0, 1.7fr) auto auto;
+  min-height: 61px;
   align-items: center;
-  gap: 14px;
-  padding: 13px 16px;
+  gap: 10px;
+  padding: 9px 12px;
   border: 0;
-  background: none;
+  background: var(--surface);
+  color: var(--ink);
   font: inherit;
   text-align: start;
   cursor: pointer;
-  transition: background-color 0.2s;
 
-  &:hover { background-color: var(--bg-soft); }
+  &:hover { background: var(--bg-soft); }
 }
-
+.cust.is-open .cust__row { background: var(--bg-soft); }
+.cust__identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .cust__avatar {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: var(--crimson-soft);
   color: var(--crimson-ink);
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 900;
 }
-
 .cust__id {
-  display: grid;
-  gap: 2px;
   min-width: 0;
+  display: grid;
   justify-items: start;
 
-  b { font-size: 14.5px; font-weight: 800; }
-  small { font-size: 12.5px; color: var(--muted); }
+  b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 850; }
 }
-
-/* dir="ltr" keeps a phone number, order code or email in Latin reading
-   order, but it also makes the element align to ITS OWN start — the left —
-   while the Persian line above it sits on the right of this RTL panel. The
-   value then drifted to the opposite edge from the name it belongs to.
-
-   Two fixes, because the cases differ: the name and phone pair is simply
-   packed to the start of the row (justify-items above), and the values that
-   must keep their full width to wrap — a long email, a table cell — are
-   aligned to the end of their LTR box instead, which is the same edge. */
-.cust__id small[dir='ltr'],
-.cust__facts b[dir='ltr'],
-.cust__table td[dir='ltr'] {
+.cust__phone {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
   text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
 }
-
-.cust__stats {
+.cust__metric {
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  font-size: 12.5px;
+  align-items: baseline;
+  gap: 4px;
   color: var(--muted);
 
-  b { color: var(--ink-2); font-weight: 800; }
+  b { color: var(--ink-2); font-size: 13px; font-weight: 850; }
+  small { font-size: 10.5px; }
 }
-/* --muted on white is 5.0:1; the 0.85 opacity this used to carry dropped
-   it to 3.74:1, under the 4.5 threshold. Dimming already-muted text is how
-   small print quietly becomes unreadable. */
-.cust__since { color: var(--muted); }
+/* dir="ltr" keeps identifiers in Latin reading order while text-align:end
+   anchors them to the same visual edge as Persian labels. */
+.cust__facts b[dir='ltr'],
+.cust__table td[dir='ltr'] { text-align: end; }
+
+.cust__since { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 
 .cust__chev {
   color: var(--muted);
-  transition: transform 0.3s var(--ease, cubic-bezier(0.22, 1, 0.36, 1));
-  transform: rotate(90deg);
+  transition: transform 0.24s var(--ease, cubic-bezier(0.22, 1, 0.36, 1));
+  transform: rotate(-90deg);
 }
-.cust.is-open .cust__chev { transform: rotate(-90deg); }
+.cust.is-open .cust__chev { transform: rotate(90deg); }
 
 /* ---------------- detail ---------------- */
 .cust__detail {
+  min-width: var(--grid-min-width);
   border-top: 1px solid var(--line);
   padding: 18px 16px 16px;
   display: grid;
   gap: 20px;
+  background: var(--bg-soft);
 }
 
 .cust__facts {
@@ -916,8 +1389,11 @@
   color: var(--ink-2);
   white-space: nowrap;
 
+  justify-self: start;
+
   &.is-paid,
-  &.is-delivered { background: var(--admin-ok-soft); color: var(--admin-ok); }
+  &.is-delivered,
+  &.is-active { background: var(--admin-ok-soft); color: var(--admin-ok); }
   &.is-cancelled,
   &.is-blocked { background: var(--crimson-soft); color: var(--crimson-ink); }
   &.is-default { background: var(--crimson-soft); color: var(--crimson-ink); }
@@ -972,12 +1448,12 @@
 }
 
 @media (max-width: 820px) {
-  .cust__row {
-    grid-template-columns: 38px 1fr auto;
-    row-gap: 8px;
-  }
-  .cust__stats { grid-column: 2 / -1; }
-  .cust__chev { display: none; }
+  .admin-data-grid { max-height: 64svh; }
+  .admin-data-grid__header,
+  .ord__row,
+  .cust__row { padding-inline: 10px; }
+  .ord__detail,
+  .cust__detail { padding-inline: 14px; }
 }
 
 /* ==========================================================================

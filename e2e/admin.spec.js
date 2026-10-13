@@ -76,6 +76,13 @@ test('switching the panel to English swaps in the translation editors', async ({
   await expect(adminTab(page, 'سفارش‌ها')).toHaveCount(0);
   await expect(adminTab(page, 'فروشگاه — محصولات')).toHaveCount(0);
 
+  /* Hidden locale-specific destinations must not leak back through Cmd+K. */
+  await page.keyboard.press('Control+K');
+  const palette = page.getByRole('dialog', { name: /دسترسی سریع/ });
+  await expect(palette.getByRole('option', { name: /محصولات/ })).toBeVisible();
+  await expect(palette.getByRole('option', { name: /سفارش‌ها/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
   await page.locator('.admin__langbtns button', { hasText: /FA|فارسی/i }).first().click();
   await expect(adminTab(page, 'سفارش‌ها')).toBeVisible();
 });
@@ -88,6 +95,35 @@ test('the panel honours dark mode', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.locator('.admin__themebtns button', { hasText: 'روشن' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
+test('Cmd/Ctrl+K filters commands, supports arrows and restores focus', async ({ page }) => {
+  await loginAdmin(page);
+  const trigger = page.getByRole('button', { name: /دسترسی سریع/ });
+  await trigger.focus();
+  await page.keyboard.press('Control+K');
+
+  const dialog = page.getByRole('dialog', { name: /دسترسی سریع/ });
+  const search = dialog.getByRole('combobox', { name: 'جست‌وجوی دستورات' });
+  await expect(dialog).toBeVisible();
+  await expect(search).toBeFocused();
+  await expect(search).toHaveAttribute('aria-activedescendant', 'admin-command-products');
+
+  await page.keyboard.press('ArrowDown');
+  await expect(search).toHaveAttribute('aria-activedescendant', 'admin-command-posts');
+  await search.fill('مشتریان');
+  await expect(dialog.getByRole('option', { name: /مشتریان/ })).toBeVisible();
+  await expect(search).toHaveAttribute('aria-activedescendant', 'admin-command-customers');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.admin__panel h1').first()).toHaveText('مشتریان');
+  await expect(dialog).toHaveCount(0);
+
+  await trigger.focus();
+  await page.keyboard.press('Control+K');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });
 
 test('creating a catalogue product publishes it to the public site', async ({ page }) => {
@@ -298,29 +334,65 @@ test('an order placed on the site is visible in the orders tab and its status ca
 
   await loginAdmin(page);
   await adminTab(page, 'سفارش‌ها').first().click();
-  const row = page.locator('.msg', { hasText: code }).first();
+  let row = page.locator('.ord__item', { hasText: code }).first();
   await expect(row).toBeVisible({ timeout: 15_000 });
 
-  /* Like the inbox, an order row keeps its detail — including the status
-     select — collapsed until the header is clicked. */
-  await row.locator('.msg__head').click();
-  const select = row.locator('select').first();
+  /* Operational controls are in the aligned summary row: fulfilment should
+     never require opening the detail panel. The header remains attached while
+     a long list scrolls, and merchant column choices survive a reload. */
+  const orderHeader = page.locator('.admin-data-grid--orders .admin-data-grid__header');
+  await expect(orderHeader).toBeVisible();
+  expect(await orderHeader.evaluate((node) => getComputedStyle(node).position)).toBe('sticky');
+  const select = row.getByRole('combobox', { name: `وضعیت سفارش ${code}` });
   await expect(select).toBeVisible();
-  const before = await select.inputValue();
-  const after = (await select.locator('option').evaluateAll((os) => os.map((o) => o.value))).find((v) => v !== before);
 
-  /* Changing the status must stick across a reload — that is the path where
-     the stock re-reservation bug lived. The list reloads itself after the
-     PATCH, so the proof is what comes back from the server, not what the
-     control shows a moment later. */
-  await select.selectOption(after);
-  await page.waitForTimeout(1000);
+  await page.getByRole('button', { name: 'تنظیم ستون‌های سفارش‌ها' }).click();
+  await page.locator('#order-columns label', { hasText: 'تاریخ' }).getByRole('checkbox').uncheck();
+  await expect(orderHeader.locator('span', { hasText: /^تاریخ$/ })).toHaveCount(0);
+
   await page.reload({ waitUntil: 'domcontentloaded' });
   await adminTab(page, 'سفارش‌ها').first().click();
-  const again = page.locator('.msg', { hasText: code }).first();
+  await expect(page.locator('.admin-data-grid--orders .admin-data-grid__header span', { hasText: /^تاریخ$/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'تنظیم ستون‌های سفارش‌ها' }).click();
+  await page.getByRole('button', { name: 'نمایش همه ستون‌ها' }).click();
+
+  row = page.locator('.ord__item', { hasText: code }).first();
+  const directSelect = row.getByRole('combobox', { name: `وضعیت سفارش ${code}` });
+  const before = await directSelect.inputValue();
+  const after = (await directSelect.locator('option').evaluateAll((os) => os.map((o) => o.value))).find((v) => v !== before);
+
+  /* Changing the status must stick across a reload — that is the path where
+     the stock re-reservation bug lived. The proof is what comes back from the
+     server, not only the optimistic value shown by the control. */
+  const changed = page.waitForResponse((response) =>
+    response.url().includes('/api/shop-admin/orders/') && response.request().method() === 'PATCH',
+  );
+  await directSelect.selectOption(after);
+  expect((await changed).ok()).toBe(true);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await adminTab(page, 'سفارش‌ها').first().click();
+  const again = page.locator('.ord__item', { hasText: code }).first();
   await expect(again).toBeVisible({ timeout: 15_000 });
-  await again.locator('.msg__head').click();
-  await expect(again.locator('select').first()).toHaveValue(after);
+  await expect(again.getByRole('combobox', { name: `وضعیت سفارش ${code}` })).toHaveValue(after);
+
+  /* Expandability and customer details are preserved under the denser rows;
+     the customer list uses the same sticky, configurable grid system. */
+  await again.getByRole('button', { name: `نمایش جزئیات سفارش ${code}` }).click();
+  await expect(again.locator('.ord__detail')).toContainText('اقلام سفارش');
+
+  await adminTab(page, 'مشتریان').first().click();
+  const customerHeader = page.locator('.admin-data-grid--customers .admin-data-grid__header');
+  await expect(customerHeader).toBeVisible({ timeout: 15_000 });
+  expect(await customerHeader.evaluate((node) => getComputedStyle(node).position)).toBe('sticky');
+  const customer = page.locator('.cust', { hasText: 'سفارش آزمایشی' }).first();
+  await expect(customer).toBeVisible();
+  await customer.locator('.cust__row').click();
+  await expect(customer.locator('.cust__detail')).toBeVisible();
+
+  await page.getByRole('button', { name: 'تنظیم ستون‌های مشتریان' }).click();
+  await page.locator('#customer-columns label', { hasText: 'نشانی‌ها' }).getByRole('checkbox').uncheck();
+  await expect(customerHeader.locator('span', { hasText: /^نشانی‌ها$/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'نمایش همه ستون‌ها' }).click();
 });
 
 test('logging out revokes the session, so the back button cannot re-enter', async ({ page }) => {

@@ -261,7 +261,7 @@ test.describe('customer accounts', () => {
     await expect(row).toHaveCount(1);
 
     /* The phone is an identifier, not an amount: no thousands separators. */
-    const shown = await row.locator('.cust__id small').innerText();
+    const shown = await row.locator('.cust__phone').innerText();
     expect(shown, 'the listed phone is not formatted as a price').not.toContain('٬');
     expect(shown.replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).toBe(phone);
 

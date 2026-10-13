@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
@@ -25,6 +25,134 @@ const STATUS_FA = {
   delivered: 'تحویل‌شده',
   cancelled: 'لغو شده',
 };
+
+/* Merchants scan different facts first, so the two long operational lists do
+   not hard-code one idea of an "important" column. The primary identifier and
+   the detail control always stay visible; everything else can be tailored and
+   is remembered locally for that browser. */
+const ORDER_LIST_COLUMNS = [
+  { id: 'customer', label: 'مشتری' },
+  { id: 'date', label: 'تاریخ' },
+  { id: 'total', label: 'مبلغ' },
+  { id: 'status', label: 'وضعیت' },
+];
+const CUSTOMER_LIST_COLUMNS = [
+  { id: 'phone', label: 'موبایل' },
+  { id: 'orders', label: 'سفارش‌ها' },
+  { id: 'addresses', label: 'نشانی‌ها' },
+  { id: 'joined', label: 'عضویت' },
+  { id: 'state', label: 'وضعیت' },
+];
+
+const defaultColumnIds = (columns) => columns.map((column) => column.id);
+
+function storedColumnIds(storageKey, columns) {
+  const defaults = defaultColumnIds(columns);
+  if (typeof window === 'undefined') return defaults;
+  try {
+    const value = JSON.parse(window.localStorage.getItem(storageKey));
+    if (!Array.isArray(value)) return defaults;
+    const known = new Set(defaults);
+    return [...new Set(value.filter((id) => known.has(id)))];
+  } catch {
+    /* Storage can be blocked or carry an old/corrupt value. Neither should be
+       able to take an operational admin list down. */
+    return defaults;
+  }
+}
+
+function useColumnVisibility(storageKey, columns) {
+  const [visibleIds, setVisibleIds] = useState(() => storedColumnIds(storageKey, columns));
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(visibleIds));
+    } catch {
+      /* A privacy mode may reject writes; the in-memory preference still works
+         for the current visit. */
+    }
+  }, [storageKey, visibleIds]);
+
+  const toggle = (id) =>
+    setVisibleIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  const reset = () => setVisibleIds(defaultColumnIds(columns));
+
+  return { visible: new Set(visibleIds), toggle, reset };
+}
+
+function ColumnPicker({ id, label, primaryLabel, columns, visibility }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const keyboard = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', keyboard);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', keyboard);
+    };
+  }, [open]);
+
+  return (
+    <div className="column-picker" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="column-picker__trigger"
+        aria-label={`تنظیم ستون‌های ${label}`}
+        aria-expanded={open}
+        aria-controls={open ? `${id}-columns` : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Icons.gear size={15} />
+        ستون‌ها
+        <span aria-hidden="true">{visibility.visible.size + 1}</span>
+      </button>
+      {open && (
+        <div className="column-picker__menu" id={`${id}-columns`} role="group" aria-label={`ستون‌های ${label}`}>
+          <div className="column-picker__title">
+            <b>نمایش ستون‌ها</b>
+            <small>«{primaryLabel}» همیشه نمایش داده می‌شود.</small>
+          </div>
+          <div className="column-picker__options">
+            {columns.map((column) => (
+              <label key={column.id}>
+                <input
+                  type="checkbox"
+                  checked={visibility.visible.has(column.id)}
+                  onChange={() => visibility.toggle(column.id)}
+                />
+                <span>{column.label}</span>
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="column-picker__reset"
+            onClick={() => {
+              visibility.reset();
+              setOpen(false);
+              triggerRef.current?.focus();
+            }}
+          >
+            نمایش همه ستون‌ها
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ================= shop products ================= */
 export function ShopProductsTab() {
@@ -268,6 +396,9 @@ export function ShopOrdersTab() {
   const [open, setOpen] = useState(null);
   const [notes, setNotes] = useState({});
   const [gw, setGw] = useState({}); // per-order gateway result
+  const [savingStatus, setSavingStatus] = useState({});
+  const [feedback, setFeedback] = useState('');
+  const columns = useColumnVisibility('khyeast.admin.columns.orders.v1', ORDER_LIST_COLUMNS);
 
   const load = async () => {
     try {
@@ -281,6 +412,41 @@ export function ShopOrdersTab() {
   useEffect(() => {
     load();
   }, []);
+
+  const explainOrderError = (error, fallback) =>
+    error.status === 409
+      ? error.detail || 'موجودی برای بازگرداندن این سفارش کافی نیست؛ ابتدا موجودی محصول را افزایش دهید.'
+      : error.status === 401
+        ? 'نشست مدیر منقضی شده؛ دوباره وارد شوید.'
+        : fallback;
+
+  /* Status is deliberately separate from the detail editor: this is the hot
+     path for fulfilment, so paid → shipped is one direct, optimistic action.
+     The server remains authoritative and a failed stock re-reservation rolls
+     the row back with the existing 409 explanation. */
+  const changeStatus = async (id, status) => {
+    const previous = orders?.find((order) => order.id === id)?.status;
+    if (!previous || previous === status || savingStatus[id]) return;
+
+    setErr('');
+    setFeedback('');
+    setSavingStatus((current) => ({ ...current, [id]: true }));
+    setOrders((current) => current?.map((order) => (order.id === id ? { ...order, status } : order)));
+    try {
+      await api(`/api/shop-admin/orders/${id}`, { method: 'PATCH', body: { status }, auth: true });
+      setFeedback(`وضعیت سفارش به «${STATUS_FA[status]}» تغییر کرد.`);
+      await load();
+    } catch (error) {
+      setOrders((current) => current?.map((order) => (order.id === id ? { ...order, status: previous } : order)));
+      setErr(explainOrderError(error, 'تغییر وضعیت سفارش ممکن نشد.'));
+    } finally {
+      setSavingStatus((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    }
+  };
 
   /* Ask the gateway, or hand the money back. Both answer into the same
      per-order slot, so a result can never appear under the wrong order. */
@@ -304,24 +470,21 @@ export function ShopOrdersTab() {
 
   const patch = async (id, body, method = 'PATCH') => {
     setErr('');
+    setFeedback('');
     try {
       await api(`/api/shop-admin/orders/${id}`, { method, body, auth: true });
+      if (method === 'PATCH') setFeedback('تغییرات سفارش ذخیره شد.');
+      await load();
     } catch (e) {
-      /* Taking an order out of «لغو شده» re-reserves its stock, which the
-         server refuses with 409 when the units are no longer available. The
-         select would otherwise just snap back with no explanation. */
-      setErr(
-        e.status === 409
-          ? e.detail || 'موجودی برای بازگرداندن این سفارش کافی نیست؛ ابتدا موجودی محصول را افزایش دهید.'
-          : e.status === 401
-            ? 'نشست مدیر منقضی شده؛ دوباره وارد شوید.'
-            : 'تغییر وضعیت سفارش ممکن نشد.',
-      );
+      setErr(explainOrderError(e, method === 'DELETE' ? 'حذف سفارش ممکن نشد.' : 'ذخیره تغییرات سفارش ممکن نشد.'));
     }
-    load();
   };
 
   const fa = (rial) => new Intl.NumberFormat('fa-IR').format(Math.round(rial || 0));
+  const gridStyle = {
+    '--visible-columns': String(columns.visible.size),
+    '--grid-min-width': `${236 + columns.visible.size * 118}px`,
+  };
 
   return (
     <div className="admin__panel">
@@ -330,100 +493,186 @@ export function ShopOrdersTab() {
           <h1>سفارش‌های فروشگاه</h1>
           <p>مشاهده، تغییر وضعیت و پیگیری سفارش‌های ثبت‌شده</p>
         </div>
-        <button className="btn btn--outline" onClick={load}>
-          <Icons.refresh size={16} />
-          به‌روزرسانی
-        </button>
+        <div className="admin__head-actions">
+          <ColumnPicker
+            id="order"
+            label="سفارش‌ها"
+            primaryLabel="کد سفارش"
+            columns={ORDER_LIST_COLUMNS}
+            visibility={columns}
+          />
+          <button className="btn btn--outline" type="button" onClick={load}>
+            <Icons.refresh size={16} />
+            به‌روزرسانی
+          </button>
+        </div>
       </div>
-      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+      <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
+      {err && <p className="ord__error" role="alert">{err}</p>}
       {orders === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
       {orders?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز سفارشی ثبت نشده است.</p>}
-      {orders?.map((o) => (
-        <div className="msg" key={o.id}>
-          <div className={`msg__head ${o.status === 'pending_payment' ? 'unread' : ''}`} onClick={() => setOpen(open === o.id ? null : o.id)}>
-            <div>
-              <b dir="ltr" style={{ letterSpacing: 0.5 }}>{o.code}</b> <small>· {o.customer.name} · {o.customer.phone}</small>
-              <div>
-                <small>{new Date(o.at).toLocaleString('fa-IR')}</small>
-              </div>
-            </div>
-            <small style={{ marginInlineStart: 12, fontWeight: 800 }}>{fa(o.total)} ریال</small>
-            <span className={`msg__badge ${o.status !== 'pending_payment' ? 'read' : ''}`}>{STATUS_FA[o.status] || o.status}</span>
-          </div>
-          {open === o.id && (
-            <div className="msg__body">
-              <p style={{ fontWeight: 800, marginBottom: 8 }}>اقلام سفارش:</p>
-              {o.items.map((it) => (
-                <p key={it.slug} style={{ fontSize: 13 }}>
-                  {it.title} × {fa(it.qty)} = {fa(it.sum)} ریال
-                </p>
-              ))}
-              <p style={{ fontSize: 13, marginTop: 8 }}>
-                جمع اقلام {fa(o.subtotal)} + ارسال {o.shipping === 0 ? 'رایگان' : `${fa(o.shipping)} ریال`} = <b>{fa(o.total)} ریال</b>
-              </p>
-              <p style={{ fontSize: 13, lineHeight: 2.1, marginTop: 10 }}>
-                آدرس: {o.customer.city} — {o.customer.address}
-                {o.customer.postal ? ` (کد پستی ${o.customer.postal})` : ''}
-                {o.customer.note ? ` — توضیحات: ${o.customer.note}` : ''}
-              </p>
-              <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-                درگاه: {o.provider === 'zarinpal' ? 'زرین‌پال' : '—'}
-                {o.payRef ? ` · شناسه پرداخت: ${String(o.payRef).slice(0, 30)}` : ''}
-                {o.paidAt ? ` · پرداخت: ${new Date(o.paidAt).toLocaleString('fa-IR')}` : ''}
-              </p>
-              <div className="admin__row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
-                <select
-                  value={o.status}
-                  onChange={(e) => patch(o.id, { status: e.target.value })}
-                  style={{ border: '1.5px solid var(--line)', borderRadius: 10, padding: '8px 12px', fontFamily: 'inherit', fontSize: 13 }}
-                >
-                  {ORDER_STATUS.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_FA[s]}
-                    </option>
-                  ))}
-                </select>
-                <button className="btn btn--outline btn--sm" style={{ color: 'var(--crimson)' }} onClick={() => window.confirm('این سفارش حذف شود؟') && patch(o.id, null, 'DELETE')}>
-                  حذف سفارش
-                </button>
-              </div>
 
-              {/* Gateway actions, only where they can do something: an order
-                  with no payment reference has nothing to ask about. */}
-              {o.payRef && o.provider === 'zarinpal' && (
-                <div className="admin__row" style={{ marginTop: 10, flexWrap: 'wrap', gap: 10 }}>
-                  <button className="btn btn--outline btn--sm" onClick={() => gateway(o.id, 'inquire')}>
-                    استعلام وضعیت از درگاه
-                  </button>
-                  {o.status === 'paid' && (
+      {orders?.length > 0 && (
+        <div
+          className="admin-data-grid admin-data-grid--orders"
+          style={gridStyle}
+          role="region"
+          aria-label="فهرست سفارش‌ها"
+          tabIndex={0}
+        >
+          <div className="admin-data-grid__header ord__grid" aria-hidden="true">
+            <span>کد سفارش</span>
+            {columns.visible.has('customer') && <span>مشتری</span>}
+            {columns.visible.has('date') && <span>تاریخ</span>}
+            {columns.visible.has('total') && <span>مبلغ</span>}
+            {columns.visible.has('status') && <span>وضعیت</span>}
+            <span />
+          </div>
+
+          <div className="ord__list">
+            {orders.map((o) => {
+              const expanded = open === o.id;
+              const detailId = `order-detail-${String(o.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+              const at = new Date(o.at);
+              const validDate = !Number.isNaN(at.getTime());
+              return (
+                <article
+                  className={`ord__item ${expanded ? 'is-open' : ''} ${o.status === 'pending_payment' ? 'is-attention' : ''}`}
+                  key={o.id}
+                >
+                  <div className="ord__row ord__grid">
                     <button
-                      className="btn btn--outline btn--sm"
-                      style={{ color: 'var(--crimson)' }}
-                      onClick={() =>
-                        window.confirm('مبلغ این سفارش به خریدار بازگردانده شود؟ این کار فقط تا ۳۰ دقیقه پس از پرداخت ممکن است و سفارش لغو می‌شود.') &&
-                        gateway(o.id, 'reverse')
-                      }
+                      type="button"
+                      className="ord__identity"
+                      onClick={() => setOpen(expanded ? null : o.id)}
+                      aria-expanded={expanded}
+                      aria-controls={expanded ? detailId : undefined}
                     >
-                      بازگرداندن وجه
+                      <b dir="ltr">{o.code}</b>
                     </button>
+
+                    {columns.visible.has('customer') && (
+                      <span className="ord__customer">
+                        <b>{o.customer?.name || '—'}</b>
+                        <small dir="ltr">{o.customer?.phone ? localPhone(o.customer.phone) : '—'}</small>
+                      </span>
+                    )}
+                    {columns.visible.has('date') && (
+                      <time className="ord__date" dateTime={o.at}>
+                        <span>{validDate ? at.toLocaleDateString('fa-IR') : '—'}</span>
+                        <small>{validDate ? at.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : ''}</small>
+                      </time>
+                    )}
+                    {columns.visible.has('total') && <b className="ord__total">{fa(o.total)} <small>ریال</small></b>}
+                    {columns.visible.has('status') && (
+                      <select
+                        className={`ord__status is-${o.status}`}
+                        value={o.status}
+                        onChange={(e) => changeStatus(o.id, e.target.value)}
+                        disabled={Boolean(savingStatus[o.id])}
+                        aria-label={`وضعیت سفارش ${o.code}`}
+                        aria-busy={Boolean(savingStatus[o.id])}
+                      >
+                        {ORDER_STATUS.map((status) => (
+                          <option key={status} value={status}>{STATUS_FA[status]}</option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      className="ord__expand"
+                      onClick={() => setOpen(expanded ? null : o.id)}
+                      aria-label={`${expanded ? 'بستن' : 'نمایش'} جزئیات سفارش ${o.code}`}
+                      aria-expanded={expanded}
+                      aria-controls={expanded ? detailId : undefined}
+                    >
+                      <Icons.arrow size={16} />
+                    </button>
+                  </div>
+
+                  {expanded && (
+                    <div className="ord__detail" id={detailId} role="region" aria-label={`جزئیات سفارش ${o.code}`}>
+                      <p className="ord__detail-title">اقلام سفارش</p>
+                      <div className="ord__items">
+                        {(o.items || []).map((it) => (
+                          <p key={it.slug}>
+                            <span>{it.title} × {fa(it.qty)}</span>
+                            <b>{fa(it.sum)} ریال</b>
+                          </p>
+                        ))}
+                      </div>
+                      <p className="ord__summary">
+                        جمع اقلام {fa(o.subtotal)} + ارسال {o.shipping === 0 ? 'رایگان' : `${fa(o.shipping)} ریال`} = <b>{fa(o.total)} ریال</b>
+                      </p>
+                      <p className="ord__address">
+                        آدرس: {o.customer?.city || '—'} — {o.customer?.address || '—'}
+                        {o.customer?.postal ? ` (کد پستی ${o.customer.postal})` : ''}
+                        {o.customer?.note ? ` — توضیحات: ${o.customer.note}` : ''}
+                      </p>
+                      <p className="ord__payment">
+                        درگاه: {o.provider === 'zarinpal' ? 'زرین‌پال' : '—'}
+                        {o.payRef ? ` · شناسه پرداخت: ${String(o.payRef).slice(0, 30)}` : ''}
+                        {o.paidAt ? ` · پرداخت: ${new Date(o.paidAt).toLocaleString('fa-IR')}` : ''}
+                      </p>
+                      <div className="admin__row ord__detail-actions">
+                        <button
+                          type="button"
+                          className="btn btn--outline btn--sm ord__delete"
+                          onClick={() => window.confirm('این سفارش حذف شود؟') && patch(o.id, null, 'DELETE')}
+                        >
+                          حذف سفارش
+                        </button>
+                      </div>
+
+                      {/* Gateway actions, only where they can do something: an
+                          order with no payment reference has nothing to ask about. */}
+                      {o.payRef && o.provider === 'zarinpal' && (
+                        <div className="admin__row ord__gateway">
+                          <button type="button" className="btn btn--outline btn--sm" onClick={() => gateway(o.id, 'inquire')}>
+                            استعلام وضعیت از درگاه
+                          </button>
+                          {o.status === 'paid' && (
+                            <button
+                              type="button"
+                              className="btn btn--outline btn--sm ord__delete"
+                              onClick={() =>
+                                window.confirm('مبلغ این سفارش به خریدار بازگردانده شود؟ این کار فقط تا ۳۰ دقیقه پس از پرداخت ممکن است و سفارش لغو می‌شود.') &&
+                                gateway(o.id, 'reverse')
+                              }
+                            >
+                              بازگرداندن وجه
+                            </button>
+                          )}
+                          {gw[o.id] && <span className={`pay__msg ${gw[o.id].err ? 'is-err' : ''}`}>{gw[o.id].msg}</span>}
+                        </div>
+                      )}
+                      <div className="ord__note">
+                        <Field
+                          label="یادداشت داخلی (فقط برای مدیر)"
+                          textarea
+                          rows={2}
+                          value={notes[o.id] ?? o.adminNote ?? ''}
+                          onChange={(value) => setNotes({ ...notes, [o.id]: value })}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn--outline btn--sm"
+                          onClick={() => patch(o.id, { adminNote: notes[o.id] ?? o.adminNote ?? '' })}
+                        >
+                          ذخیره یادداشت
+                        </button>
+                      </div>
+                    </div>
                   )}
-                  {gw[o.id] && <span className={`pay__msg ${gw[o.id].err ? 'is-err' : ''}`} style={{ margin: 0 }}>{gw[o.id].msg}</span>}
-                </div>
-              )}
-              <div style={{ marginTop: 10 }}>
-                <Field label="یادداشت داخلی (فقط برای مدیر)" textarea rows={2} value={notes[o.id] ?? o.adminNote ?? ''} onChange={(v) => setNotes({ ...notes, [o.id]: v })} />
-                <button className="btn btn--outline btn--sm" style={{ marginTop: 8 }} onClick={() => patch(o.id, { adminNote: notes[o.id] ?? o.adminNote ?? '' })}>
-                  ذخیره یادداشت
-                </button>
-              </div>
-            </div>
-          )}
+                </article>
+              );
+            })}
+          </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
-
 /* ================= shop comments ================= */
 export function ShopCommentsTab() {
   const { state } = useContent();
@@ -1336,6 +1585,8 @@ export function ShopCustomersTab() {
   const [detail, setDetail] = useState(null);
   const [q, setQ] = useState('');
   const [err, setErr] = useState('');
+  const detailRequest = useRef(0);
+  const columns = useColumnVisibility('khyeast.admin.columns.customers.v1', CUSTOMER_LIST_COLUMNS);
 
   const load = async () => {
     try {
@@ -1352,23 +1603,32 @@ export function ShopCustomersTab() {
 
   const show = async (id) => {
     if (open === id) {
+      detailRequest.current += 1;
       setOpen(null);
       return;
     }
+    const request = ++detailRequest.current;
     setOpen(id);
     setDetail(null);
+    setErr('');
     try {
-      setDetail(await api(`/api/shop-admin/customers/${id}`, { auth: true }));
+      const next = await api(`/api/shop-admin/customers/${id}`, { auth: true });
+      if (detailRequest.current === request) setDetail(next);
     } catch {
-      setErr('دریافت اطلاعات مشتری ممکن نشد.');
+      if (detailRequest.current === request) setErr('دریافت اطلاعات مشتری ممکن نشد.');
     }
   };
 
   const setBlocked = async (id, blocked) => {
-    await api(`/api/shop-admin/customers/${id}`, { method: 'PATCH', body: { blocked }, auth: true });
-    const d = await api('/api/shop-admin/customers', { auth: true });
-    setRows(d.customers || []);
-    setDetail(await api(`/api/shop-admin/customers/${id}`, { auth: true }));
+    try {
+      setErr('');
+      await api(`/api/shop-admin/customers/${id}`, { method: 'PATCH', body: { blocked }, auth: true });
+      const d = await api('/api/shop-admin/customers', { auth: true });
+      setRows(d.customers || []);
+      setDetail(await api(`/api/shop-admin/customers/${id}`, { auth: true }));
+    } catch {
+      setErr('تغییر وضعیت حساب مشتری ممکن نشد.');
+    }
   };
 
   /* Searching by digits must work whichever way the number is written, so
@@ -1376,7 +1636,14 @@ export function ShopCustomersTab() {
      zero is dropped — stored numbers are 98…, typed ones are 0…. */
   const norm = (v) => String(v || '').replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
   const needle = norm(q).trim().replace(/^0/, '');
-  const list = (rows || []).filter((c) => !needle || norm(c.phone).includes(needle) || c.name.includes(q.trim()));
+  const list = (rows || []).filter(
+    (customer) =>
+      !needle || norm(customer.phone).includes(needle) || String(customer.name || '').includes(q.trim()),
+  );
+  const gridStyle = {
+    '--visible-columns': String(columns.visible.size),
+    '--grid-min-width': `${244 + columns.visible.size * 108}px`,
+  };
 
   return (
     <div className="admin__panel">
@@ -1385,13 +1652,27 @@ export function ShopCustomersTab() {
           <h1>مشتریان</h1>
           <p>حساب‌های ثبت‌شده با شماره موبایل تأییدشده</p>
         </div>
-        {rows && <span className="cust__count">{faQty(rows.length)} حساب</span>}
+        <div className="admin__head-actions">
+          {rows && <span className="cust__count">{faQty(rows.length)} حساب</span>}
+          <ColumnPicker
+            id="customer"
+            label="مشتریان"
+            primaryLabel="نام مشتری"
+            columns={CUSTOMER_LIST_COLUMNS}
+            visibility={columns}
+          />
+        </div>
       </div>
 
-      {err && <p className="cust__err">{err}</p>}
+      {err && <p className="cust__err" role="alert">{err}</p>}
 
-      <div className="admin__search">
-        <input placeholder="جست‌وجو با نام یا شماره موبایل…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="admin__search cust__search">
+        <input
+          placeholder="جست‌وجو با نام یا شماره موبایل…"
+          aria-label="جست‌وجوی مشتریان"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
       </div>
 
       {!rows && !err && <p className="cust__loading">در حال دریافت…</p>}
@@ -1399,36 +1680,70 @@ export function ShopCustomersTab() {
         <p className="cust__none">{rows.length ? 'مشتری‌ای با این مشخصات پیدا نشد.' : 'هنوز مشتری‌ای ثبت‌نام نکرده است.'}</p>
       )}
 
-      <div className="cust__list">
-        {list.map((c) => (
-          <article className={`cust ${open === c.id ? 'is-open' : ''} ${c.blocked ? 'is-blocked' : ''}`} key={c.id}>
-            <button className="cust__row" onClick={() => show(c.id)} aria-expanded={open === c.id}>
-              <span className="cust__avatar" aria-hidden="true">
-                {(c.name || '؟').trim().charAt(0)}
-              </span>
-              <span className="cust__id">
-                <b>{c.name || '—'}</b>
-                <small dir="ltr">{localPhone(c.phone)}</small>
-              </span>
-              <span className="cust__stats">
-                <span>
-                  <b>{faQty(c.orderCount)}</b> سفارش
-                </span>
-                <span>
-                  <b>{faQty(c.addressCount)}</b> نشانی
-                </span>
-                <span className="cust__since">عضویت {faDate(c.at)}</span>
-              </span>
-              {c.blocked && <span className="cust__pill is-blocked">مسدود</span>}
-              <Icons.arrow size={16} className="cust__chev" />
-            </button>
+      {list.length > 0 && (
+        <div
+          className="admin-data-grid admin-data-grid--customers"
+          style={gridStyle}
+          role="region"
+          aria-label="فهرست مشتریان"
+          tabIndex={0}
+        >
+          <div className="admin-data-grid__header cust__grid" aria-hidden="true">
+            <span>مشتری</span>
+            {columns.visible.has('phone') && <span>موبایل</span>}
+            {columns.visible.has('orders') && <span>سفارش‌ها</span>}
+            {columns.visible.has('addresses') && <span>نشانی‌ها</span>}
+            {columns.visible.has('joined') && <span>عضویت</span>}
+            {columns.visible.has('state') && <span>وضعیت</span>}
+            <span />
+          </div>
 
-            {open === c.id && (
-              <CustomerDetail data={detail} blocked={c.blocked} onBlock={() => setBlocked(c.id, !c.blocked)} />
-            )}
-          </article>
-        ))}
-      </div>
+          <div className="cust__list">
+            {list.map((c) => {
+              const expanded = open === c.id;
+              const detailId = `customer-detail-${String(c.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+              return (
+                <article className={`cust ${expanded ? 'is-open' : ''} ${c.blocked ? 'is-blocked' : ''}`} key={c.id}>
+                  <button
+                    type="button"
+                    className="cust__row cust__grid"
+                    onClick={() => show(c.id)}
+                    aria-expanded={expanded}
+                    aria-controls={expanded ? detailId : undefined}
+                  >
+                    <span className="cust__identity">
+                      <span className="cust__avatar" aria-hidden="true">
+                        {(c.name || '؟').trim().charAt(0)}
+                      </span>
+                      <span className="cust__id"><b>{c.name || '—'}</b></span>
+                    </span>
+                    {columns.visible.has('phone') && <span className="cust__phone" dir="ltr">{localPhone(c.phone)}</span>}
+                    {columns.visible.has('orders') && (
+                      <span className="cust__metric"><b>{faQty(c.orderCount)}</b><small>سفارش</small></span>
+                    )}
+                    {columns.visible.has('addresses') && (
+                      <span className="cust__metric"><b>{faQty(c.addressCount)}</b><small>نشانی</small></span>
+                    )}
+                    {columns.visible.has('joined') && <span className="cust__since">{faDate(c.at)}</span>}
+                    {columns.visible.has('state') && (
+                      <span className={`cust__pill ${c.blocked ? 'is-blocked' : 'is-active'}`}>
+                        {c.blocked ? 'مسدود' : 'فعال'}
+                      </span>
+                    )}
+                    <Icons.arrow size={16} className="cust__chev" />
+                  </button>
+
+                  {expanded && (
+                    <div id={detailId} role="region" aria-label={`جزئیات مشتری ${c.name || c.phone}`}>
+                      <CustomerDetail data={detail} blocked={c.blocked} onBlock={() => setBlocked(c.id, !c.blocked)} />
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
