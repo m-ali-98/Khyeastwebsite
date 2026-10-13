@@ -44,14 +44,22 @@ function LangSwitch({ block = false }) {
 }
 
 /* Dark mode: the crimson accent stays, the white canvas becomes near-black. */
+const THEME_ACTION = {
+  fa: { light: 'تغییر به نمای روشن', dark: 'تغییر به نمای تاریک' },
+  en: { light: 'Switch to light mode', dark: 'Switch to dark mode' },
+  ar: { light: 'التبديل إلى الوضع الفاتح', dark: 'التبديل إلى الوضع الداكن' },
+};
+
 function ThemeToggle() {
-  const { isDark, toggleTheme } = useLocale();
+  const { locale, isDark, toggleTheme } = useLocale();
+  const label = THEME_ACTION[locale]?.[isDark ? 'light' : 'dark'] || THEME_ACTION.en[isDark ? 'light' : 'dark'];
   return (
     <button
       type="button"
       className={`theme-toggle ${isDark ? 'is-dark' : ''}`}
       onClick={toggleTheme}
-      aria-label={isDark ? 'Light mode' : 'Dark mode'}
+      aria-label={label}
+      title={label}
       aria-pressed={isDark}
     >
       <span className="theme-toggle__track">

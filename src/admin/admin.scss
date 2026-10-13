@@ -73,7 +73,7 @@
   transition: background 0.25s, color 0.25s;
 }
 .admin__side button:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-.admin__side button.is-active { background: var(--crimson); color: #fff; box-shadow: 0 10px 24px -10px var(--crimson-glow); }
+.admin__side button.is-active { background: var(--crimson-solid); color: #fff; box-shadow: 0 10px 24px -10px var(--crimson-glow); }
 .admin__side .spacer { margin-top: auto; }
 .admin__side a { color: rgba(255,255,255,.6); font-size: 13px; padding: 8px 14px; }
 .admin__side a:hover { color: #fff; }
@@ -291,7 +291,7 @@
   transition: background-color 0.25s, border-color 0.25s, color 0.25s;
 }
 .admin__iconbtn:hover { border-color: var(--crimson); color: var(--crimson-ink); }
-.admin__iconbtn.danger:hover { background: var(--crimson); color: #fff; border-color: var(--crimson); }
+.admin__iconbtn.danger:hover { background: var(--crimson-solid); color: #fff; border-color: var(--crimson); }
 
 .admin__texts { display: grid; gap: 14px; }
 .admin__text-row { display: grid; grid-template-columns: 240px 1fr; gap: 14px; align-items: start; }
@@ -346,8 +346,8 @@
 .msg__head b { font-size: 14.5px; }
 .msg__head small { color: var(--muted); }
 .msg__body { padding: 6px 18px 18px; border-top: 1px dashed var(--line); }
-.msg__badge { margin-inline-start: auto; font-size: 11px; background: var(--crimson); color: #fff; border-radius: 999px; padding: 3px 10px; }
-.msg__badge.read { background: var(--muted); }
+.msg__badge { margin-inline-start: auto; font-size: 11px; background: var(--crimson-solid); color: #fff; border-radius: 999px; padding: 3px 10px; }
+.msg__badge.read { background: var(--ink-2); color: var(--surface); }
 
 .admin__savebar {
   position: sticky;
@@ -407,13 +407,13 @@
     transition: background 0.22s, color 0.22s;
 
     &:hover { background: rgba(255, 255, 255, 0.1); }
-    &.is-active { background: var(--crimson); color: #fff; }
+    &.is-active { background: var(--crimson-solid); color: #fff; }
   }
 }
 
 .admin__locale-note {
   background: var(--crimson-soft);
-  color: var(--crimson-700);
+  color: var(--crimson-ink);
   border-radius: 12px;
   padding: 10px 16px;
   margin-bottom: 18px;
@@ -510,7 +510,7 @@
   h4 {
     margin: 0 0 8px;
     font-size: 13.5px;
-    color: var(--crimson-700);
+    color: var(--crimson-ink);
   }
 }
 
@@ -758,7 +758,7 @@
     border-color: var(--line);
     color: var(--ink-2);
 
-    &.is-active { background: var(--crimson); color: #fff; border-color: var(--crimson); }
+    &.is-active { background: var(--crimson-solid); color: #fff; border-color: var(--crimson); }
   }
 }
 
@@ -809,7 +809,7 @@
     transition: background 0.22s, color 0.22s;
 
     &:hover { background: rgba(255, 255, 255, 0.1); }
-    &.is-active { background: var(--crimson); color: #fff; }
+    &.is-active { background: var(--crimson-solid); color: #fff; }
   }
 }
 
@@ -1227,7 +1227,7 @@
   font-weight: 800;
   color: var(--muted);
 }
-.cust__err { color: var(--crimson); font-size: 13.5px; }
+.cust__err { color: var(--crimson-ink); font-size: 13.5px; }
 .cust__loading,
 .cust__none { color: var(--muted); font-size: 13.5px; margin: 10px 0; }
 
@@ -1463,7 +1463,7 @@
   font-size: 13px;
   font-weight: 800;
   line-height: 2;
-  color: var(--crimson);
+  color: var(--crimson-ink);
   margin: 0 0 16px;
 
   &[data-ok='1'] { color: var(--admin-ok); }

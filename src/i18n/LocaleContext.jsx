@@ -19,6 +19,8 @@ export { LOCALES, LOCALE_CODES, DEFAULT_LOCALE };
 
 const STORE_KEY = 'ky_locale';
 const THEME_KEY = 'ky_theme';
+const DEFAULT_THEME = 'light';
+const THEME_COLORS = { light: '#dc143c', dark: '#120a0d' };
 
 /** Read the locale out of a raw pathname (`/en/products` → `en`). */
 export function localeFromPath(pathname = '/') {
@@ -43,15 +45,16 @@ export function localePath(locale, path = '/') {
 
 /* ------------------------------------------------------------------ theme */
 
-const prefersDark = () =>
-  typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)')?.matches;
+const validTheme = (value) => (value === 'dark' ? 'dark' : DEFAULT_THEME);
 
 const readTheme = () => {
   try {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === 'dark' || saved === 'light') return saved;
   } catch {}
-  return prefersDark() ? 'dark' : 'light';
+  /* A first visit is deliberately light, independent of the operating-system
+     preference. Dark mode remains an explicit choice and is still persisted. */
+  return DEFAULT_THEME;
 };
 
 /* --------------------------------------------------------------- provider */
@@ -60,7 +63,10 @@ export function LocaleProvider({ children }) {
   const locale = typeof window !== 'undefined' ? localeFromPath(window.location.pathname) : DEFAULT_LOCALE;
   const meta = getLocaleMeta(locale);
 
-  const [theme, setTheme] = useState(() => (typeof window === 'undefined' ? 'light' : readTheme()));
+  const [theme, setThemeState] = useState(() => (typeof window === 'undefined' ? DEFAULT_THEME : readTheme()));
+  const setTheme = useCallback((next) => {
+    setThemeState((current) => validTheme(typeof next === 'function' ? next(current) : next));
+  }, []);
 
   /* keep <html lang/dir/data-theme> in sync — SCSS keys the dark palette off
      [data-theme="dark"] and the RTL/LTR rules off [dir] */
@@ -72,13 +78,26 @@ export function LocaleProvider({ children }) {
   }, [locale, meta.htmlLang, meta.dir]);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
+    const root = document.documentElement;
+    root.setAttribute('data-theme', theme);
+    root.style.colorScheme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[theme]);
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {}
   }, [theme]);
 
-  const toggleTheme = useCallback(() => setTheme((v) => (v === 'dark' ? 'light' : 'dark')), []);
+  /* Keep two open tabs visually consistent. Removing or corrupting the stored
+     preference also has a deterministic recovery path: light mode. */
+  useEffect(() => {
+    const syncTheme = (event) => {
+      if (event.key === THEME_KEY) setTheme(event.newValue);
+    };
+    window.addEventListener('storage', syncTheme);
+    return () => window.removeEventListener('storage', syncTheme);
+  }, [setTheme]);
+
+  const toggleTheme = useCallback(() => setTheme((value) => (value === 'dark' ? 'light' : 'dark')), [setTheme]);
 
   /* Switching language is a real navigation: the whole app (including the
      content overlay, direction and fonts) is rebuilt for the new locale. */
@@ -113,7 +132,7 @@ export function LocaleProvider({ children }) {
       /** absolute path inside the current locale */
       lp: (path) => localePath(locale, path),
     }),
-    [locale, meta, switchLocale, theme, toggleTheme]
+    [locale, meta, switchLocale, theme, toggleTheme, setTheme]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -129,5 +148,6 @@ export const useLocale = () => useContext(Ctx) || {
   isDark: false,
   switchLocale: () => {},
   toggleTheme: () => {},
+  setTheme: () => {},
   lp: (p) => p,
 };

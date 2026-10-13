@@ -111,12 +111,12 @@ function ContactForm() {
               <div className="field">
                 <label htmlFor="name">{t('contact.form.name')}</label>
                 <input id="name" value={form.name} onChange={set('name')} />
-                {errors.name && <small style={{ color: 'var(--crimson)' }}>{errors.name}</small>}
+                {errors.name && <small style={{ color: 'var(--crimson-ink)' }}>{errors.name}</small>}
               </div>
               <div className="field">
                 <label htmlFor="phone">{t('contact.form.phone')}</label>
                 <input id="phone" value={form.phone} onChange={set('phone')} inputMode="tel" />
-                {errors.phone && <small style={{ color: 'var(--crimson)' }}>{errors.phone}</small>}
+                {errors.phone && <small style={{ color: 'var(--crimson-ink)' }}>{errors.phone}</small>}
               </div>
               <div className="field">
                 <label htmlFor="email">{t('contact.form.email')}</label>
@@ -140,14 +140,14 @@ function ContactForm() {
               <div className="field field--full">
                 <label htmlFor="message">{t('contact.form.message')}</label>
                 <textarea id="message" value={form.message} onChange={set('message')} />
-                {errors.message && <small style={{ color: 'var(--crimson)' }}>{errors.message}</small>}
+                {errors.message && <small style={{ color: 'var(--crimson-ink)' }}>{errors.message}</small>}
               </div>
               <div className="field--full">
                 <mo.button type="submit" className="btn btn--primary" whileTap={{ scale: 0.97 }} disabled={sending}>
                   {t('contact.form.submit')}
                   <Icons.send size={18} />
                 </mo.button>
-                {errors.submit && <small style={{ color: 'var(--crimson)', marginInlineStart: 14 }}>{errors.submit}</small>}
+                {errors.submit && <small style={{ color: 'var(--crimson-ink)', marginInlineStart: 14 }}>{errors.submit}</small>}
               </div>
             </div>
           </mo.form>

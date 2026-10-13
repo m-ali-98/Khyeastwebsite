@@ -145,7 +145,7 @@ export default function ShopOrder() {
                   </div>
                   <div className="order-card__row" style={{ fontSize: 15 }}>
                     <span style={{ color: 'var(--ink)', fontWeight: 900 }}>{t('shop.cart.total')}</span>
-                    <span style={{ color: 'var(--crimson)', fontWeight: 900, fontSize: 16.5 }}>{money(order.total)}</span>
+                    <span style={{ color: 'var(--crimson-ink)', fontWeight: 900, fontSize: 16.5 }}>{money(order.total)}</span>
                   </div>
                 </div>
               </Reveal>

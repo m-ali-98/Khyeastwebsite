@@ -713,7 +713,7 @@ export function ShopCommentsTab() {
           به‌روزرسانی
         </button>
       </div>
-      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
       {comments === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
       {comments?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز دیدگاهی ثبت نشده است.</p>}
       {comments?.map((c) => (
@@ -731,7 +731,7 @@ export function ShopCommentsTab() {
             <p style={{ whiteSpace: 'pre-wrap', lineHeight: 2 }}>{c.text}</p>
             {c.reply && (
               <p style={{ background: 'var(--bg-soft)', borderRadius: 10, padding: '10px 14px', fontSize: 13, lineHeight: 2, margin: '10px 0' }}>
-                <b style={{ color: 'var(--crimson)' }}>پاسخ مدیر: </b>
+                <b style={{ color: 'var(--crimson-ink)' }}>پاسخ مدیر: </b>
                 {c.reply}
               </p>
             )}
@@ -754,7 +754,7 @@ export function ShopCommentsTab() {
               <button className="btn btn--outline btn--sm" onClick={() => patch(c.id, { approved: !c.approved })}>
                 {c.approved ? 'برگشت به «در انتظار تأیید»' : 'تأیید و نمایش در سایت'}
               </button>
-              <button className="btn btn--outline btn--sm" style={{ color: 'var(--crimson)' }} onClick={() => window.confirm('این دیدگاه حذف شود؟') && patch(c.id, null, 'DELETE')}>
+              <button className="btn btn--outline btn--sm" style={{ color: 'var(--crimson-ink)' }} onClick={() => window.confirm('این دیدگاه حذف شود؟') && patch(c.id, null, 'DELETE')}>
                 حذف دیدگاه
               </button>
             </div>
@@ -914,7 +914,7 @@ export function ShopPaymentTab() {
           <p>اتصال، تأیید تراکنش‌های معلق، بازگرداندن وجه و گزارش‌ها</p>
         </div>
       </div>
-      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
 
       {cfg && (
         <>
@@ -944,7 +944,7 @@ export function ShopPaymentTab() {
                 onChange={(v) => setCfg({ ...cfg, zarinpalMerchant: v })}
               />
               {cfg.hasZarinpalMerchant && !cfg.zarinpalMerchantValid && (
-                <p style={{ fontSize: 12, color: 'var(--crimson)', lineHeight: 2, margin: 0 }}>
+                <p style={{ fontSize: 12, color: 'var(--crimson-ink)', lineHeight: 2, margin: 0 }}>
                   شناسه ذخیره‌شده قالب درست (UUID ۳۶ کاراکتری) ندارد؛ تا اصلاح آن، سفارش‌ها بدون پرداخت آنلاین ثبت می‌شوند.
                 </p>
               )}
@@ -1321,7 +1321,7 @@ export function ShopSmsTab() {
           <p>ارسال لینک پیگیری سفارش و کد تأیید — جابه‌جایی بین کلید آزمایشی و اصلی بدون تغییر کد</p>
         </div>
       </div>
-      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
       {cfg && (
         <>
           {readiness && (
@@ -1429,7 +1429,7 @@ export function ShopSmsTab() {
                     {row.ref && <span style={{ color: 'var(--muted)', fontWeight: 600 }}> — {row.ref}</span>}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap', marginTop: 4 }}>{row.text}</div>
-                  {!row.ok && row.error && <div style={{ fontSize: 12, color: 'var(--crimson)', marginTop: 4 }}>{row.error}</div>}
+                  {!row.ok && row.error && <div style={{ fontSize: 12, color: 'var(--crimson-ink)', marginTop: 4 }}>{row.error}</div>}
                 </div>
                 <span className={`msg__badge ${row.ok ? 'read' : ''}`}>{row.ok ? 'ارسال شد' : 'ناموفق'}</span>
               </div>

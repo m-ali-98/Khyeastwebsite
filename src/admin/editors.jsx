@@ -77,7 +77,7 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
         <UploadIcon size={16} />
         {busy ? 'در حال بارگذاری…' : label}
       </button>
-      {err && <small style={{ color: 'var(--crimson)' }}>{err}</small>}
+      {err && <small style={{ color: 'var(--crimson-ink)' }}>{err}</small>}
       {!err && note && <small style={{ color: 'var(--muted)' }}>{note}</small>}
     </>
   );

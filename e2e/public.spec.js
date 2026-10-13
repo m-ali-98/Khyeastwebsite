@@ -91,17 +91,27 @@ test('the shop is reachable in Persian and absent in English and Arabic', async 
   }
 });
 
+test('a first visit defaults to light even when the operating system is dark', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.addInitScript(() => localStorage.removeItem('ky_theme'));
+  await gotoReady(page, '/');
+
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#dc143c');
+  expect(await page.evaluate(() => localStorage.getItem('ky_theme'))).toBe('light');
+});
+
 test('dark mode applies and survives a reload', async ({ page }) => {
   await gotoReady(page, '/');
   const html = page.locator('html');
-  const before = await html.getAttribute('data-theme');
+  await expect(html).toHaveAttribute('data-theme', 'light');
 
-  await page.locator('nav.nav button[aria-label="Dark mode"], nav.nav button[aria-label="Light mode"]').first().click();
-  await expect(html).not.toHaveAttribute('data-theme', before || 'light');
+  await page.locator('nav.nav .theme-toggle').first().click();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#120a0d');
 
-  const after = await html.getAttribute('data-theme');
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(html).toHaveAttribute('data-theme', after);
+  await expect(html).toHaveAttribute('data-theme', 'dark');
 
   /* The palette must really change, not just the attribute. */
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);

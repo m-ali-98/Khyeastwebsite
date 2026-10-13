@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="fa" dir="rtl">
+<html lang="fa" dir="rtl" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#DC143C" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#dc143c" />
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="64x64" href="/assets/brand/favicon-64.png" />
     <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png" />
@@ -103,10 +104,13 @@
         el.dir = loc === 'en' ? 'ltr' : 'rtl';
         var theme;
         try { theme = localStorage.getItem('ky_theme'); } catch (e) {}
-        if (theme !== 'dark' && theme !== 'light') {
-          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        }
+        /* First visits always start light. Dark mode is an explicit preference,
+           not an automatic copy of the operating-system setting. */
+        if (theme !== 'dark' && theme !== 'light') theme = 'light';
         el.setAttribute('data-theme', theme);
+        el.style.colorScheme = theme;
+        var chrome = document.querySelector('meta[name="theme-color"]');
+        if (chrome) chrome.setAttribute('content', theme === 'dark' ? '#120a0d' : '#dc143c');
 
         var splash = document.getElementById('boot-splash');
         var msg = { fa: 'در حال بارگذاری…', en: 'Loading…', ar: 'جارٍ التحميل…' }[loc];

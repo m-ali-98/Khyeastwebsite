@@ -589,7 +589,7 @@ export function ContactTab() {
             <button className="btn btn--outline btn--sm" onClick={() => setOffice(o.id, { phones: [...(o.phones || []), { fa: '', tel: '' }] })}>
               + افزودن تلفن
             </button>
-            <button className="btn btn--outline btn--sm" style={{ color: 'var(--crimson)' }} onClick={() => removeOffice(o.id)}>
+            <button className="btn btn--outline btn--sm" style={{ color: 'var(--crimson-ink)' }} onClick={() => removeOffice(o.id)}>
               حذف این دفتر
             </button>
           </div>
@@ -661,7 +661,7 @@ export function MessagesTab() {
           به‌روزرسانی
         </button>
       </div>
-      {err && <p style={{ color: 'var(--crimson)' }}>{err}</p>}
+      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
       {messages === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
       {messages?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز پیامی ثبت نشده است.</p>}
       {messages?.map((m) => (
@@ -688,7 +688,7 @@ export function MessagesTab() {
                 <button className="btn btn--outline btn--sm" onClick={() => patch(m.id, { read: !m.read })}>
                   {m.read ? 'علامت به‌عنوان خوانده‌نشده' : 'علامت به‌عنوان خوانده‌شده'}
                 </button>
-                <button className="btn btn--outline btn--sm" style={{ color: 'var(--crimson)' }} onClick={() => patch(m.id, null, 'DELETE')}>
+                <button className="btn btn--outline btn--sm" style={{ color: 'var(--crimson-ink)' }} onClick={() => patch(m.id, null, 'DELETE')}>
                   حذف پیام
                 </button>
               </div>

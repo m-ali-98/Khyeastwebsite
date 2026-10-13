@@ -199,6 +199,21 @@ try {
   console.log('  FAIL hardening harness error');
 }
 
+console.log('\nTheme — first paint defaults light and saved dark mode stays coherent');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'theme.mjs')], { cwd: HERE, timeout: 30000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'theme', leaks.join('; ').slice(0, 200));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} startup and palette checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+} catch (e) {
+  record(false, 'theme', String(e.message).slice(0, 90));
+  console.log('  FAIL theme harness error');
+}
+
 console.log('\nAssets — every referenced image must ship, and nothing oversized');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'assets.mjs')], { cwd: HERE, timeout: 30000 });

@@ -171,7 +171,7 @@
   }
 
   .badge-off {
-    background: var(--crimson);
+    background: var(--crimson-solid);
     color: #fff;
     font-size: 12.5px;
     font-weight: 800;
@@ -208,12 +208,13 @@
     border: 1px solid rgba(24, 122, 60, 0.25);
 
     &.is-out {
-      color: var(--crimson-ink);
-      border-color: rgba(220, 20, 60, 0.25);
+      color: #c01034;
+      border-color: rgba(192, 16, 52, 0.28);
     }
     &.is-low {
-      color: #b07000;
-      border-color: rgba(176, 112, 0, 0.3);
+      /* This pill stays white over product photography in both themes. */
+      color: #8a5800;
+      border-color: rgba(138, 88, 0, 0.3);
     }
   }
 
@@ -369,7 +370,7 @@
       text-decoration: line-through;
     }
     .off {
-      background: var(--crimson);
+      background: var(--crimson-solid);
       color: #fff;
       font-size: 12.5px;
       font-weight: 800;
@@ -578,8 +579,8 @@
       margin-inline-start: auto;
       font-size: 11px;
       font-weight: 800;
-      color: #b07000;
-      background: rgba(217, 164, 65, 0.12);
+      color: var(--warn);
+      background: var(--warn-soft);
       border-radius: 999px;
       padding: 4px 10px;
     }
@@ -673,12 +674,12 @@
     line-height: 1.9;
 
     &.ok {
-      background: rgba(24, 122, 60, 0.09);
-      color: #187a3c;
+      background: var(--ok-soft);
+      color: var(--ok);
     }
     &.err {
       background: var(--crimson-soft);
-      color: var(--crimson-700);
+      color: var(--crimson-ink);
     }
   }
 }
@@ -810,7 +811,7 @@
       font-weight: 800;
     }
     .free {
-      color: #187a3c;
+      color: var(--ok);
       font-weight: 900;
     }
 
@@ -943,12 +944,12 @@
     line-height: 1.9;
 
     &.ok {
-      background: rgba(24, 122, 60, 0.09);
-      color: #187a3c;
+      background: var(--ok-soft);
+      color: var(--ok);
     }
     &.err {
       background: var(--crimson-soft);
-      color: var(--crimson-700);
+      color: var(--crimson-ink);
     }
   }
 
@@ -1008,7 +1009,7 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    background: var(--ink);
+    background: var(--inverse);
     color: #fff;
     border-radius: 999px;
     padding: 10px 22px;
@@ -1034,14 +1035,14 @@
   line-height: 2;
 
   &.ok {
-    background: rgba(24, 122, 60, 0.1);
-    color: #146833;
-    border: 1px solid rgba(24, 122, 60, 0.25);
+    background: var(--ok-soft);
+    color: var(--ok);
+    border: 1px solid var(--ok-line);
   }
   &.fail {
     background: var(--crimson-soft);
-    color: var(--crimson-700);
-    border: 1px solid rgba(220, 20, 60, 0.25);
+    color: var(--crimson-ink);
+    border: 1px solid var(--crimson-line);
   }
 }
 
@@ -1249,7 +1250,7 @@
     min-width: 20px;
     height: 20px;
     border-radius: 999px;
-    background: var(--crimson);
+    background: var(--crimson-solid);
     color: #fff;
     font-size: 11px;
     font-weight: 900;
@@ -1381,7 +1382,7 @@
 
   &:hover { text-decoration: underline; }
   &:disabled { color: var(--muted); cursor: default; text-decoration: none; }
-  &.danger { color: var(--crimson); }
+  &.danger { color: var(--crimson-ink); }
 }
 
 .btn--block {
@@ -1526,7 +1527,7 @@
 
     &:hover { background: var(--bg-soft); }
     &.is-active { background: var(--crimson-soft); color: var(--crimson-ink); }
-    &--out { color: var(--crimson); margin-top: 8px; }
+    &--out { color: var(--crimson-ink); margin-top: 8px; }
   }
 }
 
