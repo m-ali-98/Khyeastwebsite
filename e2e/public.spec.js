@@ -91,6 +91,50 @@ test('the shop is reachable in Persian and absent in English and Arabic', async 
   }
 });
 
+test('the first-paint screen stays until a directly opened lazy route commits', async ({ page }) => {
+  let releaseChunk;
+  let markRequested;
+  const chunkRequested = new Promise((resolve) => { markRequested = resolve; });
+  const held = new Promise((resolve) => { releaseChunk = resolve; });
+
+  await page.route(/\/assets\/About-[^/]+\.js$/, async (route) => {
+    markRequested();
+    await held;
+    await route.continue();
+  });
+
+  const navigation = page.goto('/about', { waitUntil: 'domcontentloaded' });
+  await chunkRequested;
+  await expect(page.locator('#boot-splash')).toBeVisible();
+  await page.waitForTimeout(280);
+  await expect(page.locator('#boot-splash')).toBeVisible();
+
+  releaseChunk();
+  await navigation;
+  await expect(page.locator('main')).toBeVisible();
+  await expect(page.locator('#boot-splash')).toHaveCount(0, { timeout: 3000 });
+});
+
+test('a genuinely cold client-side route gets contextual loading feedback', async ({ page }) => {
+  let releaseChunk;
+  const held = new Promise((resolve) => { releaseChunk = resolve; });
+  await page.route(/\/assets\/Contact-[^/]+\.js$/, async (route) => {
+    await held;
+    await route.continue();
+  });
+
+  await gotoReady(page, '/');
+  await expect(page.locator('#boot-splash')).toHaveCount(0);
+  await page.locator('.nav__links a[href="/contact"]').click();
+  await expect(page.locator('.route-loader--task')).toBeVisible({ timeout: 2500 });
+  await expect(page.locator('.route-loader__rail')).toBeVisible();
+
+  releaseChunk();
+  await routeSettled(page, /\/contact$/);
+  await expect(page.locator('.route-fallback')).toHaveCount(0);
+  await expect(page.locator('form')).toBeVisible();
+});
+
 test('a first visit defaults to light even when the operating system is dark', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.addInitScript(() => localStorage.removeItem('ky_theme'));

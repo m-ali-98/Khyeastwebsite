@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, faNum, faId } from '../components/ui';
+import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useShop, orderTokenSave } from '../shop/ShopContext';
 import { useAccount } from '../shop/AccountContext';
@@ -81,6 +82,16 @@ export default function ShopCheckout() {
       setBusy(false);
     }
   };
+
+  if (account.status !== 'in') {
+    return (
+      <section className="section">
+        <div className="container">
+          <PagePending label={t('shop.checkout.title')} />
+        </div>
+      </section>
+    );
+  }
 
   if (!rows.length && !busy) {
     return (

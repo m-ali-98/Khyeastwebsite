@@ -214,6 +214,21 @@ try {
   console.log('  FAIL theme harness error');
 }
 
+console.log('\nLoading — first paint and route feedback follow real readiness');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'loading.mjs')], { cwd: HERE, timeout: 30000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'loading', leaks.join('; ').slice(0, 200));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} readiness and motion checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+} catch (e) {
+  record(false, 'loading', String(e.message).slice(0, 90));
+  console.log('  FAIL loading harness error');
+}
+
 console.log('\nAssets — every referenced image must ship, and nothing oversized');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'assets.mjs')], { cwd: HERE, timeout: 30000 });

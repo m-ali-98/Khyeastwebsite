@@ -22,6 +22,8 @@ const LOADERS = {
   '/shop': () => import('./pages/Shop'),
   '/shop/cart': () => import('./pages/ShopCart'),
   '/shop/checkout': () => import('./pages/ShopCheckout'),
+  '/shop/login': () => import('./pages/ShopAuth'),
+  '/shop/account': () => import('./pages/ShopAccount'),
   '/shop/:slug': () => import('./pages/ShopProduct'),
   '/shop/order': () => import('./pages/ShopOrder'),
   '/export': () => import('./pages/Export'),
@@ -29,6 +31,7 @@ const LOADERS = {
   '/blog': () => import('./pages/Blog'),
   '/blog/:slug': () => import('./pages/PostDetail'),
   '/contact': () => import('./pages/Contact'),
+  '*': () => import('./pages/NotFound'),
 };
 
 /* Pages worth having ready before the user asks for them, in priority order.
@@ -62,7 +65,7 @@ const ready = new Set();
 export function isWarm(pathname) {
   const keys = keysFor(pathname);
   const key = keys.length ? keys[0] : pathname;
-  return ready.has(key) || !LOADERS[key]; // unknown route => no chunk to wait on
+  return ready.has(key) || !LOADERS[key]; // eager route => no chunk to wait on
 }
 
 export const isSaving = () => {
@@ -89,7 +92,10 @@ function keysFor(pathname) {
   if (/^\/blog\/[^/]+$/.test(pathname)) return ['/blog/:slug'];
   if (/^\/shop\/order\//.test(pathname)) return ['/shop/order'];
   if (/^\/shop\/[^/]+$/.test(pathname)) return ['/shop/:slug'];
-  return [];
+  /* Home and the legacy brand redirects are eager. Every other unknown path
+     reaches the lazy 404 page and needs honest loading feedback too. */
+  if (['/', '/dezmaye', '/shetab', '/xpower', '/nanmaye'].includes(pathname)) return [];
+  return ['*'];
 }
 
 /** Prefetch the neighbours of a pathname (called on every route change).
@@ -131,7 +137,10 @@ export function usePrefetchRoutes() {
     const onIntent = (e) => {
       const a = e.target?.closest?.('a[href^="/"]');
       if (!a) return;
-      const path = a.getAttribute('href').split('?')[0].split('#')[0];
+      const raw = a.getAttribute('href').split('?')[0].split('#')[0];
+      /* Link renders the BrowserRouter basename into href (/en/about), while
+         the loader table is locale-relative (/about), just like useLocation. */
+      const path = raw.replace(/^\/(en|ar)(?=\/|$)/, '') || '/';
       keysFor(path).forEach(warm);
     };
     const opts = { passive: true, capture: true };

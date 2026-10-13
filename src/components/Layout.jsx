@@ -116,27 +116,27 @@ function Navbar() {
 
      The hero belongs to a lazily-loaded route chunk, so it is not in the DOM
      on the first frame after a navigation. Start from "no hero" (solid, i.e.
-     always legible, never the broken state) and look again for a few frames
-     before settling. */
+     always legible, never the broken state), then observe the route subtree.
+     Unlike a fixed one-second polling window, this still catches a hero that
+     arrives after a genuinely slow chunk. */
   const [hasHero, setHasHero] = useState(false);
   useEffect(() => {
-    let frame = 0;
-    let tries = 0;
     setHasHero(false);
+    let observer;
 
     const look = () => {
-      if (document.querySelector('.hero, .page-hero')) {
-        setHasHero(true);
-        return;
-      }
-      /* ~1s at 60fps: long enough for a route chunk and its skeleton. */
-      if (tries++ < 60) frame = window.requestAnimationFrame(look);
+      if (!document.querySelector('.hero, .page-hero')) return false;
+      setHasHero(true);
+      observer?.disconnect();
+      return true;
     };
 
-    look();
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-    };
+    if (!look()) {
+      observer = new MutationObserver(look);
+      observer.observe(document.getElementById('root') || document.body, { childList: true, subtree: true });
+      look();
+    }
+    return () => observer?.disconnect();
   }, [location.pathname]);
 
   useEffect(() => setOpen(false), [location.pathname]);

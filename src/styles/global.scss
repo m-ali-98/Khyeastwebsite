@@ -1886,60 +1886,335 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   border: 0;
 }
 
-/* --- Route skeleton (page chunk still downloading) ----------------------- */
-.route-skeleton__hold { min-height: 60svh; }
+/* --- Smart route loading (a page chunk is genuinely still pending) -------- */
+.route-loader__hold {
+  min-height: 68svh;
+  background: var(--surface);
+}
+.route-loader__hold--admin { min-height: 100svh; }
 
-.route-skeleton {
-  min-height: 60svh;
-  padding: calc(var(--nav-h) + 48px) 0 80px;
-
-  &__grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--grid-gap);
-    margin-block-start: var(--section-content-gap);
-    @media (max-width: 880px) { grid-template-columns: 1fr; }
-  }
+.route-loader {
+  position: relative;
+  min-height: 68svh;
+  overflow: hidden;
+  padding: calc(var(--nav-h) + 42px) 0 88px;
+  background:
+    radial-gradient(70% 55% at 82% 8%, var(--crimson-soft), transparent 70%),
+    var(--surface);
+  animation: route-loader-enter 0.28s var(--ease-out) both;
 }
 
+/* A fine progress rail confirms navigation without dropping a spinner over
+   the page. It only exists while Suspense is unresolved, never for a fake
+   minimum duration. The moving layer is translated by the compositor. */
+.route-loader__rail {
+  position: fixed;
+  z-index: 120;
+  inset-block-start: 0;
+  inset-inline: 0;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--crimson-soft);
+}
+.route-loader__rail span {
+  display: block;
+  width: min(38vw, 420px);
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--crimson), var(--crimson-bright), transparent);
+  transform: translate3d(-120%, 0, 0);
+  animation: route-loader-rail 1.25s var(--ease-soft) infinite;
+  will-change: transform;
+}
+[dir='rtl'] .route-loader__rail span {
+  margin-left: auto;
+  transform: translate3d(120%, 0, 0);
+  animation-name: route-loader-rail-rtl;
+}
+
+.route-loader__status {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block-end: 34px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink-2);
+}
+.route-loader__status > span:last-child { display: grid; gap: 1px; }
+.route-loader__status strong { font-size: 13px; line-height: 1.6; }
+.route-loader__status small { color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.route-loader__pulse {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--crimson-line);
+  background: var(--crimson-soft);
+}
+.route-loader__pulse i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--crimson);
+  animation: route-loader-pulse 1.15s var(--ease-soft) infinite alternate;
+  will-change: transform, opacity;
+}
+
+.route-loader__blueprint,
+.route-loader__detail,
+.route-loader__task { max-width: 1160px; }
+.route-loader__intro { max-width: 720px; margin-block-end: 38px; }
+
+/* Skeleton geometry is static. Only this narrow sheen layer moves, using a
+   transform rather than repainting background-position across large cards. */
 .sk {
-  /* tinted off the theme surface rather than hardcoded, so the shimmer does
-     not glow white against the dark palette */
   --sk-a: var(--bg-softer);
-  --sk-b: var(--bg-soft);
-  border-radius: var(--radius-sm);
-  background: linear-gradient(100deg, var(--sk-a) 18%, var(--sk-b) 38%, var(--sk-a) 58%);
-  background-size: 220% 100%;
-  animation: sk-shimmer 1.6s var(--ease) infinite;
-  /* stagger the rows so the sweep travels down the page instead of every
-     block flashing in unison */
-  animation-delay: calc(var(--sk-i, 0) * 90ms);
+  --sk-sheen: rgba(255, 255, 255, 0.72);
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--sk-a);
+  isolation: isolate;
+}
+.sk::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset-block: 0;
+  left: -46%;
+  width: 46%;
+  background: linear-gradient(90deg, transparent, var(--sk-sheen), transparent);
+  transform: translate3d(0, 0, 0);
+  animation: sk-sheen 1.65s var(--ease-soft) infinite;
+  animation-delay: calc(var(--sk-i, 0) * 55ms);
+  will-change: transform;
+}
+[data-theme='dark'] .sk { --sk-sheen: rgba(255, 255, 255, 0.09); }
 
-  &--overline { width: 140px; height: 14px; margin-bottom: 22px; }
-  &--title    { width: min(560px, 90%); height: 42px; margin-bottom: 26px; border-radius: var(--radius); }
-  &--text     { width: min(680px, 100%); height: 15px; margin-bottom: 12px; }
-  &--short    { width: min(420px, 70%); }
-  &--card     { height: 260px; border-radius: var(--radius); }
+.sk--overline { width: 132px; height: 12px; margin-block-end: 20px; }
+.sk--title { width: min(590px, 88%); height: clamp(36px, 5vw, 54px); margin-block-end: 24px; border-radius: 16px; }
+.sk--text { width: min(680px, 100%); height: 13px; margin-block-end: 11px; }
+.sk--short { width: min(430px, 68%); }
+.sk--heading { width: min(300px, 70%); height: 26px; margin-block-end: 24px; border-radius: 10px; }
+.sk--eyebrow { width: 84px; height: 10px; margin-block-end: 14px; }
+.sk--line { width: 88%; height: 13px; margin-block-end: 10px; }
+.sk--line-short { width: 58%; }
+.sk--chip { width: 86px; height: 28px; }
+.sk--action { width: 152px; height: 44px; margin-block-start: 28px; border-radius: 12px; }
+
+.route-loader__cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--grid-gap);
+}
+.route-loader__card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+.route-loader__card .sk--media {
+  width: 100%;
+  height: 190px;
+  border-radius: 0;
+}
+.route-loader__card-copy { padding: 22px; }
+
+.route-loader__detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  align-items: center;
+  gap: clamp(34px, 6vw, 82px);
+}
+.sk--detail-media {
+  width: 100%;
+  min-height: 440px;
+  border-radius: clamp(22px, 4vw, 38px);
+}
+.route-loader__detail-copy { padding-block: 24px; }
+.route-loader__chips { display: flex; flex-wrap: wrap; gap: 9px; margin-block-start: 26px; }
+
+.route-loader__task {
+  display: grid;
+  grid-template-columns: minmax(0, 1.22fr) minmax(280px, 0.78fr);
+  align-items: start;
+  gap: var(--grid-gap);
+}
+.route-loader__panel,
+.route-loader__summary {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+.route-loader__panel { padding: clamp(24px, 4vw, 42px); }
+.route-loader__summary { padding: 28px; }
+.route-loader__field { display: grid; gap: 9px; margin-block-start: 18px; }
+.sk--label { width: 96px; height: 10px; }
+.sk--input { width: 100%; height: 48px; border-radius: 12px; }
+.route-loader__summary-rule { display: block; height: 1px; margin: 26px 0; background: var(--line); }
+
+.route-loader__feature {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  align-items: center;
+  gap: clamp(30px, 5vw, 70px);
+}
+.sk--feature-media { width: 100%; min-height: 310px; border-radius: var(--radius); }
+.route-loader__feature-copy { padding-block: 20px; }
+
+/* Data can still be pending after the route code is ready. This compact
+   version uses the same adaptive gate and skeleton language without replacing
+   the whole page or flashing for a fast account/order response. */
+.page-pending__hold { min-height: 360px; }
+.page-pending {
+  min-height: 360px;
+  display: grid;
+  align-content: start;
+  padding-block: 12px;
+  animation: route-loader-enter 0.28s var(--ease-out) both;
+}
+.page-pending .route-loader__status { margin-block-end: 24px; }
+.page-pending__blueprint {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: var(--grid-gap);
+}
+.page-pending__panel,
+.page-pending__aside {
+  padding: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+.page-pending__panel .sk--input + .sk--input { margin-block-start: 14px; }
+.page-pending__aside .route-loader__summary-rule { margin: 22px 0; }
+
+/* The admin route is outside the public Layout, so its cold-chunk fallback is
+   a self-contained workspace screen rather than a public-page skeleton. */
+.route-loader--admin {
+  min-height: 100svh;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(50% 50% at 50% 32%, var(--crimson-soft), transparent 72%),
+    var(--surface);
+}
+.route-loader__admin-card {
+  width: min(430px, 100%);
+  display: grid;
+  justify-items: center;
+  padding: 42px 34px 34px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+.route-loader__admin-mark {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  margin-block-end: 26px;
+  border: 1px solid var(--crimson-line);
+  border-radius: 26px;
+  background: var(--crimson-soft);
+}
+.route-loader__admin-mark::before {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border: 1px solid var(--crimson-line);
+  border-radius: 32px;
+  opacity: 0.5;
+  animation: route-loader-mark 1.8s var(--ease-soft) infinite alternate;
+  will-change: transform, opacity;
+}
+.route-loader__logo { position: relative; object-fit: contain; }
+[data-theme='dark'] .route-loader__logo { filter: brightness(0) invert(1); }
+.route-loader--admin .route-loader__status {
+  justify-content: center;
+  margin-block-end: 25px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+}
+.route-loader__admin-lines { width: min(260px, 80%); display: grid; justify-items: center; }
+.route-loader__admin-lines .sk { margin-inline: auto; }
+
+@keyframes route-loader-enter {
+  from { opacity: 0; transform: translate3d(0, 7px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes route-loader-rail {
+  from { transform: translate3d(-120%, 0, 0); }
+  to { transform: translate3d(390%, 0, 0); }
+}
+@keyframes route-loader-rail-rtl {
+  from { transform: translate3d(120%, 0, 0); }
+  to { transform: translate3d(-390%, 0, 0); }
+}
+@keyframes route-loader-pulse {
+  from { opacity: 0.45; transform: scale(0.72); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes route-loader-mark {
+  from { opacity: 0.25; transform: scale(0.94); }
+  to { opacity: 0.65; transform: scale(1.03); }
+}
+@keyframes sk-sheen {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(330%, 0, 0); }
 }
 
-/* The whole skeleton eases in, so a slow chunk does not snap into view. */
-.route-skeleton {
-  animation: sk-enter 0.45s var(--ease) both;
-}
-@keyframes sk-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: none; }
+@media (max-width: 900px) {
+  .route-loader__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .route-loader__cards .route-loader__card:last-child { display: none; }
+  .route-loader__detail,
+  .route-loader__task,
+  .route-loader__feature,
+  .page-pending__blueprint { grid-template-columns: 1fr; }
+  .sk--detail-media { min-height: min(58vw, 420px); }
+  .route-loader__summary,
+  .page-pending__aside { display: none; }
 }
 
-@keyframes sk-shimmer {
-  from { background-position: 200% 0; }
-  to   { background-position: -40% 0; }
+@media (max-width: 640px) {
+  .route-loader { padding: calc(var(--nav-h) + 30px) 0 64px; }
+  .route-loader__status { margin-block-end: 28px; }
+  .route-loader__status small { display: none; }
+  .route-loader__cards { grid-template-columns: 1fr; }
+  .route-loader__cards .route-loader__card:nth-child(n + 2) { display: none; }
+  .route-loader__card .sk--media { height: 210px; }
+  .sk--detail-media { min-height: 320px; }
+  .route-loader__panel { padding: 24px 20px; }
+  .route-loader__admin-card { padding: 36px 22px 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk,
-  .route-skeleton { animation: none; }
-  .sk { background: var(--bg-softer); }
+  .route-loader,
+  .page-pending,
+  .route-loader__rail span,
+  .route-loader__pulse i,
+  .route-loader__admin-mark::before,
+  .sk::after { animation: none; }
+  .route-loader__rail span { width: 100%; transform: none; }
+  .sk::after { display: none; }
 }
 
 

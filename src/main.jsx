@@ -15,24 +15,9 @@ import { localeFromPath } from './i18n/LocaleContext';
 
 /* The English / Arabic dictionaries are separate chunks; the Persian site
    never downloads them. Wait for the active one before the first render so
-   the page never flashes Persian on the way to another language. */
-/* Fade the inline splash out rather than yanking it, and only once the first
-   real frame is on screen — removing it the instant render() returns can
-   expose an unpainted page for a frame on a slow device. */
-function dismissSplash() {
-  const splash = document.getElementById('boot-splash');
-  if (!splash) return;
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      splash.classList.add('is-done');
-      /* match the CSS transition; remove() rather than display:none so the
-         element stops costing anything at all */
-      setTimeout(() => splash.remove(), 260);
-    });
-  });
-}
-
+   the page never flashes Persian on the way to another language. The inline
+   splash is dismissed by RouteCommit in App.jsx only after the active route —
+   including a lazy route chunk — has actually rendered. */
 loadPack(localeFromPath(window.location.pathname)).finally(() => {
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
@@ -61,6 +46,4 @@ loadPack(localeFromPath(window.location.pathname)).finally(() => {
       </LazyMotion>
     </React.StrictMode>
   );
-
-  dismissSplash();
 });

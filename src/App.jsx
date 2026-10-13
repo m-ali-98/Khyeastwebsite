@@ -6,6 +6,7 @@ import RouteFallback from './components/RouteFallback';
 import { usePrefetchRoutes, prefetch } from './routes';
 import { useLocale, LOCALES, localePath } from './i18n/LocaleContext';
 import { useContent } from './content/ContentContext';
+import { dismissBootSplash } from './lib/bootSplash';
 import Home from './pages/Home'; // landing page stays in the main bundle
 
 /* ---------------------------------------------------------------------------
@@ -34,6 +35,14 @@ const ShopAccount = lazy(() => import('./pages/ShopAccount'));
 /* The admin panel is intentionally NOT linked anywhere on the public site.
    It is reachable only by typing its address directly. */
 const AdminApp = lazy(() => import('./admin/AdminApp'));
+
+/* Mounted inside each Suspense boundary, after the active route has resolved.
+   This is the honest readiness signal for the first-paint splash: on a direct
+   visit to a lazy page it does not run until that page chunk can render. */
+function RouteCommit() {
+  useEffect(() => dismissBootSplash(), []);
+  return null;
+}
 
 function PublicRoutes() {
   /* The online shop is an Iran-facing feature (rial pricing, Iranian payment
@@ -164,8 +173,9 @@ function AnimatedRoutes() {
 
   if (isAdmin) {
     return (
-      <Suspense fallback={<RouteFallback />}>
+      <Suspense fallback={<RouteFallback mode="admin" />}>
         <AdminApp />
+        <RouteCommit />
       </Suspense>
     );
   }
@@ -187,6 +197,7 @@ function AnimatedRoutes() {
       >
         <Suspense fallback={<RouteFallback />}>
           <PublicRoutes />
+          <RouteCommit />
         </Suspense>
       </mo.main>
     </Layout>

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Icons, Reveal, PageHero, faNum, faId, PasswordInput } from '../components/ui';
+import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
 import { useShop } from '../shop/ShopContext';
@@ -152,7 +153,7 @@ export default function ShopAccount() {
     return (
       <section className="section">
         <div className="container">
-          <p style={{ color: 'var(--muted)' }}>…</p>
+          <PagePending label={t('shop.account.title')} />
         </div>
       </section>
     );

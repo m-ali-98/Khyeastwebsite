@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icons, Reveal, PageHero, PasswordInput } from '../components/ui';
+import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
 import usePageMeta from '../hooks/usePageMeta';
@@ -127,6 +128,16 @@ export default function ShopAuth() {
     if (step === 'code') return verify();
     return finish();
   };
+
+  if (account.status !== 'out') {
+    return (
+      <section className="section">
+        <div className="container">
+          <PagePending label={t('shop.auth.title')} />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { m as mo } from 'framer-motion';
 import { Icons, Reveal, faNum } from '../components/ui';
+import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useShop, orderTokenGet } from '../shop/ShopContext';
 
@@ -60,7 +61,7 @@ export default function ShopOrder() {
   return (
     <section className="section">
       <div className="container">
-        {state === 'loading' && <p style={{ textAlign: 'center', color: 'var(--muted)', fontWeight: 700, padding: 60 }}>…</p>}
+        {state === 'loading' && <PagePending label={t('shop.order.track')} />}
 
         {state === 'notfound' && (
           <Reveal className="cart-empty">
