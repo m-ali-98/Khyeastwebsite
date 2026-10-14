@@ -50,8 +50,8 @@ test.describe('public routes', () => {
       const text = await page.locator('main').innerText();
       expect(text.trim().length, `${route} rendered almost nothing`).toBeGreaterThan(minChars);
 
-      /* No skeleton or boot splash may still be on screen once settled. */
-      await expect(page.locator('.route-fallback, .boot-splash')).toHaveCount(0);
+      /* No navigation cover or boot splash may still be on screen once settled. */
+      await expect(page.locator('.navigation-loader, .boot-splash')).toHaveCount(0);
 
       expect(errors, `console errors on ${route}`).toEqual([]);
     });
@@ -115,7 +115,24 @@ test('the first-paint screen stays until a directly opened lazy route commits', 
   await expect(page.locator('#boot-splash')).toHaveCount(0, { timeout: 3000 });
 });
 
-test('a genuinely cold client-side route gets contextual loading feedback', async ({ page }) => {
+test('idle, hover and focus do not speculatively fetch neighbouring route chunks', async ({ page }) => {
+  const speculative = [];
+  page.on('request', (request) => {
+    if (/\/assets\/(?:Products|About)-[^/]+\.js$/.test(new URL(request.url()).pathname)) {
+      speculative.push(request.url());
+    }
+  });
+
+  await gotoReady(page, '/');
+  const productsLink = page.locator('.nav__links a[href="/products"]');
+  await productsLink.hover();
+  await productsLink.focus();
+  await page.waitForTimeout(500);
+
+  expect(speculative, 'a route chunk was warmed before navigation').toEqual([]);
+});
+
+test('a cold client-side route stays behind the navigation screen until it commits', async ({ page }) => {
   let releaseChunk;
   const held = new Promise((resolve) => { releaseChunk = resolve; });
   await page.route(/\/assets\/Contact-[^/]+\.js$/, async (route) => {
@@ -126,13 +143,45 @@ test('a genuinely cold client-side route gets contextual loading feedback', asyn
   await gotoReady(page, '/');
   await expect(page.locator('#boot-splash')).toHaveCount(0);
   await page.locator('.nav__links a[href="/contact"]').click();
-  await expect(page.locator('.route-loader--task')).toBeVisible({ timeout: 2500 });
-  await expect(page.locator('.route-loader__rail')).toBeVisible();
+
+  const loader = page.locator('.navigation-loader');
+  await expect(loader).toBeVisible({ timeout: 2500 });
+  await expect(loader).toHaveAttribute('aria-busy', 'true');
+  await expect(loader.locator('.navigation-loader__orbit')).toBeVisible();
+  /* The outgoing route is removed rather than cross-faded under the cover. */
+  await expect(page.locator('.hero')).toHaveCount(0);
+  /* Longer than the readable beat: an unresolved route must still keep the
+     cover mounted, proving dismissal follows commit rather than a timer. */
+  await page.waitForTimeout(560);
+  await expect(loader).toBeVisible();
 
   releaseChunk();
-  await routeSettled(page, /\/contact$/);
-  await expect(page.locator('.route-fallback')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/contact$/);
+  await expect(page.locator('form')).toBeAttached({ timeout: 10_000 });
+  await expect(loader).toHaveCount(0, { timeout: 3000 });
   await expect(page.locator('form')).toBeVisible();
+});
+
+test('a cached route revisit still gets the complete navigation screen', async ({ page }) => {
+  /* A direct visit puts the Products chunk into React.lazy and the browser
+     cache. Returning to it proves feedback does not depend on chunk latency. */
+  await gotoReady(page, '/products');
+  await expect(page.locator('.product-card').first()).toBeVisible();
+  await expect(page.locator('.navigation-loader, #boot-splash')).toHaveCount(0);
+
+  await page.locator('nav.nav .nav__logo').click();
+  await expect(page.locator('.navigation-loader')).toBeVisible();
+  await expect(page.locator('.product-card')).toHaveCount(0);
+  await expect(page.locator('.navigation-loader')).toHaveCount(0, { timeout: 3000 });
+  await expect(page.locator('.hero')).toBeVisible();
+
+  await page.locator('.nav__links a[href="/products"]').click();
+  const cachedLoader = page.locator('.navigation-loader');
+  await expect(cachedLoader).toBeVisible();
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(page.locator('.hero')).toHaveCount(0);
+  await expect(cachedLoader).toHaveCount(0, { timeout: 3000 });
+  await expect(page.locator('.product-card').first()).toBeVisible();
 });
 
 test('a first visit defaults to light even when the operating system is dark', async ({ page }) => {

@@ -34,22 +34,11 @@ export async function gotoReady(page, url) {
   await page.waitForLoadState('networkidle').catch(() => {});
 }
 
-/** Wait until a client-side route change has finished.
- *
- *  Page transitions use <AnimatePresence mode="popLayout">, so while the old
- *  page animates out BOTH routes are in the DOM. That is what produced the
- *  "resolved to 2 elements" failures: a form filled on the outgoing copy, then
- *  submitted on the incoming empty one, or the reverse. Waiting for a single
- *  <main> is the honest signal that the new page owns the document. */
-/** The one live copy of `selector`, and a printed explanation when there is
- *  more than one.
- *
- *  Page transitions keep the outgoing route mounted for a moment, so a
- *  selector can legitimately resolve twice mid-flight. Blind .first() hid
- *  that and picked the stale copy; a bare strict locator fails with nothing
- *  but a count. This takes the live copy — the incoming page is appended
- *  last — and logs where each duplicate sits so the structure is visible in
- *  the run output instead of being guessed at. */
+/** The one live copy of `selector`, with a printed structural explanation if
+ *  an unexpected duplicate appears. Navigation no longer retains an outgoing
+ *  page, so multiple full-page matches now indicate a real regression; using
+ *  the last live match keeps mutation-flow diagnostics readable while the
+ *  explicit route assertions verify there is only one <main>. */
 export async function one(page, selector) {
   const loc = page.locator(selector);
   await expect(loc.first()).toBeVisible({ timeout: 15_000 });
@@ -69,9 +58,12 @@ export async function one(page, selector) {
   return loc.last();
 }
 
+/** Wait for the destination URL, its single non-cross-faded page root, and
+ *  the navigation cover that deliberately sits above committed content. */
 export async function routeSettled(page, urlRe) {
   if (urlRe) await expect(page).toHaveURL(urlRe);
   await expect(page.locator('main')).toHaveCount(1, { timeout: 10_000 });
+  await expect(page.locator('.navigation-loader')).toHaveCount(0, { timeout: 10_000 });
   await animationsSettled(page);
 }
 

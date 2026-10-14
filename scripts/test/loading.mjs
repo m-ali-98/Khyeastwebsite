@@ -1,5 +1,6 @@
-/* Loading UX contract — first paint waits for a real route commit, while
-   client-side route feedback appears only for a genuinely pending chunk. */
+/* Loading UX contract — first paint waits for a real route commit, and every
+   client-side navigation shows the orbital screen even when its chunk is held
+   by browser-native caching. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,6 @@ const dataPages = ['ShopOrder.jsx', 'ShopAccount.jsx', 'ShopAuth.jsx', 'ShopChec
   .map((file) => read(`src/pages/${file}`))
   .join('\n');
 const gate = read('src/hooks/useLoadingGate.js');
-const routes = read('src/routes.js');
 const css = read('src/styles/global.scss');
 
 let passed = 0;
@@ -42,20 +42,24 @@ const doneRule = html.match(/#boot-splash\.is-done\s*\{([\s\S]*?)\}/)?.[1] || ''
 check(/translate3d\(0,\s*-101%/.test(doneRule), 'boot screen no longer reveals with a one-layer transform');
 check(!/opacity\s*:/.test(doneRule), 'boot screen exit regressed to a full-page cross-fade');
 
-check(/function RouteCommit\(\)[\s\S]*dismissBootSplash\(\)/.test(app), 'route commit does not dismiss first paint');
-check((app.match(/<RouteCommit\s*\/>/g) || []).length === 2, 'public and admin Suspense boundaries do not both signal readiness');
+check(/function RouteCommit\(\{ routeKey, onReady \}\)[\s\S]*dismissBootSplash\(\)[\s\S]*onReady\(routeKey\)/.test(app), 'route commit does not signal real readiness');
+check((app.match(/<RouteCommit routeKey=/g) || []).length === 2, 'public and admin Suspense boundaries do not both signal readiness');
 check(!/dismissBootSplash/.test(main), 'entrypoint dismisses the splash before the route commits');
 check(/requestAnimationFrame\([\s\S]*requestAnimationFrame/.test(boot), 'splash does not wait for a painted route frame');
 check(/transitionend/.test(boot) && /safety/.test(boot), 'splash cleanup is not transition-driven and fail-safe');
 check(/new MutationObserver\(look\)/.test(layout) && !/tries\+\+ < 60/.test(layout), 'slow lazy heroes can outlive navbar detection');
 
-check(/useLoadingGate\(true,\s*\{ skip: !admin && isWarm\(pathname\) \}\)/.test(fallback), 'route fallback is not gated by real chunk warmth');
-for (const shape of ['collection', 'detail', 'task', 'editorial']) {
-  check(fallback.includes(`shape === '${shape}'`), `${shape} route loading shape is missing`);
-}
-check(/fa:\s*\{/.test(fallback) && /en:\s*\{/.test(fallback) && /ar:\s*\{/.test(fallback), 'route loading copy is not trilingual');
+check(!fs.existsSync(path.join(ROOT, 'src/routes.js')), 'legacy route-prefetch module still exists');
+check(!/usePrefetchRoutes|\bprefetch\(|\bisWarm\b/.test(app + fallback), 'custom route warming/cache suppression still exists');
+check(/transitioning && <RouteFallback/.test(app), 'navigation loader is not forced for cached routes');
+check(/NAVIGATION_BEAT_MS\s*=\s*420/.test(app) && /NAVIGATION_BEAT_MS - elapsed/.test(app), 'cached routes can skip the readable loading-screen beat');
+check(/key !== activeKey\.current/.test(app), 'stale route commits can dismiss a newer navigation screen');
+check(/<main\s+[\s\S]{0,160}key=/.test(app) && /useTransitions=\{false\}/.test(app) && !/<mo\.main|AnimatePresence/.test(app), 'page transitions still cross-fade or retain an outgoing page layer');
+check(/fallback=\{transitioning \|\| bootSplashPresent \? null : <RouteFallback/.test(app), 'cold routes can stack a second loading screen over the navigation or boot gate');
+check(/fa:\s*\{/.test(fallback) && /en:\s*\{/.test(fallback) && /ar:\s*\{/.test(fallback), 'route loading accessibility copy is not trilingual');
 check(/role="status"[\s\S]*aria-live="polite"[\s\S]*aria-busy="true"/.test(fallback), 'route loader is not announced accessibly');
-check(/className="sr-only"/.test(fallback) && /route-loader__signal/.test(fallback), 'route loading is not visually text-free with an accessible name');
+check(/aria-hidden=\{transitioning[\s\S]*inert=\{transitioning/.test(app), 'covered destination content remains exposed during navigation');
+check(/className="sr-only"/.test(fallback) && /navigation-loader__orbit/.test(fallback), 'route loading is not visually text-free with an accessible name');
 check(!/route-loader__status/.test(fallback + pagePending), 'visible loading status copy returned');
 check(!/<p>در حال آماده‌سازی پنل/.test(adminApp), 'admin loading screen still renders visible copy');
 check(!/admin__boot-bar/.test(adminApp), 'admin loading screen still uses the old linear progress bar');
@@ -63,16 +67,12 @@ check(!/admin__boot-bar/.test(adminApp), 'admin loading screen still uses the ol
 const sheenFrames = css.match(/@keyframes sk-sheen\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 check(/translate3d/.test(sheenFrames), 'skeleton sheen is not compositor-transformed');
 check(!/background-position/.test(sheenFrames), 'skeleton sheen repaints background-position');
-check(/route-loader__rail/.test(css), 'pending navigation has no progress rail');
-check(/prefers-reduced-motion:[\s\S]*route-loader__rail/.test(css), 'route loading does not respect reduced motion');
+check(/\.navigation-loader\s*\{[\s\S]*position:\s*fixed/.test(css), 'navigation loading screen does not cover page transitions');
+check(/navigation-loader__orbit[\s\S]*animation: navigation-loader-orbit/.test(css), 'navigation loader lost its orbital motion');
+check(/prefers-reduced-motion:[\s\S]*navigation-loader__orbit/.test(css), 'route loading does not respect reduced motion');
 check(/navigator\.connection/.test(gate) && /effectiveType/.test(gate), 'loading delay is no longer connection-aware');
 check(/useLoadingGate\(true\)/.test(pagePending), 'post-route data loading is not adaptively gated');
 check((dataPages.match(/<PagePending/g) || []).length >= 4, 'shop page data transitions still fall back to bare ellipses');
-
-check(/'\/shop\/login':\s*\(\) => import\('\.\/pages\/ShopAuth'\)/.test(routes), 'sign-in chunk is absent from smart prefetch');
-check(/'\/shop\/account':\s*\(\) => import\('\.\/pages\/ShopAccount'\)/.test(routes), 'account chunk is absent from smart prefetch');
-check(/'\*':\s*\(\) => import\('\.\/pages\/NotFound'\)/.test(routes), '404 chunk is absent from smart loading');
-check(/raw\.replace\(\/\^\\\/\(en\|ar\)/.test(routes), 'intent prefetch does not strip locale basenames');
 
 for (const leak of leaks) console.log(`LEAK ${leak}`);
 console.log(`${passed}/${total}`);

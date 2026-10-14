@@ -25,7 +25,7 @@ export default function PagePending({ label = '' }) {
   return (
     <div className="page-pending" role="status" aria-live="polite" aria-busy="true">
       <span className="sr-only">{label ? `${copy} — ${label}` : copy}</span>
-      <div className="route-loader__signal" aria-hidden="true">
+      <div className="page-pending__signal" aria-hidden="true">
         <span />
         <i />
       </div>
@@ -41,7 +41,7 @@ export default function PagePending({ label = '' }) {
           <Line className="sk--heading" index={2} />
           <Line className="sk--text" index={3} />
           <Line className="sk--text sk--short" index={4} />
-          <span className="route-loader__summary-rule" />
+          <span className="page-pending__rule" />
           <Line className="sk--line" index={5} />
           <Line className="sk--line sk--line-short" index={6} />
         </aside>

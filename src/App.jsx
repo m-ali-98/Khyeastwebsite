@@ -1,19 +1,17 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { m as mo } from 'framer-motion';
 import Layout from './components/Layout';
 import RouteFallback from './components/RouteFallback';
-import { usePrefetchRoutes, prefetch } from './routes';
 import { useLocale, LOCALES, localePath } from './i18n/LocaleContext';
 import { useContent } from './content/ContentContext';
 import { dismissBootSplash } from './lib/bootSplash';
 import Home from './pages/Home'; // landing page stays in the main bundle
 
 /* ---------------------------------------------------------------------------
-   Route-level code splitting: every page ships as its own chunk, so a visitor
-   on a slow connection downloads only the page they asked for. Chunks are
-   prefetched on idle / on link hover (see src/routes.js), which makes the
-   navigation itself feel instant once the browser is idle.
+   Route-level code splitting: every page ships as its own chunk and starts
+   loading only after the visitor asks for it. There is deliberately no idle,
+   hover, neighbour, or route-warm prefetch layer; every navigation owns an
+   explicit loading-screen phase instead of silently filling a route cache.
    --------------------------------------------------------------------------- */
 const About = lazy(() => import('./pages/About'));
 const Products = lazy(() => import('./pages/Products'));
@@ -37,10 +35,14 @@ const ShopAccount = lazy(() => import('./pages/ShopAccount'));
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 
 /* Mounted inside each Suspense boundary, after the active route has resolved.
-   This is the honest readiness signal for the first-paint splash: on a direct
-   visit to a lazy page it does not run until that page chunk can render. */
-function RouteCommit() {
-  useEffect(() => dismissBootSplash(), []);
+   It dismisses first paint and tells the navigation gate that the new page is
+   genuinely ready. A keyed effect runs even when React.lazy already holds the
+   module in memory, so cached revisits still receive the loading screen. */
+function RouteCommit({ routeKey, onReady }) {
+  useEffect(() => {
+    dismissBootSplash();
+    onReady(routeKey);
+  }, [routeKey, onReady]);
   return null;
 }
 
@@ -80,20 +82,52 @@ function PublicRoutes() {
   );
 }
 
-/* Route transition easing — mirrors --ease-out in src/styles/global.scss so
-   JS-driven page transitions and CSS transitions share one curve. */
-const EASE_OUT = [0.16, 1, 0.3, 1];
-
 /* Routes whose <title> is set by the page itself (from the product or post it
    loaded), so the app-level effect must leave it alone. */
 const HAS_OWN_TITLE = /^\/(products|blog|shop)\/[^/]+$/;
+const NAVIGATION_BEAT_MS = 420;
 
-function AnimatedRoutes() {
+function NavigationRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
   const { t } = useContent();
-  const { locale, shopEnabled } = useLocale();
-  usePrefetchRoutes();
+  const { locale } = useLocale();
+  const routeKey = `${location.key || 'route'}:${location.pathname}${location.search}`;
+  const [settledKey, setSettledKey] = useState(routeKey);
+  const activeKey = useRef(routeKey);
+  const settledKeyRef = useRef(settledKey);
+  const started = useRef({ key: routeKey, at: 0 });
+  const finishTimer = useRef(0);
+  activeKey.current = routeKey;
+  settledKeyRef.current = settledKey;
+  const transitioning = routeKey !== settledKey;
+  /* On a direct visit the static splash already owns first-paint feedback.
+     Keeping React's fallback empty beneath it avoids two simultaneous live
+     status announcements; subsequent Suspense waits use the orbital screen. */
+  const bootSplashPresent = typeof document !== 'undefined' && document.getElementById('boot-splash');
+
+  /* Start immediately on every history navigation, including revisits whose
+     module is already held by React.lazy/the browser. The page renders under
+     this screen so a cold chunk and a cached chunk follow the same path. */
+  useLayoutEffect(() => {
+    if (routeKey === settledKeyRef.current) return undefined;
+    window.clearTimeout(finishTimer.current);
+    started.current = { key: routeKey, at: performance.now() };
+    return () => window.clearTimeout(finishTimer.current);
+  }, [routeKey]);
+
+  const markRouteReady = useCallback((key) => {
+    if (key !== activeKey.current || key === settledKeyRef.current) return;
+    const beganAt = started.current.key === key ? started.current.at : performance.now();
+    const elapsed = performance.now() - beganAt;
+    const remaining = Math.max(0, NAVIGATION_BEAT_MS - elapsed);
+    window.clearTimeout(finishTimer.current);
+    finishTimer.current = window.setTimeout(() => {
+      if (activeKey.current === key) setSettledKey(key);
+    }, remaining);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(finishTimer.current), []);
 
   /* Title, description, canonical and hreflang alternates per locale — search
      engines see three properly-linked language versions of every page. */
@@ -165,41 +199,39 @@ function AnimatedRoutes() {
     add('alternate', url('fa'), 'x-default');
   }, [location.pathname, locale, t]);
 
-  useEffect(() => {
-    /* warm neighbours of the current page — but not the shop chunks on /en
-       and /ar, where those routes are not mounted at all */
-    prefetch(location.pathname, shopEnabled);
-  }, [location.pathname, shopEnabled]);
-
   if (isAdmin) {
     return (
-      <Suspense fallback={<RouteFallback mode="admin" />}>
-        <AdminApp />
-        <RouteCommit />
-      </Suspense>
+      <>
+        {transitioning && <RouteFallback mode="admin" />}
+        <Suspense
+          fallback={transitioning || bootSplashPresent ? null : <RouteFallback mode="admin" />}
+        >
+          <AdminApp />
+          <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
+        </Suspense>
+      </>
     );
   }
 
-  /* No exit animation, and therefore no AnimatePresence.
-     Cross-fading pages meant two full-page layers alive at once — the browser
-     composites both, and popLayout rips the outgoing one out of flow, which
-     collapses the page height and jolts the scroll position mid-transition.
-     The old page now leaves instantly and only the incoming one animates:
-     one layer, no reflow, and the navigation reads as quicker even though
-     nothing about the timing changed. */
+  /* The outgoing page leaves immediately. A single opaque loading layer then
+     covers the new route until both conditions are true: its Suspense content
+     committed, and the orbital screen completed a short readable beat. There
+     is never a two-page cross-fade or a stale page retained underneath. */
   return (
     <Layout>
-      <mo.main
+      {transitioning && <RouteFallback />}
+      <main
         key={location.pathname}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.26, ease: EASE_OUT }}
+        aria-hidden={transitioning ? 'true' : undefined}
+        inert={transitioning ? true : undefined}
       >
-        <Suspense fallback={<RouteFallback />}>
+        <Suspense
+          fallback={transitioning || bootSplashPresent ? null : <RouteFallback />}
+        >
           <PublicRoutes />
-          <RouteCommit />
+          <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
         </Suspense>
-      </mo.main>
+      </main>
     </Layout>
   );
 }
@@ -210,8 +242,12 @@ export default function App() {
      in the app stays locale-relative with no changes to the page components. */
   const { meta } = useLocale();
   return (
-    <BrowserRouter basename={meta.prefix || undefined}>
-      <AnimatedRoutes />
+    /* React Router normally marks history updates as transitions, which may
+       retain an already-painted route while a new lazy boundary suspends. Our
+       own opaque gate must commit immediately and the outgoing page must not
+       remain as a hidden second layer, so history updates are synchronous. */
+    <BrowserRouter basename={meta.prefix || undefined} useTransitions={false}>
+      <NavigationRoutes />
     </BrowserRouter>
   );
 }
