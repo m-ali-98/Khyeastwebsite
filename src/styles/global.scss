@@ -1934,36 +1934,32 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 
 .route-loader__signal {
-  width: 76px;
-  height: 10px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  position: relative;
+  width: 28px;
+  height: 28px;
   margin-block-end: 34px;
 }
 .route-loader__signal > span {
-  position: relative;
-  width: 58px;
-  height: 2px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--crimson-line);
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--crimson-line);
+  border-radius: 50%;
+  animation: route-loader-signal 1.2s linear infinite;
+  will-change: transform;
 }
 .route-loader__signal > span::after {
   content: '';
   position: absolute;
-  inset-block: 0;
-  left: -45%;
-  width: 45%;
-  border-radius: inherit;
+  inset-block-start: -3px;
+  inset-inline-start: calc(50% - 3px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: var(--crimson);
-  animation: route-loader-signal 1.05s var(--ease-soft) infinite;
-  will-change: transform;
 }
 .route-loader__signal > i {
-  width: 7px;
-  height: 7px;
-  flex: none;
+  position: absolute;
+  inset: calc(50% - 3px);
   border-radius: 50%;
   background: var(--crimson);
   animation: route-loader-pulse 1.05s var(--ease-soft) infinite alternate;
@@ -2115,43 +2111,42 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
     var(--surface);
 }
 .route-loader__admin-card {
-  width: min(430px, 100%);
+  width: 132px;
+  height: 132px;
   display: grid;
-  justify-items: center;
-  padding: 42px 34px 34px;
-  border: 1px solid var(--line);
-  border-radius: 28px;
-  background: var(--surface-raised);
-  box-shadow: var(--shadow);
+  place-items: center;
 }
 .route-loader__admin-mark {
   position: relative;
-  width: 84px;
-  height: 84px;
+  width: 132px;
+  height: 132px;
   display: grid;
   place-items: center;
-  margin-block-end: 26px;
-  border: 1px solid var(--crimson-line);
-  border-radius: 26px;
-  background: var(--crimson-soft);
+  border: 1px solid var(--line);
+  border-radius: 50%;
 }
 .route-loader__admin-mark::before {
   content: '';
   position: absolute;
-  inset: -12px;
+  inset: -1px;
+  border-radius: inherit;
+  background: conic-gradient(from 18deg, transparent 0 76%, var(--crimson) 92%, transparent 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  animation: route-loader-admin-orbit 2.15s linear infinite;
+  will-change: transform;
+}
+.route-loader__admin-mark::after {
+  content: '';
+  position: absolute;
+  inset: 22px;
   border: 1px solid var(--crimson-line);
-  border-radius: 32px;
-  opacity: 0.5;
+  border-radius: inherit;
   animation: route-loader-mark 1.8s var(--ease-soft) infinite alternate;
   will-change: transform, opacity;
 }
-.route-loader__logo { position: relative; object-fit: contain; }
+.route-loader__logo { position: relative; z-index: 1; object-fit: contain; }
 [data-theme='dark'] .route-loader__logo { filter: brightness(0) invert(1); }
-.route-loader--admin .route-loader__signal {
-  margin-block-end: 25px;
-}
-.route-loader__admin-lines { width: min(260px, 80%); display: grid; justify-items: center; }
-.route-loader__admin-lines .sk { margin-inline: auto; }
 
 @keyframes route-loader-enter {
   from { opacity: 0; transform: translate3d(0, 7px, 0); }
@@ -2165,10 +2160,8 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   from { transform: translate3d(120%, 0, 0); }
   to { transform: translate3d(-390%, 0, 0); }
 }
-@keyframes route-loader-signal {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(325%, 0, 0); }
-}
+@keyframes route-loader-signal { to { transform: rotate(1turn); } }
+@keyframes route-loader-admin-orbit { to { transform: rotate(1turn); } }
 @keyframes route-loader-pulse {
   from { opacity: 0.4; transform: scale(0.72); }
   to { opacity: 1; transform: scale(1); }
@@ -2202,7 +2195,6 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .route-loader__card .sk--media { height: 210px; }
   .sk--detail-media { min-height: 320px; }
   .route-loader__panel { padding: 24px 20px; }
-  .route-loader__admin-card { padding: 36px 22px 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2212,9 +2204,9 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .route-loader__signal > span::after,
   .route-loader__signal > i,
   .route-loader__admin-mark::before,
+  .route-loader__admin-mark::after,
   .sk::after { animation: none; }
   .route-loader__rail span { width: 100%; transform: none; }
-  .route-loader__signal > span::after { left: 0; width: 100%; transform: none; }
   .sk::after { display: none; }
 }
 

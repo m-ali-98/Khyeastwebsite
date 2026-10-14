@@ -841,75 +841,61 @@
 .admin__logo-mark.is-solid { filter: brightness(0) invert(1); }
 
 /* ---------- panel boot screen ----------
-   Shown while the session check and the translation dictionaries resolve.
-   Deliberately quiet: a soft glow behind the mark and a single indeterminate
-   bar, rather than a spinner competing with the logo for attention. */
+   Shown while the session check and translation dictionaries resolve. It uses
+   the same quiet orbital language as public first paint, with no visible copy
+   and without turning the official mark itself into a spinner. */
 .admin__boot {
   min-height: 100svh;
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 20px;
   padding: 24px;
   background:
-    radial-gradient(70% 55% at 50% 28%, var(--crimson-soft), transparent 62%),
+    radial-gradient(circle at 50% 45%, var(--crimson-soft), transparent 30%),
     var(--surface);
-  text-align: center;
 }
 .admin__boot-mark {
   position: relative;
+  width: 132px;
+  height: 132px;
   display: grid;
   place-items: center;
-  animation: admin-boot-float 2.4s var(--ease, ease-in-out) infinite alternate;
+  border: 1px solid var(--line);
+  border-radius: 50%;
 
-  /* the glow sits behind the mark and breathes out of phase with it, which
-     reads as "working" without the jitter of a spinning element */
   &::before {
     content: '';
     position: absolute;
-    inset: -34px;
-    border-radius: 50%;
-    background: radial-gradient(circle, var(--crimson-glow), transparent 68%);
-    opacity: 0.25;
-    animation: admin-boot-glow 2.4s ease-in-out infinite alternate;
-  }
-  > * { position: relative; }
-}
-.admin__boot-bar {
-  width: 190px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--bg-softer);
-  overflow: hidden;
-
-  span {
-    display: block;
-    width: 42%;
-    height: 100%;
+    inset: -1px;
     border-radius: inherit;
-    background: linear-gradient(90deg, transparent, var(--crimson), transparent);
-    animation: admin-boot-sweep 1.25s ease-in-out infinite;
+    background: conic-gradient(from 18deg, transparent 0 76%, var(--crimson) 92%, transparent 100%);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+    animation: admin-boot-orbit 2.15s linear infinite;
+    will-change: transform;
   }
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 22px;
+    border: 1px solid var(--crimson-line);
+    border-radius: inherit;
+    animation: admin-boot-breathe 1.8s var(--ease, ease-in-out) infinite alternate;
+    will-change: transform, opacity;
+  }
+  > * { position: relative; z-index: 1; }
 }
+[data-theme='dark'] .admin__boot-mark .admin__logo-mark { filter: brightness(0) invert(1); }
 
-@keyframes admin-boot-float {
-  from { transform: translateY(3px); }
-  to   { transform: translateY(-3px); }
-}
-@keyframes admin-boot-glow {
-  from { opacity: 0.16; transform: scale(0.92); }
-  to   { opacity: 0.42; transform: scale(1.06); }
-}
-@keyframes admin-boot-sweep {
-  from { transform: translateX(-115%); }
-  to   { transform: translateX(275%); }
+@keyframes admin-boot-orbit { to { transform: rotate(1turn); } }
+@keyframes admin-boot-breathe {
+  from { opacity: 0.22; transform: scale(0.92); }
+  to   { opacity: 0.72; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .admin__boot-mark,
   .admin__boot-mark::before,
-  .admin__boot-bar span { animation: none; }
-  .admin__boot-bar span { width: 100%; }
+  .admin__boot-mark::after { animation: none; }
 }
 
 [data-theme='dark'] .admin__boot { background:

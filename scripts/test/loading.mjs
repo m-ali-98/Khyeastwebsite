@@ -34,6 +34,7 @@ check(/<div id="root"><\/div>[\s\S]*id="boot-splash"/.test(html), 'boot splash i
 check(/class="boot-splash"[\s\S]*role="status"[\s\S]*aria-busy="true"/.test(html), 'boot splash has no accessible pending state');
 check(/boot-splash__mark[\s\S]*\/assets\/brand\/logo\.webp/.test(html), 'boot splash does not use the official logo');
 check(/boot-splash__content" aria-hidden="true"/.test(html), 'visual loader content is exposed as meaningless accessibility noise');
+check(/boot-splash__orbit/.test(html) && !/boot-splash__bar/.test(html), 'boot screen is not using the textless orbital system');
 check(!/boot-splash__(?:slogan|eyebrow|status|signature)/.test(html), 'visible copy returned to the text-free boot screen');
 check(/boot-splash__a11y[\s\S]*Loading[\s\S]*جارٍ التحميل/.test(html), 'text-free boot screen lost its localized accessible label');
 check(/html\[lang='en'\] \.boot-i18n > \[lang='en'\]/.test(html), 'localized accessible copy waits until DOM ready');
@@ -57,6 +58,7 @@ check(/role="status"[\s\S]*aria-live="polite"[\s\S]*aria-busy="true"/.test(fallb
 check(/className="sr-only"/.test(fallback) && /route-loader__signal/.test(fallback), 'route loading is not visually text-free with an accessible name');
 check(!/route-loader__status/.test(fallback + pagePending), 'visible loading status copy returned');
 check(!/<p>در حال آماده‌سازی پنل/.test(adminApp), 'admin loading screen still renders visible copy');
+check(!/admin__boot-bar/.test(adminApp), 'admin loading screen still uses the old linear progress bar');
 
 const sheenFrames = css.match(/@keyframes sk-sheen\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 check(/translate3d/.test(sheenFrames), 'skeleton sheen is not compositor-transformed');

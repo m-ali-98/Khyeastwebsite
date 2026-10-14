@@ -264,7 +264,6 @@ function AdminLoading() {
         <div className="admin__boot-mark">
           <Logo size={44} className="admin__logo-mark" />
         </div>
-        <div className="admin__boot-bar" aria-hidden="true"><span /></div>
       </div>
     </div>
   );

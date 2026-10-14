@@ -160,13 +160,9 @@ export default function RouteFallback({ mode = 'public' }) {
       <div className="route-fallback route-loader route-loader--admin" role="status" aria-live="polite" aria-busy="true">
         <div className="route-loader__rail" aria-hidden="true"><span /></div>
         <div className="route-loader__admin-card">
+          <span className="sr-only">{copy.admin}</span>
           <div className="route-loader__admin-mark" aria-hidden="true">
             <Logo size={48} className="route-loader__logo" />
-          </div>
-          <LoadingSignal label={copy.admin} />
-          <div className="route-loader__admin-lines" aria-hidden="true">
-            <Sk className="sk--line" index={0} />
-            <Sk className="sk--line sk--line-short" index={1} />
           </div>
         </div>
       </div>
