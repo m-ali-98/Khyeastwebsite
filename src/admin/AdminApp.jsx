@@ -260,11 +260,11 @@ function AdminLoading() {
   return (
     <div className="admin">
       <div className="admin__boot" role="status" aria-live="polite" aria-busy="true">
+        <span className="sr-only">در حال آماده‌سازی پنل</span>
         <div className="admin__boot-mark">
           <Logo size={44} className="admin__logo-mark" />
         </div>
-        <div className="admin__boot-bar"><span /></div>
-        <p>در حال آماده‌سازی پنل…</p>
+        <div className="admin__boot-bar" aria-hidden="true"><span /></div>
       </div>
     </div>
   );

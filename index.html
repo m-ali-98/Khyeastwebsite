@@ -28,10 +28,8 @@
       body { margin: 0; font-family: 'Vazirmatn Variable', 'Vazirmatn', Tahoma, sans-serif; }
       #boot-splash {
         --boot-bg: #fbf6f5;
-        --boot-surface: rgba(255, 255, 255, .82);
-        --boot-ink: #24171a;
-        --boot-muted: #78686c;
-        --boot-line: rgba(84, 53, 62, .12);
+        --boot-surface: rgba(255, 255, 255, .86);
+        --boot-line: rgba(84, 53, 62, .13);
         --boot-accent: #dc143c;
         position: fixed;
         inset: 0;
@@ -40,20 +38,18 @@
         display: grid;
         place-items: center;
         overflow: hidden;
-        padding: 32px 24px;
+        padding: 24px;
         box-sizing: border-box;
-        color: var(--boot-ink);
         background:
-          radial-gradient(70% 55% at 14% 8%, rgba(220, 20, 60, .11), transparent 72%),
-          radial-gradient(55% 52% at 88% 86%, rgba(217, 164, 65, .09), transparent 72%),
+          radial-gradient(circle at 50% 44%, rgba(220, 20, 60, .1), transparent 34%),
           var(--boot-bg);
         transform: translate3d(0, 0, 0);
         transition: transform .48s cubic-bezier(.76, 0, .24, 1), visibility 0s .5s;
         will-change: transform;
         contain: paint;
       }
-      /* Reveal the committed app as one clean sheet instead of cross-fading
-         two full-screen surfaces. */
+      /* One clean sheet moves away after the route commits; the app and loader
+         are never cross-faded as two full-screen layers. */
       #boot-splash.is-done {
         transform: translate3d(0, -101%, 0);
         visibility: hidden;
@@ -62,132 +58,87 @@
       #boot-splash::before {
         content: '';
         position: absolute;
-        width: min(72vw, 760px);
+        width: min(62vw, 620px);
         aspect-ratio: 1;
         border: 1px solid var(--boot-line);
         border-radius: 50%;
         box-shadow:
-          0 0 0 70px rgba(220, 20, 60, .025),
-          0 0 0 150px rgba(220, 20, 60, .018);
+          0 0 0 84px rgba(220, 20, 60, .022),
+          0 0 0 168px rgba(220, 20, 60, .014);
       }
       #boot-splash::after {
         content: '';
         position: absolute;
-        inset: 0;
-        opacity: .28;
-        pointer-events: none;
-        background-image:
-          linear-gradient(var(--boot-line) 1px, transparent 1px),
-          linear-gradient(90deg, var(--boot-line) 1px, transparent 1px);
-        background-size: 72px 72px;
-        -webkit-mask-image: radial-gradient(circle at center, transparent 20%, #000 88%);
-        mask-image: radial-gradient(circle at center, transparent 20%, #000 88%);
-      }
-      .boot-splash__ambient {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-      }
-      .boot-splash__ambient span {
-        position: absolute;
+        inset-block-start: 0;
+        inset-inline-start: 50%;
         width: 1px;
-        height: 22vh;
-        min-height: 130px;
-        background: linear-gradient(transparent, rgba(220, 20, 60, .34), transparent);
+        height: 15vh;
+        min-height: 84px;
+        background: linear-gradient(var(--boot-accent), transparent);
+        opacity: .3;
       }
-      .boot-splash__ambient span:first-child { inset-block-start: 0; inset-inline-start: 12%; }
-      .boot-splash__ambient span:nth-child(2) { inset-block-end: 0; inset-inline-end: 14%; }
       .boot-splash__content {
         position: relative;
         z-index: 1;
-        width: min(520px, 100%);
         display: grid;
         justify-items: center;
-        text-align: center;
-        animation: boot-arrive .62s cubic-bezier(.16, 1, .3, 1) both;
-      }
-      /* Language is set in the head before this markup is parsed, so the
-         correct copy appears on the very first loader paint — not at DOM ready. */
-      .boot-i18n > [lang] { display: none; }
-      html[lang='fa'] .boot-i18n > [lang='fa'],
-      html[lang='en'] .boot-i18n > [lang='en'],
-      html[lang='ar'] .boot-i18n > [lang='ar'] { display: inline; }
-      .boot-splash__eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 9px;
-        margin-block-end: 28px;
-        color: var(--boot-muted);
-        font-size: 11px;
-        font-weight: 800;
-        letter-spacing: .14em;
-        text-transform: uppercase;
-      }
-      html[lang='fa'] .boot-splash__eyebrow,
-      html[lang='ar'] .boot-splash__eyebrow { font-size: 12px; letter-spacing: 0; text-transform: none; }
-      .boot-splash__eyebrow::before {
-        content: '';
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--boot-accent);
-        box-shadow: 0 0 0 5px rgba(220, 20, 60, .1);
+        gap: 38px;
+        animation: boot-arrive .55s cubic-bezier(.16, 1, .3, 1) both;
       }
       .boot-splash__mark {
         position: relative;
-        width: 112px;
-        height: 112px;
+        width: 122px;
+        height: 122px;
         display: grid;
         place-items: center;
-        margin-block-end: 28px;
         border: 1px solid var(--boot-line);
-        border-radius: 34px;
+        border-radius: 36px;
         background: var(--boot-surface);
-        box-shadow: 0 24px 70px -34px rgba(50, 20, 28, .34);
-        animation: boot-float 2.8s ease-in-out infinite alternate;
+        box-shadow: 0 28px 80px -42px rgba(50, 20, 28, .42);
       }
-      .boot-splash__mark::before,
+      .boot-splash__mark::before {
+        content: '';
+        position: absolute;
+        inset: -16px;
+        border: 1px solid rgba(220, 20, 60, .22);
+        border-radius: 46px;
+        animation: boot-ring 1.8s cubic-bezier(.65, 0, .35, 1) infinite alternate;
+        will-change: transform, opacity;
+      }
       .boot-splash__mark::after {
         content: '';
         position: absolute;
-        border: 1px solid rgba(220, 20, 60, .2);
-        border-radius: 40px;
-        animation: boot-breathe 2.8s ease-in-out infinite alternate;
+        inset-block-start: -20px;
+        inset-inline-end: 17px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--boot-accent);
+        animation: boot-pulse 1s ease-in-out infinite alternate;
         will-change: transform, opacity;
       }
-      .boot-splash__mark::before { inset: -13px; }
-      .boot-splash__mark::after { inset: -25px; opacity: .36; animation-delay: -.9s; }
       .boot-splash__mark img {
         position: relative;
         z-index: 1;
-        width: 78px;
+        width: 76px;
         height: auto;
         display: block;
       }
-      .boot-splash__slogan {
-        max-width: 470px;
-        margin: 0 0 34px;
-        color: var(--boot-ink);
-        font-size: clamp(17px, 2.4vw, 21px);
-        font-weight: 680;
-        line-height: 1.8;
-        text-wrap: balance;
-      }
-      .boot-splash__progress { width: min(290px, 76vw); }
       .boot-splash__bar {
-        height: 3px;
+        width: 168px;
+        height: 2px;
+        overflow: hidden;
         border-radius: 999px;
         background: var(--boot-line);
-        overflow: hidden;
       }
       .boot-splash__bar span {
         display: block;
-        width: 42%;
+        width: 38%;
         height: 100%;
         border-radius: inherit;
         background: linear-gradient(90deg, transparent, var(--boot-accent), transparent);
         transform: translate3d(-120%, 0, 0);
-        animation: boot-sweep 1.28s cubic-bezier(.65, 0, .35, 1) infinite;
+        animation: boot-sweep 1.18s cubic-bezier(.65, 0, .35, 1) infinite;
         will-change: transform;
       }
       [dir='rtl'] .boot-splash__bar span {
@@ -195,106 +146,69 @@
         transform: translate3d(120%, 0, 0);
         animation-name: boot-sweep-rtl;
       }
-      .boot-splash__status {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 7px;
-        margin: 11px 0 0;
-        color: var(--boot-muted);
-        font-size: 12px;
-        line-height: 1.8;
-      }
-      .boot-splash__dots { display: inline-flex; gap: 3px; direction: ltr; }
-      .boot-splash__dots i {
-        width: 3px;
-        height: 3px;
-        border-radius: 50%;
-        background: var(--boot-accent);
-        animation: boot-dot .9s ease-in-out infinite alternate;
-        will-change: transform, opacity;
-      }
-      .boot-splash__dots i:nth-child(2) { animation-delay: .15s; }
-      .boot-splash__dots i:nth-child(3) { animation-delay: .3s; }
-      .boot-splash__signature {
+      /* Text remains available to assistive technology, but no copy competes
+         with the mark on the visual loading screen. */
+      .boot-splash__a11y {
         position: absolute;
-        z-index: 1;
-        inset-block-end: 24px;
-        inset-inline: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        color: var(--boot-muted);
-        font-family: Arial, sans-serif;
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: .2em;
-        opacity: .72;
-      }
-      .boot-splash__signature::before,
-      .boot-splash__signature::after {
-        content: '';
-        width: 42px;
+        width: 1px;
         height: 1px;
-        background: var(--boot-line);
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
       }
+      .boot-i18n > [lang] { display: none; }
+      html[lang='fa'] .boot-i18n > [lang='fa'],
+      html[lang='en'] .boot-i18n > [lang='en'],
+      html[lang='ar'] .boot-i18n > [lang='ar'] { display: inline; }
       @keyframes boot-arrive {
-        from { opacity: 0; transform: translate3d(0, 14px, 0); }
-        to { opacity: 1; transform: translate3d(0, 0, 0); }
+        from { opacity: 0; transform: translate3d(0, 12px, 0) scale(.98); }
+        to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
       }
-      @keyframes boot-float {
-        from { transform: translate3d(0, 2px, 0); }
-        to { transform: translate3d(0, -3px, 0); }
+      @keyframes boot-ring {
+        from { opacity: .22; transform: scale(.97); }
+        to { opacity: .62; transform: scale(1.025); }
       }
-      @keyframes boot-breathe {
-        from { opacity: .2; transform: scale(.97); }
-        to { opacity: .62; transform: scale(1.03); }
+      @keyframes boot-pulse {
+        from { opacity: .36; transform: scale(.72); }
+        to { opacity: 1; transform: scale(1); }
       }
       @keyframes boot-sweep {
         from { transform: translate3d(-120%, 0, 0); }
-        to { transform: translate3d(340%, 0, 0); }
+        to { transform: translate3d(365%, 0, 0); }
       }
       @keyframes boot-sweep-rtl {
         from { transform: translate3d(120%, 0, 0); }
-        to { transform: translate3d(-340%, 0, 0); }
+        to { transform: translate3d(-365%, 0, 0); }
       }
-      @keyframes boot-dot {
-        from { opacity: .3; transform: translate3d(0, 0, 0) scale(.72); }
-        to { opacity: 1; transform: translate3d(0, -2px, 0) scale(1); }
-      }
-      /* The real mark keeps its full silhouette against the dark canvas. */
       html[data-theme='dark'] { background: #120a0d; }
       html[data-theme='dark'] #boot-splash {
         --boot-bg: #120a0d;
-        --boot-surface: rgba(35, 22, 26, .82);
-        --boot-ink: #f6eef0;
-        --boot-muted: #ad9ca1;
+        --boot-surface: rgba(35, 22, 26, .86);
         --boot-line: rgba(255, 255, 255, .1);
         --boot-accent: #ef2b52;
       }
-      html[data-theme='dark'] .boot-splash__mark img { filter: brightness(0) invert(1); }
       html[data-theme='dark'] .boot-splash__mark {
-        box-shadow: 0 24px 74px -34px rgba(0, 0, 0, .8);
+        box-shadow: 0 28px 84px -42px rgba(0, 0, 0, .86);
       }
+      html[data-theme='dark'] .boot-splash__mark img { filter: brightness(0) invert(1); }
       @media (max-width: 520px) {
-        #boot-splash { padding: 28px 20px; }
-        #boot-splash::before { width: 105vw; }
-        #boot-splash::after { background-size: 54px 54px; }
-        .boot-splash__eyebrow { margin-block-end: 24px; font-size: 10px; letter-spacing: .1em; }
-        .boot-splash__mark { width: 100px; height: 100px; border-radius: 30px; margin-block-end: 24px; }
+        #boot-splash::before { width: 112vw; }
+        .boot-splash__content { gap: 34px; }
+        .boot-splash__mark { width: 108px; height: 108px; border-radius: 32px; }
+        .boot-splash__mark::before { border-radius: 41px; }
         .boot-splash__mark img { width: 68px; }
-        .boot-splash__slogan { margin-block-end: 28px; }
+        .boot-splash__bar { width: 148px; }
       }
       @media (prefers-reduced-motion: reduce) {
         #boot-splash { transition: none; }
         #boot-splash.is-done { transform: none; visibility: hidden; }
         .boot-splash__content,
-        .boot-splash__mark,
         .boot-splash__mark::before,
         .boot-splash__mark::after,
-        .boot-splash__bar span,
-        .boot-splash__dots i { animation: none; }
+        .boot-splash__bar span { animation: none; }
         .boot-splash__bar span { width: 100%; transform: none; }
       }
     </style>
@@ -334,34 +248,17 @@
       aria-busy="true"
       aria-labelledby="boot-live"
     >
-      <div class="boot-splash__ambient" aria-hidden="true"><span></span><span></span></div>
-      <div class="boot-splash__content">
-        <div class="boot-splash__eyebrow boot-i18n">
-          <span lang="fa">شرکت خمیر مایه خوزستان</span>
-          <span lang="en">Khuzestan Yeast Co.</span>
-          <span lang="ar">شركة خميرة خوزستان</span>
+      <span class="boot-splash__a11y boot-i18n" id="boot-live">
+        <span lang="fa">در حال بارگذاری</span>
+        <span lang="en">Loading</span>
+        <span lang="ar">جارٍ التحميل</span>
+      </span>
+      <div class="boot-splash__content" aria-hidden="true">
+        <div class="boot-splash__mark">
+          <img src="/assets/brand/logo.webp" alt="" width="76" height="73" fetchpriority="high" />
         </div>
-        <div class="boot-splash__mark" aria-hidden="true">
-          <img src="/assets/brand/logo.webp" alt="" width="78" height="75" fetchpriority="high" />
-        </div>
-        <p class="boot-splash__slogan boot-i18n">
-          <span lang="fa">از مغز گندم؛ تا اولین برش نان</span>
-          <span lang="en">From the heart of wheat; to the first slice of bread</span>
-          <span lang="ar">من قلب القمح؛ إلى أول شريحة خبز</span>
-        </p>
-        <div class="boot-splash__progress">
-          <div class="boot-splash__bar" aria-hidden="true"><span></span></div>
-          <p class="boot-splash__status">
-            <span class="boot-i18n" id="boot-live">
-              <span lang="fa">در حال آماده‌سازی تجربه شما</span>
-              <span lang="en">Preparing your experience</span>
-              <span lang="ar">جارٍ تجهيز تجربتك</span>
-            </span>
-            <span class="boot-splash__dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          </p>
-        </div>
+        <div class="boot-splash__bar"><span></span></div>
       </div>
-      <div class="boot-splash__signature" aria-hidden="true">KHUZESTAN YEAST CO.</div>
     </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

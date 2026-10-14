@@ -13,6 +13,7 @@ const main = read('src/main.jsx');
 const boot = read('src/lib/bootSplash.js');
 const fallback = read('src/components/RouteFallback.jsx');
 const pagePending = read('src/components/PagePending.jsx');
+const adminApp = read('src/admin/AdminApp.jsx');
 const dataPages = ['ShopOrder.jsx', 'ShopAccount.jsx', 'ShopAuth.jsx', 'ShopCheckout.jsx']
   .map((file) => read(`src/pages/${file}`))
   .join('\n');
@@ -32,9 +33,10 @@ const check = (condition, label) => {
 check(/<div id="root"><\/div>[\s\S]*id="boot-splash"/.test(html), 'boot splash is not a sibling outside the React root');
 check(/class="boot-splash"[\s\S]*role="status"[\s\S]*aria-busy="true"/.test(html), 'boot splash has no accessible pending state');
 check(/boot-splash__mark[\s\S]*\/assets\/brand\/logo\.webp/.test(html), 'boot splash does not use the official logo');
-check(/boot-splash__slogan[\s\S]*از مغز گندم؛ تا اولین برش نان/.test(html), 'main slogan is missing from first paint');
-check(/Preparing your experience/.test(html) && /جارٍ تجهيز تجربتك/.test(html), 'first-paint status is not localized');
-check(/html\[lang='en'\] \.boot-i18n > \[lang='en'\]/.test(html), 'localized boot copy waits until DOM ready');
+check(/boot-splash__content" aria-hidden="true"/.test(html), 'visual loader content is exposed as meaningless accessibility noise');
+check(!/boot-splash__(?:slogan|eyebrow|status|signature)/.test(html), 'visible copy returned to the text-free boot screen');
+check(/boot-splash__a11y[\s\S]*Loading[\s\S]*جارٍ التحميل/.test(html), 'text-free boot screen lost its localized accessible label');
+check(/html\[lang='en'\] \.boot-i18n > \[lang='en'\]/.test(html), 'localized accessible copy waits until DOM ready');
 const doneRule = html.match(/#boot-splash\.is-done\s*\{([\s\S]*?)\}/)?.[1] || '';
 check(/translate3d\(0,\s*-101%/.test(doneRule), 'boot screen no longer reveals with a one-layer transform');
 check(!/opacity\s*:/.test(doneRule), 'boot screen exit regressed to a full-page cross-fade');
@@ -52,6 +54,9 @@ for (const shape of ['collection', 'detail', 'task', 'editorial']) {
 }
 check(/fa:\s*\{/.test(fallback) && /en:\s*\{/.test(fallback) && /ar:\s*\{/.test(fallback), 'route loading copy is not trilingual');
 check(/role="status"[\s\S]*aria-live="polite"[\s\S]*aria-busy="true"/.test(fallback), 'route loader is not announced accessibly');
+check(/className="sr-only"/.test(fallback) && /route-loader__signal/.test(fallback), 'route loading is not visually text-free with an accessible name');
+check(!/route-loader__status/.test(fallback + pagePending), 'visible loading status copy returned');
+check(!/<p>در حال آماده‌سازی پنل/.test(adminApp), 'admin loading screen still renders visible copy');
 
 const sheenFrames = css.match(/@keyframes sk-sheen\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 check(/translate3d/.test(sheenFrames), 'skeleton sheen is not compositor-transformed');

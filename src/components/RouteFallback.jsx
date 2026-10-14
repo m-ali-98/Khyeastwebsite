@@ -16,24 +16,9 @@ import { isWarm } from '../routes';
 import Logo from './Logo';
 
 const COPY = {
-  fa: {
-    title: 'در حال آماده‌سازی صفحه',
-    hint: 'محتوای موردنظر تا لحظاتی دیگر آماده است',
-    adminTitle: 'در حال آماده‌سازی پنل مدیریت',
-    adminHint: 'نشست امن و ابزارهای مدیریتی در حال بررسی هستند',
-  },
-  en: {
-    title: 'Preparing your page',
-    hint: 'The requested content will be ready shortly',
-    adminTitle: 'Preparing the admin workspace',
-    adminHint: 'Secure session and management tools are being checked',
-  },
-  ar: {
-    title: 'جارٍ تجهيز الصفحة',
-    hint: 'سيصبح المحتوى المطلوب جاهزًا بعد لحظات',
-    adminTitle: 'جارٍ تجهيز لوحة الإدارة',
-    adminHint: 'يتم التحقق من الجلسة الآمنة وأدوات الإدارة',
-  },
+  fa: { page: 'در حال آماده‌سازی صفحه', admin: 'در حال آماده‌سازی پنل مدیریت' },
+  en: { page: 'Preparing the page', admin: 'Preparing the admin workspace' },
+  ar: { page: 'جارٍ تجهيز الصفحة', admin: 'جارٍ تجهيز لوحة الإدارة' },
 };
 
 function routeLoadingShape(pathname = '/') {
@@ -50,15 +35,15 @@ function Sk({ className = '', index = 0 }) {
   return <span className={`sk ${className}`} style={{ '--sk-i': index }} />;
 }
 
-function LoadingStatus({ copy }) {
+function LoadingSignal({ label }) {
   return (
-    <div className="route-loader__status">
-      <span className="route-loader__pulse" aria-hidden="true"><i /></span>
-      <span>
-        <strong>{copy.title}</strong>
-        <small>{copy.hint}</small>
-      </span>
-    </div>
+    <>
+      <span className="sr-only">{label}</span>
+      <div className="route-loader__signal" aria-hidden="true">
+        <span />
+        <i />
+      </div>
+    </>
   );
 }
 
@@ -171,7 +156,6 @@ export default function RouteFallback({ mode = 'public' }) {
   }
 
   if (admin) {
-    const adminCopy = { title: copy.adminTitle, hint: copy.adminHint };
     return (
       <div className="route-fallback route-loader route-loader--admin" role="status" aria-live="polite" aria-busy="true">
         <div className="route-loader__rail" aria-hidden="true"><span /></div>
@@ -179,7 +163,7 @@ export default function RouteFallback({ mode = 'public' }) {
           <div className="route-loader__admin-mark" aria-hidden="true">
             <Logo size={48} className="route-loader__logo" />
           </div>
-          <LoadingStatus copy={adminCopy} />
+          <LoadingSignal label={copy.admin} />
           <div className="route-loader__admin-lines" aria-hidden="true">
             <Sk className="sk--line" index={0} />
             <Sk className="sk--line sk--line-short" index={1} />
@@ -194,7 +178,7 @@ export default function RouteFallback({ mode = 'public' }) {
     <section className={`route-fallback route-loader route-loader--${shape}`} role="status" aria-live="polite" aria-busy="true">
       <div className="route-loader__rail" aria-hidden="true"><span /></div>
       <div className="container">
-        <LoadingStatus copy={copy} />
+        <LoadingSignal label={copy.page} />
         {shape === 'collection' && <CollectionSkeleton />}
         {shape === 'detail' && <DetailSkeleton />}
         {shape === 'task' && <TaskSkeleton />}

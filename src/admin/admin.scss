@@ -855,13 +855,6 @@
     radial-gradient(70% 55% at 50% 28%, var(--crimson-soft), transparent 62%),
     var(--surface);
   text-align: center;
-
-  p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 13.5px;
-    letter-spacing: 0.01em;
-  }
 }
 .admin__boot-mark {
   position: relative;

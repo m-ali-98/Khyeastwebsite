@@ -6,9 +6,9 @@ import useLoadingGate from '../hooks/useLoadingGate';
 import { useLocale } from '../i18n/LocaleContext';
 
 const COPY = {
-  fa: { title: 'در حال دریافت اطلاعات', hint: 'آخرین اطلاعات این بخش در حال آماده‌سازی است' },
-  en: { title: 'Loading the latest details', hint: 'This section will be ready shortly' },
-  ar: { title: 'جارٍ تحميل أحدث المعلومات', hint: 'سيصبح هذا القسم جاهزًا بعد لحظات' },
+  fa: 'در حال دریافت اطلاعات',
+  en: 'Loading the latest details',
+  ar: 'جارٍ تحميل أحدث المعلومات',
 };
 
 function Line({ className = '', index = 0 }) {
@@ -24,12 +24,10 @@ export default function PagePending({ label = '' }) {
 
   return (
     <div className="page-pending" role="status" aria-live="polite" aria-busy="true">
-      <div className="route-loader__status">
-        <span className="route-loader__pulse" aria-hidden="true"><i /></span>
-        <span>
-          <strong>{copy.title}</strong>
-          <small>{label ? `${label} — ${copy.hint}` : copy.hint}</small>
-        </span>
+      <span className="sr-only">{label ? `${copy} — ${label}` : copy}</span>
+      <div className="route-loader__signal" aria-hidden="true">
+        <span />
+        <i />
       </div>
       <div className="page-pending__blueprint" aria-hidden="true">
         <div className="page-pending__panel">
