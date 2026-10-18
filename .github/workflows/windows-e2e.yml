@@ -1,6 +1,9 @@
 name: Windows browser regression
 
 on:
+  push:
+    branches:
+      - arena/01a07ff9-khyeastwebsite
   workflow_dispatch:
 
 permissions:
