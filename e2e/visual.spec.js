@@ -16,7 +16,9 @@
 import { test, expect } from '@playwright/test';
 import { gotoReady } from './helpers.js';
 
-test.describe.configure({ mode: 'serial' });
+/* The project already runs with one worker. Do not put independent snapshots
+   in a serial group: one intentional baseline change should report every
+   affected page, not suppress the remaining visual coverage. */
 
 async function settle(page) {
   await page.evaluate(() => document.fonts.ready);

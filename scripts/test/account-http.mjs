@@ -276,6 +276,14 @@ try {
   const afterOut = await json(await call('GET', '/api/account/me', undefined, { cookie: cookie1 }));
   check(afterOut.body.customer === null, 'the old cookie is dead afterwards, not merely forgotten');
 
+  const relogged = await json(await call('POST', '/api/account/login', { phone: PHONE, password: PASS }));
+  const cookie2 = cookieOf(relogged.res);
+  const afterRelogin = await json(await call('GET', '/api/account/me', undefined, { cookie: cookie2 }));
+  check(
+    (afterRelogin.body.orders || []).some((o) => o.code === order.body.order.code),
+    'an existing order is still attached after logout and password login',
+  );
+
   /* -------------------------------------------------- 8. password reset */
   await json(await call('POST', '/api/account/otp', { phone: PHONE, purpose: 'reset' }));
   const resetCode = await codeFor('0001');

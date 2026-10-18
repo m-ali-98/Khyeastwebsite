@@ -7,7 +7,7 @@
    client state is the profile, the addresses and the orders, all of which
    come from one /api/account/me call.
    ========================================================================== */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 const AccountCtx = createContext(null);
 
@@ -42,6 +42,10 @@ export function AccountProvider({ children }) {
   const [customer, setCustomer] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [orders, setOrders] = useState([]);
+  /* Only the newest session read may update the account. A slow `/me` started
+     before login/logout can otherwise arrive last and overwrite the new
+     session with stale customer or order data. */
+  const refreshVersion = useRef(0);
   /* 'loading' until the first /me resolves. Pages must be able to tell "not
      signed in" from "we do not know yet", or a protected page flashes its
      signed-out state on every refresh. */
@@ -55,12 +59,16 @@ export function AccountProvider({ children }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    const version = ++refreshVersion.current;
     try {
-      apply(await call('/api/account/me'));
+      const data = await call('/api/account/me');
+      if (version === refreshVersion.current) apply(data);
+      return data;
     } catch {
       /* Network trouble is not "signed out": clearing the session here
          would log someone out every time their phone lost signal. */
-      setStatus((s) => (s === 'loading' ? 'out' : s));
+      if (version === refreshVersion.current) setStatus((s) => (s === 'loading' ? 'out' : s));
+      return null;
     }
   }, [apply]);
 
@@ -89,6 +97,8 @@ export function AccountProvider({ children }) {
         return d;
       },
       logout: async () => {
+        /* Invalidate a `/me` already in flight before revoking its cookie. */
+        refreshVersion.current += 1;
         await call('/api/account/logout', { method: 'POST', body: {} });
         setCustomer(null);
         setAddresses([]);

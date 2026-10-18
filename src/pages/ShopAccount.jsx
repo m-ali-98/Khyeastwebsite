@@ -140,10 +140,20 @@ export default function ShopAccount() {
      after they asked to sign out. A ref, not state, because the guard must
      see the new value in the same tick. */
   const leaving = useRef(false);
+  const freshened = useRef(false);
   useEffect(() => {
     if (leaving.current) return;
     if (account.status === 'out') navigate('/shop/login?next=/shop/account', { replace: true });
   }, [account.status, navigate]);
+
+  /* Orders and their statuses can change while the provider remains mounted
+     (checkout, payment callback, or signing back in). Re-read the session once
+     on entry instead of showing a stale empty panel until a hard refresh. */
+  useEffect(() => {
+    if (account.status !== 'in' || freshened.current) return;
+    freshened.current = true;
+    void account.refresh();
+  }, [account.status, account.refresh]);
 
   useEffect(() => {
     if (account.customer) setProfile({ name: account.customer.name || '', email: account.customer.email || '' });

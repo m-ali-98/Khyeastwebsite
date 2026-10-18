@@ -173,7 +173,11 @@ function CommandPalette({ commands, activeTab, onClose }) {
                 className={selected ? 'is-active' : ''}
                 role="option"
                 aria-selected={selected}
-                onMouseEnter={() => setActiveIndex(index)}
+                /* `mouseenter` also fires when the palette opens underneath a
+                   stationary cursor, which silently replaced the keyboard's
+                   first option. Pointer movement expresses real mouse intent
+                   without making Cmd/Ctrl+K depend on cursor position. */
+                onPointerMove={() => setActiveIndex(index)}
                 onClick={() => execute(command)}
               >
                 <span className="admin-command__icon"><CommandIcon size={18} /></span>

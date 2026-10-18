@@ -171,7 +171,11 @@ test('a cached route revisit still gets the complete navigation screen', async (
 
   await page.locator('nav.nav .nav__logo').click();
   await expect(page.locator('.navigation-loader')).toBeVisible();
-  await expect(page.locator('.product-card')).toHaveCount(0);
+  /* Home intentionally has featured product cards too. The catalogue filter
+     is the route-specific marker that proves the outgoing Products page was
+     removed while the single navigation cover is visible. */
+  await expect(page.locator('.filter-bar')).toHaveCount(0);
+  await expect(page.locator('.hero')).toBeAttached();
   await expect(page.locator('.navigation-loader')).toHaveCount(0, { timeout: 3000 });
   await expect(page.locator('.hero')).toBeVisible();
 
