@@ -1,0 +1,54 @@
+name: Windows browser regression
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out this branch
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Verify account relogin on desktop and mobile
+        run: npx playwright test e2e/account.spec.js --grep "existing customer signs in"
+
+      # The repository never contained its advertised visual baselines. Build
+      # a Windows review set from the current UI first; the following complete
+      # run then proves that a second capture is stable against that set.
+      - name: Capture current Windows visual review set
+        if: always()
+        run: npx playwright test e2e/visual.spec.js --project=desktop --update-snapshots
+
+      - name: Run the complete browser suite
+        if: success()
+        run: npx playwright test
+
+      - name: Upload screenshots, traces and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-browser-review
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            e2e/visual.spec.js-snapshots/
+            test-results/
+            playwright-report/

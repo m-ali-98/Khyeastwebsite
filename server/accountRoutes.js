@@ -174,6 +174,22 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     phoneLocal: toLocalPhone(row.phone),
   });
 
+  /* A session-changing response and `/me` must describe the account in the
+     same shape. Returning this snapshot directly from register/login/reset
+     avoids a second request racing the Set-Cookie update, while no-store
+     prevents a browser cache from replaying the signed-out or pre-order
+     version of this private response after authentication changes. */
+  const accountOf = (row) => ({
+    customer: profileOf(row),
+    addresses: db.listAddresses(D, row.id),
+    orders: db.listOrdersForCustomer(D, row.id).map(({ token, ...o }) => ({ ...o, trackToken: token })),
+  });
+
+  r.use((_req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    next();
+  });
+
   /* ------------------------------------------------------- 1. send a code */
 
   r.post('/api/account/otp', async (req, res) => {
@@ -297,7 +313,7 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
 
     limiter.record(`reg:${ip(req)}`, LIMITS.register);
     startSession(req, res, row.id);
-    res.json({ ok: true, customer: profileOf(row) });
+    res.json({ ok: true, ...accountOf(row) });
   });
 
   /* ------------------------------------------------------------ 4. login */
@@ -324,9 +340,9 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     if (!verifyPassword(String(req.body?.password || ''), row.pass_hash)) return deny();
 
     limiter.clear(key);
-    db.updateCustomer(D, row.id, { lastLoginAt: new Date().toISOString() });
+    const loggedIn = db.updateCustomer(D, row.id, { lastLoginAt: new Date().toISOString() });
     startSession(req, res, row.id);
-    res.json({ ok: true, customer: profileOf(db.getCustomerById(D, row.id)) });
+    res.json({ ok: true, ...accountOf(loggedIn) });
   });
 
   /* --------------------------------------------------- 5. password reset */
@@ -342,12 +358,12 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     const row = db.getCustomerByPhone(D, ticket.phone);
     if (!row) return res.status(400).json({ error: 'حسابی با این شماره پیدا نشد.' });
 
-    db.updateCustomer(D, row.id, { passHash: hashPassword(req.body.password) });
+    const resetCustomer = db.updateCustomer(D, row.id, { passHash: hashPassword(req.body.password) });
     /* A reset is also what someone does after losing their phone, so every
        other session must die with the old password. */
     db.deleteSessionsFor(D, row.id);
     startSession(req, res, row.id);
-    res.json({ ok: true, customer: profileOf(db.getCustomerById(D, row.id)) });
+    res.json({ ok: true, ...accountOf(resetCustomer) });
   });
 
   /* --------------------------------------------------------- 6. session */
@@ -355,11 +371,7 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
   r.get('/api/account/me', (req, res) => {
     const row = currentCustomer(req);
     if (!row) return res.json({ customer: null });
-    res.json({
-      customer: profileOf(row),
-      addresses: db.listAddresses(D, row.id),
-      orders: db.listOrdersForCustomer(D, row.id).map(({ token, ...o }) => ({ ...o, trackToken: token })),
-    });
+    res.json(accountOf(row));
   });
 
   r.post('/api/account/logout', (req, res) => {

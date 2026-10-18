@@ -106,6 +106,7 @@ test.describe('customer accounts', () => {
     await page.locator('.checkout-form button[type="submit"]').click();
     await expect(page).toHaveURL(/\/shop\/order\//, { timeout: 20_000 });
 
+    const orderCode = decodeURIComponent(new URL(page.url()).pathname.split('/').pop());
     await gotoReady(page, '/shop/account');
     await expect(page.locator('.acc-order')).toHaveCount(1);
 
@@ -118,7 +119,17 @@ test.describe('customer accounts', () => {
     /* sign back in with the password */
     await page.locator('input[type="tel"]').fill(who.phone);
     await page.locator('input[autocomplete="current-password"]').fill(who.password);
+    const loginDone = page.waitForResponse(
+      (res) => res.url().endsWith('/api/account/login') && res.request().method() === 'POST',
+    );
     await page.locator('.auth-card button[type="submit"]').click();
+    const loginResponse = await loginDone;
+    expect(loginResponse.ok(), 'password login succeeds').toBe(true);
+    const loginAccount = await loginResponse.json();
+    expect(
+      (loginAccount.orders || []).map((order) => order.code),
+      'the session-establishing response contains the persisted order',
+    ).toContain(orderCode);
     await routeSettled(page, /\/shop\/account$/);
     await expect(page.locator('.acc-order')).toHaveCount(1);
   });

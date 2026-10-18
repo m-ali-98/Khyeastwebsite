@@ -166,6 +166,7 @@ try {
   const me = await json(await call('GET', '/api/account/me', undefined, { cookie: s1.cookie }));
   check(me.body.customer?.name === 'مشتری یکم', 'the session identifies the customer');
   check(me.body.customer?.phoneLocal === '09120000001', 'the readable phone comes back for display');
+  check(me.res.headers.get('cache-control')?.includes('no-store'), 'private account state is never browser-cached');
   check(!JSON.stringify(me.body).includes('pass_hash'), 'the password hash is never serialised');
   check(!JSON.stringify(me.body).includes('scrypt$'), 'nor any part of it');
 
@@ -277,6 +278,10 @@ try {
   check(afterOut.body.customer === null, 'the old cookie is dead afterwards, not merely forgotten');
 
   const relogged = await json(await call('POST', '/api/account/login', { phone: PHONE, password: PASS }));
+  check(
+    (relogged.body.orders || []).some((o) => o.code === order.body.order.code),
+    'the login response immediately restores the existing order snapshot',
+  );
   const cookie2 = cookieOf(relogged.res);
   const afterRelogin = await json(await call('GET', '/api/account/me', undefined, { cookie: cookie2 }));
   check(

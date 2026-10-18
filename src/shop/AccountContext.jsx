@@ -19,6 +19,10 @@ async function call(url, { method = 'GET', body } = {}) {
   const res = await fetch(url, {
     method,
     credentials: 'same-origin',
+    /* Session state is private and mutable. In particular, `/me` before an
+       order or after logout must never be replayed from the HTTP cache after
+       the customer signs back in. */
+    cache: 'no-store',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -76,26 +80,25 @@ export function AccountProvider({ children }) {
     refresh();
   }, [refresh]);
 
+  /* Login/register/reset return the complete account snapshot in the same
+     response that establishes the cookie. Applying that response directly
+     avoids a follow-up `/me` racing cookie storage or a stale browser cache.
+     The generation also prevents an older initial `/me` from winning later. */
+  const establish = useCallback(async (url, body) => {
+    const version = ++refreshVersion.current;
+    const data = await call(url, { method: 'POST', body });
+    if (version === refreshVersion.current) apply(data);
+    return data;
+  }, [apply]);
+
   const api = useMemo(
     () => ({
       requestCode: (phone, purpose = 'register') => call('/api/account/otp', { method: 'POST', body: { phone, purpose } }),
       verifyCode: (phone, code, purpose = 'register') =>
         call('/api/account/otp/verify', { method: 'POST', body: { phone, code, purpose } }),
-      register: async (payload) => {
-        const d = await call('/api/account/register', { method: 'POST', body: payload });
-        await refresh();
-        return d;
-      },
-      login: async (phone, password) => {
-        const d = await call('/api/account/login', { method: 'POST', body: { phone, password } });
-        await refresh();
-        return d;
-      },
-      resetPassword: async (ticket, password) => {
-        const d = await call('/api/account/reset', { method: 'POST', body: { ticket, password } });
-        await refresh();
-        return d;
-      },
+      register: (payload) => establish('/api/account/register', payload),
+      login: (phone, password) => establish('/api/account/login', { phone, password }),
+      resetPassword: (ticket, password) => establish('/api/account/reset', { ticket, password }),
       logout: async () => {
         /* Invalidate a `/me` already in flight before revoking its cookie. */
         refreshVersion.current += 1;
@@ -133,7 +136,7 @@ export function AccountProvider({ children }) {
       },
       refresh,
     }),
-    [refresh]
+    [establish, refresh]
   );
 
   const value = useMemo(
