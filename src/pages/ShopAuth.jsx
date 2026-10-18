@@ -11,7 +11,6 @@ import { Icons, Reveal, PageHero, PasswordInput } from '../components/ui';
 import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
-import usePageMeta from '../hooks/usePageMeta';
 
 const faDigits = (s) => String(s).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
@@ -30,8 +29,6 @@ export default function ShopAuth() {
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const codeRef = useRef(null);
-
-  usePageMeta(t('shop.auth.title'));
 
   /* Already signed in? There is nothing to do on this page. */
   useEffect(() => {

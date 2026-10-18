@@ -355,7 +355,7 @@ export function PageHero({ title, sub, image, crumb }) {
     <header className="page-hero">
       {image && (
         <div className="page-hero__img">
-          <img {...imgProps(image, SIZES.full)} alt="" loading="lazy" />
+          <img {...imgProps(image, SIZES.full)} alt="" loading="eager" fetchPriority="high" />
         </div>
       )}
       <div className="container">

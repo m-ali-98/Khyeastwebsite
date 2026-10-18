@@ -9,7 +9,6 @@ import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
 import { useShop } from '../shop/ShopContext';
 import { PROVINCES } from '../../shared/iranGeo.js';
-import usePageMeta from '../hooks/usePageMeta';
 
 const STATUS_FA = {
   pending_payment: 'در انتظار پرداخت',
@@ -128,8 +127,6 @@ export default function ShopAccount() {
   const [profile, setProfile] = useState({ name: '', email: '' });
   const [pw, setPw] = useState({ current: '', password: '' });
   const [note, setNote] = useState(null);
-
-  usePageMeta(t('shop.account.title'));
 
   /* 'loading' is distinct from 'out' so a refresh does not bounce a
      signed-in customer to the login page for one frame.

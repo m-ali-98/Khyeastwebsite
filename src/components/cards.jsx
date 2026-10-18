@@ -45,7 +45,7 @@ export function PostCard({ post, index = 0 }) {
     <Reveal as="article" className="card post-card" y={40} delay={(index % 3) * 0.12}>
       <Link to={`/blog/${post.slug}`} className="post-card__media" aria-label={post.title}>
         <img {...imgProps(post.image, SIZES.card)} alt={post.title} loading="lazy" />
-        <span className="post-card__date">{post.date}</span>
+        <time className="post-card__date" dateTime={post.publishedAt || undefined}>{post.date}</time>
       </Link>
       <div className="post-card__body">
         <h2>

@@ -23,6 +23,11 @@ function TransStatus({ bucket, slug, state }) {
 }
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
+const localIsoDate = () => {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 10);
+};
 
 /* Deleting a product/post must also drop its translations, otherwise a stale
    override lingers in the database and would silently re-attach itself if the
@@ -77,6 +82,7 @@ const slugify = (s) =>
 const checkSlug = (list, slug, orig, what) => {
   const clean = String(slug || '').trim();
   if (!clean) return `شناسه (slug) نمی‌تواند خالی باشد.`;
+  if (clean.length > 120) return `شناسه (slug) باید حداکثر ۱۲۰ نویسه باشد.`;
   if (!/^[a-z0-9\u0600-\u06FF]+(?:-[a-z0-9\u0600-\u06FF]+)*$/.test(clean))
     return `شناسه «${clean}» معتبر نیست؛ فقط حروف، عدد و خط تیره مجاز است (بدون فاصله و اسلش).`;
   if (list.some((p) => p.slug === clean && p.slug !== orig))
@@ -187,6 +193,10 @@ export function ProductsTab() {
         <div style={{ marginTop: 14 }}>
           <Field label="توضیح کوتاه" textarea value={draft.short} onChange={(v) => setDraft({ ...draft, short: v })} />
         </div>
+        <div className="admin__grid2" style={{ marginTop: 12 }}>
+          <Field label="عنوان سئو (اختیاری)" value={draft.seoTitle} onChange={(v) => setDraft({ ...draft, seoTitle: v })} />
+          <Field label="توضیح سئو (اختیاری)" value={draft.seoDescription} onChange={(v) => setDraft({ ...draft, seoDescription: v })} />
+        </div>
         <h3 style={{ margin: '22px 0 10px' }}>جدول مشخصات</h3>
         <PairListEditor items={draft.specs} onChange={(v) => setDraft({ ...draft, specs: v })} />
         <h3 style={{ margin: '22px 0 10px' }}>راهنمای مصرف</h3>
@@ -260,6 +270,9 @@ export function PostsTab() {
          than the numeric default ("۱۴۰۵/۶/۲۱"), so a new post does not look
          different from the existing ones in the blog list. */
       date: new Date().toLocaleDateString('fa-IR', { day: 'numeric', month: 'long', year: 'numeric' }),
+      /* Machine-readable publication date for BlogPosting JSON-LD and the
+         sitemap. The Persian display date remains independently editable. */
+      publishedAt: localIsoDate(),
       category: 'دسته‌بندی نشده',
       image: '/assets/img/bread-slicing.webp',
       readTime: '۵',
@@ -268,7 +281,11 @@ export function PostsTab() {
 
   const saveDraft = () => {
     const { _orig, ...rest } = draft;
-    const clean = { ...rest, body: sanitizeHtml(rest.body) };
+    const clean = {
+      ...rest,
+      body: sanitizeHtml(rest.body),
+      updatedAt: localIsoDate(),
+    };
 
     const slugErr = checkSlug(state.posts, clean.slug, _orig, 'مقاله');
     if (slugErr) return window.alert(slugErr);
@@ -310,11 +327,18 @@ export function PostsTab() {
           <Field label="تاریخ نمایش" value={draft.date} onChange={(v) => setDraft({ ...draft, date: v })} />
         </div>
         <div className="admin__grid2" style={{ marginTop: 12 }}>
+          <Field label="تاریخ استاندارد انتشار (SEO)" type="date" value={draft.publishedAt} onChange={(v) => setDraft({ ...draft, publishedAt: v })} />
           <Field label="زمان مطالعه (دقیقه)" value={draft.readTime} onChange={(v) => setDraft({ ...draft, readTime: v })} />
+        </div>
+        <div style={{ marginTop: 12 }}>
           <Field label="شناسه یکتا (slug)" value={draft.slug} dir="ltr" onChange={(v) => setDraft({ ...draft, slug: slugify(v) || v })} />
         </div>
         <div style={{ marginTop: 12 }}>
           <Field label="چکیده" textarea rows={2} value={draft.excerpt} onChange={(v) => setDraft({ ...draft, excerpt: v })} />
+        </div>
+        <div className="admin__grid2" style={{ marginTop: 12 }}>
+          <Field label="عنوان سئو (اختیاری)" value={draft.seoTitle} onChange={(v) => setDraft({ ...draft, seoTitle: v })} />
+          <Field label="توضیح سئو (اختیاری)" value={draft.seoDescription} onChange={(v) => setDraft({ ...draft, seoDescription: v })} />
         </div>
         <div className="admin__row" style={{ marginTop: 14 }}>
           <span style={{ fontSize: 13, fontWeight: 700 }}>تصویر شاخص:</span>
@@ -380,6 +404,7 @@ export function PostsTab() {
 
 /* ================= texts ================= */
 const GROUPS = [
+  ['seo', 'عنوان‌های سئو'],
   ['global', 'عمومی و شعار'],
   ['nav', 'منو و breadcrumb'],
   ['home', 'صفحه اصلی'],

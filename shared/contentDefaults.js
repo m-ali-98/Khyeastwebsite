@@ -15,6 +15,7 @@ export const TEXTS = {
   'global.slogan.en': 'From the heart of wheat; to the first slice of bread',
   'global.email': 'info@khuzestanyeast-co.com',
   'global.sales.phone.fa': '۰۲۱-۲۲۵۸۲۹۷۷',
+  'seo.home.title': 'خمیرمایه خوزستان | تولیدکننده خمیرمایه خشک فوری',
 
   /* ---------- home ---------- */
   'home.hero.badge': 'بیش از سه دهه پیشگام در صنعت بیوتکنولوژی و مخمر نان کشور',
@@ -421,8 +422,8 @@ export const MEDIA = {
 
 export const LINKS = {
   'sales.tel': 'tel:02122582977',
-  'sales.whatsapp': 'http://wa.me/+989912214091',
-  'sales.telegram': 'http://t.me/+989912214091',
+  'sales.whatsapp': 'https://wa.me/989912214091',
+  'sales.telegram': 'https://t.me/+989912214091',
   'social.facebook': 'https://www.facebook.com/khuzestannyeast/',
   'home.cta.primary': '/contact',
   'home.intro.more': '/about',
@@ -432,8 +433,8 @@ export const LINKS = {
 
 export const COLLECTIONS = {
   socials: [
-    { id: 'whatsapp', label: 'واتس‌اپ', href: 'http://wa.me/+989912214091' },
-    { id: 'telegram', label: 'تلگرام', href: 'http://t.me/+989912214091' },
+    { id: 'whatsapp', label: 'واتس‌اپ', href: 'https://wa.me/989912214091' },
+    { id: 'telegram', label: 'تلگرام', href: 'https://t.me/+989912214091' },
     { id: 'facebook', label: 'فیسبوک', href: 'https://www.facebook.com/khuzestannyeast/' },
   ],
   offices: [
@@ -760,6 +761,7 @@ export const POSTS = [
     title: 'چگونه با انتخاب خمیرمایه مناسب، هزینه‌های تولید نان را کاهش دهیم؟',
     excerpt: 'راهکارهای کاهش زمان تخمیر و بهینه‌سازی مصرف انرژی در کارخانجات نان صنعتی.',
     date: '۲۵ مرداد ۱۴۰۵',
+    publishedAt: '2026-08-16',
     category: 'صنعت نان',
     image: '/assets/img/factory.webp',
     readTime: '۶',
@@ -770,6 +772,7 @@ export const POSTS = [
     title: 'تأثیر کیفیت خمیرمایه در ماندگاری و بافت نان‌های صنعتی و سنتی',
     excerpt: 'چگونه آنزیم‌های فعال و تخلخل مناسب، ماندگاری نان را تا چند روز افزایش می‌دهند.',
     date: '۲۵ مرداد ۱۴۰۵',
+    publishedAt: '2026-08-16',
     category: 'کنترل کیفیت',
     image: '/assets/img/bread-slicing.webp',
     readTime: '۵',
@@ -780,6 +783,7 @@ export const POSTS = [
     title: 'مقایسه عملکرد انواع خمیرمایه در پخت محصولات مختلف',
     excerpt: 'بررسی تفاوت‌های کاربردی خمیرمایه خشک فوری دزمایه، شتاب و ایکس پاور در نان‌های حجیم، نیمه‌حجیم و سنتی.',
     date: '۲۵ مرداد ۱۴۰۵',
+    publishedAt: '2026-08-16',
     category: 'راهنمای فنی',
     image: '/assets/img/laboratory.webp',
     readTime: '۷',

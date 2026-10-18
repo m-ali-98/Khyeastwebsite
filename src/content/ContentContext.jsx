@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
+import { mergeContentState } from '../../shared/contentState.js';
 import { localizeState } from '../../shared/i18n/index.js';
 import { useLocale } from '../i18n/LocaleContext';
 
@@ -40,31 +41,6 @@ export const api = async (path, { method = 'GET', body, auth = false, formData }
   return res.json();
 };
 
-/* Entity arrays are rendered by components that dereference fields directly
-   (card.slug, card.featured, card.image). A null or primitive row therefore
-   throws during render and blanks the entire site rather than hiding one
-   item. content.json is hand-editable and admin-writable, so a malformed row
-   is reachable without an attacker — drop them at the boundary. */
-const ENTITY_ARRAYS = ['products', 'posts', 'brands'];
-const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-
-/* deep-merge remote state over defaults (arrays & primitives replaced) */
-function mergeState(base, remote) {
-  const out = clone(base);
-  if (!remote || typeof remote !== 'object') return out;
-  for (const key of Object.keys(out)) {
-    if (!(key in remote)) continue;
-    const rv = remote[key];
-    if (Array.isArray(out[key])) out[key] = Array.isArray(rv) ? rv : out[key];
-    else if (out[key] && typeof out[key] === 'object') out[key] = { ...out[key], ...rv };
-    else out[key] = rv;
-  }
-  for (const key of ENTITY_ARRAYS) {
-    if (Array.isArray(out[key])) out[key] = out[key].filter(isPlainObject);
-  }
-  return out;
-}
-
 /* -------------------------------------------------------------------------
    Offline-first content cache.
    On a slow connection the /api/content round-trip is what makes the first
@@ -94,7 +70,7 @@ const cacheWrite = (data) => {
 export function ContentProvider({ children }) {
   const { locale } = useLocale();
   const cached = typeof window !== 'undefined' ? cacheRead() : null;
-  const [state, setState] = useState(() => (cached ? mergeState(DEFAULT_STATE, cached) : clone(DEFAULT_STATE)));
+  const [state, setState] = useState(() => (cached ? mergeContentState(DEFAULT_STATE, cached) : clone(DEFAULT_STATE)));
   const [ready, setReady] = useState(Boolean(cached));
   const [backend, setBackend] = useState(false);
 
@@ -105,7 +81,7 @@ export function ContentProvider({ children }) {
     const r = await fetch('/api/content', { cache: 'no-store' });
     if (!r.ok) throw Object.assign(new Error('no api'), { status: r.status });
     const data = await r.json();
-    setState(mergeState(DEFAULT_STATE, data));
+    setState(mergeContentState(DEFAULT_STATE, data));
     setBackend(true);
     cacheWrite(data);
     return data;
@@ -117,7 +93,7 @@ export function ContentProvider({ children }) {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('no api'))))
       .then((data) => {
         if (!alive) return;
-        setState(mergeState(DEFAULT_STATE, data));
+        setState(mergeContentState(DEFAULT_STATE, data));
         setBackend(true);
         cacheWrite(data);
       })

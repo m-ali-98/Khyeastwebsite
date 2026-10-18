@@ -156,13 +156,14 @@ npm run test:e2e:update           # پذیرفتن ظاهر فعلی به‌عن
 │   ├── test/                # مجموعه تست (اجرا با npm test)
 │   ├── to-webp.mjs          # تبدیل تصاویر به WebP
 │   ├── responsive-img.mjs   # ساخت نسخه‌های کوچک‌تر عکس‌ها برای srcset
+│   ├── generate-seo.mjs     # ساخت HTML مسیرها، sitemap و robots پس از build
 │   ├── logo-webp.mjs        # ساخت logo.webp از فایل اصلی لوگو
 │   └── rebrand-packs.mjs    # یکدست‌سازی تصاویر بسته‌بندی
 └── src/
     ├── main.jsx / App.jsx   # ورودی + مسیریابی و ترنزیشن صفحات
     ├── lib/motion.js        # موتور انیمیشن مشترک (observer + CSS transitions)
     ├── lib/img.js           # ساخت srcset/sizes از روی shared/imgVariants.json
-    ├── hooks/               # useLoadingGate (زمان‌بندی هوشمند لودینگ)، usePageMeta
+    ├── hooks/               # useLoadingGate (زمان‌بندی هوشمند لودینگ)
     ├── styles/              # global.scss (سیستم طراحی) + shop.scss (فروشگاه)
     ├── content/             # ContentContext (store محتوا) + پاک‌ساز HTML
     ├── i18n/                # LocaleContext: زبان فعال، جهت متن (RTL/LTR) و حالت تاریک
@@ -645,10 +646,13 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `ADMIN_USER` | نام کاربری دلخواه شما |
 | `ADMIN_PASS` | رمز قوی خودتان (**حداقل ۱۲ کاراکتر**) |
 | `ADMIN_SECRET` | همان رشتهٔ ۶۴ کاراکتری که ساختید |
-| `PUBLIC_ORIGIN` | `https://your-domain.com` (دامنهٔ واقعی خودتان) |
+| `PUBLIC_ORIGIN` | `https://your-domain.com` (دامنهٔ واقعی و canonical سایت) |
+| `GOOGLE_SITE_VERIFICATION` | اختیاری؛ کد تأیید مالکیت Search Console |
+| `BING_SITE_VERIFICATION` | اختیاری؛ کد تأیید مالکیت Bing Webmaster Tools |
 
 > `PUBLIC_ORIGIN` را حتماً با `https://` و **بدون اسلش انتهایی** بنویسید. نشانی بازگشت از
-> درگاه پرداخت از روی همین ساخته می‌شود؛ اگر اشتباه باشد، پرداخت به سایت شما برنمی‌گردد.
+> درگاه پرداخت، canonicalها، sitemap و ریدایرکت دامنه از روی همین ساخته می‌شوند؛ اگر اشتباه
+> باشد، پرداخت و نشانی‌های معرفی‌شده به موتور جستجو نیز اشتباه خواهند بود.
 
 ### گام ۶ — نصب وابستگی‌ها و اجرا
 
@@ -748,8 +752,33 @@ state.i18n[locale]             ← ترجمه‌های ویرایش‌شده د�
 در صفحات فروشگاه زبان را عوض کند، به صفحه اصلی همان زبان هدایت می‌شود.
 
 ### سئو
-در هر تغییر مسیر، `title`، `description`، `og:locale`، `canonical` و تگ‌های
-`hreflang` (شامل `x-default`) برای هر سه زبان به‌صورت خودکار به‌روزرسانی می‌شوند.
+
+سئو فقط به اجرای JavaScript وابسته نیست. `npm run build` پس از Vite، مولد
+`scripts/generate-seo.mjs` را اجرا می‌کند و برای تمام صفحات عمومی فارسی، انگلیسی و عربی
+HTML قابل‌خزش می‌سازد. سرور Node همین کار را در هر درخواست با **آخرین محتوای CMS** انجام
+می‌دهد؛ بنابراین عنوان یا مقاله‌ای که در پنل تغییر می‌کند بدون انتشار دوباره کد، متادیتای
+تازه دارد.
+
+خروجی شامل این موارد است:
+
+- عنوان و توضیح یکتای هر صفحه، `canonical` و `hreflang` متقابل با `x-default`؛
+- Open Graph و Twitter Card با تصویر همان صفحه؛
+- JSON-LD معتبر برای `Organization`، `WebSite`، `WebPage`، `BreadcrumbList`،
+  `Product`/`Offer` و `BlogPosting`؛
+- `robots.txt` و sitemap چندزبانهٔ پویا با تصاویر و تاریخ استاندارد مقاله؛
+- HTTP 301 برای آدرس‌های قدیمی، پیشوند `/fa`، `index.html` و اسلش انتهایی؛
+- HTTP 404 واقعی برای مسیر/محصول/مقالهٔ ناموجود؛
+- `noindex` در هدر و HTML برای `/admin`، حساب، ورود، سبد، پرداخت و پیگیری سفارش؛
+- نسخهٔ متنی و معنایی داخل HTML برای موتور جستجو و مرورگر بدون JavaScript.
+
+فروشگاه فقط فارسی است؛ بنابراین هیچ `hreflang` ساختگی به `/en/shop` یا `/ar/shop` ساخته
+نمی‌شود. هر صفحهٔ خریدی که در پنل به محصول کاتالوگ متصل شده باشد نیز با canonical به صفحهٔ
+چندزبانهٔ همان محصول در `/products/:slug` اشاره می‌کند تا دو صفحه برای یک عبارت با هم رقابت
+نکنند؛ محصول مستقل فروشگاه canonical و ورودی sitemap خودش را نگه می‌دارد.
+
+بعد از انتشار، `https://your-domain.com/sitemap.xml` را در Google Search Console و Bing
+Webmaster Tools ثبت کنید. کدهای تأیید اختیاری را می‌توان با متغیرهای محیطی جدول بالا وارد
+کرد؛ هیچ شناسه یا توکن ساختگی در مخزن قرار نمی‌گیرد.
 
 ## 🌗 حالت تاریک
 

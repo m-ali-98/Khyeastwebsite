@@ -219,10 +219,10 @@ check(
    over both line endings and require the same answer. */
 {
   const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
-  const start = src.indexOf('const scriptHashes');
-  const end = src.indexOf('\n};', start) + 3;
+  const start = src.indexOf('const scriptHashesFromHtml');
+  const end = src.indexOf('/* Computed once at boot', start);
   if (start === -1 || end < start) {
-    check(false, 'scriptHashes() found in server/index.js');
+    check(false, 'scriptHashesFromHtml() and scriptHashes() found in server/index.js');
   } else {
     const tmp = path.join(ROOT, '.tmp-csp-check');
     const body = "\n  var a = 1;\n  console.log(a);\n";

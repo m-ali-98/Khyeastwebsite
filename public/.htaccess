@@ -3,14 +3,67 @@
 # SPA fallback + compression + caching tuned for slow Iranian connections.
 # ==========================================================================
 
-# --- SPA fallback ---------------------------------------------------------
+# --- Canonical URLs + route-aware SPA delivery -----------------------------
+# The post-build SEO generator fills the marked block with every public page.
+# Known routes receive their crawlable HTML while React still owns interaction;
+# unknown routes receive a real HTTP 404 instead of a soft-404 index shell.
+ErrorDocument 404 /404.html
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
-  RewriteRule ^index\.html$ - [L]
-  RewriteCond %{REQUEST_FILENAME} !-f
+
+  # Canonical production host. Custom/staging hosts are deliberately untouched.
+  RewriteCond %{HTTP_HOST} ^www\.khuzestanyeast-co\.com(?::\d+)?$ [NC]
+  RewriteRule ^ https://khuzestanyeast-co.com%{REQUEST_URI} [R=301,L,NE]
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP_HOST} ^khuzestanyeast-co\.com(?::\d+)?$ [NC]
+  RewriteRule ^ https://khuzestanyeast-co.com%{REQUEST_URI} [R=301,L,NE]
+
+  RewriteRule ^(?:fa/)?index\.html/?$ / [R=301,L]
+
+  # Legacy brand addresses are permanent, single-hop redirects. Optional
+  # default-locale prefixes and trailing slashes collapse in the same response.
+  RewriteRule ^(?:fa/)?dezmaye/?$ /products/dezmaye-gold-80 [R=301,L]
+  RewriteRule ^(?:fa/)?shetab/?$ /products/shetab-90 [R=301,L]
+  RewriteRule ^(?:fa/)?xpower/?$ /products/xpower-70 [R=301,L]
+  RewriteRule ^(?:fa/)?nanmaye/?$ /products/nanmaye-10 [R=301,L]
+  RewriteRule ^(en|ar)/dezmaye/?$ /$1/products/dezmaye-gold-80 [R=301,L]
+  RewriteRule ^(en|ar)/shetab/?$ /$1/products/shetab-90 [R=301,L]
+  RewriteRule ^(en|ar)/xpower/?$ /$1/products/xpower-70 [R=301,L]
+  RewriteRule ^(en|ar)/nanmaye/?$ /$1/products/nanmaye-10 [R=301,L]
+
+  RewriteRule ^fa/?$ / [R=301,L]
+  RewriteRule ^fa/(.*?)/?$ /$1 [R=301,L,NE]
+  RewriteRule ^(?:en|ar)(/admin(?:/.*?)?)/?$ $1 [R=301,L,NE]
+
+  # One canonical, slashless URL for every page (real asset directories stay).
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule . /index.html [L]
+  RewriteRule ^(.+)/$ /$1 [R=301,L,NE]
+
+  # Never expose generated implementation files by their storage URL. Internal
+  # rewrites retain the original route in THE_REQUEST and therefore stay valid;
+  # the root-level ErrorDocument does not match this seo-pages-only rule.
+  RewriteCond %{THE_REQUEST} "\s/+seo-pages(?:[/\s?])" [NC]
+  RewriteRule ^seo-pages(?:/.*)?$ - [R=404,L,NC]
+
+  # Private/transactional screens stay functional but always use a noindex
+  # shell. Dynamic order codes cannot be enumerated at build time.
+  RewriteRule ^admin(?:/.*)?$ /seo-pages/_private.html [L]
+  RewriteRule ^shop/(?:cart|checkout|login|account)$ /seo-pages/_private.html [L]
+  RewriteRule ^shop/order/[^/]+$ /seo-pages/_private.html [L]
+
+  # SEO-PAGES:START
+  # populated in dist/.htaccess by scripts/generate-seo.mjs
+  # SEO-PAGES:END
+
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Root is dist/index.html. Everything else unknown is an actual 404 whose
+  # ErrorDocument still boots React's localized NotFound screen.
+  RewriteRule ^$ - [L]
+  RewriteRule . - [R=404,L]
 </IfModule>
 
 # --- Compression (biggest win on slow links: ~70% off HTML/CSS/JS/JSON) ---
@@ -71,6 +124,12 @@
   </FilesMatch>
   <FilesMatch "\.html$">
     Header set Cache-Control "no-cache"
+  </FilesMatch>
+  # Internal shells for private routes and ErrorDocument 404 carry the same
+  # belt-and-braces index policy as the Node server, even if a crawler ignores
+  # the equivalent HTML meta tag.
+  <FilesMatch "^(_private|404)\.html$">
+    Header always set X-Robots-Tag "noindex, nofollow, noarchive"
   </FilesMatch>
   Header append Vary Accept-Encoding
 </IfModule>

@@ -22,6 +22,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 
 const GROUPS = [
   ['all', 'همه'],
+  ['seo', 'عنوان‌های سئو'],
   ['global', 'سراسری'],
   ['nav', 'منو'],
   ['home', 'صفحه اصلی'],
@@ -37,12 +38,15 @@ const GROUPS = [
 
 const LABELS = {
   title: 'عنوان',
+  seoTitle: 'عنوان سئو',
+  seoDescription: 'توضیح سئو',
   weight: 'وزن / اندازه',
   pack: 'بسته‌بندی',
   short: 'توضیح کوتاه',
   excerpt: 'چکیده',
   category: 'دسته‌بندی',
-  date: 'تاریخ',
+  date: 'تاریخ نمایشی',
+  publishedAt: 'تاریخ استاندارد انتشار (SEO)',
   readTime: 'زمان مطالعه',
   usage: 'راهنمای مصرف',
   storage: 'شرایط نگهداری',

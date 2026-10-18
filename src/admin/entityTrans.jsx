@@ -29,6 +29,11 @@ import {
 } from './transFields';
 
 const LANG_NAME = { en: 'انگلیسی', ar: 'عربی' };
+const localIsoDate = () => {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 10);
+};
 
 /* Write `patch` into state.i18n[locale][bucket][slug], dropping any field that
    is identical to the shipped translation. */
@@ -134,6 +139,8 @@ export function ProductsTransTab() {
       weight: eff(o.weight, s.weight, p.weight),
       pack: eff(o.pack, s.pack, p.pack),
       short: eff(o.short, s.short, p.short),
+      seoTitle: eff(o.seoTitle, s.seoTitle, p.seoTitle),
+      seoDescription: eff(o.seoDescription, s.seoDescription, p.seoDescription),
       specs: effPairs(o.specs, s.specs, p.specs || []),
       analysis: effPairs(o.analysis, s.analysis, p.analysis || []),
       usage: effList(o.usage, s.usage, p.usage || []),
@@ -191,6 +198,10 @@ export function ProductsTransTab() {
           onChange={(v) => setDraft({ ...draft, short: v })}
           textarea
         />
+        <div className="admin__grid2">
+          <TransField label="عنوان سئو (اختیاری)" base={editing.seoTitle} value={draft.seoTitle} onChange={(v) => setDraft({ ...draft, seoTitle: v })} />
+          <TransField label="توضیح سئو (اختیاری)" base={editing.seoDescription} value={draft.seoDescription} onChange={(v) => setDraft({ ...draft, seoDescription: v })} />
+        </div>
 
         <TransPairList
           label="جدول مشخصات"
@@ -261,8 +272,11 @@ export function PostsTransTab() {
     setDraft({
       title: eff(o.title, s.title, p.title),
       excerpt: eff(o.excerpt, s.excerpt, p.excerpt),
+      seoTitle: eff(o.seoTitle, s.seoTitle, p.seoTitle),
+      seoDescription: eff(o.seoDescription, s.seoDescription, p.seoDescription),
       category: eff(o.category, s.category, p.category),
       date: eff(o.date, s.date, p.date),
+      publishedAt: eff(o.publishedAt, s.publishedAt, p.publishedAt),
       readTime: eff(o.readTime, s.readTime, p.readTime),
       body: eff(o.body, s.body, p.body),
     });
@@ -271,7 +285,11 @@ export function PostsTransTab() {
   };
 
   const commit = () => {
-    persist(editing.slug, { ...draft, body: sanitizeHtml(draft.body) });
+    persist(editing.slug, {
+      ...draft,
+      body: sanitizeHtml(draft.body),
+      updatedAt: localIsoDate(),
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
   };
@@ -310,6 +328,15 @@ export function PostsTransTab() {
           <TransField label="تاریخ نمایش" base={editing.date} value={draft.date} onChange={(v) => setDraft({ ...draft, date: v })} />
         </div>
         <TransField
+          label="تاریخ استاندارد انتشار (SEO)"
+          base={editing.publishedAt}
+          value={draft.publishedAt}
+          onChange={(v) => setDraft({ ...draft, publishedAt: v })}
+          hint="فرمت میلادی YYYY-MM-DD"
+          dir="ltr"
+          type="date"
+        />
+        <TransField
           label="زمان مطالعه (دقیقه)"
           base={editing.readTime}
           value={draft.readTime}
@@ -324,6 +351,10 @@ export function PostsTransTab() {
           textarea
           rows={2}
         />
+        <div className="admin__grid2">
+          <TransField label="عنوان سئو (اختیاری)" base={editing.seoTitle} value={draft.seoTitle} onChange={(v) => setDraft({ ...draft, seoTitle: v })} />
+          <TransField label="توضیح سئو (اختیاری)" base={editing.seoDescription} value={draft.seoDescription} onChange={(v) => setDraft({ ...draft, seoDescription: v })} />
+        </div>
 
         <div className="admin__tf-group">
           <div className="admin__row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>

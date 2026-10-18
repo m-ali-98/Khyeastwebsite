@@ -9,19 +9,40 @@
     <link rel="icon" type="image/png" sizes="64x64" href="/assets/brand/favicon-64.png" />
     <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png" />
 
-    <!-- Slow connections: start the two critical fetches before the JS bundle
+    <!-- Slow connections: start the critical CMS fetch before the JS bundle
          has even been parsed, and paint a branded screen instead of white. -->
     <link rel="preload" as="fetch" href="/api/content" crossorigin />
-    <link rel="preload" as="image" href="/assets/img/hero-wheat.webp" fetchpriority="high" />
-    <title>شرکت خمیر مایه خوزستان | از مغز گندم؛ تا اولین برش نان</title>
-    <meta
-      name="description"
-      content="شرکت خمیر مایه خوزستان؛ تولیدکننده خمیرمایه خشک فوری با برندهای دزمایه، شتاب، ایکس پاور و نان مایه. بیش از سه دهه تجربه، صادرات به بیش از ۵۰ کشور جهان. از مغز گندم؛ تا اولین برش نان."
-    />
-    <meta property="og:title" content="شرکت خمیر مایه خوزستان" />
-    <meta property="og:description" content="از مغز گندم؛ تا اولین برش نان — تولیدکننده خمیرمایه خشک فوری با بیش از سه دهه سابقه و صادرات به بیش از ۵۰ کشور" />
+    <!-- The route-aware build/server replaces only this block. Keeping a
+         complete root-page version here also gives Vite development and a raw
+         static index useful search/share metadata. -->
+    <!-- seo:head:start -->
+    <title>خمیرمایه خوزستان | تولیدکننده خمیرمایه خشک فوری</title>
+    <meta name="description" content="خطوط تولید کارخانه توسط شرکت Frings اتریش و بر اساس آخرین تکنولوژی روز اروپا طراحی و راه‌اندازی شده است؛ بیش از نیمی از محصولات ما به کشورهای همسایه، CIS،…" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <link rel="canonical" href="https://khuzestanyeast-co.com/" />
+    <link rel="alternate" hreflang="fa" href="https://khuzestanyeast-co.com/" />
+    <link rel="alternate" hreflang="en" href="https://khuzestanyeast-co.com/en" />
+    <link rel="alternate" hreflang="ar" href="https://khuzestanyeast-co.com/ar" />
+    <link rel="alternate" hreflang="x-default" href="https://khuzestanyeast-co.com/" />
+    <meta property="og:site_name" content="شرکت خمیر مایه خوزستان" />
+    <meta property="og:title" content="خمیرمایه خوزستان | تولیدکننده خمیرمایه خشک فوری" />
+    <meta property="og:description" content="خطوط تولید کارخانه توسط شرکت Frings اتریش و بر اساس آخرین تکنولوژی روز اروپا طراحی و راه‌اندازی شده است؛ بیش از نیمی از محصولات ما به کشورهای همسایه، CIS،…" />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://khuzestanyeast-co.com/" />
     <meta property="og:locale" content="fa_IR" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:locale:alternate" content="ar_AE" />
+    <meta property="og:image" content="https://khuzestanyeast-co.com/assets/img/hero-wheat.webp" />
+    <meta property="og:image:secure_url" content="https://khuzestanyeast-co.com/assets/img/hero-wheat.webp" />
+    <meta property="og:image:type" content="image/webp" />
+    <meta property="og:image:alt" content="شرکت خمیر مایه خوزستان" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="خمیرمایه خوزستان | تولیدکننده خمیرمایه خشک فوری" />
+    <meta name="twitter:description" content="خطوط تولید کارخانه توسط شرکت Frings اتریش و بر اساس آخرین تکنولوژی روز اروپا طراحی و راه‌اندازی شده است؛ بیش از نیمی از محصولات ما به کشورهای همسایه، CIS،…" />
+    <meta name="twitter:image" content="https://khuzestanyeast-co.com/assets/img/hero-wheat.webp" />
+    <meta name="twitter:image:alt" content="شرکت خمیر مایه خوزستان" />
+    <!-- seo:head:end -->
     <style>
       /* Critical inline CSS — renders before the stylesheet arrives */
       html { background: #fbf6f5; }
@@ -164,6 +185,9 @@
         .boot-splash__orbit { animation: none; }
       }
     </style>
+    <!-- Server/build-rendered text remains usable when JavaScript is disabled;
+         only the animated boot layer depends on JavaScript to dismiss it. -->
+    <noscript><style>#boot-splash{display:none!important}.seo-fallback{max-width:1120px;margin:auto;padding:48px 24px;font:16px/2 Tahoma,sans-serif}.seo-fallback nav ul{display:flex;flex-wrap:wrap;gap:16px;list-style:none;padding:0}.seo-fallback article{max-width:900px}.seo-fallback a{color:#a50f2d}</style></noscript>
 
     <!-- Set language, direction and theme before the first paint so the page
          never flashes the wrong script direction or a white screen in dark

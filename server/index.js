@@ -18,6 +18,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
+import { mergeContentState } from '../shared/contentState.js';
+import { loadAllPacks } from '../shared/i18n/index.js';
+import {
+  normalizeOrigin,
+  redirectPath,
+  renderRobots,
+  renderSeoDocument,
+  renderSitemap,
+  resolveSeo,
+} from '../shared/seo.js';
 import { createShopRouter } from './shop.js';
 import { createAccountRouter } from './accountRoutes.js';
 import { optimizeImage, optimiserAvailable } from './images.js';
@@ -52,6 +62,11 @@ for (const envPath of [path.join(__dirname, '.env'), path.join(__dirname, '..', 
 }
 
 const PORT = process.env.PORT || 8787;
+
+/* The SEO renderer needs all three translation packs synchronously while it
+   answers a direct request. The browser still downloads only its active pack;
+   this server-side preload does not affect client bundle size. */
+await loadAllPacks();
 
 /* --------------------------------------------------------------------------
    Credentials.
@@ -322,31 +337,35 @@ app.use(
    style-src still needs 'unsafe-inline': the animation layer writes inline
    style attributes on elements, and CSP blocks those without it. Styles cannot
    execute, so the residual risk is defacement rather than code execution. */
+const scriptHashesFromHtml = (html) => {
+  const out = [];
+  for (const match of String(html || '').matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
+    /* The browser hashes the script text as the HTML parser produced it,
+       and the parser normalises CRLF to LF. A file checked out on Windows
+       (or edited there) carries CRLF, so hashing the raw bytes yields a
+       digest the browser never computes — and the inline boot script is
+       blocked on every page load. Normalise before hashing. */
+    const text = match[1].replace(/\r\n/g, '\n');
+    out.push(`'sha256-${crypto.createHash('sha256').update(text, 'utf8').digest('base64')}'`);
+  }
+  return out.join(' ');
+};
+
 const scriptHashes = () => {
   try {
-    const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
-    const out = [];
-    for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
-      /* The browser hashes the script text as the HTML parser produced it,
-         and the parser normalises CRLF to LF. A file checked out on Windows
-         (or edited there) carries CRLF, so hashing the raw bytes yields a
-         digest the browser never computes — and the inline boot script is
-         blocked on every page load. Normalise before hashing. */
-      const text = m[1].replace(/\r\n/g, '\n');
-      out.push(`'sha256-${crypto.createHash('sha256').update(text, 'utf8').digest('base64')}'`);
-    }
-    return out.join(' ');
+    return scriptHashesFromHtml(fs.readFileSync(path.join(DIST, 'index.html'), 'utf8'));
   } catch {
     return '';
   }
 };
 
-/* Computed once at boot; the built HTML does not change while running. */
+/* Computed once at boot for APIs/assets. Route HTML recalculates the second
+   hash because each page carries different JSON-LD. */
 const INLINE_SCRIPTS = scriptHashes();
 
-const CSP = [
+const makeCsp = (inlineScripts = INLINE_SCRIPTS) => [
   "default-src 'self'",
-  `script-src 'self' ${INLINE_SCRIPTS}`.trim(),
+  `script-src 'self' ${inlineScripts}`.trim(),
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "media-src 'self'",
@@ -362,6 +381,8 @@ const CSP = [
   "form-action 'self'",
   'upgrade-insecure-requests',
 ].join('; ');
+
+const CSP = makeCsp();
 
 app.disable('x-powered-by'); // do not advertise the stack
 
@@ -527,6 +548,9 @@ app.put('/api/content', requireAuth, (req, res) => {
     for (let i = 0; i < list.length; i += 1) {
       const id = typeof list[i]?.[key] === 'string' ? list[i][key].trim() : '';
       if (!id) return res.status(400).json({ error: `${bucket}[${i}]: missing ${key}` });
+      if (id.length > 120 || !/^[a-z0-9\u0600-\u06FF]+(?:-[a-z0-9\u0600-\u06FF]+)*$/.test(id)) {
+        return res.status(400).json({ error: `${bucket}[${i}]: invalid ${key}` });
+      }
       if (seen.has(id)) return res.status(400).json({ error: `${bucket}[${i}]: duplicate ${key} "${id}"` });
       seen.add(id);
     }
@@ -678,13 +702,74 @@ const accountRouter = createAccountRouter({
 shopRouter.useCustomer(accountRouter.currentCustomer);
 app.use(accountRouter);
 
-/* ---------------- production static site ---------------- */
+/* ---------------- production static site + route-aware SEO ---------------- */
 if (fs.existsSync(DIST)) {
-  /* Content-hashed files never change → cache them for a year.
-     index.html must always be revalidated so deploys are picked up. */
+  const templatePath = path.join(DIST, 'seo-pages', '_template.html');
+  const seoTemplate = fs.existsSync(templatePath)
+    ? fs.readFileSync(templatePath, 'utf8')
+    : fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
+  const configuredOrigin = process.env.PUBLIC_ORIGIN ? normalizeOrigin(process.env.PUBLIC_ORIGIN) : '';
+  const trustedHosts = String(process.env.TRUSTED_HOSTS || '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+  /* PUBLIC_ORIGIN is preferred. When a production host uses the allowlist
+     instead, its first entry is the canonical host; never let an arbitrary
+     Host header write attacker-controlled canonicals into HTML or sitemaps. */
+  const canonicalProductionOrigin = configuredOrigin || (IS_PROD && trustedHosts[0] ? normalizeOrigin(`https://${trustedHosts[0]}`) : '');
+  const requestOrigin = (req) => {
+    if (canonicalProductionOrigin) return canonicalProductionOrigin;
+    const secure = req.secure || req.get('x-forwarded-proto') === 'https';
+    return normalizeOrigin(`${secure ? 'https' : 'http'}://${req.get('host')}`);
+  };
+  const seoState = () => {
+    try {
+      return mergeContentState(DEFAULT_STATE, readContent());
+    } catch {
+      return mergeContentState(DEFAULT_STATE, {});
+    }
+  };
+
+  /* Normalize protocol/host before any public document or asset is served.
+     This sits after the API routers, whose own trusted-origin checks remain
+     independent, but before robots, sitemap and static files. */
+  app.use((req, res, next) => {
+    if (!IS_PROD || !canonicalProductionOrigin) return next();
+    const secure = req.secure || req.get('x-forwarded-proto') === 'https';
+    const incoming = normalizeOrigin(`${secure ? 'https' : 'http'}://${req.get('host')}`);
+    if (incoming === canonicalProductionOrigin) return next();
+    return res.redirect(301, `${canonicalProductionOrigin}${req.originalUrl}`);
+  });
+
+  app.get('/robots.txt', (req, res) => {
+    res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(renderRobots(requestOrigin(req)));
+  });
+  app.get('/sitemap.xml', (req, res) => {
+    res.type('application/xml').setHeader('Cache-Control', 'no-cache');
+    res.send(renderSitemap(seoState(), requestOrigin(req)));
+  });
+  app.get('/index.html', (_req, res) => res.redirect(301, '/'));
+  const sendStatic404 = (res) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    res.setHeader('Content-Language', 'fa');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(404).sendFile(path.join(DIST, '404.html'));
+  };
+  app.get('/404.html', (_req, res) => sendStatic404(res));
+
+  /* Generated files are an Apache implementation detail. Serving them by
+     storage path would create a second indexable URL for every page. */
+  app.get(/^\/seo-pages(?:\/|$)/i, (_req, res) => sendStatic404(res));
+
+  /* Content-hashed files never change → cache them for a year. `index: false`
+     is essential: `/` must pass through the live renderer below so CMS edits
+     update its metadata and structured data without a redeploy. */
   app.use(
     express.static(DIST, {
       etag: true,
+      index: false,
+      redirect: false,
       setHeaders: (res, filePath) => {
         if (/[.-][0-9a-zA-Z_-]{8,}\.(js|css|woff2?|png|jpe?g|webp|svg|avif)$/.test(filePath))
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
@@ -700,9 +785,34 @@ if (fs.existsSync(DIST)) {
       },
     }),
   );
-  app.get(/^\/(?!api|uploads).*/, (_req, res) => {
-    res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(path.join(DIST, 'index.html'));
+
+  app.get(/^\/(?!api|uploads).*/, (req, res) => {
+    const origin = requestOrigin(req);
+    const queryAt = req.originalUrl.indexOf('?');
+    const query = queryAt >= 0 ? req.originalUrl.slice(queryAt) : '';
+    const redirect = redirectPath(req.path);
+    if (redirect) return res.redirect(301, `${redirect}${query}`);
+
+    const meta = resolveSeo(req.path, seoState(), origin);
+    let html;
+    try {
+      html = renderSeoDocument(seoTemplate, meta, {
+        googleVerification: process.env.GOOGLE_SITE_VERIFICATION || '',
+        bingVerification: process.env.BING_SITE_VERIFICATION || '',
+      });
+    } catch (error) {
+      console.error('[seo] could not render route metadata:', error.message);
+      return res.status(500).type('text/plain').send('internal error');
+    }
+
+    /* JSON-LD differs by route and is an inline script element. Hash this
+       exact response so the strict CSP permits it without unsafe-inline. */
+    res.setHeader('Content-Security-Policy', makeCsp(scriptHashesFromHtml(html)));
+    res.setHeader('Content-Language', meta.lang);
+    res.setHeader('Cache-Control', meta.indexable ? 'no-cache' : 'private, no-store');
+    res.vary('Host');
+    if (!meta.indexable) res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    return res.status(meta.status).type('html').send(html);
   });
 }
 

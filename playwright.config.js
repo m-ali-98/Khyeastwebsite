@@ -103,6 +103,7 @@ export default defineConfig({
       ADMIN_USER: E2E.user,
       ADMIN_PASS: E2E.pass,
       ADMIN_SECRET: E2E.secret,
+      PUBLIC_ORIGIN: E2E.baseURL,
       NODE_ENV: 'development',
       /* Every request in the run comes from 127.0.0.1, so the public
          rate limits (5 messages / 5 comments / 12 orders per 10 min) would

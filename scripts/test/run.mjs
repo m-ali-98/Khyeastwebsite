@@ -244,6 +244,19 @@ try {
   console.log('  FAIL assets harness error');
 }
 
+console.log('\nSEO — every public route must be crawlable, canonical and safe');
+{
+  const { stdout, crashed, err } = await suite('seo.mjs', 40000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'seo', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} crawl, metadata, schema and sitemap checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
 console.log('\nUpload optimisation — a photo may be shrunk, but never lost or broken');
 for (const [file, label, timeout] of [['images.mjs', 'upload optimisation checks', 60000], ['upload.mjs', 'upload round-trip checks', 90000]]) {
   const name = file.replace('.mjs', '');

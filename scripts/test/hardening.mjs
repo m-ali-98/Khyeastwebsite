@@ -43,7 +43,7 @@ let server;
 const start = async () => {
   server = spawn('node', ['server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), DB_FILE: DB, NODE_ENV: 'development' },
+    env: { ...process.env, PORT: String(PORT), DB_FILE: DB, PUBLIC_ORIGIN: BASE, NODE_ENV: 'development' },
     stdio: 'ignore',
   });
   for (let i = 0; i < 100; i += 1) {
@@ -103,14 +103,17 @@ try {
     }
   }
 
-  /* Nothing the page links to may be off-origin, or CSP blocks it. */
-  const linked = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
-    .map((m) => m[1])
-    .filter((u) => !u.startsWith('data:'));
+  /* Fetchable page resources must stay on-origin. SEO canonicals, hreflang
+     alternates and ordinary anchors are intentionally absolute URLs but CSP
+     does not fetch them, so they are not resource-policy violations. */
+  const linked = [
+    ...[...html.matchAll(/<(?:script|img|source|video|audio)\b[^>]*\bsrc="([^"]+)"/gi)].map((m) => m[1]),
+    ...[...html.matchAll(/<link\b(?=[^>]*\brel="(?:stylesheet|icon|preload|modulepreload)")[^>]*\bhref="([^"]+)"/gi)].map((m) => m[1]),
+  ].filter((url) => !url.startsWith('data:'));
   check(
-    linked.every((u) => !/^(https?:)?\/\//.test(u)),
-    'every linked resource is same-origin',
-    linked.filter((u) => /^(https?:)?\/\//.test(u)).join(' '),
+    linked.every((url) => !/^(https?:)?\/\//.test(url)),
+    'every fetched resource is same-origin',
+    linked.filter((url) => /^(https?:)?\/\//.test(url)).join(' '),
   );
 
   /* ---- 2. error responses must not leak internals ------------------------ */
@@ -152,7 +155,23 @@ try {
     check(!(r.ok && !isHtml && sig.test(body)), `not served: ${p}`, `status ${r.status}`);
   }
 
-  /* ---- 4. no CORS: the API must stay same-origin -------------------------- */
+  /* ---- 4. indexing policy is enforced at HTTP level ---------------------- */
+  const missing = await fetch(`${BASE}/definitely-not-a-route`);
+  const missingBody = await missing.text();
+  check(missing.status === 404, 'unknown public route has a genuine HTTP 404');
+  check(missing.headers.get('x-robots-tag')?.includes('noindex'), '404 carries an X-Robots-Tag noindex header');
+  check(missingBody.includes('noindex, nofollow, noarchive'), '404 HTML carries a noindex directive');
+
+  const privatePage = await fetch(`${BASE}/admin`);
+  check(privatePage.status === 200 && privatePage.headers.get('x-robots-tag')?.includes('noindex'), 'functional admin route is noindex');
+
+  const legacy = await fetch(`${BASE}/fa/dezmaye/`, { redirect: 'manual' });
+  check(
+    legacy.status === 301 && new URL(legacy.headers.get('location'), BASE).pathname === '/products/dezmaye-gold-80',
+    'legacy/default-locale/trailing-slash duplicate redirects in one hop',
+  );
+
+  /* ---- 5. no CORS: the API must stay same-origin -------------------------- */
   const cors = await fetch(`${BASE}/api/content`, { headers: { Origin: 'https://evil.com' } });
   check(
     !cors.headers.get('access-control-allow-origin'),

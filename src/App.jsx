@@ -2,8 +2,9 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import RouteFallback from './components/RouteFallback';
-import { useLocale, LOCALES, localePath } from './i18n/LocaleContext';
+import SeoHead from './components/SeoHead';
 import { useContent } from './content/ContentContext';
+import { useLocale, localePath } from './i18n/LocaleContext';
 import { dismissBootSplash } from './lib/bootSplash';
 import Home from './pages/Home'; // landing page stays in the main bundle
 
@@ -51,23 +52,25 @@ function PublicRoutes() {
      gateway), so it exists on the Persian site only. On /en and /ar its routes
      are simply not mounted and fall through to the 404 page. */
   const { shopEnabled } = useLocale();
+  const { state } = useContent();
+  const storefrontEnabled = shopEnabled && state.shop?.display?.enabled !== false;
   return (
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/about" element={<About />} />
       <Route path="/products" element={<Products />} />
       <Route path="/products/:slug" element={<ProductDetail />} />
+      {storefrontEnabled && <Route path="/shop" element={<Shop />} />}
       {shopEnabled && (
         <>
-          <Route path="/shop" element={<Shop />} />
           <Route path="/shop/cart" element={<ShopCart />} />
           <Route path="/shop/checkout" element={<ShopCheckout />} />
           <Route path="/shop/order/:code" element={<ShopOrder />} />
           <Route path="/shop/login" element={<ShopAuth />} />
           <Route path="/shop/account" element={<ShopAccount />} />
-          <Route path="/shop/:slug" element={<ShopProduct />} />
         </>
       )}
+      {storefrontEnabled && <Route path="/shop/:slug" element={<ShopProduct />} />}
       <Route path="/export" element={<Export />} />
       <Route path="/quality" element={<Quality />} />
       <Route path="/blog" element={<Blog />} />
@@ -82,15 +85,11 @@ function PublicRoutes() {
   );
 }
 
-/* Routes whose <title> is set by the page itself (from the product or post it
-   loaded), so the app-level effect must leave it alone. */
-const HAS_OWN_TITLE = /^\/(products|blog|shop)\/[^/]+$/;
 const NAVIGATION_BEAT_MS = 420;
 
 function NavigationRoutes() {
   const location = useLocation();
-  const isAdmin = location.pathname.startsWith('/admin');
-  const { t } = useContent();
+  const isAdmin = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
   const { locale } = useLocale();
   const routeKey = `${location.key || 'route'}:${location.pathname}${location.search}`;
   const [settledKey, setSettledKey] = useState(routeKey);
@@ -129,79 +128,16 @@ function NavigationRoutes() {
 
   useEffect(() => () => window.clearTimeout(finishTimer.current), []);
 
-  /* Title, description, canonical and hreflang alternates per locale — search
-     engines see three properly-linked language versions of every page. */
-  /* Per-page <title> and description. Every page previously shared the site
-     title, so search results listed a dozen identical entries and neither
-     users nor crawlers could tell them apart. Each key already exists in all
-     three languages, so the titles translate with the rest of the site. */
-  useEffect(() => {
-    const HERO_KEY = {
-      '/': 'home.hero.title',
-      '/about': 'about.hero.title',
-      '/products': 'products.hero.title',
-      '/export': 'export.hero.title',
-      '/quality': 'quality.hero.title',
-      '/blog': 'blog.hero.title',
-      '/contact': 'contact.hero.title',
-      '/shop': 'shop.hero.title',
-    };
-    const site = t('global.company.name');
-    const key = HERO_KEY[location.pathname];
-    /* Strip the [[…]] highlight markers used by the visual headings. */
-    const plain = (s) => String(s || '').replace(/\[\[(.+?)\]\]/g, '$1').trim();
-    const pageTitle = key ? plain(t(key)) : '';
-    /* Detail pages (product, post) set their own title from the entity via
-       usePageMeta. React runs child effects BEFORE parent effects, so writing
-       document.title unconditionally here would clobber theirs on every
-       render. Only claim the title for routes this table actually knows. */
-    const ownsTitle = key || !HAS_OWN_TITLE.test(location.pathname);
-    if (ownsTitle) {
-      document.title =
-        location.pathname === '/' || !pageTitle
-          ? `${site} | ${plain(t('global.slogan'))}`
-          : `${pageTitle} | ${site}`;
-    }
-
-    const setMeta = (attr, key, content) => {
-      let el = document.head.querySelector(`meta[${attr}="${key}"]`);
-      if (!el) {
-        el = document.createElement('meta');
-        el.setAttribute(attr, key);
-        document.head.appendChild(el);
-      }
-      el.setAttribute('content', content);
-    };
-
-    const desc = `${t('footer.about')} ${t('global.slogan')}`.trim();
-    setMeta('name', 'description', desc);
-    setMeta('property', 'og:title', t('global.company.name'));
-    setMeta('property', 'og:description', t('global.slogan'));
-    setMeta('property', 'og:locale', { fa: 'fa_IR', en: 'en_US', ar: 'ar_AE' }[locale] || 'fa_IR');
-
-    const path = location.pathname; // already locale-relative thanks to basename
-    document.head.querySelectorAll('link[data-i18n-alt]').forEach((n) => n.remove());
-    const add = (rel, href, hreflang) => {
-      const link = document.createElement('link');
-      link.rel = rel;
-      link.href = href;
-      if (hreflang) link.hreflang = hreflang;
-      link.setAttribute('data-i18n-alt', '');
-      document.head.appendChild(link);
-    };
-    /* Canonical and hreflang must be absolute URLs — Google ignores relative
-       hreflang values, which meant the three language versions were never
-       actually linked to each other. */
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const url = (code) => `${origin}${localePath(code, path)}`;
-    add('canonical', url(locale));
-    LOCALES.forEach((lo) => add('alternate', url(lo.code), lo.htmlLang));
-    add('alternate', url('fa'), 'x-default');
-  }, [location.pathname, locale, t]);
+  /* Reconstruct the public URL because useLocation is relative to the locale
+     basename (`/en/products` appears here as `/products`). The same resolver
+     renders direct-request metadata on the server and updates it here after
+     client navigation. */
+  const seoPath = localePath(locale, location.pathname);
 
   if (isAdmin) {
     return (
       <>
+        <SeoHead pathname={seoPath} />
         {transitioning && <RouteFallback mode="admin" />}
         <Suspense
           fallback={transitioning || bootSplashPresent ? null : <RouteFallback mode="admin" />}
@@ -218,21 +154,24 @@ function NavigationRoutes() {
      committed, and the orbital screen completed a short readable beat. There
      is never a two-page cross-fade or a stale page retained underneath. */
   return (
-    <Layout>
-      {transitioning && <RouteFallback />}
-      <main
-        key={location.pathname}
-        aria-hidden={transitioning ? 'true' : undefined}
-        inert={transitioning ? true : undefined}
-      >
-        <Suspense
-          fallback={transitioning || bootSplashPresent ? null : <RouteFallback />}
+    <>
+      <SeoHead pathname={seoPath} />
+      <Layout>
+        {transitioning && <RouteFallback />}
+        <main
+          key={location.pathname}
+          aria-hidden={transitioning ? 'true' : undefined}
+          inert={transitioning ? true : undefined}
         >
-          <PublicRoutes />
-          <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
-        </Suspense>
-      </main>
-    </Layout>
+          <Suspense
+            fallback={transitioning || bootSplashPresent ? null : <RouteFallback />}
+          >
+            <PublicRoutes />
+            <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
+          </Suspense>
+        </main>
+      </Layout>
+    </>
   );
 }
 
