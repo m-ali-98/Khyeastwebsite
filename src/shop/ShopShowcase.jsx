@@ -94,13 +94,15 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
 
       <div className="shop-showcase__veil" aria-hidden="true" />
       <div className="container shop-showcase__content">
-        <Reveal as="nav" className="breadcrumb" y={14} aria-label="مسیر صفحه">
-          <Link to="/">{crumb || t('nav.breadcrumb.home')}</Link>
-          <span className="sep">/</span>
-          <span>{title}</span>
-        </Reveal>
-        <Reveal as="h1" delay={0.12} y={30}>{title}</Reveal>
-        {sub && <Reveal as="p" delay={0.24} y={24}>{sub}</Reveal>}
+        <div className="shop-showcase__copy">
+          <Reveal as="nav" className="breadcrumb" y={14} aria-label="مسیر صفحه">
+            <Link to="/">{crumb || t('nav.breadcrumb.home')}</Link>
+            <span className="sep">/</span>
+            <span>{title}</span>
+          </Reveal>
+          <Reveal as="h1" delay={0.12} y={30}>{title}</Reveal>
+          {sub && <Reveal as="p" delay={0.24} y={24}>{sub}</Reveal>}
+        </div>
       </div>
 
       {slides.length > 1 && (

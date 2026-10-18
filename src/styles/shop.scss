@@ -4,8 +4,9 @@
 
 /* ---------------- linked shop showcase ---------------- */
 .shop-showcase {
+  --shop-showcase-height: clamp(500px, 44vw, 570px);
   position: relative;
-  min-height: clamp(390px, 42vw, 520px);
+  min-height: var(--shop-showcase-height);
   overflow: hidden;
   isolation: isolate;
   background: var(--inverse-deep);
@@ -51,6 +52,7 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      filter: saturate(1.04) contrast(1.02) brightness(1.025);
       transform: scale(1.002);
       transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
     }
@@ -59,55 +61,88 @@
     &:focus-visible img { transform: scale(1.018); }
   }
 
+  /* Keep the photograph bright. Contrast now lives inside the compact copy
+     panel instead of being painted across the entire showcase image. */
   &__veil {
     position: absolute;
     z-index: 1;
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(90deg, rgba(16, 13, 15, 0.48), rgba(16, 13, 15, 0.18) 48%, rgba(16, 13, 15, 0.58)),
-      linear-gradient(0deg, rgba(16, 13, 15, 0.74), rgba(16, 13, 15, 0.14) 68%);
+      linear-gradient(0deg, rgba(10, 7, 8, 0.4), transparent 30%),
+      linear-gradient(90deg, rgba(10, 7, 8, 0.08), transparent 46%, rgba(10, 7, 8, 0.06));
   }
 
   &::after {
     content: '';
     position: absolute;
     z-index: 1;
-    inset-inline-start: 0;
-    inset-block: 0;
-    width: min(62%, 760px);
+    inset-inline-start: -120px;
+    inset-block-start: -180px;
+    width: 520px;
+    aspect-ratio: 1;
+    border-radius: 50%;
     pointer-events: none;
-    background: linear-gradient(90deg, transparent, rgba(19, 15, 17, 0.58));
+    background: radial-gradient(circle, rgba(198, 0, 46, 0.12), transparent 68%);
   }
 
   &__content {
     position: relative;
     z-index: 2;
-    min-height: clamp(390px, 42vw, 520px);
-    padding-block-start: calc(var(--nav-h) + clamp(42px, 6vw, 78px));
-    padding-block-end: 92px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: var(--shop-showcase-height);
+    padding-block-start: calc(var(--nav-h) + 26px);
+    padding-block-end: 86px;
     pointer-events: none;
+  }
 
-    .breadcrumb { color: rgba(255, 255, 255, 0.76); pointer-events: auto; }
-    .breadcrumb a:hover { color: #fff; }
-    .breadcrumb .sep { color: inherit; }
+  &__copy {
+    position: relative;
+    width: min(570px, 52%);
+    overflow: hidden;
+    padding: clamp(26px, 3vw, 40px) clamp(26px, 3.4vw, 44px);
+    border: 1px solid rgba(255, 255, 255, 0.68);
+    border-radius: clamp(22px, 2.4vw, 30px);
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.88));
+    box-shadow: 0 28px 72px -34px rgba(15, 8, 10, 0.72);
+    color: #20181a;
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset-block: 28px;
+      inset-inline-start: 0;
+      width: 4px;
+      border-radius: 999px;
+      background: var(--crimson-solid);
+    }
+
+    .breadcrumb {
+      color: #75676b;
+      pointer-events: auto;
+    }
+    .breadcrumb a { color: var(--crimson-ink); }
+    .breadcrumb a:hover { color: var(--crimson-700); }
+    .breadcrumb .sep { color: #a5979b; }
 
     h1 {
-      max-width: 760px;
-      margin: 14px 0 10px;
-      font-size: clamp(31px, 4.5vw, 54px);
+      max-width: 520px;
+      margin: 15px 0 11px;
+      color: #20181a;
+      font-size: clamp(32px, 4vw, 48px);
       font-weight: 900;
-      line-height: 1.55;
+      line-height: 1.48;
       text-wrap: balance;
-      text-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
     }
 
     p {
-      max-width: 670px;
+      max-width: 510px;
       margin: 0;
-      color: rgba(255, 255, 255, 0.86);
-      font-size: 16.5px;
-      line-height: 1.9;
+      color: #615458;
+      font-size: 16px;
+      line-height: 1.88;
       text-wrap: balance;
     }
   }
@@ -168,6 +203,20 @@
       background: var(--crimson);
     }
   }
+}
+
+[data-theme='dark'] .shop-showcase__copy {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: linear-gradient(145deg, rgba(18, 10, 13, 0.96), rgba(18, 10, 13, 0.88));
+  box-shadow: 0 28px 72px -30px rgba(0, 0, 0, 0.88);
+  color: #fff;
+
+  .breadcrumb { color: rgba(255, 255, 255, 0.64); }
+  .breadcrumb a { color: var(--crimson-bright); }
+  .breadcrumb a:hover { color: #fff; }
+  .breadcrumb .sep { color: rgba(255, 255, 255, 0.38); }
+  h1 { color: #fff; }
+  p { color: rgba(255, 255, 255, 0.76); }
 }
 
 /* ---------------- trust band ---------------- */
@@ -1558,6 +1607,7 @@
    reflows from four columns to two to one, and a fixed override at a
    breakpoint only fought it. */
 @media (max-width: 1080px) {
+  .shop-showcase__copy { width: min(560px, 64%); }
   .shop-toolbar__tools { justify-content: flex-start; }
 
   .shop-grid {
@@ -1578,19 +1628,32 @@
   }
 }
 
+@media (max-width: 800px) {
+  .shop-showcase__copy { width: min(100%, 600px); }
+}
+
 @media (max-width: 640px) {
-  .shop-showcase,
-  .shop-showcase__content { min-height: 430px; }
+  .shop-showcase { --shop-showcase-height: clamp(550px, 142vw, 610px); }
 
   .shop-showcase__content {
-    padding-block-start: calc(var(--nav-h) + 34px);
-    padding-block-end: 86px;
-
-    h1 { font-size: clamp(28px, 9vw, 36px); line-height: 1.5; }
-    p { font-size: 14.5px; line-height: 1.8; }
+    align-items: flex-end;
+    min-height: var(--shop-showcase-height);
+    padding-block-start: calc(var(--nav-h) + 116px);
+    padding-block-end: 78px;
   }
 
-  .shop-showcase__navigation { inset-block-end: 16px; }
+  .shop-showcase__copy {
+    width: 100%;
+    padding: 21px 20px 22px;
+    border-radius: 22px;
+
+    &::before { inset-block: 22px; width: 3px; }
+    .breadcrumb { font-size: 12px; }
+    h1 { margin-block: 11px 8px; font-size: clamp(27px, 8.7vw, 34px); line-height: 1.45; }
+    p { font-size: 14px; line-height: 1.76; }
+  }
+
+  .shop-showcase__navigation { inset-block-end: 15px; }
   .shop-showcase__arrows button { width: 38px; height: 38px; }
 
   .shop-toolbar { align-items: stretch; }
