@@ -75,24 +75,6 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
       aria-roledescription="اسلایدشو"
       onKeyDown={onKeyDown}
     >
-      <div className="shop-showcase__viewport">
-        <div className="shop-showcase__track" style={{ transform: `translate3d(${-active * 100}%, 0, 0)` }}>
-          {slides.map((slide, index) => (
-            <div className="shop-showcase__slide" aria-hidden={index !== active} key={`${slide.id}-${index}`}>
-              <ShowcaseLink slide={slide} active={index === active}>
-                <img
-                  {...imgProps(slide.image, SIZES.full)}
-                  alt={slide.alt}
-                  loading={index === 0 ? 'eager' : 'lazy'}
-                  fetchPriority={index === 0 ? 'high' : 'auto'}
-                />
-              </ShowcaseLink>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="shop-showcase__veil" aria-hidden="true" />
       <div className="container shop-showcase__content">
         <div className="shop-showcase__copy">
           <Reveal as="nav" className="breadcrumb" y={14} aria-label="مسیر صفحه">
@@ -100,35 +82,59 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
             <span className="sep">/</span>
             <span>{title}</span>
           </Reveal>
-          <Reveal as="h1" delay={0.12} y={30}>{title}</Reveal>
-          {sub && <Reveal as="p" delay={0.24} y={24}>{sub}</Reveal>}
+          <div className="shop-showcase__heading">
+            <Reveal as="h1" delay={0.12} y={30}>{title}</Reveal>
+            {sub && <Reveal as="p" delay={0.24} y={24}>{sub}</Reveal>}
+          </div>
         </div>
       </div>
 
-      {slides.length > 1 && (
-        <div className="container shop-showcase__navigation">
-          <div className="shop-showcase__arrows">
-            <button type="button" onClick={() => select(active - 1)} aria-label={t('shop.showcase.previous')}>
-              <Icons.arrow className="shop-showcase__arrow--previous" size={20} />
-            </button>
-            <button type="button" onClick={() => select(active + 1)} aria-label={t('shop.showcase.next')}>
-              <Icons.arrow size={20} />
-            </button>
+      <div className="container shop-showcase__media-shell">
+        <div className="shop-showcase__frame">
+          <div className="shop-showcase__viewport">
+            <div className="shop-showcase__track" style={{ transform: `translate3d(${-active * 100}%, 0, 0)` }}>
+              {slides.map((slide, index) => (
+                <div className="shop-showcase__slide" aria-hidden={index !== active} key={`${slide.id}-${index}`}>
+                  <ShowcaseLink slide={slide} active={index === active}>
+                    <img
+                      {...imgProps(slide.image, SIZES.full)}
+                      alt={slide.alt}
+                      loading={index === 0 ? 'eager' : 'lazy'}
+                      fetchPriority={index === 0 ? 'high' : 'auto'}
+                    />
+                  </ShowcaseLink>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="shop-showcase__dots" aria-label="انتخاب تصویر">
-            {slides.map((slide, index) => (
-              <button
-                type="button"
-                key={`dot-${slide.id}-${index}`}
-                className={index === active ? 'is-active' : ''}
-                onClick={() => select(index)}
-                aria-label={goToLabel(index)}
-                aria-current={index === active ? 'true' : undefined}
-              />
-            ))}
-          </div>
+          <div className="shop-showcase__veil" aria-hidden="true" />
+
+          {slides.length > 1 && (
+            <div className="shop-showcase__navigation">
+              <div className="shop-showcase__arrows">
+                <button type="button" onClick={() => select(active - 1)} aria-label={t('shop.showcase.previous')}>
+                  <Icons.arrow className="shop-showcase__arrow--previous" size={20} />
+                </button>
+                <button type="button" onClick={() => select(active + 1)} aria-label={t('shop.showcase.next')}>
+                  <Icons.arrow size={20} />
+                </button>
+              </div>
+              <div className="shop-showcase__dots" aria-label="انتخاب تصویر">
+                {slides.map((slide, index) => (
+                  <button
+                    type="button"
+                    key={`dot-${slide.id}-${index}`}
+                    className={index === active ? 'is-active' : ''}
+                    onClick={() => select(index)}
+                    aria-label={goToLabel(index)}
+                    aria-current={index === active ? 'true' : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
       <span className="sr-only" aria-live="polite">
         {slides.length > 1 ? `${(active + 1).toLocaleString('fa-IR')} از ${slides.length.toLocaleString('fa-IR')}: ${slides[active]?.alt}` : ''}
       </span>
