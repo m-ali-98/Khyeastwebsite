@@ -1,34 +1,61 @@
-node_modules
-dist
-dist-ssr
-*.local
-.DS_Store
-image-search
-.npm
-.cache
-.vscode/*
-!.vscode/extensions.json
-.idea
-server/data/messages.json
-server/uploads/*
-!server/uploads/.gitkeep
-server/data/shop.json
+# Dependencies and generated builds
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.nyc_output/
+.vite/
+.cache/
+.npm/
+*.tsbuildinfo
 
-# SQLite database (runtime data: orders, comments, messages, shop products)
-server/data/*.db
-server/data/*.db-wal
-server/data/*.db-shm
-
-
-# Secrets — ADMIN_PASS / ADMIN_SECRET live here, never in the repository
-.env
-.env.*
-!.env.example
-
-# Browser-test artefacts (the scratch data dir, traces, reports).
-# Visual baselines under e2e/__screenshots__/ ARE committed on purpose.
+# Browser-test and downloaded CI artefacts
+# Reviewed baselines in e2e/visual.spec.js-snapshots/ stay tracked.
 .e2e-data/
 test-results/
 playwright-report/
 blob-report/
 .playwright/
+.ci/
+playwright-artifacts/
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.pid
+*.pid.lock
+.eslintcache
+.stylelintcache
+*.tmp
+*.swp
+*~
+tmp/
+temp/
+image-search/
+
+# Local editor and operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Local-only configuration and secrets
+*.local
+.env
+.env.*
+!.env.example
+
+# Runtime uploads and mutable application data
+server/uploads/*
+!server/uploads/.gitkeep
+server/data/messages.json
+server/data/shop.json
+server/data/*.db
+server/data/*.db-wal
+server/data/*.db-shm
+server/data/*.db-journal
