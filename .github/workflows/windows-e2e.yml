@@ -41,6 +41,10 @@ jobs:
       - name: Complete browser and visual suite
         run: npx playwright test
 
+      - name: Surface compact shop visual diagnostic
+        if: failure()
+        run: node scripts/test/visual-xor-diagnostic.mjs
+
       - name: Preserve failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
