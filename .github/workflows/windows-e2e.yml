@@ -58,7 +58,22 @@ jobs:
 
       - name: Run the complete browser suite
         if: steps.account.outputs.failed == 'false'
-        run: npx playwright test
+        id: full
+        shell: pwsh
+        run: |
+          npx playwright test 2>&1 | Tee-Object -FilePath windows-full.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            New-Item -ItemType Directory -Force .ci/windows-full-failure | Out-Null
+            Copy-Item windows-full.log .ci/windows-full-failure/
+            if (Test-Path test-results) {
+              Copy-Item test-results .ci/windows-full-failure/ -Recurse
+            }
+            "failed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "failed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+          exit 0
 
       - name: Upload screenshots, traces and report
         if: always()
@@ -70,6 +85,7 @@ jobs:
           path: |
             e2e/visual.spec.js-snapshots/
             .ci/windows-account-failure/
+            .ci/windows-full-failure/
             test-results/
             playwright-report/
 
@@ -89,12 +105,15 @@ jobs:
           if (Test-Path .ci/windows-account-failure) {
             git add .ci/windows-account-failure
           }
+          if (Test-Path .ci/windows-full-failure) {
+            git add .ci/windows-full-failure
+          }
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "test: publish Windows browser review [skip windows-e2e]"
             git push origin HEAD:arena/01a07ff9-khyeastwebsite
           }
 
-      - name: Report focused account failure
-        if: steps.account.outputs.failed == 'true'
+      - name: Report browser failure
+        if: steps.account.outputs.failed == 'true' || steps.full.outputs.failed == 'true'
         run: exit 1

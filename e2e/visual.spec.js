@@ -3,15 +3,13 @@
 
      npm run test:e2e:update     accept the current rendering as the baseline
 
-   The first run WILL fail: there are no baselines in the repository yet, so
-   Playwright writes them and reports "a snapshot doesn't exist". Review the
-   written PNGs under e2e/__screenshots__/ — they are what the site looks
-   like today — and commit them. From then on any unintended layout or colour
-   change fails the build with a pixel diff.
+   Windows baselines live under e2e/visual.spec.js-snapshots/ and are committed
+   with the code. Update them only after reviewing the generated pages; from
+   then on any unintended layout or colour change fails with a pixel diff.
 
-   Baselines are rendered by the same browser build on every machine, but
-   fonts are the usual source of false diffs, so the suite waits for the
-   webfonts to finish loading and freezes every animation first.
+   Fonts and scroll reveals are the usual source of false diffs. The suite
+   waits for webfonts and lazy images, puts every reveal in its final state,
+   and freezes animation before taking a screenshot.
    ========================================================================== */
 import { test, expect } from '@playwright/test';
 import { gotoReady } from './helpers.js';
@@ -22,23 +20,48 @@ import { gotoReady } from './helpers.js';
 
 async function settle(page) {
   await page.evaluate(() => document.fonts.ready);
-  /* Reveal animations trigger on scroll; walk the page so nothing is frozen
-     mid-fade, then return to the top. */
-  await page.evaluate(async () => {
-    const step = window.innerHeight;
-    for (let y = 0; y < document.body.scrollHeight; y += step) {
-      window.scrollTo(0, y);
-      await new Promise((r) => setTimeout(r, 120));
-    }
-    window.scrollTo(0, 0);
-    await new Promise((r) => setTimeout(r, 250));
+
+  /* A screenshot records the finished page, not whether IntersectionObserver
+     happened to run between two 900px scroll jumps. Force every shared reveal
+     into its final state before freezing transitions. This also prevents a
+     hidden heading from becoming an accepted baseline while its cards show. */
+  await page.evaluate(() => {
+    document.documentElement.classList.add('reveal-failsafe');
+    document.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-in'));
   });
-  /* Kill the caret and anything still interpolating. */
   await page.addStyleTag({
     content: `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important;
       transition-duration: 0s !important; transition-delay: 0s !important; caret-color: transparent !important; }`,
   });
-  await page.waitForTimeout(200);
+
+  /* Walk the page to request native lazy images, then wait for every image to
+     finish decoding. Network-idle happens before an off-screen lazy image is
+     requested, so relying on it alone produces stable but incomplete shots. */
+  await page.evaluate(async () => {
+    const step = Math.max(300, Math.floor(window.innerHeight * 0.75));
+    for (let y = 0; y < document.body.scrollHeight; y += step) {
+      window.scrollTo(0, y);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
+
+    await Promise.all(
+      [...document.images].map(async (img) => {
+        if (!img.complete) {
+          await Promise.race([
+            new Promise((resolve) => {
+              img.addEventListener('load', resolve, { once: true });
+              img.addEventListener('error', resolve, { once: true });
+            }),
+            new Promise((resolve) => setTimeout(resolve, 5000)),
+          ]);
+        }
+        if (img.decode) await img.decode().catch(() => {});
+      }),
+    );
+
+    window.scrollTo(0, 0);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
 }
 
 const PAGES = [
