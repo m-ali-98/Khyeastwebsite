@@ -64,23 +64,25 @@ export function ShopCard({ p, index = 0 }) {
         </span>
       </div>
       <div className="shop-card__body">
-        {brand && <span className="shop-card__brand">{brand.en}</span>}
-        <h2 className="shop-card__title">
-          <Link to={`/shop/${p.slug}`}>{p.title}</Link>
-        </h2>
-        {p.unit && <span className="shop-card__unit">{p.unit}</span>}
+        <div className="shop-card__meta">
+          {brand && <span className="shop-card__brand">{brand.en}</span>}
+          {p.unit && <span className="shop-card__unit">{p.unit}</span>}
+        </div>
+        <h3 className="shop-card__title">
+          <Link to={`/shop/${p.slug}`}>
+            <span>{p.title}</span>
+            <span className="shop-card__go" aria-hidden="true"><Icons.arrow size={15} /></span>
+          </Link>
+        </h3>
         <div className="shop-card__spacer" />
         <div className="shop-card__price">
           <span className="now">{money(p.price)}</span>
           {off > 0 && <span className="was">{money(p.oldPrice)}</span>}
         </div>
         <div className="shop-card__actions">
-          <Link to={`/shop/${p.slug}`} className="btn btn--primary btn--sm">
-            {t('shop.card.view')}
-            <Icons.arrow size={16} />
-          </Link>
           <button
-            className={`btn ${added ? 'btn--primary' : 'btn--outline'} btn--sm`}
+            type="button"
+            className={`btn btn--primary btn--sm${added ? ' is-added' : ''}`}
             disabled={out}
             onClick={() => add(p.slug, 1) && setAdded(true)}
             title={added ? t('shop.card.added') : t('shop.card.add')}

@@ -125,7 +125,7 @@ function Navbar() {
     let observer;
 
     const look = () => {
-      if (!document.querySelector('.hero, .page-hero')) return false;
+      if (!document.querySelector('.hero, .page-hero, .shop-showcase')) return false;
       setHasHero(true);
       observer?.disconnect();
       return true;

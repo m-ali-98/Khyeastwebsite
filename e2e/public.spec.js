@@ -87,6 +87,20 @@ test('html lang and dir follow the locale @mobile', async ({ page }) => {
   }
 });
 
+test('the shop header is transparent over its showcase and solid only after scrolling @mobile', async ({ page }) => {
+  await gotoReady(page, '/shop');
+  await expect(page.getByTestId('shop-showcase')).toBeVisible();
+
+  const nav = page.locator('nav.nav');
+  await expect(nav).not.toHaveClass(/is-scrolled/);
+
+  await page.evaluate(() => window.scrollTo(0, 90));
+  await expect(nav).toHaveClass(/is-scrolled/);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(nav).not.toHaveClass(/is-scrolled/);
+});
+
 test('shop search, sale and brand filters compose without hiding their controls @mobile', async ({ page }) => {
   await gotoReady(page, '/shop');
 
@@ -422,7 +436,7 @@ for (const route of ['/shop/dezmaye-gold-80', '/products/dezmaye-gold-80']) {
     /* Precondition, not decoration: if a hero appears here one day the
        transparent bar becomes correct again and this test must be revisited
        rather than quietly measuring the wrong thing. */
-    await expect(page.locator('.hero, .page-hero')).toHaveCount(0);
+    await expect(page.locator('.hero, .page-hero, .shop-showcase')).toHaveCount(0);
 
     /* Read the bar's own background, not the body's: the solid state paints
        a translucent surface over the page. */

@@ -97,6 +97,14 @@ export default function Shop() {
       <section className="section section--light shop-listing">
         <div className="container">
           <Reveal className="shop-toolbar">
+            <div className="shop-toolbar__intro">
+              <span aria-hidden="true" />
+              <div>
+                <h2>{t('shop.filter.all')}</h2>
+                <p aria-live="polite" aria-atomic="true">{countText}</p>
+              </div>
+            </div>
+
             <div className="filter-bar shop-filter" role="group" aria-label="فیلتر محصولات">
               {[
                 ['all', t('shop.filter.all')],
@@ -145,7 +153,11 @@ export default function Shop() {
               </label>
               <label className="shop-toolbar__sort">
                 <span>{t('shop.sort.label')}</span>
-                <select value={sort} onChange={(event) => setSort(event.target.value)}>
+                <select
+                  value={sort}
+                  onChange={(event) => setSort(event.target.value)}
+                  aria-label={t('shop.sort.label')}
+                >
                   <option value="default">{t('shop.sort.default')}</option>
                   <option value="cheap">{t('shop.sort.cheap')}</option>
                   <option value="expensive">{t('shop.sort.expensive')}</option>
@@ -156,7 +168,6 @@ export default function Shop() {
 
           {activeProducts.length ? (
             <>
-              <p className="sr-only" aria-live="polite" aria-atomic="true">{countText}</p>
               {filteredProducts.length ? (
                 <div className="shop-grid" data-testid="shop-product-grid">
                   {filteredProducts.map((product, index) => (
@@ -166,7 +177,7 @@ export default function Shop() {
               ) : (
                 <Reveal className="shop-empty shop-empty--filtered" role="status">
                   <span className="shop-empty__icon" aria-hidden="true"><Icons.search size={27} /></span>
-                  <h2>{t('shop.results.emptyTitle')}</h2>
+                  <h3>{t('shop.results.emptyTitle')}</h3>
                   <p>{t('shop.results.emptyText')}</p>
                   {hasFilters && (
                     <button type="button" className="btn btn--outline" onClick={resetFilters}>
