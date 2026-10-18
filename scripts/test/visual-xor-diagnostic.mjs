@@ -34,18 +34,40 @@ async function prepare() {
     return null;
   }
 
-  const xor = Buffer.allocUnsafe(actual.length);
-  for (let index = 0; index < actual.length; index++) xor[index] = actual[index] ^ expected[index];
+  /* OS text rasterisation produces tiny channel-level differences all over a
+     screenshot. Dark mode already proves those are below the comparator's
+     tolerance; transferring them would drown the one material layout delta.
+     Keep only pixels whose largest RGB channel delta is visible. */
+  const channelThreshold = 24;
+  const xor = Buffer.alloc(actual.length);
+  let selectedPixels = 0;
+  for (let index = 0; index < actual.length; index += 4) {
+    const visible = Math.max(
+      Math.abs(actual[index] - expected[index]),
+      Math.abs(actual[index + 1] - expected[index + 1]),
+      Math.abs(actual[index + 2] - expected[index + 2]),
+    ) >= channelThreshold;
+    if (!visible) continue;
+    selectedPixels++;
+    for (let channel = 0; channel < 4; channel++) xor[index + channel] = actual[index + channel] ^ expected[index + channel];
+  }
   const compressed = brotliCompressSync(xor, {
     params: { [constants.BROTLI_PARAM_QUALITY]: 11 },
   });
   const encoded = compressed.toString('base64');
-  const chunkSize = 48_000;
+  const chunkSize = 4_000;
   const chunks = Array.from({ length: Math.ceil(encoded.length / chunkSize) }, (_, index) =>
     encoded.slice(index * chunkSize, (index + 1) * chunkSize));
   const expectedSha256 = crypto.createHash('sha256').update(fs.readFileSync(EXPECTED)).digest('hex');
-  const actualRawSha256 = crypto.createHash('sha256').update(actual).digest('hex');
-  const payload = { width: info.width, height: info.height, channels: 4, expectedSha256, actualRawSha256, chunks };
+  const payload = {
+    width: info.width,
+    height: info.height,
+    channels: 4,
+    expectedSha256,
+    channelThreshold,
+    selectedPixels,
+    chunks,
+  };
   fs.writeFileSync(CACHE, JSON.stringify(payload));
   return payload;
 }
