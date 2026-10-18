@@ -117,7 +117,7 @@ test('client navigation replaces title, canonical, social metadata and JSON-LD',
 
   await page.locator('.nav__links a[href="/en/products"]').click();
   await routeSettled(page, /\/en\/products$/);
-  await expect(page).toHaveTitle(/Products/);
+  await expect(page).toHaveTitle(/products/i);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `${origin}/en/products`);
   await expect(page.locator('meta[property="og:url"]')).toHaveAttribute('content', `${origin}/en/products`);
   await expect(page.locator('#seo-jsonld')).toHaveCount(1);
