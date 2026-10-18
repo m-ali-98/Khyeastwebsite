@@ -36,25 +36,34 @@ async function prepare() {
 
   /* OS text rasterisation produces tiny channel-level differences all over a
      screenshot. Dark mode already proves those are below the comparator's
-     tolerance; transferring them would drown the one material layout delta.
-     Keep only pixels whose largest RGB channel delta is visible. */
-  const channelThreshold = 24;
-  const xor = Buffer.alloc(actual.length);
+     tolerance; transferring them would drown the material layout delta.
+     Increase the visible-channel threshold only as far as needed to fit the
+     check-annotation budget, retaining the strongest differences first. */
+  let channelThreshold = 24;
   let selectedPixels = 0;
-  for (let index = 0; index < actual.length; index += 4) {
-    const visible = Math.max(
-      Math.abs(actual[index] - expected[index]),
-      Math.abs(actual[index + 1] - expected[index + 1]),
-      Math.abs(actual[index + 2] - expected[index + 2]),
-    ) >= channelThreshold;
-    if (!visible) continue;
-    selectedPixels++;
-    for (let channel = 0; channel < 4; channel++) xor[index + channel] = actual[index + channel] ^ expected[index + channel];
+  let encoded = '';
+  const thresholds = [24, 40, 56, 72, 88, 104, 120, 140];
+  for (const threshold of thresholds) {
+    const xor = Buffer.alloc(actual.length);
+    let selected = 0;
+    for (let index = 0; index < actual.length; index += 4) {
+      const visible = Math.max(
+        Math.abs(actual[index] - expected[index]),
+        Math.abs(actual[index + 1] - expected[index + 1]),
+        Math.abs(actual[index + 2] - expected[index + 2]),
+      ) >= threshold;
+      if (!visible) continue;
+      selected++;
+      for (let channel = 0; channel < 4; channel++) xor[index + channel] = actual[index + channel] ^ expected[index + channel];
+    }
+    const compressed = brotliCompressSync(xor, {
+      params: { [constants.BROTLI_PARAM_QUALITY]: 11 },
+    });
+    channelThreshold = threshold;
+    selectedPixels = selected;
+    encoded = compressed.toString('base64');
+    if (encoded.length <= 152_000) break;
   }
-  const compressed = brotliCompressSync(xor, {
-    params: { [constants.BROTLI_PARAM_QUALITY]: 11 },
-  });
-  const encoded = compressed.toString('base64');
   const chunkSize = 4_000;
   const chunks = Array.from({ length: Math.ceil(encoded.length / chunkSize) }, (_, index) =>
     encoded.slice(index * chunkSize, (index + 1) * chunkSize));
