@@ -48,7 +48,10 @@ export default defineConfig({
      hidden retry happened to pass. Retries still preserve the second trace
      that makes a genuinely intermittent failure diagnosable. */
   failOnFlakyTests: !!process.env.CI,
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
+  /* The GitHub reporter turns assertion details into check annotations. That
+     keeps failures diagnosable even when the runner's large log/artifact ZIP
+     cannot be downloaded; the list and HTML reports remain as before. */
+  reporter: process.env.CI ? [['list'], ['github'], ['html', { open: 'never' }]] : [['list']],
   timeout: 45_000,
   expect: {
     timeout: 10_000,
