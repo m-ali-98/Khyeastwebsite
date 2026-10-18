@@ -46,8 +46,9 @@ jobs:
             $expanded = Join-Path $env:RUNNER_TEMP $name
             Expand-Archive (Join-Path $match.FullName 'trace.zip') $expanded -Force
             New-Item -ItemType Directory -Force (Join-Path $destination $name) | Out-Null
-            Copy-Item (Join-Path $expanded 'test.trace') (Join-Path $destination "$name/test.trace")
-            Copy-Item (Join-Path $expanded '1-trace.trace') (Join-Path $destination "$name/1-trace.trace")
+            Get-ChildItem $expanded -File -Filter '*.trace' | ForEach-Object {
+              Copy-Item $_.FullName (Join-Path $destination "$name/$($_.Name)")
+            }
             if (Test-Path (Join-Path $match.FullName 'error-context.md')) {
               Copy-Item (Join-Path $match.FullName 'error-context.md') (Join-Path $destination "$name/error-context.md")
             }
