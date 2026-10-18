@@ -4,116 +4,44 @@ on:
   push:
     branches:
       - arena/01a07ff9-khyeastwebsite
-  workflow_dispatch:
 
 permissions:
   actions: read
   contents: write
 
 jobs:
-  browser:
-    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip windows-e2e]')
+  retrieve-account-trace:
+    if: "!contains(github.event.head_commit.message, '[skip windows-e2e]')"
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
 
     steps:
-      - name: Check out this branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Chromium
-        run: npx playwright install chromium
-
-      - name: Verify account relogin on desktop and mobile
-        id: account
-        shell: pwsh
-        run: |
-          npx playwright test e2e/account.spec.js --grep "existing customer signs in" 2>&1 | Tee-Object -FilePath windows-account.log
-          $code = $LASTEXITCODE
-          if ($code -ne 0) {
-            New-Item -ItemType Directory -Force .ci/windows-account-failure | Out-Null
-            Copy-Item windows-account.log .ci/windows-account-failure/
-            if (Test-Path test-results) {
-              Copy-Item test-results .ci/windows-account-failure/ -Recurse
-            }
-            "failed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          } else {
-            "failed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          }
-          exit 0
-
-      # The repository never contained its advertised visual baselines. Build
-      # a Windows review set from the current UI first; the following complete
-      # run then proves that a second capture is stable against that set.
-      - name: Capture current Windows visual review set
-        run: npx playwright test e2e/visual.spec.js --project=desktop --update-snapshots
-
-      - name: Run the complete browser suite
-        if: steps.account.outputs.failed == 'false'
-        id: full
-        shell: pwsh
-        run: |
-          npx playwright test 2>&1 | Tee-Object -FilePath windows-full.log
-          $code = $LASTEXITCODE
-          if ($code -ne 0) {
-            New-Item -ItemType Directory -Force .ci/windows-full-failure | Out-Null
-            Copy-Item windows-full.log .ci/windows-full-failure/
-            if (Test-Path test-results) {
-              Copy-Item test-results .ci/windows-full-failure/ -Recurse
-            }
-            "failed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          } else {
-            "failed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          }
-          exit 0
-
-      - name: Upload screenshots, traces and report
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Download the complete-run diagnostics
+        uses: actions/download-artifact@v4
         with:
           name: windows-browser-review
-          if-no-files-found: warn
-          retention-days: 7
-          path: |
-            e2e/visual.spec.js-snapshots/
-            .ci/windows-account-failure/
-            .ci/windows-full-failure/
-            test-results/
-            playwright-report/
+          path: windows-review
+          run-id: 39108329186
+          github-token: ${{ github.token }}
 
-      # Windows pixel baselines must be versioned or every clean checkout has
-      # nothing to compare. A failed account run also publishes its temporary
-      # trace on this same branch so it can be diagnosed without accepting a
-      # screenshot blindly. The marker prevents a push loop.
-      - name: Publish review material to this branch
-        if: always()
+      - name: Publish only the failing mobile account trace
         shell: pwsh
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if (Test-Path e2e/visual.spec.js-snapshots) {
-            git add e2e/visual.spec.js-snapshots
+          $destination = '.ci/windows-account-artifact'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          $matches = Get-ChildItem windows-review -Directory -Recurse |
+            Where-Object { $_.Name -like 'account-customer-accounts-*mobile-mobile*' }
+          if (-not $matches) {
+            throw 'The account failure directory was not present in the downloaded artifact.'
           }
-          if (Test-Path .ci/windows-account-failure) {
-            git add .ci/windows-account-failure
-          }
-          if (Test-Path .ci/windows-full-failure) {
-            git add .ci/windows-full-failure
-          }
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "test: publish Windows browser review [skip windows-e2e]"
-            git push origin HEAD:arena/01a07ff9-khyeastwebsite
+          foreach ($match in $matches) {
+            Copy-Item $match.FullName (Join-Path $destination $match.Name) -Recurse
           }
 
-      - name: Report browser failure
-        if: steps.account.outputs.failed == 'true' || steps.full.outputs.failed == 'true'
-        run: exit 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f $destination
+          git commit -m "test: publish mobile account trace [skip windows-e2e]"
+          git push origin HEAD:arena/01a07ff9-khyeastwebsite
