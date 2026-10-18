@@ -41,19 +41,6 @@ jobs:
       - name: Complete browser and visual suite
         run: npx playwright test
 
-      - name: Surface remaining compact shop visual diagnostic
-        if: failure()
-        env:
-          XOR_CHUNK_START: 39
-        run: node scripts/test/visual-xor-diagnostic.mjs
-
-      - name: Surface compact shop visual diagnostic metadata
-        if: failure()
-        env:
-          XOR_CHUNK_START: 49
-          XOR_EMIT_META: 1
-        run: node scripts/test/visual-xor-diagnostic.mjs
-
       - name: Preserve failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -64,3 +51,68 @@ jobs:
             playwright-report
           if-no-files-found: ignore
           retention-days: 7
+
+  visual-diagnostic-middle:
+    if: ${{ always() && needs.browser-regression.result == 'failure' }}
+    needs: browser-regression
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v5
+        with:
+          name: windows-playwright-failure
+      - name: Surface compact shop visual diagnostic 44-53
+        env:
+          XOR_CHUNK_START: 44
+        run: node scripts/test/visual-xor-diagnostic.mjs
+      - name: Surface compact shop visual diagnostic 54-63
+        env:
+          XOR_CHUNK_START: 54
+        run: node scripts/test/visual-xor-diagnostic.mjs
+      - name: Surface compact shop visual diagnostic 64-73
+        env:
+          XOR_CHUNK_START: 64
+        run: node scripts/test/visual-xor-diagnostic.mjs
+      - name: Surface compact shop visual diagnostic 74-83
+        env:
+          XOR_CHUNK_START: 74
+        run: node scripts/test/visual-xor-diagnostic.mjs
+
+  visual-diagnostic-tail:
+    if: ${{ always() && needs.browser-regression.result == 'failure' }}
+    needs: browser-regression
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v5
+        with:
+          name: windows-playwright-failure
+      - name: Surface compact shop visual diagnostic 84-93
+        env:
+          XOR_CHUNK_START: 84
+        run: node scripts/test/visual-xor-diagnostic.mjs
+      - name: Surface compact shop visual diagnostic 94-103
+        env:
+          XOR_CHUNK_START: 94
+        run: node scripts/test/visual-xor-diagnostic.mjs
+      - name: Surface compact shop visual diagnostic 104-107
+        env:
+          XOR_CHUNK_START: 104
+        run: node scripts/test/visual-xor-diagnostic.mjs
+      - name: Surface compact shop visual diagnostic metadata
+        env:
+          XOR_CHUNK_START: 108
+          XOR_EMIT_META: 1
+        run: node scripts/test/visual-xor-diagnostic.mjs

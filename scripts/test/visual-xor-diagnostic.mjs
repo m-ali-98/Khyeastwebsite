@@ -34,15 +34,13 @@ async function prepare() {
     return null;
   }
 
-  /* OS text rasterisation produces tiny channel-level differences all over a
-     screenshot. Dark mode already proves those are below the comparator's
-     tolerance; transferring them would drown the material layout delta.
-     Increase the visible-channel threshold only as far as needed to fit the
-     check-annotation budget, retaining the strongest differences first. */
+  /* Ignore only tiny OS text-rasterisation noise. The workflow fans the
+     resulting payload across two temporary diagnostic checks so all material
+     Windows pixels can be recovered without weakening visual assertions. */
   let channelThreshold = 24;
   let selectedPixels = 0;
   let encoded = '';
-  const thresholds = [24, 40, 56, 72, 88, 104, 120, 140];
+  const thresholds = [24];
   for (const threshold of thresholds) {
     const xor = Buffer.alloc(actual.length);
     let selected = 0;
