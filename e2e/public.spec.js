@@ -43,7 +43,8 @@ test.describe('public routes', () => {
   for (const [route, selector, minChars = 120] of ROUTES) {
     test(`renders ${route} @mobile`, async ({ page }) => {
       const errors = watchConsole(page);
-      await gotoReady(page, route);
+      const response = await gotoReady(page, route);
+      if (route === '/nonexistent-page') expect(response?.status()).toBe(404);
 
       /* The lazy chunk must have produced real content, not the skeleton. */
       await expect(page.locator(selector).first()).toBeVisible();
@@ -53,7 +54,14 @@ test.describe('public routes', () => {
       /* No navigation cover or boot splash may still be on screen once settled. */
       await expect(page.locator('.navigation-loader, .boot-splash')).toHaveCount(0);
 
-      expect(errors, `console errors on ${route}`).toEqual([]);
+      /* Chromium reports the expected top-level 404 as a console error on
+         Windows. Allow that one network message only after asserting the main
+         document really returned 404; failed assets on every other route
+         remain test failures. */
+      const unexpectedErrors = route === '/nonexistent-page'
+        ? errors.filter((message) => !/^Failed to load resource:.*404 \(Not Found\)$/.test(message))
+        : errors;
+      expect(unexpectedErrors, `console errors on ${route}`).toEqual([]);
     });
   }
 });

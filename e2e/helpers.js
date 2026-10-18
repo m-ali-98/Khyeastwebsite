@@ -29,9 +29,10 @@ export function watchConsole(page) {
    independently. Waiting for networkidle alone is flaky on a warm cache, so
    wait for the route's own content to exist. */
 export async function gotoReady(page, url) {
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('main, .admin')).toBeVisible({ timeout: 15_000 });
   await page.waitForLoadState('networkidle').catch(() => {});
+  return response;
 }
 
 /** The one live copy of `selector`, with a printed structural explanation if
