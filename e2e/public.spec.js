@@ -112,9 +112,11 @@ test('shop search, sale and brand filters compose without hiding their controls 
   await search.fill('ايكس پاور');
   await expect(page.locator('.shop-card')).toHaveCount(1);
   await expect(page.locator('.shop-card')).toContainText('ایکس پاور');
-  const addButton = page.locator('.shop-card__actions button').first();
+  const cardActions = page.locator('.shop-card__actions').first();
+  await expect(cardActions.getByRole('link', { name: /مشاهده و خرید/ })).toBeVisible();
+  const addButton = cardActions.getByRole('button');
   await expect(addButton).toBeVisible();
-  await expect(addButton).toHaveAccessibleName(/افزودن به سبد/);
+  await expect(addButton).toHaveAccessibleName(/افزودن به سبد خرید/);
   await addButton.click();
   await expect(addButton).toContainText('اضافه شد');
 

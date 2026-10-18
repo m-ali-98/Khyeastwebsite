@@ -242,7 +242,7 @@ export const TEXTS = {
   'shop.card.inStock': 'موجود در انبار',
   'shop.card.lowStock': 'موجودی محدود',
   'shop.card.view': 'مشاهده و خرید',
-  'shop.card.add': 'افزودن به سبد',
+  'shop.card.add': 'افزودن به سبد خرید',
   'shop.card.added': 'اضافه شد',
   'shop.search.label': 'جست‌وجوی محصولات',
   'shop.search.placeholder': 'نام، برند یا نوع بسته‌بندی',

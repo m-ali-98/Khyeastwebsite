@@ -69,10 +69,7 @@ export function ShopCard({ p, index = 0 }) {
           {p.unit && <span className="shop-card__unit">{p.unit}</span>}
         </div>
         <h3 className="shop-card__title">
-          <Link to={`/shop/${p.slug}`}>
-            <span>{p.title}</span>
-            <span className="shop-card__go" aria-hidden="true"><Icons.arrow size={15} /></span>
-          </Link>
+          <Link to={`/shop/${p.slug}`}>{p.title}</Link>
         </h3>
         <div className="shop-card__spacer" />
         <div className="shop-card__price">
@@ -80,6 +77,10 @@ export function ShopCard({ p, index = 0 }) {
           {off > 0 && <span className="was">{money(p.oldPrice)}</span>}
         </div>
         <div className="shop-card__actions">
+          <Link to={`/shop/${p.slug}`} className="btn btn--outline btn--sm">
+            {t('shop.card.view')}
+            <Icons.arrow size={15} />
+          </Link>
           <button
             type="button"
             className={`btn btn--primary btn--sm${added ? ' is-added' : ''}`}

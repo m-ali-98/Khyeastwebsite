@@ -94,7 +94,7 @@ export default function Shop() {
         ))}
       </section>
 
-      <section className="section section--light shop-listing">
+      <section className="section section--light shop-listing" id="shop-catalog">
         <div className="container">
           <Reveal className="shop-toolbar">
             <div className="shop-toolbar__intro">
