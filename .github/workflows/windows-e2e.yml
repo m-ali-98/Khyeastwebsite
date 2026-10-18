@@ -1,23 +1,28 @@
 name: Windows browser regression
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - arena/01a07ff9-khyeastwebsite
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: windows-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  refresh-reviewed-baselines:
+  browser-regression:
     if: "!contains(github.event.head_commit.message, '[skip windows-e2e]')"
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -25,19 +30,24 @@ jobs:
       - run: npm ci
       - run: npx playwright install chromium
 
-      # One-time finalisation after the screenshots were reviewed. `all` is
-      # deliberate: the normal 1.5% tolerance can consider a newly revealed
-      # heading a pass and therefore leave the old hidden-heading PNG intact.
-      - run: npx playwright test e2e/visual.spec.js --project=desktop --update-snapshots=all
+      # Keep the session-persistence regression explicit on both viewports.
+      # The complete run below then proves it in normal suite order as well.
+      - name: Focused desktop and mobile account relogin
+        run: >-
+          npx playwright test e2e/account.spec.js
+          --grep "existing customer signs in"
+          --project=desktop --project=mobile
 
-      - name: Commit the reviewed finished-state screenshots
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add e2e/visual.spec.js-snapshots
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "test: refresh reviewed Windows baselines [skip windows-e2e]"
-            git push origin HEAD:arena/01a07ff9-khyeastwebsite
-          }
+      - name: Complete browser and visual suite
+        run: npx playwright test
+
+      - name: Preserve failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-playwright-failure
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
