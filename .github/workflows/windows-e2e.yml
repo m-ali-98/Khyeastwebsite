@@ -41,26 +41,17 @@ jobs:
       - name: Complete browser and visual suite
         run: npx playwright test
 
-      - name: Surface compact shop visual diagnostic 1/4
-        if: failure()
-        run: node scripts/test/visual-xor-diagnostic.mjs
-
-      - name: Surface compact shop visual diagnostic 2/4
+      - name: Surface remaining compact shop visual diagnostic
         if: failure()
         env:
-          XOR_CHUNK_START: 9
+          XOR_CHUNK_START: 39
         run: node scripts/test/visual-xor-diagnostic.mjs
 
-      - name: Surface compact shop visual diagnostic 3/4
+      - name: Surface compact shop visual diagnostic metadata
         if: failure()
         env:
-          XOR_CHUNK_START: 19
-        run: node scripts/test/visual-xor-diagnostic.mjs
-
-      - name: Surface compact shop visual diagnostic 4/4
-        if: failure()
-        env:
-          XOR_CHUNK_START: 29
+          XOR_CHUNK_START: 49
+          XOR_EMIT_META: 1
         run: node scripts/test/visual-xor-diagnostic.mjs
 
       - name: Preserve failure diagnostics

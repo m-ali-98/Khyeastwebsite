@@ -68,11 +68,13 @@ async function prepare() {
   const chunks = Array.from({ length: Math.ceil(encoded.length / chunkSize) }, (_, index) =>
     encoded.slice(index * chunkSize, (index + 1) * chunkSize));
   const expectedSha256 = crypto.createHash('sha256').update(fs.readFileSync(EXPECTED)).digest('hex');
+  const actualRawSha256 = crypto.createHash('sha256').update(actual).digest('hex');
   const payload = {
     width: info.width,
     height: info.height,
     channels: 4,
     expectedSha256,
+    actualRawSha256,
     channelThreshold,
     selectedPixels,
     chunks,
@@ -89,8 +91,9 @@ if (!payload) {
 
 /* A step retains at most ten annotations. The first range reserves one for
    reconstruction metadata; later ranges can carry ten data chunks each. */
-const limit = start === 0 ? 9 : 10;
-if (start === 0) {
+const emitMeta = start === 0 || process.env.XOR_EMIT_META === '1';
+const limit = emitMeta ? 9 : 10;
+if (emitMeta) {
   const { chunks, ...meta } = payload;
   console.log(`::warning title=shop-light-xor-meta::${JSON.stringify({ ...meta, chunks: chunks.length })}`);
 }
