@@ -4,103 +4,66 @@
 
 /* ---------------- linked shop showcase ---------------- */
 .shop-showcase {
-  --shop-showcase-media-height: clamp(390px, 36vw, 500px);
+  --shop-showcase-media-height: clamp(230px, 20vw, 280px);
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  padding-block-end: clamp(38px, 5vw, 64px);
+  padding-block-end: clamp(26px, 3vw, 38px);
   background:
-    radial-gradient(circle at 84% 2%, rgba(198, 0, 46, 0.2), transparent 27%),
-    linear-gradient(180deg, #171012 0%, var(--inverse-deep) 100%);
+    linear-gradient(115deg, rgba(198, 0, 46, 0.1), transparent 34%),
+    var(--inverse-deep);
   color: #fff;
-
-  /* Quiet editorial geometry gives the intro identity without putting another
-     surface, label, or block of copy over the photograph. */
-  &::before {
-    content: '';
-    position: absolute;
-    z-index: 0;
-    inset-block-start: 116px;
-    inset-inline-end: -150px;
-    width: 410px;
-    aspect-ratio: 1;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 50%;
-    pointer-events: none;
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    z-index: 0;
-    inset-block-start: 106px;
-    inset-inline-start: max(24px, calc((100vw - 1192px) / 2));
-    width: 142px;
-    height: 72px;
-    opacity: 0.18;
-    pointer-events: none;
-    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.52) 1px, transparent 1.5px);
-    background-size: 14px 14px;
-  }
 
   &__content {
     position: relative;
     z-index: 2;
-    padding-block-start: calc(var(--nav-h) + clamp(42px, 5.5vw, 70px));
-    padding-block-end: clamp(34px, 4.5vw, 54px);
+    padding-block-start: calc(var(--nav-h) + clamp(24px, 3vw, 38px));
+    padding-block-end: clamp(22px, 2.8vw, 34px);
   }
 
   &__copy {
-    position: relative;
     width: 100%;
   }
 
   &__copy::before {
     content: '';
     display: block;
-    width: 54px;
-    height: 4px;
-    margin-block-end: 18px;
+    width: 42px;
+    height: 3px;
+    margin-block-end: 12px;
     border-radius: 999px;
     background: var(--crimson-solid);
-    box-shadow: 0 0 22px var(--crimson-glow);
   }
 
   &__copy .breadcrumb {
-    color: rgba(255, 255, 255, 0.62);
+    color: rgba(255, 255, 255, 0.58);
   }
 
-  &__copy .breadcrumb a { color: rgba(255, 255, 255, 0.9); }
+  &__copy .breadcrumb a { color: rgba(255, 255, 255, 0.88); }
   &__copy .breadcrumb a:hover { color: var(--crimson-bright); }
   &__copy .breadcrumb .sep { color: var(--crimson-bright); }
 
   &__heading {
-    display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
-    align-items: end;
-    gap: clamp(42px, 6vw, 88px);
-    margin-block-start: 22px;
+    margin-block-start: 12px;
   }
 
   &__heading h1 {
-    max-width: 720px;
+    max-width: 1040px;
     margin: 0;
     color: #fff;
-    font-size: clamp(44px, 5.2vw, 68px);
+    font-size: clamp(32px, 2.9vw, 40px);
     font-weight: 900;
-    line-height: 1.35;
-    letter-spacing: -0.025em;
+    line-height: 1.38;
+    letter-spacing: -0.02em;
     text-wrap: balance;
   }
 
   &__heading p {
-    max-width: 460px;
-    margin: 0;
-    padding-inline-start: clamp(24px, 3vw, 38px);
-    border-inline-start: 1px solid rgba(255, 255, 255, 0.18);
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 16.5px;
-    line-height: 2;
+    max-width: 760px;
+    margin: 8px 0 0;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 14.5px;
+    line-height: 1.8;
     text-wrap: balance;
   }
 
@@ -113,10 +76,10 @@
     position: relative;
     height: var(--shop-showcase-media-height);
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: clamp(24px, 2.7vw, 36px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: clamp(20px, 2vw, 28px);
     background: #090607;
-    box-shadow: 0 38px 90px -42px rgba(0, 0, 0, 0.9);
+    box-shadow: 0 28px 68px -40px rgba(0, 0, 0, 0.92);
   }
 
   &__frame::before {
@@ -124,22 +87,8 @@
     position: absolute;
     z-index: 3;
     inset: 0;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: inherit;
-    box-shadow: inset 0 0 0 7px rgba(255, 255, 255, 0.025);
-    pointer-events: none;
-  }
-
-  &__frame::after {
-    content: '';
-    position: absolute;
-    z-index: 4;
-    inset-block-start: 0;
-    inset-inline-start: clamp(26px, 4vw, 58px);
-    width: clamp(70px, 8vw, 108px);
-    height: 4px;
-    border-radius: 0 0 999px 999px;
-    background: var(--crimson-solid);
     pointer-events: none;
   }
 
@@ -176,40 +125,40 @@
 
     &:focus-visible {
       outline: 3px solid #fff;
-      outline-offset: -9px;
+      outline-offset: -8px;
     }
 
     img {
       width: 100%;
       height: 100%;
       object-fit: cover;
-      filter: saturate(1.035) contrast(1.015);
+      filter: saturate(1.03) contrast(1.01);
       transform: scale(1.001);
-      transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+      transition: transform 850ms cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     &:hover img,
-    &:focus-visible img { transform: scale(1.016); }
+    &:focus-visible img { transform: scale(1.014); }
   }
 
   &__veil {
     position: absolute;
     z-index: 1;
     inset: auto 0 0;
-    height: 28%;
+    height: 26%;
     pointer-events: none;
-    background: linear-gradient(0deg, rgba(8, 5, 6, 0.34), transparent);
+    background: linear-gradient(0deg, rgba(8, 5, 6, 0.3), transparent);
   }
 
   &__navigation {
     position: absolute;
     z-index: 5;
-    inset-inline: clamp(16px, 2.2vw, 30px);
-    inset-block-end: clamp(16px, 2.2vw, 28px);
+    inset-inline: clamp(14px, 1.8vw, 24px);
+    inset-block-end: clamp(14px, 1.8vw, 22px);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 18px;
+    gap: 16px;
     pointer-events: none;
   }
 
@@ -217,21 +166,21 @@
   &__dots {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     pointer-events: auto;
   }
 
   &__arrows button {
     display: grid;
     place-items: center;
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.46);
+    border: 1px solid rgba(255, 255, 255, 0.42);
     border-radius: 50%;
     background: rgba(12, 8, 10, 0.46);
     color: #fff;
-    backdrop-filter: blur(7px);
+    backdrop-filter: blur(6px);
     transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
 
     &:hover {
@@ -244,25 +193,25 @@
   &__arrow--previous { transform: rotate(180deg); }
 
   &__dots {
-    min-height: 42px;
-    padding: 0 14px;
-    border: 1px solid rgba(255, 255, 255, 0.24);
+    min-height: 38px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
     border-radius: 999px;
     background: rgba(12, 8, 10, 0.38);
-    backdrop-filter: blur(7px);
+    backdrop-filter: blur(6px);
   }
 
   &__dots button {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     padding: 0;
     border: 0;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.58);
+    background: rgba(255, 255, 255, 0.6);
     transition: width 220ms var(--ease-soft), background-color 220ms ease;
 
     &.is-active {
-      width: 28px;
+      width: 24px;
       background: var(--crimson);
     }
   }
@@ -278,28 +227,28 @@
      each other because the grid stretches them. */
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: var(--space-3);
-  margin-block-start: var(--space-5);
-  margin-block-end: var(--section-content-gap);
+  margin-block-start: 20px;
+  margin-block-end: 0;
 
   &--inline { margin-block-start: 0; margin-block-end: 0; }
 
   &__item {
     display: flex;
     align-items: center;
-    gap: 14px;
-    min-height: 78px;
+    gap: 12px;
+    min-height: 72px;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
-    padding: 16px 18px;
+    padding: 12px 16px;
     box-shadow: none;
 
     .ico {
       flex: none;
       display: grid;
       place-items: center;
-      width: 44px;
-      height: 44px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: var(--crimson-soft);
       color: var(--crimson-ink);
@@ -316,6 +265,10 @@
       text-wrap: balance;
     }
   }
+}
+
+.shop-listing {
+  padding-block-start: clamp(24px, 2.5vw, 34px);
 }
 
 /* ---------------- shop toolbar ---------------- */
@@ -1656,10 +1609,6 @@
    reflows from four columns to two to one, and a fixed override at a
    breakpoint only fought it. */
 @media (max-width: 1080px) {
-  .shop-showcase__heading {
-    grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
-    gap: 36px;
-  }
   .shop-toolbar__tools { justify-content: flex-start; }
 
   .shop-grid {
@@ -1681,73 +1630,82 @@
 }
 
 @media (max-width: 800px) {
-  .shop-showcase { --shop-showcase-media-height: clamp(340px, 56vw, 430px); }
-
-  .shop-showcase__heading {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
-  .shop-showcase__heading p {
-    max-width: 650px;
-    padding-block-start: 18px;
-    padding-inline-start: 0;
-    border-block-start: 1px solid rgba(255, 255, 255, 0.18);
-    border-inline-start: 0;
-  }
+  .shop-showcase { --shop-showcase-media-height: clamp(230px, 40vw, 280px); }
 }
 
 @media (max-width: 640px) {
   .shop-showcase {
-    --shop-showcase-media-height: clamp(310px, 88vw, 370px);
-    padding-block-end: 32px;
+    --shop-showcase-media-height: clamp(200px, 57vw, 240px);
+    padding-block-end: 22px;
   }
-
-  .shop-showcase::before {
-    inset-block-start: 100px;
-    inset-inline-end: -190px;
-    width: 350px;
-  }
-
-  .shop-showcase::after { display: none; }
 
   .shop-showcase__content {
-    padding-block-start: calc(var(--nav-h) + 30px);
-    padding-block-end: 30px;
+    padding-block-start: calc(var(--nav-h) + 20px);
+    padding-block-end: 20px;
   }
 
   .shop-showcase__copy::before {
-    width: 42px;
-    height: 3px;
-    margin-block-end: 14px;
+    width: 34px;
+    margin-block-end: 9px;
   }
 
-  .shop-showcase__copy .breadcrumb { font-size: 12px; }
-  .shop-showcase__heading { margin-block-start: 16px; gap: 16px; }
+  .shop-showcase__copy .breadcrumb { font-size: 11.5px; }
+  .shop-showcase__heading { margin-block-start: 9px; }
   .shop-showcase__heading h1 {
-    font-size: clamp(34px, 10.5vw, 42px);
+    font-size: clamp(28px, 8.4vw, 34px);
     line-height: 1.42;
   }
   .shop-showcase__heading p {
-    padding-block-start: 15px;
-    font-size: 14px;
-    line-height: 1.85;
+    margin-block-start: 6px;
+    font-size: 13px;
+    line-height: 1.7;
   }
 
-  .shop-showcase__frame { border-radius: 22px; }
-  .shop-showcase__frame::after { width: 68px; height: 3px; }
-  .shop-showcase__navigation { inset: auto 14px 14px; }
-  .shop-showcase__arrows button { width: 38px; height: 38px; }
-  .shop-showcase__dots { min-height: 38px; padding-inline: 12px; }
+  .shop-showcase__frame { border-radius: 18px; }
+  .shop-showcase__navigation { inset: auto 12px 12px; }
+  .shop-showcase__arrows button { width: 36px; height: 36px; }
+  .shop-showcase__dots { min-height: 36px; padding-inline: 10px; }
 
-  .shop-toolbar { align-items: stretch; }
+  .shop-trust {
+    display: flex;
+    gap: 8px;
+    margin-block-start: 16px;
+    overflow-x: auto;
+    scroll-snap-type: inline mandatory;
+    scrollbar-width: none;
+  }
+  .shop-trust::-webkit-scrollbar { display: none; }
+  .shop-trust__item {
+    flex: 0 0 min(76vw, 280px);
+    min-height: 68px;
+    padding: 11px 13px;
+    scroll-snap-align: start;
+  }
+  .shop-trust__item .ico { width: 38px; height: 38px; }
+  .shop-trust__item span { font-size: 12.5px; }
+
+  .shop-listing { padding-block-start: 24px; }
+  .shop-toolbar { align-items: stretch; gap: 10px; margin-block-end: 18px; }
   .shop-toolbar__tools {
     flex-basis: 100%;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
-  .shop-search { max-width: none; min-width: min(100%, 230px); }
-  .shop-filter { flex-basis: 100%; }
-  .shop-filter .filter-chip { padding-inline: 14px; }
+  .shop-search {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+  }
+  .shop-toolbar__sort > span { display: none; }
+  .shop-toolbar__sort select { width: 112px; padding-inline: 11px; }
+  .shop-filter {
+    flex-basis: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .shop-filter::-webkit-scrollbar { display: none; }
+  .shop-filter .filter-chip { flex: none; padding-inline: 13px; }
 
   .shop-grid {
     grid-template-columns: 1fr;
