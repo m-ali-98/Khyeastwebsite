@@ -6,56 +6,38 @@ on:
       - arena/01a07ff9-khyeastwebsite
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
-  retrieve-flaky-traces:
+  refresh-reviewed-baselines:
     if: "!contains(github.event.head_commit.message, '[skip windows-e2e]')"
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download the complete-run diagnostics
-        uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: windows-browser-review
-          path: windows-review
-          run-id: 39108329186
-          github-token: ${{ github.token }}
+          node-version: 22
+          cache: npm
 
-      - name: Publish text traces for the two flaky tests
+      - run: npm ci
+      - run: npx playwright install chromium
+
+      # One-time finalisation after the screenshots were reviewed. `all` is
+      # deliberate: the normal 1.5% tolerance can consider a newly revealed
+      # heading a pass and therefore leave the old hidden-heading PNG intact.
+      - run: npx playwright test e2e/visual.spec.js --project=desktop --update-snapshots=all
+
+      - name: Commit the reviewed finished-state screenshots
         shell: pwsh
         run: |
-          $destination = '.ci/windows-flaky-analysis'
-          New-Item -ItemType Directory -Force $destination | Out-Null
-          $patterns = @(
-            'admin-an-order-placed-on-*desktop',
-            'public-html-lang-and-dir-*desktop'
-          )
-          foreach ($pattern in $patterns) {
-            $match = Get-ChildItem windows-review -Directory -Recurse |
-              Where-Object { $_.Name -like $pattern -and (Test-Path (Join-Path $_.FullName 'trace.zip')) } |
-              Sort-Object { $_.FullName.Length } |
-              Select-Object -First 1
-            if (-not $match) { throw "No artifact directory matched $pattern" }
-
-            $name = $match.Name
-            $expanded = Join-Path $env:RUNNER_TEMP $name
-            Expand-Archive (Join-Path $match.FullName 'trace.zip') $expanded -Force
-            New-Item -ItemType Directory -Force (Join-Path $destination $name) | Out-Null
-            Get-ChildItem $expanded -File -Filter '*.trace' | ForEach-Object {
-              Copy-Item $_.FullName (Join-Path $destination "$name/$($_.Name)")
-            }
-            if (Test-Path (Join-Path $match.FullName 'error-context.md')) {
-              Copy-Item (Join-Path $match.FullName 'error-context.md') (Join-Path $destination "$name/error-context.md")
-            }
-          }
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f $destination
-          git commit -m "test: publish Windows flaky traces [skip windows-e2e]"
-          git push origin HEAD:arena/01a07ff9-khyeastwebsite
+          git add e2e/visual.spec.js-snapshots
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "test: refresh reviewed Windows baselines [skip windows-e2e]"
+            git push origin HEAD:arena/01a07ff9-khyeastwebsite
+          }

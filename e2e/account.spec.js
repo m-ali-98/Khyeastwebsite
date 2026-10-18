@@ -115,6 +115,10 @@ test.describe('customer accounts', () => {
     await routeSettled(page, /\/shop$/);
     await page.goto('/shop/account', { waitUntil: 'domcontentloaded' });
     await expect(page, 'the panel is closed once signed out').toHaveURL(/\/shop\/login/, { timeout: 20_000 });
+    /* The URL changes before the 420ms navigation cover leaves. Programmatic
+       fill can reach the inert route underneath it and then be discarded when
+       that route commits — exactly what emptied the phone field on mobile. */
+    await routeSettled(page, /\/shop\/login/);
 
     /* sign back in with the password */
     await page.locator('input[type="tel"]').fill(who.phone);

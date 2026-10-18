@@ -58,7 +58,11 @@ export default defineConfig({
     timezoneId: 'Asia/Tehran',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    /* Windows CI encodes one video while closing every browser context. Under
+       a loaded runner that teardown alone exceeded the test timeout, despite
+       all assertions having passed. Traces + screenshots remain on CI;
+       interactive/local failures still retain their video. */
+    video: process.env.CI ? 'off' : 'retain-on-failure',
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },

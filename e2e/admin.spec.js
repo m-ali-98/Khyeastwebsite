@@ -314,6 +314,12 @@ test('the shop products tab can refresh live stock without clobbering it', async
 });
 
 test('an order placed on the site is visible in the orders tab and its status can change', async ({ page }) => {
+  /* This is intentionally a full customer-to-admin lifecycle. A cold Windows
+     runner can spend most of the default budget compiling and navigating
+     before its many assertions begin, so use Playwright's semantic long-test
+     marker rather than hiding the cost behind sleeps. */
+  test.slow();
+
   /* place a real order through the storefront. Ordering needs a verified
      account now, so the journey starts with one — set up through the API,
      to keep this test about the admin panel. */
