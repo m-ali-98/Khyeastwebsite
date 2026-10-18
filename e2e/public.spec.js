@@ -87,6 +87,43 @@ test('html lang and dir follow the locale @mobile', async ({ page }) => {
   }
 });
 
+test('shop search, sale and brand filters compose without hiding their controls @mobile', async ({ page }) => {
+  await gotoReady(page, '/shop');
+
+  const showcase = page.getByTestId('shop-showcase');
+  await expect(showcase.getByRole('heading', { level: 1 })).toContainText('فروشگاه');
+  await expect(showcase.locator('.shop-showcase__link')).toHaveAttribute('href', '/products');
+
+  const search = page.getByTestId('shop-search');
+  await search.fill('ايكس پاور');
+  await expect(page.locator('.shop-card')).toHaveCount(1);
+  await expect(page.locator('.shop-card')).toContainText('ایکس پاور');
+  const addButton = page.locator('.shop-card__actions button').first();
+  await expect(addButton).toBeVisible();
+  await expect(addButton).toHaveAccessibleName(/افزودن به سبد/);
+  await addButton.click();
+  await expect(addButton).toContainText('اضافه شد');
+
+  const sale = page.getByTestId('shop-sale-filter');
+  await sale.click();
+  await expect(sale).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.shop-card')).toHaveCount(0);
+  await expect(search).toBeVisible();
+  await expect(page.getByRole('heading', { name: /محصولی با این مشخصات/ })).toBeVisible();
+
+  await page.getByRole('button', { name: 'پاک کردن فیلترها' }).click();
+  await expect(search).toHaveValue('');
+  await expect(sale).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.shop-card')).toHaveCount(7);
+
+  await sale.click();
+  await page.locator('.shop-filter').getByRole('button', { name: 'دزمایه', exact: true }).click();
+  await search.fill('۸۰');
+  await page.locator('.shop-toolbar__sort select').selectOption('expensive');
+  await expect(page.locator('.shop-card')).toHaveCount(1);
+  await expect(page.locator('.shop-card')).toContainText('۸۰ گرمی');
+});
+
 test('the shop is reachable in Persian and absent in English and Arabic', async ({ page }) => {
   await gotoReady(page, '/');
   await expect(page.locator('.nav__cart')).toBeVisible();

@@ -30,8 +30,14 @@ export function mergeContentState(base, remote) {
   }
   if (isPlainObject(out.shop)) {
     out.shop.display = isPlainObject(out.shop.display)
-      ? out.shop.display
+      ? { ...clone(base.shop?.display || {}), ...out.shop.display }
       : clone(base.shop?.display || {});
+    const showcase = Array.isArray(out.shop.display.showcase)
+      ? out.shop.display.showcase.filter(isPlainObject)
+      : [];
+    out.shop.display.showcase = showcase.length
+      ? showcase
+      : clone(base.shop?.display?.showcase || []);
     out.shop.products = Array.isArray(out.shop.products)
       ? out.shop.products.filter(isPlainObject)
       : clone(base.shop?.products || []);

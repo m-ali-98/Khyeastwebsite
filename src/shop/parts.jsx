@@ -83,17 +83,20 @@ export function ShopCard({ p, index = 0 }) {
             className={`btn ${added ? 'btn--primary' : 'btn--outline'} btn--sm`}
             disabled={out}
             onClick={() => add(p.slug, 1) && setAdded(true)}
-            title={added ? t('shop.detail.added') : t('shop.detail.addToCart')}
-            aria-label={added ? t('shop.detail.added') : t('shop.detail.addToCart')}
+            title={added ? t('shop.card.added') : t('shop.card.add')}
+            aria-label={`${added ? t('shop.card.added') : t('shop.card.add')} — ${p.title}`}
             aria-live="polite"
           >
             {added ? (
               <>
                 <Icons.check size={17} className="confirm-icon" />
-                {t('shop.detail.added')}
+                {t('shop.card.added')}
               </>
             ) : (
-              <Icons.cart size={17} />
+              <>
+                <Icons.cart size={17} />
+                {t('shop.card.add')}
+              </>
             )}
           </button>
         </div>

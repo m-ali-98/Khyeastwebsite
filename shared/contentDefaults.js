@@ -16,6 +16,7 @@ export const TEXTS = {
   'global.email': 'info@khuzestanyeast-co.com',
   'global.sales.phone.fa': '۰۲۱-۲۲۵۸۲۹۷۷',
   'seo.home.title': 'خمیرمایه خوزستان | تولیدکننده خمیرمایه خشک فوری',
+  'seo.shop.title': 'خرید خمیرمایه خشک فوری | فروشگاه خمیرمایه خوزستان',
 
   /* ---------- home ---------- */
   'home.hero.badge': 'بیش از سه دهه پیشگام در صنعت بیوتکنولوژی و مخمر نان کشور',
@@ -241,6 +242,19 @@ export const TEXTS = {
   'shop.card.inStock': 'موجود در انبار',
   'shop.card.lowStock': 'موجودی محدود',
   'shop.card.view': 'مشاهده و خرید',
+  'shop.card.add': 'افزودن به سبد',
+  'shop.card.added': 'اضافه شد',
+  'shop.search.label': 'جست‌وجوی محصولات',
+  'shop.search.placeholder': 'نام، برند یا نوع بسته‌بندی',
+  'shop.search.clear': 'پاک کردن جست‌وجو',
+  'shop.filter.sale': 'فقط تخفیف‌دارها',
+  'shop.filter.reset': 'پاک کردن فیلترها',
+  'shop.results.count': '{count} محصول نمایش داده می‌شود',
+  'shop.results.emptyTitle': 'محصولی با این مشخصات پیدا نشد',
+  'shop.results.emptyText': 'عبارت جست‌وجو یا فیلترها را تغییر دهید و دوباره امتحان کنید.',
+  'shop.showcase.previous': 'تصویر قبلی',
+  'shop.showcase.next': 'تصویر بعدی',
+  'shop.showcase.goTo': 'نمایش تصویر {count}',
   'shop.empty': 'به‌زودی محصولات فروشگاه بارگذاری می‌شود.',
   'shop.trust.guarantee': 'ضمانت اصالت کالا — تأمین مستقیم از کارخانه',
   'shop.trust.shipping': 'ارسال سریع به سراسر ایران',
@@ -806,6 +820,14 @@ export const SHOP = {
     commentsEnabled: true,
     commentsRequireApproval: true,
     supportPhone: '۰۲۱-۲۲۵۸۲۹۷۷',
+    showcase: [
+      {
+        id: 'shop-showcase-default',
+        image: '/assets/img/bread-slicing.webp',
+        href: '/products',
+        alt: 'برش نان تازه تهیه‌شده با خمیرمایه خوزستان',
+      },
+    ],
   },
   products: [
     {

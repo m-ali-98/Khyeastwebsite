@@ -154,6 +154,129 @@ function ColumnPicker({ id, label, primaryLabel, columns, visibility }) {
   );
 }
 
+/* The showcase is content, not presentation: admins choose only the image,
+   destination and accessible description. Layout, motion and styling remain
+   fixed in the public component. */
+const showcaseSeed = (value) => {
+  const valid = Array.isArray(value)
+    ? value.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
+  return valid.length ? valid : [{
+    id: 'shop-showcase-default',
+    image: '/assets/img/bread-slicing.webp',
+    href: '/products',
+    alt: 'برش نان تازه تهیه‌شده با خمیرمایه خوزستان',
+  }];
+};
+
+function ShopShowcaseEditor({ items, onSave }) {
+  const [slides, setSlides] = useState(() => clone(showcaseSeed(items)));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => setSlides(clone(showcaseSeed(items))), [items]);
+
+  const change = (index, field, value) => setSlides((current) => current.map((slide, slideIndex) => (
+    slideIndex === index ? { ...slide, [field]: value } : slide
+  )));
+  const move = (index, direction) => setSlides((current) => {
+    const target = index + direction;
+    if (target < 0 || target >= current.length) return current;
+    const next = [...current];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+  const add = () => setSlides((current) => [...current, {
+    id: `shop-showcase-${Date.now()}-${current.length}`,
+    image: '',
+    href: '',
+    alt: '',
+  }]);
+  const remove = (index) => {
+    if (slides.length <= 1) return;
+    setSlides((current) => current.filter((_, slideIndex) => slideIndex !== index));
+  };
+  const saveSlides = async () => {
+    const clean = slides.map((slide, index) => ({
+      id: String(slide.id || `shop-showcase-${Date.now()}-${index}`),
+      image: String(slide.image || '').trim(),
+      href: String(slide.href || '').trim(),
+      alt: String(slide.alt || '').trim(),
+    }));
+    if (clean.some((slide) => !slide.image || !slide.href || !slide.alt)) {
+      window.alert('تصویر، پیوند و متن جایگزین برای همه اسلایدها الزامی است.');
+      return;
+    }
+    if (clean.some((slide) => !/^\/(?!\/)/.test(slide.href) && !/^https?:\/\//i.test(slide.href))) {
+      window.alert('پیوند باید با / آغاز شود یا یک نشانی کامل http/https باشد.');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      await onSave(clean);
+      setMessage('ویترین فروشگاه ذخیره شد.');
+    } catch {
+      setMessage('ذخیره ویترین ممکن نشد؛ اتصال را بررسی کنید.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="shop-showcase-editor" aria-labelledby="shop-showcase-editor-title">
+      <div className="shop-showcase-editor__head">
+        <div>
+          <h2 id="shop-showcase-editor-title">ویترین تصویری فروشگاه</h2>
+          <p>یک یا چند تصویر تعیین کنید. هر تصویر به صفحه‌ای جداگانه پیوند می‌خورد و ترتیب نمایش از بالا به پایین است.</p>
+        </div>
+        <button type="button" className="btn btn--outline btn--sm" onClick={add}>
+          + افزودن تصویر
+        </button>
+      </div>
+
+      <div className="shop-showcase-editor__list">
+        {slides.map((slide, index) => (
+          <article className="shop-showcase-editor__item" key={slide.id || index}>
+            <div className="shop-showcase-editor__preview">
+              {slide.image ? <img src={slide.image} alt="" /> : <Icons.image size={28} />}
+              <span>تصویر {new Intl.NumberFormat('fa-IR').format(index + 1)}</span>
+            </div>
+            <div className="shop-showcase-editor__fields">
+              <div className="shop-showcase-editor__image-row">
+                <Field label="نشانی تصویر" value={slide.image || ''} dir="ltr" onChange={(value) => change(index, 'image', value)} />
+                <UploadButton
+                  accept="image/*"
+                  label="بارگذاری تصویر"
+                  onUploaded={(url) => change(index, 'image', url)}
+                />
+              </div>
+              <div className="admin__grid2">
+                <Field label="پیوند صفحه (مثلاً /products)" value={slide.href || ''} dir="ltr" onChange={(value) => change(index, 'href', value)} />
+                <Field label="متن جایگزین تصویر" value={slide.alt || ''} onChange={(value) => change(index, 'alt', value)} />
+              </div>
+            </div>
+            <div className="shop-showcase-editor__actions" aria-label={`مرتب‌سازی تصویر ${index + 1}`}>
+              <button type="button" onClick={() => move(index, -1)} disabled={index === 0} aria-label="انتقال به بالا">↑</button>
+              <button type="button" onClick={() => move(index, 1)} disabled={index === slides.length - 1} aria-label="انتقال به پایین">↓</button>
+              <button type="button" className="is-danger" onClick={() => remove(index)} disabled={slides.length === 1} aria-label="حذف تصویر">
+                <Icons.trash size={16} />
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="shop-showcase-editor__footer">
+        <button type="button" className="btn btn--primary" onClick={saveSlides} disabled={saving}>
+          {saving ? 'در حال ذخیره…' : 'ذخیره ویترین'}
+        </button>
+        {message && <span role="status">{message}</span>}
+      </div>
+    </section>
+  );
+}
+
 /* ================= shop products ================= */
 export function ShopProductsTab() {
   const { state, save, reload, brands, products: catalog } = useContent();
@@ -326,6 +449,14 @@ export function ShopProductsTab() {
       {note && (
         <p style={{ color: note.bad ? 'var(--crimson)' : 'var(--muted)', marginTop: -4 }}>{note.text}</p>
       )}
+      <ShopShowcaseEditor
+        items={display.showcase}
+        onSave={(showcase) => commitShop({ display: { ...display, showcase } })}
+      />
+      <div className="admin__section-label">
+        <h2>محصولات فروشگاه</h2>
+        <span>{new Intl.NumberFormat('fa-IR').format(items.length)} محصول</span>
+      </div>
       <div className="admin__list">
         {items.map((p) => (
           <div className="admin__item" key={p.slug}>

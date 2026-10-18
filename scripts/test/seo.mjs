@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
+import { mergeContentState } from '../../shared/contentState.js';
 import { loadAllPacks } from '../../shared/i18n/index.js';
 import {
   listIndexablePaths,
@@ -68,6 +69,15 @@ check(listIndexablePaths(standaloneState).includes('/shop/standalone-shop-item')
 check(standaloneShop.canonical === `${ORIGIN}/shop/standalone-shop-item` && standaloneShop.alternates.length === 2, 'standalone shop product keeps a self canonical and Persian alternates');
 check(standaloneShop.schema?.['@graph']?.some((item) => item['@type'] === 'Product' && item.offers), 'standalone shop product publishes Product/Offer schema');
 check(shop.alternates.length === 2 && shop.alternates.every((item) => item.hreflang === 'fa' || item.hreflang === 'x-default'), 'Persian-only shop alternates');
+check(shop.title === 'خرید خمیرمایه خشک فوری | فروشگاه خمیرمایه خوزستان', 'shop has a concise commercial title');
+check(shop.image === `${ORIGIN}/assets/img/bread-slicing.webp`, 'shop social image follows its first showcase slide');
+const customShowcaseState = structuredClone(DEFAULT_STATE);
+customShowcaseState.shop.display.showcase[0].image = '/assets/img/factory.webp';
+check(resolveSeo('/shop', customShowcaseState, ORIGIN).image === `${ORIGIN}/assets/img/factory.webp`, 'edited showcase image feeds shop social metadata');
+const legacyShopState = mergeContentState(DEFAULT_STATE, { shop: { display: { enabled: true }, products: [] } });
+check(Array.isArray(legacyShopState.shop.display.showcase) && legacyShopState.shop.display.showcase.length === 1, 'new showcase defaults migrate into legacy shop settings');
+const malformedShowcaseState = mergeContentState(DEFAULT_STATE, { shop: { display: { showcase: [null, 'bad'] }, products: [] } });
+check(malformedShowcaseState.shop.display.showcase[0]?.image === '/assets/img/bread-slicing.webp', 'malformed showcase rows fall back safely');
 check(!account.indexable && account.status === 200, 'account noindex');
 check(!admin.indexable && admin.status === 200, 'admin noindex');
 check(!missing.indexable && missing.status === 404, 'unknown route is a 404');

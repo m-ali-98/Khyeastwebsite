@@ -306,11 +306,53 @@ test('the shop products tab can refresh live stock without clobbering it', async
   await loginAdmin(page);
   await adminTab(page, 'فروشگاه — محصولات').first().click();
   await expect(page.locator('.admin__panel h1')).toContainText('فروشگاه');
+  const showcaseEditor = page.locator('.shop-showcase-editor');
+  await expect(showcaseEditor.getByRole('heading', { name: 'ویترین تصویری فروشگاه' })).toBeVisible();
+  await expect(showcaseEditor.getByLabel('پیوند صفحه (مثلاً /products)')).toHaveValue('/products');
+  await expect(showcaseEditor.getByLabel('متن جایگزین تصویر')).not.toHaveValue('');
+  await showcaseEditor.getByRole('button', { name: 'ذخیره ویترین' }).click();
+  await expect(showcaseEditor.getByRole('status')).toContainText('ذخیره شد');
 
   const refresh = page.getByRole('button', { name: /بروزرسانی/ });
   await expect(refresh).toBeVisible();
   await refresh.click();
   await expect(page.locator('.admin__item').first()).toBeVisible();
+});
+
+test('the shop showcase can publish multiple independently linked images', async ({ page }) => {
+  await loginAdmin(page);
+  const token = await page.evaluate(() => localStorage.getItem('ky_admin_token'));
+  const original = await page.evaluate(() => fetch('/api/content', { cache: 'no-store' }).then((response) => response.json()));
+
+  try {
+    await adminTab(page, 'فروشگاه — محصولات').first().click();
+    const editor = page.locator('.shop-showcase-editor');
+    await editor.getByRole('button', { name: 'افزودن تصویر' }).click();
+    await expect(editor.locator('.shop-showcase-editor__item')).toHaveCount(2);
+
+    const second = editor.locator('.shop-showcase-editor__item').nth(1);
+    await second.getByLabel('نشانی تصویر').fill('/assets/img/factory.webp');
+    await second.getByLabel('پیوند صفحه (مثلاً /products)').fill('/about');
+    await second.getByLabel('متن جایگزین تصویر').fill('کارخانه خمیرمایه خوزستان');
+    await editor.getByRole('button', { name: 'ذخیره ویترین' }).click();
+    await expect(editor.getByRole('status')).toContainText('ذخیره شد');
+
+    await gotoReady(page, '/shop');
+    const showcase = page.getByTestId('shop-showcase');
+    await expect(showcase.locator('.shop-showcase__link')).toHaveCount(2);
+    await expect(showcase.locator('.shop-showcase__link').nth(0)).toHaveAttribute('href', '/products');
+    await expect(showcase.locator('.shop-showcase__link').nth(1)).toHaveAttribute('href', '/about');
+    await showcase.getByRole('button', { name: 'تصویر بعدی' }).click();
+    await expect(showcase.locator('.shop-showcase__slide').nth(1)).toHaveAttribute('aria-hidden', 'false');
+  } finally {
+    if (token && original) {
+      const restored = await page.request.put(new URL('/api/content', page.url()).href, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: original,
+      });
+      expect(restored.ok(), 'showcase fixture cleanup failed').toBe(true);
+    }
+  }
 });
 
 test('an order placed on the site is visible in the orders tab and its status can change', async ({ page }) => {

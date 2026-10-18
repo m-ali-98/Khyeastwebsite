@@ -2,6 +2,174 @@
    Online Shop — styles (crimson & white design system, RTL)
    ========================================================================== */
 
+/* ---------------- linked shop showcase ---------------- */
+.shop-showcase {
+  position: relative;
+  min-height: clamp(390px, 42vw, 520px);
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--inverse-deep);
+  color: #fff;
+
+  &__viewport,
+  &__track,
+  &__slide,
+  &__link {
+    position: absolute;
+    inset: 0;
+  }
+
+  &__viewport {
+    z-index: 0;
+    overflow: hidden;
+    direction: ltr;
+  }
+
+  &__track {
+    display: flex;
+    width: 100%;
+    transition: transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+
+  &__slide {
+    position: relative;
+    flex: 0 0 100%;
+    min-width: 100%;
+    overflow: hidden;
+  }
+
+  &__link {
+    display: block;
+
+    &:focus-visible {
+      outline: 3px solid #fff;
+      outline-offset: -7px;
+    }
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scale(1.002);
+      transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    &:hover img,
+    &:focus-visible img { transform: scale(1.018); }
+  }
+
+  &__veil {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(90deg, rgba(16, 13, 15, 0.48), rgba(16, 13, 15, 0.18) 48%, rgba(16, 13, 15, 0.58)),
+      linear-gradient(0deg, rgba(16, 13, 15, 0.74), rgba(16, 13, 15, 0.14) 68%);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    inset-inline-start: 0;
+    inset-block: 0;
+    width: min(62%, 760px);
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(19, 15, 17, 0.58));
+  }
+
+  &__content {
+    position: relative;
+    z-index: 2;
+    min-height: clamp(390px, 42vw, 520px);
+    padding-block-start: calc(var(--nav-h) + clamp(42px, 6vw, 78px));
+    padding-block-end: 92px;
+    pointer-events: none;
+
+    .breadcrumb { color: rgba(255, 255, 255, 0.76); pointer-events: auto; }
+    .breadcrumb a:hover { color: #fff; }
+    .breadcrumb .sep { color: inherit; }
+
+    h1 {
+      max-width: 760px;
+      margin: 14px 0 10px;
+      font-size: clamp(31px, 4.5vw, 54px);
+      font-weight: 900;
+      line-height: 1.55;
+      text-wrap: balance;
+      text-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
+    }
+
+    p {
+      max-width: 670px;
+      margin: 0;
+      color: rgba(255, 255, 255, 0.86);
+      font-size: 16.5px;
+      line-height: 1.9;
+      text-wrap: balance;
+    }
+  }
+
+  &__navigation {
+    position: absolute;
+    z-index: 4;
+    inset-inline: 0;
+    inset-block-end: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    pointer-events: none;
+  }
+
+  &__arrows,
+  &__dots {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: auto;
+  }
+
+  &__arrows button {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    background: rgba(18, 14, 16, 0.36);
+    color: #fff;
+    backdrop-filter: blur(8px);
+    transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+
+    &:hover {
+      background: var(--crimson-solid);
+      border-color: var(--crimson-solid);
+      transform: translateY(-1px);
+    }
+  }
+
+  &__arrow--previous { transform: rotate(180deg); }
+
+  &__dots button {
+    width: 9px;
+    height: 9px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.58);
+    transition: width 220ms var(--ease-soft), background-color 220ms ease;
+
+    &.is-active {
+      width: 28px;
+      background: var(--crimson);
+    }
+  }
+}
+
 /* ---------------- trust band ---------------- */
 .shop-trust {
   display: grid;
@@ -12,9 +180,10 @@
      each other because the grid stretches them. */
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: var(--space-3);
+  margin-block-start: var(--space-5);
   margin-block-end: var(--section-content-gap);
 
-  &--inline { margin-block-end: 0; }
+  &--inline { margin-block-start: 0; margin-block-end: 0; }
 
   &__item {
     display: flex;
@@ -64,6 +233,14 @@
     margin: 0;
   }
 
+  &__tools {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex: 1 1 390px;
+  }
+
   &__sort {
     display: flex;
     align-items: center;
@@ -71,15 +248,17 @@
     font-size: 13px;
     color: var(--muted);
     font-weight: 700;
+    white-space: nowrap;
 
     /* This sits in the same row as the brand chips, so it has to be the same
        object: pill, same height, same type size. At 12px radius and a
        smaller font it read as a stray form control dropped next to them. */
     select {
+      min-height: 43px;
       border: 1.5px solid var(--line);
       border-radius: 999px;
       background: var(--surface);
-      padding: 10px 18px;
+      padding: 9px 16px;
       font-family: inherit;
       font-size: 14px;
       font-weight: 700;
@@ -87,12 +266,125 @@
       cursor: pointer;
       transition: border-color 0.28s var(--ease-soft), color 0.28s var(--ease-soft);
 
-      &:hover {
+      &:hover,
+      &:focus {
         border-color: var(--crimson);
         color: var(--crimson-ink);
       }
     }
   }
+}
+
+.shop-filter {
+  justify-content: flex-start;
+  gap: 8px;
+  flex: 1 1 590px;
+
+  .filter-chip {
+    min-height: 43px;
+    padding: 8px 16px;
+    font-size: 13.5px;
+  }
+
+  &__sale {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+.shop-search {
+  position: relative;
+  display: block;
+  flex: 1 1 230px;
+  max-width: 330px;
+  min-width: 210px;
+
+  > svg {
+    position: absolute;
+    z-index: 1;
+    inset-inline-start: 14px;
+    inset-block-start: 50%;
+    color: var(--muted);
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+
+  input {
+    width: 100%;
+    min-height: 43px;
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink);
+    padding: 9px 42px;
+    font: 700 13.5px/1.5 inherit;
+    outline: none;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+
+    &::placeholder { color: var(--muted); font-weight: 500; opacity: 0.88; }
+    &::-webkit-search-cancel-button { appearance: none; }
+
+    &:hover { border-color: var(--line-strong); }
+    &:focus {
+      border-color: var(--crimson);
+      box-shadow: 0 0 0 3px var(--crimson-soft);
+    }
+  }
+
+  button {
+    position: absolute;
+    inset-inline-end: 8px;
+    inset-block-start: 50%;
+    display: grid;
+    place-items: center;
+    width: 29px;
+    height: 29px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    font: 700 20px/1 Arial, sans-serif;
+    transform: translateY(-50%);
+
+    &:hover { background: var(--bg-soft); color: var(--crimson-ink); }
+  }
+}
+
+.shop-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 54px 24px;
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.shop-empty--filtered {
+  max-width: 620px;
+  min-height: 270px;
+  margin-inline: auto;
+
+  .shop-empty__icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    margin-inline: auto;
+    border-radius: 50%;
+    background: var(--crimson-soft);
+    color: var(--crimson-ink);
+  }
+
+  h2 { margin: 14px 0 6px; font-size: 21px; }
+  p { margin: 0 auto 18px; color: var(--muted); }
+  .btn { margin-inline: auto; }
 }
 
 /* ---------------- shop grid & cards ---------------- */
@@ -1266,6 +1558,8 @@
    reflows from four columns to two to one, and a fixed override at a
    breakpoint only fought it. */
 @media (max-width: 1080px) {
+  .shop-toolbar__tools { justify-content: flex-start; }
+
   .shop-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1285,6 +1579,29 @@
 }
 
 @media (max-width: 640px) {
+  .shop-showcase,
+  .shop-showcase__content { min-height: 430px; }
+
+  .shop-showcase__content {
+    padding-block-start: calc(var(--nav-h) + 34px);
+    padding-block-end: 86px;
+
+    h1 { font-size: clamp(28px, 9vw, 36px); line-height: 1.5; }
+    p { font-size: 14.5px; line-height: 1.8; }
+  }
+
+  .shop-showcase__navigation { inset-block-end: 16px; }
+  .shop-showcase__arrows button { width: 38px; height: 38px; }
+
+  .shop-toolbar { align-items: stretch; }
+  .shop-toolbar__tools {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+  .shop-search { max-width: none; min-width: min(100%, 230px); }
+  .shop-filter { flex-basis: 100%; }
+  .shop-filter .filter-chip { padding-inline: 14px; }
+
   .shop-grid {
     grid-template-columns: 1fr;
   }
@@ -1310,6 +1627,14 @@
       height: 38px;
     }
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-showcase__track,
+  .shop-showcase__link img,
+  .shop-showcase__dots button { transition: none; }
+  .shop-showcase__link:hover img,
+  .shop-showcase__link:focus-visible img { transform: none; }
 }
 
 /* The dark palette lifts crimson to #ef2b52, where white text falls to

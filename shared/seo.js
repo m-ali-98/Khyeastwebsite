@@ -81,6 +81,7 @@ const STATIC_ROUTES = {
   },
   '/shop': {
     titleKey: 'shop.hero.title',
+    seoTitleKey: 'seo.shop.title',
     descriptionKey: 'shop.hero.sub',
     imageKey: 'shop.hero.img',
     bodyKeys: ['shop.hero.sub'],
@@ -510,7 +511,9 @@ export function resolveSeo(pathname, state, requestedOrigin = DEFAULT_SITE_ORIGI
       title: plainText(texts[staticRoute.titleKey]),
       seoTitle: plainText(texts[staticRoute.seoTitleKey] || texts[staticRoute.titleKey]),
       description: clipDescription(texts[staticRoute.descriptionKey] || texts['footer.about']),
-      image: media[staticRoute.imageKey] || fallbackImage,
+      image: (relative === '/shop'
+        ? asArray(view.shop?.display?.showcase).find((item) => item?.image)?.image
+        : '') || media[staticRoute.imageKey] || fallbackImage,
       body: cleanArray(staticRoute.bodyKeys.map((key) => texts[key])),
       links: pageLinks(view, locale, staticRoute, staticRoute.listing),
       locales: staticRoute.locales || LOCALES.map((item) => item.code),
