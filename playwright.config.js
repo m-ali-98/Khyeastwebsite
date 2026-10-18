@@ -44,6 +44,10 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  /* A green CI check must mean clean on the first attempt, not merely that a
+     hidden retry happened to pass. Retries still preserve the second trace
+     that makes a genuinely intermittent failure diagnosable. */
+  failOnFlakyTests: !!process.env.CI,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   timeout: 45_000,
   expect: {
