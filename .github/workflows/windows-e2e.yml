@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  retrieve-account-trace:
+  retrieve-flaky-traces:
     if: "!contains(github.event.head_commit.message, '[skip windows-e2e]')"
     runs-on: windows-latest
     timeout-minutes: 10
@@ -26,22 +26,35 @@ jobs:
           run-id: 39108329186
           github-token: ${{ github.token }}
 
-      - name: Publish only the failing mobile account trace
+      - name: Publish text traces for the two flaky tests
         shell: pwsh
         run: |
-          $destination = '.ci/windows-account-artifact'
+          $destination = '.ci/windows-flaky-analysis'
           New-Item -ItemType Directory -Force $destination | Out-Null
-          $matches = Get-ChildItem windows-review -Directory -Recurse |
-            Where-Object { $_.Name -like 'account-customer-accounts-*mobile-mobile*' }
-          if (-not $matches) {
-            throw 'The account failure directory was not present in the downloaded artifact.'
-          }
-          foreach ($match in $matches) {
-            Copy-Item $match.FullName (Join-Path $destination $match.Name) -Recurse
+          $patterns = @(
+            'admin-an-order-placed-on-*desktop',
+            'public-html-lang-and-dir-*desktop'
+          )
+          foreach ($pattern in $patterns) {
+            $match = Get-ChildItem windows-review -Directory -Recurse |
+              Where-Object { $_.Name -like $pattern -and (Test-Path (Join-Path $_.FullName 'trace.zip')) } |
+              Sort-Object { $_.FullName.Length } |
+              Select-Object -First 1
+            if (-not $match) { throw "No artifact directory matched $pattern" }
+
+            $name = $match.Name
+            $expanded = Join-Path $env:RUNNER_TEMP $name
+            Expand-Archive (Join-Path $match.FullName 'trace.zip') $expanded -Force
+            New-Item -ItemType Directory -Force (Join-Path $destination $name) | Out-Null
+            Copy-Item (Join-Path $expanded 'test.trace') (Join-Path $destination "$name/test.trace")
+            Copy-Item (Join-Path $expanded '1-trace.trace') (Join-Path $destination "$name/1-trace.trace")
+            if (Test-Path (Join-Path $match.FullName 'error-context.md')) {
+              Copy-Item (Join-Path $match.FullName 'error-context.md') (Join-Path $destination "$name/error-context.md")
+            }
           }
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f $destination
-          git commit -m "test: publish mobile account trace [skip windows-e2e]"
+          git commit -m "test: publish Windows flaky traces [skip windows-e2e]"
           git push origin HEAD:arena/01a07ff9-khyeastwebsite
