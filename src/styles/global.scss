@@ -330,6 +330,15 @@ input, select, textarea { font-family: inherit; }
 }
 .section-head--start .section-sub { margin-inline: 0; }
 
+/* This introduction belongs visually to the headline above it. The shared
+   subtitle width is deliberately narrower for most sections, but here that
+   made a desktop-length sentence balance into two short half-lines. Let it use
+   the heading's full measure; compact viewports still wrap it naturally. */
+.home-blog .section-head .section-sub {
+  max-width: 760px;
+  text-wrap: pretty;
+}
+
 .section-action {
   margin-block-start: var(--section-content-gap);
   text-align: center;

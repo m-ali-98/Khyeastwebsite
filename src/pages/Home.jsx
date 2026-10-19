@@ -275,7 +275,7 @@ function CertsPreview() {
 function BlogTeaser() {
   const { t, posts } = useContent();
   return (
-    <section className="section">
+    <section className="section home-blog">
       <div className="container">
         <SectionHead
           overline={t('home.blog.overline')}
