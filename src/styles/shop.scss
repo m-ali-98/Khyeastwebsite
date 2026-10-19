@@ -547,6 +547,108 @@
   .btn { margin-inline: auto; }
 }
 
+/* ---------------- Persian home purchase shelf ---------------- */
+.home-shop-shelf {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding-block: clamp(38px, 5vw, 64px);
+  border-block: 1px solid var(--line);
+  background:
+    radial-gradient(46% 120% at 100% 0%, var(--crimson-soft), transparent 72%),
+    linear-gradient(180deg, var(--surface-tint), var(--surface));
+
+  &::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    width: 210px;
+    height: 4px;
+    inset-block-start: 0;
+    inset-inline-start: max(var(--container-gutter), calc((100vw - 1240px) / 2 + var(--container-gutter)));
+    border-radius: 0 0 999px 999px;
+    background: linear-gradient(90deg, var(--crimson), var(--crimson-bright));
+  }
+
+  &__head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: clamp(24px, 4vw, 64px);
+    margin-block-end: clamp(24px, 3vw, 34px);
+  }
+
+  &__copy {
+    max-width: 690px;
+
+    .section-title {
+      margin: 7px 0 8px;
+      font-size: clamp(27px, 3.2vw, 40px);
+      line-height: 1.5;
+    }
+
+    p {
+      max-width: 650px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 14.5px;
+      line-height: 1.95;
+      text-wrap: pretty;
+    }
+  }
+
+  &__aside {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 15px;
+  }
+
+  &__trust {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 5px 10px;
+      border: 1px solid var(--crimson-line);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface-raised) 86%, transparent);
+      color: var(--ink-soft);
+      font-size: 11.5px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    svg {
+      flex: none;
+      color: var(--crimson-ink);
+    }
+  }
+
+  &__aside .btn {
+    min-height: 46px;
+    padding-inline: 20px;
+    border-radius: 13px;
+  }
+
+  /* On wide screens the shared four-column shop grid leaves one editorial
+     rail beneath the trust cues and CTA; the three products occupy the other
+     rails. The responsive rules close that rail from laptop width downward.
+     The shorter image stage also keeps every purchase option close to the hero. */
+  .shop-card__img { aspect-ratio: 16 / 8.5; }
+  .shop-card__img img { padding: 13px; }
+}
+
 /* ---------------- product gallery & commerce cards ---------------- */
 .shop-grid {
   display: grid;
@@ -1780,6 +1882,18 @@
 }
 
 @media (max-width: 900px) {
+  .home-shop-shelf__head {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 18px;
+  }
+
+  .home-shop-shelf__aside {
+    align-items: flex-start;
+  }
+
+  .home-shop-shelf__trust { justify-content: flex-start; }
+
   .shop-showcase {
     padding-block-start: calc(var(--nav-h) + 62px);
     padding-block-end: 58px;
@@ -1825,9 +1939,66 @@
   .shop-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  /* Keep the three-item homepage shelf on one compact row at tablet widths.
+     Stacking its two actions gives each narrow card more breathing room; phones
+     switch to the horizontal one-card-per-row treatment below. */
+  .home-shop-shelf__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-shop-shelf .shop-card__actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .home-shop-shelf .shop-card__actions .btn {
+    width: 100%;
+    min-height: 36px;
+  }
 }
 
 @media (max-width: 640px) {
+  .home-shop-shelf { padding-block: 32px 38px; }
+
+  .home-shop-shelf::before { width: 132px; }
+
+  .home-shop-shelf__head {
+    gap: 16px;
+    margin-block-end: 22px;
+  }
+
+  .home-shop-shelf__copy .section-title {
+    margin-block: 5px 7px;
+    font-size: clamp(25px, 7.6vw, 31px);
+  }
+
+  .home-shop-shelf__copy p {
+    font-size: 13.5px;
+    line-height: 1.85;
+  }
+
+  .home-shop-shelf__trust {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .home-shop-shelf__trust li {
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 5px;
+    font-size: 10.5px;
+  }
+
+  .home-shop-shelf__trust li:last-child { grid-column: 1 / -1; }
+
+  .home-shop-shelf__aside,
+  .home-shop-shelf__aside .btn { width: 100%; }
+  .home-shop-shelf__aside .btn { justify-content: center; }
+
   .shop-showcase {
     padding-block-start: calc(var(--nav-h) + 54px);
     padding-block-end: 42px;
@@ -1947,23 +2118,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Phone catalogue cards follow a horizontal product-list orientation while
-     keeping the shop's existing surfaces, crimson details, badges and actions.
-     The image occupies inline-start (right in Persian, left in English) and the
-     purchase information remains a readable, flexible column beside it. */
-  .shop-listing .shop-grid { gap: 12px; }
+  /* Phone catalogue cards and the homepage purchase shelf share a horizontal
+     product-list orientation while keeping the shop's established surfaces,
+     crimson details, badges and actions. The image occupies inline-start and
+     the purchase information remains a readable, flexible column beside it. */
+  :is(.shop-listing, .home-shop-shelf) .shop-grid { gap: 12px; }
 
-  .shop-listing .shop-card {
+  :is(.shop-listing, .home-shop-shelf) .shop-card {
     display: grid;
     grid-template-columns: clamp(108px, 31vw, 124px) minmax(0, 1fr);
     min-height: 218px;
     border-radius: 18px;
   }
 
-  .shop-listing .shop-card:hover,
-  .shop-listing .shop-card:focus-within { transform: none; }
+  :is(.shop-listing, .home-shop-shelf) .shop-card:hover,
+  :is(.shop-listing, .home-shop-shelf) .shop-card:focus-within { transform: none; }
 
-  .shop-listing .shop-card__img {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__img {
     height: 100%;
     min-height: 218px;
     aspect-ratio: auto;
@@ -1971,17 +2142,17 @@
     border-inline-end: 1px solid var(--line);
   }
 
-  .shop-listing .shop-card__img img { padding: 11px; }
+  :is(.shop-listing, .home-shop-shelf) .shop-card__img img { padding: 11px; }
 
-  .shop-listing .shop-card__badges {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__badges {
     inset-block-start: 8px;
     inset-inline-start: 8px;
     max-width: calc(100% - 16px);
     gap: 4px;
   }
 
-  .shop-listing .shop-card .badge-off,
-  .shop-listing .shop-card .badge-featured {
+  :is(.shop-listing, .home-shop-shelf) .shop-card .badge-off,
+  :is(.shop-listing, .home-shop-shelf) .shop-card .badge-featured {
     max-width: 100%;
     min-height: 22px;
     overflow: hidden;
@@ -1991,7 +2162,7 @@
     white-space: nowrap;
   }
 
-  .shop-listing .shop-card__stock {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__stock {
     inset-block-start: auto;
     inset-block-end: 8px;
     inset-inline-end: 8px;
@@ -2003,17 +2174,17 @@
     white-space: nowrap;
   }
 
-  .shop-listing .shop-card__body {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__body {
     min-width: 0;
     padding: 12px 12px 13px;
     gap: 4px;
   }
 
-  .shop-listing .shop-card__meta { min-height: 16px; gap: 6px; }
-  .shop-listing .shop-card__brand,
-  .shop-listing .shop-card__unit { font-size: 9.5px; }
+  :is(.shop-listing, .home-shop-shelf) .shop-card__meta { min-height: 16px; gap: 6px; }
+  :is(.shop-listing, .home-shop-shelf) .shop-card__brand,
+  :is(.shop-listing, .home-shop-shelf) .shop-card__unit { font-size: 9.5px; }
 
-  .shop-listing .shop-card__title {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__title {
     display: -webkit-box;
     overflow: hidden;
     font-size: 14px;
@@ -2022,20 +2193,20 @@
     -webkit-line-clamp: 2;
   }
 
-  .shop-listing .shop-card__price {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__price {
     min-height: 24px;
     margin-block: 0 3px;
     gap: 3px 6px;
   }
-  .shop-listing .shop-card__price .now { font-size: 15px; }
-  .shop-listing .shop-card__price .was { font-size: 9.5px; }
+  :is(.shop-listing, .home-shop-shelf) .shop-card__price .now { font-size: 15px; }
+  :is(.shop-listing, .home-shop-shelf) .shop-card__price .was { font-size: 9.5px; }
 
-  .shop-listing .shop-card__actions {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 5px;
   }
-  .shop-listing .shop-card__actions .btn {
+  :is(.shop-listing, .home-shop-shelf) .shop-card__actions .btn {
     width: 100%;
     min-height: 34px;
     padding: 6px 8px;

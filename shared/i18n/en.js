@@ -21,9 +21,19 @@ export const TEXTS = {
     'Khuzestan Yeast Co. — producer of instant dry yeast under the Dezmaye, Shetab, X-Power and Nan Maye brands',
   'home.hero.desc':
     'Our production lines were designed and commissioned by Frings of Austria using the latest European technology. More than half of our output is exported to neighbouring countries, the CIS, Africa, Europe and South America.',
+  'home.hero.btnShop': 'Shop online',
   'home.hero.btnProducts': 'View products',
+  'home.hero.btnWholesale': 'Wholesale enquiry',
   'home.hero.btnAbout': 'Learn more',
   'home.hero.scroll': 'Scroll',
+
+  'home.shop.overline': 'Online shop',
+  'home.shop.title': 'Buy direct, [[from the manufacturer]]',
+  'home.shop.sub': 'Selected Khuzestan Yeast products with current pricing and direct online purchase.',
+  'home.shop.trust1': 'Authenticity guaranteed',
+  'home.shop.trust2': 'Nationwide delivery',
+  'home.shop.trust3': 'Secure payment',
+  'home.shop.btnAll': 'View all shop products',
 
   'home.intro.overline': 'About Khuzestan Yeast',
   'home.intro.title': 'A pioneer in biotechnology and [[baker’s yeast production]]',
@@ -223,6 +233,7 @@ export const TEXTS = {
   'nav.blog': 'Blog',
   'nav.contact': 'Contact',
   'nav.cta': 'Request a quote',
+  'nav.shopCta': 'Shop online',
   'nav.menu': 'Site menu',
   'nav.breadcrumb.home': 'Home',
 };

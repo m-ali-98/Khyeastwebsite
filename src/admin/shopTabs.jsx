@@ -403,7 +403,7 @@ export function ShopProductsTab() {
           </label>
           <label className="admin__row" style={{ gap: 8 }}>
             <input type="checkbox" checked={!!draft.featured} onChange={(e) => setDraft({ ...draft, featured: e.target.checked })} />
-            نشان «برگزیده»
+            برگزیده (نمایش در ویترین فروشگاه صفحه اصلی)
           </label>
           <label className="admin__row" style={{ gap: 8 }}>
             <input type="checkbox" checked={!!draft.commentsLocked} onChange={(e) => setDraft({ ...draft, commentsLocked: e.target.checked })} />

@@ -4,11 +4,18 @@ import { m as mo, useReducedMotion, useScroll, useTransform } from 'framer-motio
 import { Icons, Reveal, SectionHead, Counter, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
+import { useLocale } from '../i18n/LocaleContext';
+import { useShop } from '../shop/ShopContext';
+import { ShopCard } from '../shop/parts';
 import { imgProps, SIZES } from '../lib/img';
+import '../styles/shop.scss';
 
 function Hero() {
   const ref = useRef(null);
   const { t, m } = useContent();
+  const { shopEnabled } = useLocale();
+  const { display } = useShop();
+  const storefrontEnabled = shopEnabled && display.enabled !== false;
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
   /* Parallax is scroll-linked motion, which MotionConfig's reducedMotion
      setting does not cover — it only governs time-based animations. A visitor
@@ -60,13 +67,32 @@ function Hero() {
           <p className="hero__desc">{t('home.hero.desc')}</p>
 
           <div className="hero__actions">
-            <Link to="/products" className="btn btn--primary">
-              {t('home.hero.btnProducts')}
-              <Icons.arrow size={18} />
-            </Link>
-            <Link to="/about" className="btn btn--ghost">
-              {t('home.hero.btnAbout')}
-            </Link>
+            {storefrontEnabled ? (
+              <>
+                <Link to="/shop" className="btn btn--primary">
+                  <Icons.cart size={18} />
+                  {t('home.hero.btnShop')}
+                </Link>
+                <Link to="/products" className="btn btn--ghost">
+                  {t('home.hero.btnProducts')}
+                  <Icons.arrow size={18} />
+                </Link>
+                <Link to="/contact" className="hero__wholesale-link">
+                  {t('home.hero.btnWholesale')}
+                  <Icons.arrow size={16} />
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/products" className="btn btn--primary">
+                  {t('home.hero.btnProducts')}
+                  <Icons.arrow size={18} />
+                </Link>
+                <Link to="/about" className="btn btn--ghost">
+                  {t('home.hero.btnAbout')}
+                </Link>
+              </>
+            )}
           </div>
         </mo.div>
       </mo.div>
@@ -79,10 +105,69 @@ function Hero() {
   );
 }
 
+/* A purchase-ready shelf belongs immediately after the brand hero, but only
+   while the Persian storefront itself is available. The existing "featured"
+   product switch in Admin is the merchandising control, so administrators
+   choose exactly which active products earn this high-visibility placement. */
+function HomeShopShelf() {
+  const { t } = useContent();
+  const { shopEnabled } = useLocale();
+  const { display, products } = useShop();
+  const shelfProducts = products
+    .filter((product) => product.active && product.featured)
+    .slice(0, 3);
+  const storefrontEnabled = shopEnabled && display.enabled !== false;
+
+  if (!storefrontEnabled || shelfProducts.length === 0) return null;
+
+  const trustItems = [
+    { icon: Icons.shield, text: t('home.shop.trust1') },
+    { icon: Icons.shipping, text: t('home.shop.trust2') },
+    { icon: Icons.payment, text: t('home.shop.trust3') },
+  ];
+
+  return (
+    <section className="home-shop-shelf" aria-labelledby="home-shop-shelf-title">
+      <div className="container">
+        <div className="home-shop-shelf__head">
+          <Reveal className="home-shop-shelf__copy">
+            <span className="overline">{t('home.shop.overline')}</span>
+            <h2 className="section-title" id="home-shop-shelf-title">
+              {hl(t('home.shop.title'))}
+            </h2>
+            <p>{t('home.shop.sub')}</p>
+          </Reveal>
+
+          <Reveal className="home-shop-shelf__aside" delay={0.08}>
+            <ul className="home-shop-shelf__trust" aria-label={t('home.shop.overline')}>
+              {trustItems.map(({ icon: Icon, text }) => (
+                <li key={text}>
+                  <Icon size={17} aria-hidden="true" />
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ul>
+            <Link to="/shop" className="btn btn--primary">
+              {t('home.shop.btnAll')}
+              <Icons.arrow size={18} />
+            </Link>
+          </Reveal>
+        </div>
+
+        <div className="shop-grid home-shop-shelf__grid">
+          {shelfProducts.map((product, index) => (
+            <ShopCard key={product.slug} p={product} index={index} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Intro() {
   const { t, m, l } = useContent();
   return (
-    <section className="section section--airy">
+    <section className="section section--airy home-intro">
       <div className="container">
         <div className="split">
           <Reveal x={40} y={0}>
@@ -325,6 +410,7 @@ export default function Home() {
   return (
     <>
       <Hero />
+      <HomeShopShelf />
       <Intro />
       <Brands />
       <FeaturedProducts />

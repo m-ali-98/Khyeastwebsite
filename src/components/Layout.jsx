@@ -75,9 +75,10 @@ function Navbar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const { t, l, col } = useContent();
-  const { count } = useShop() || { count: 0 };
+  const { count, display } = useShop() || { count: 0, display: {} };
   const { shopEnabled, isRTL } = useLocale();
-  const navLinks = NAV_LINKS.filter((link) => !link.shopOnly || shopEnabled);
+  const storefrontEnabled = shopEnabled && display.enabled !== false;
+  const navLinks = NAV_LINKS.filter((link) => !link.shopOnly || storefrontEnabled);
   const menuOffset = isRTL ? 28 : -28;
 
   /* The scroll listener fires dozens of times a second, but the navbar only
@@ -211,10 +212,12 @@ function Navbar() {
           <div className="nav__actions">
             {shopEnabled && (
               <div className="nav__icons">
-                <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
-                  <Icons.cart size={19} />
-                  {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
-                </Link>
+                {storefrontEnabled && (
+                  <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
+                    <Icons.cart size={19} />
+                    {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
+                  </Link>
+                )}
 
                 {/* One destination either way: the panel bounces a signed-out
                     visitor to the login page, so the header does not have to
@@ -225,8 +228,8 @@ function Navbar() {
               </div>
             )}
 
-            <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
-              {t('nav.cta')}
+            <Link to={storefrontEnabled ? '/shop' : '/contact'} className="btn btn--primary btn--sm nav__cta">
+              {t(storefrontEnabled ? 'nav.shopCta' : 'nav.cta')}
             </Link>
 
             <button
@@ -252,7 +255,20 @@ function Navbar() {
             exit={{ opacity: 0, x: menuOffset }}
             transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
           >
-            {navLinks.map((link, i) => (
+            {storefrontEnabled && (
+              <mo.div
+                className="m-shop-primary"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.06, duration: 0.3 }}
+              >
+                <Link to="/shop" className="btn btn--primary">
+                  <Icons.cart size={18} />
+                  {t('nav.shopCta')}
+                </Link>
+              </mo.div>
+            )}
+            {navLinks.filter((link) => !link.shopOnly).map((link, i) => (
               <mo.div
                 key={link.to}
                 initial={{ opacity: 0, x: menuOffset }}
@@ -275,11 +291,13 @@ function Navbar() {
                 {/* On a phone the two icon buttons are gone from the bar, so
                     the menu has to carry them or the account is unreachable
                     from the header. */}
-                <NavLink to="/shop/cart" className="m-pill">
-                  <Icons.cart size={18} />
-                  {t('shop.cart.title')}
-                  {count > 0 && <span className="m-pill__badge">{faNum(count)}</span>}
-                </NavLink>
+                {storefrontEnabled && (
+                  <NavLink to="/shop/cart" className="m-pill">
+                    <Icons.cart size={18} />
+                    {t('shop.cart.title')}
+                    {count > 0 && <span className="m-pill__badge">{faNum(count)}</span>}
+                  </NavLink>
+                )}
                 <NavLink to="/shop/account" className="m-pill">
                   <Icons.users size={18} />
                   {t('shop.account.title')}
