@@ -1495,23 +1495,55 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 /* ---------- Credential cards ---------- */
 .certs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--grid-gap); }
 .cert-card {
-  padding: 30px 22px;
+  position: relative;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: 18px 18px 26px;
+  overflow: hidden;
   text-align: center;
   background: var(--surface-tint);
   border-color: var(--line-strong);
 }
-.cert-card__icon {
-  width: 74px; height: 74px;
-  margin: 0 auto 16px;
-  border-radius: 50%;
+.cert-card::before {
+  position: absolute;
+  inset: 0 20% auto;
+  height: 2px;
+  border-radius: 0 0 999px 999px;
+  background: var(--crimson);
+  content: '';
+  opacity: 0.72;
+  transform: scaleX(0.42);
+  transition: opacity 260ms ease, transform 260ms var(--ease-soft);
+}
+.cert-card__mark {
+  position: relative;
   display: grid;
   place-items: center;
-  background: var(--crimson-soft);
-  border: 2px solid rgba(220, 20, 60, 0.24);
+  width: 100%;
+  height: 132px;
+  margin: 0 auto 17px;
+  overflow: hidden;
+  border: 1px solid rgba(50, 25, 31, 0.1);
+  border-radius: 17px;
   color: var(--crimson-ink);
-  transition: transform 0.3s var(--ease-soft);
+  background: #fff;
+  box-shadow: 0 14px 32px -28px rgba(37, 12, 18, 0.65);
+  transition: border-color 260ms ease, box-shadow 260ms ease, transform 260ms var(--ease-soft);
 }
-.cert-card:hover .cert-card__icon { transform: translateY(-2px) scale(1.035); }
+.cert-card__mark img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.cert-card:hover::before { opacity: 1; transform: scaleX(1); }
+.cert-card:hover .cert-card__mark {
+  border-color: rgba(220, 20, 60, 0.24);
+  box-shadow: 0 18px 38px -27px rgba(122, 12, 36, 0.48);
+  transform: translateY(-2px);
+}
 .cert-card h3 { margin: 0 0 6px; font-size: 16.5px; font-weight: 800; }
 .cert-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
 
@@ -1950,6 +1982,8 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 
 @media (max-width: 460px) {
   .products-grid { grid-template-columns: 1fr; }
+  .certs-grid { grid-template-columns: 1fr; }
+  .cert-card__mark { height: 142px; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .fact-grid { grid-template-columns: 1fr; }
 }

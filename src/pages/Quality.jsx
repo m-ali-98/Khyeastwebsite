@@ -48,8 +48,12 @@ export default function Quality() {
               const Ic = Icons[c.icon] || Icons.shield;
               return (
                 <Reveal key={c.id} delay={(i % 4) * 0.1} className="card cert-card">
-                  <div className="cert-card__icon">
-                    <Ic size={30} />
+                  <div className="cert-card__mark">
+                    {c.image ? (
+                      <img src={c.image} alt="" width="520" height="420" loading="lazy" decoding="async" />
+                    ) : (
+                      <Ic size={30} />
+                    )}
                   </div>
                   <h3>{c.title}</h3>
                   <p>{c.text}</p>

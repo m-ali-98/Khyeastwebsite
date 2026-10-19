@@ -428,49 +428,57 @@
         "id": "iso",
         "icon": "shield",
         "title": "BS EN ISO 9001:2015",
-        "text": "استاندارد مدیریت کیفیت از کشور آلمان"
+        "text": "استاندارد مدیریت کیفیت از کشور آلمان",
+        "image": "/assets/certifications/iso.webp"
       },
       {
         "id": "halal",
         "icon": "check",
         "title": "گواهینامه حلال IFDA",
-        "text": "تأییدیه صنایع غذایی حلال برای بازارهای جهانی"
+        "text": "تأییدیه صنایع غذایی حلال برای بازارهای جهانی",
+        "image": "/assets/certifications/halal.webp"
       },
       {
         "id": "haccp",
         "icon": "flask",
         "title": "گواهی HACCP",
-        "text": "سیستم ایمنی مواد غذایی و کنترل نقاط بحرانی"
+        "text": "سیستم ایمنی مواد غذایی و کنترل نقاط بحرانی",
+        "image": "/assets/certifications/haccp.webp"
       },
       {
         "id": "iran",
         "icon": "star",
         "title": "استاندارد ملی ایران",
-        "text": "تأییدیه سازمان ملی استاندارد ایران"
+        "text": "تأییدیه سازمان ملی استاندارد ایران",
+        "image": "/assets/certifications/iran.webp"
       },
       {
         "id": "vh",
         "icon": "globe",
         "title": "عضویت VH برلین",
-        "text": "عضو رسمی موسسه تحقیقاتی خمیرمایه برلین آلمان"
+        "text": "عضو رسمی موسسه تحقیقاتی خمیرمایه برلین آلمان",
+        "image": "/assets/certifications/vh.webp"
       },
       {
         "id": "frings",
         "icon": "gear",
         "title": "فناوری Frings اتریش",
-        "text": "خطوط تولید طراحی‌شده توسط کمپانی فرینگز"
+        "text": "خطوط تولید طراحی‌شده توسط کمپانی فرینگز",
+        "image": "/assets/certifications/frings.webp"
       },
       {
         "id": "lab",
         "icon": "temp",
         "title": "آزمایشگاه مجهز",
-        "text": "کنترل کیفیت مستمر با تجهیزات پیشرفته اروپایی"
+        "text": "کنترل کیفیت مستمر با تجهیزات پیشرفته اروپایی",
+        "image": "/assets/certifications/lab.webp"
       },
       {
         "id": "export",
         "icon": "send",
         "title": "صادرکننده نمونه",
-        "text": "تقدیرنامه صادرکننده نمونه استانی و ملی"
+        "text": "تقدیرنامه صادرکننده نمونه استانی و ملی",
+        "image": "/assets/certifications/export.webp"
       }
     ],
     "facts": [
