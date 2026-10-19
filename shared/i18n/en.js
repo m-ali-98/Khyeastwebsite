@@ -47,8 +47,8 @@ export const TEXTS = {
   'home.products.sub': 'From household sachets to 20 kg export sacks — all held to a single quality promise.',
   'home.products.btnAll': 'View all products',
   'home.process.overline': 'The path to quality',
-  'home.process.title': 'From the heart of wheat; [[to the first slice of bread]]',
-  'home.process.sub': 'Our story begins with a grain of wheat and ends in the aroma of fresh bread.',
+  'home.process.title': 'From a pure culture to [[ready-to-use dry yeast]]',
+  'home.process.sub': 'Four key stages in instant dry yeast production, from controlled cell propagation to final testing and packing.',
   'home.banner.en': 'From the heart of wheat; to the first slice of bread',
   'home.banner.note': 'Every pack of our yeast is a promise kept between the wheat field and your table.',
   'home.features.overline': 'Why Khuzestan Yeast?',
@@ -298,20 +298,20 @@ export const COLLECTIONS = {
   ],
   process: [
     {
-      title: 'The wheat field',
-      text: 'Selecting premium grain from the golden fields of Khuzestan — the source of every loaf.',
+      title: 'Pure culture preparation',
+      text: 'A pure Saccharomyces cerevisiae culture is activated in a sterile nutrient medium to seed the production line.',
     },
     {
-      title: 'Fermentation and propagation',
-      text: 'Controlled multiplication of Saccharomyces Cerevisiae on European lines engineered by Frings of Austria.',
+      title: 'Controlled propagation',
+      text: 'Yeast cells multiply through successive aerated fermenters while temperature, pH and nutrient feed are continuously controlled.',
     },
     {
-      title: 'Drying and packing',
-      text: 'Vacuum packaging that preserves enzymatic activity for 24 months from the production date.',
+      title: 'Separation and concentration',
+      text: 'The cells are separated from the culture medium, washed and concentrated into a uniform yeast cream.',
     },
     {
-      title: 'The first slice of bread',
-      text: 'A consistent rise, an even crumb and the aroma of fresh bread in every bakery that trusts us.',
+      title: 'Drying, testing and packing',
+      text: 'The yeast is gently dried and granulated; fermentation activity and moisture are verified before oxygen-barrier packing.',
     },
   ],
   timeline: [
