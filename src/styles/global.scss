@@ -1977,6 +1977,56 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 
 @media (max-width: 640px) {
   .products-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* The catalogue becomes a thumb-and-details list on phones. This keeps the
+     product identity, pack data and action visible in one scan instead of
+     stacking a large square photo above a narrow column of copy. Other uses of
+     ProductCard (home and related products) retain their established layout. */
+  .products-catalog-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .products-catalog-grid .product-card {
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    min-height: 158px;
+    border-radius: 18px;
+  }
+  .products-catalog-grid .product-card__media {
+    min-width: 0;
+    height: 100%;
+    min-height: 158px;
+    aspect-ratio: auto;
+    border-radius: 0;
+    border-block-end: 0;
+    border-inline-end: 1px solid var(--line);
+  }
+  .products-catalog-grid .product-card__media img { padding: 8px; }
+  .products-catalog-grid .product-card__brand {
+    inset-block-start: 8px;
+    inset-inline-start: 8px;
+    inset-inline-end: auto;
+    max-width: calc(100% - 16px);
+    overflow: hidden;
+    padding: 4px 8px;
+    font-size: 10px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .products-catalog-grid .product-card__body {
+    min-width: 0;
+    padding: 14px 14px 15px;
+    gap: 5px;
+  }
+  .products-catalog-grid .product-card__body h2 {
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .products-catalog-grid .product-card__meta { font-size: 12px; }
+  .products-catalog-grid .product-card__foot { padding-top: 5px; }
+  .products-catalog-grid .link-arrow { font-size: 12.5px; }
+
   .posts-grid { grid-template-columns: 1fr; }
   .features-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }

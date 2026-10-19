@@ -1947,9 +1947,101 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .shop-card__body { padding: 14px 16px 16px; }
-  .shop-card__title { font-size: 15px; }
-  .shop-card__price .now { font-size: 17px; }
+  /* Phone catalogue cards follow a horizontal product-list orientation while
+     keeping the shop's existing surfaces, crimson details, badges and actions.
+     The image occupies inline-start (right in Persian, left in English) and the
+     purchase information remains a readable, flexible column beside it. */
+  .shop-listing .shop-grid { gap: 12px; }
+
+  .shop-listing .shop-card {
+    display: grid;
+    grid-template-columns: clamp(108px, 31vw, 124px) minmax(0, 1fr);
+    min-height: 218px;
+    border-radius: 18px;
+  }
+
+  .shop-listing .shop-card:hover,
+  .shop-listing .shop-card:focus-within { transform: none; }
+
+  .shop-listing .shop-card__img {
+    height: 100%;
+    min-height: 218px;
+    aspect-ratio: auto;
+    border-block-end: 0;
+    border-inline-end: 1px solid var(--line);
+  }
+
+  .shop-listing .shop-card__img img { padding: 11px; }
+
+  .shop-listing .shop-card__badges {
+    inset-block-start: 8px;
+    inset-inline-start: 8px;
+    max-width: calc(100% - 16px);
+    gap: 4px;
+  }
+
+  .shop-listing .shop-card .badge-off,
+  .shop-listing .shop-card .badge-featured {
+    max-width: 100%;
+    min-height: 22px;
+    overflow: hidden;
+    padding: 3px 6px;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shop-listing .shop-card__stock {
+    inset-block-start: auto;
+    inset-block-end: 8px;
+    inset-inline-end: 8px;
+    max-width: calc(100% - 16px);
+    overflow: hidden;
+    padding: 3px 6px;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shop-listing .shop-card__body {
+    min-width: 0;
+    padding: 12px 12px 13px;
+    gap: 4px;
+  }
+
+  .shop-listing .shop-card__meta { min-height: 16px; gap: 6px; }
+  .shop-listing .shop-card__brand,
+  .shop-listing .shop-card__unit { font-size: 9.5px; }
+
+  .shop-listing .shop-card__title {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.65;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .shop-listing .shop-card__price {
+    min-height: 24px;
+    margin-block: 0 3px;
+    gap: 3px 6px;
+  }
+  .shop-listing .shop-card__price .now { font-size: 15px; }
+  .shop-listing .shop-card__price .was { font-size: 9.5px; }
+
+  .shop-listing .shop-card__actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+  .shop-listing .shop-card__actions .btn {
+    width: 100%;
+    min-height: 34px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+  }
 
   .cart-table__row {
     grid-template-columns: minmax(0, 1fr) 108px 44px;

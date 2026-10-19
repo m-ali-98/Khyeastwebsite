@@ -39,7 +39,7 @@ export default function Products() {
           </Reveal>
 
           <mo.div
-            className="products-grid"
+            className="products-grid products-catalog-grid"
             key={active}
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
