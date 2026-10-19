@@ -1,6 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
-import { Icons, Reveal, PageHero, CTABand } from '../components/ui';
+import { Icons, Reveal, PageHero } from '../components/ui';
 import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 
@@ -72,7 +72,6 @@ export default function Products() {
           </Reveal>
         </div>
       </section>
-      <CTABand />
     </>
   );
 }
