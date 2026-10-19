@@ -509,6 +509,7 @@ input, select, textarea { font-family: inherit; }
 .nav__topbar a { display: inline-flex; align-items: center; gap: 6px; opacity: 0.92; transition: opacity 0.2s; }
 .nav__topbar a:hover { opacity: 1; }
 .nav__topbar-socials { display: flex; gap: 16px; }
+.nav__topbar-socials a { white-space: nowrap; }
 
 .nav.is-scrolled .nav__topbar { height: 0; opacity: 0; }
 .nav.is-scrolled .nav__bar {
@@ -1937,6 +1938,8 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .features-grid { grid-template-columns: repeat(2, 1fr); }
   .certs-grid { grid-template-columns: repeat(2, 1fr); }
   .footer__grid { grid-template-columns: 1fr 1fr; }
+  .nav__topbar-socials { gap: 12px; }
+  .nav__topbar-socials a span { display: none; }
 }
 
 /* The navigation collapses at 1100px, not 900. Eight Persian labels plus

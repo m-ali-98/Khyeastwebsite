@@ -231,6 +231,8 @@ export const COLLECTIONS = {
   socials: [
     { id: 'whatsapp', label: 'WhatsApp' },
     { id: 'telegram', label: 'Telegram' },
+    { id: 'instagram', label: 'Instagram' },
+    { id: 'x', label: 'X' },
     { id: 'facebook', label: 'Facebook' },
   ],
   offices: [

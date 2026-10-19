@@ -453,6 +453,8 @@ export const COLLECTIONS = {
   socials: [
     { id: 'whatsapp', label: 'واتس‌اپ', href: 'https://wa.me/989912214091' },
     { id: 'telegram', label: 'تلگرام', href: 'https://t.me/+989912214091' },
+    { id: 'instagram', label: 'اینستاگرام', href: 'https://www.instagram.com/khuzestanyeast/' },
+    { id: 'x', label: 'ایکس', href: 'https://x.com/khuzestanyeast' },
     { id: 'facebook', label: 'فیسبوک', href: 'https://www.facebook.com/khuzestannyeast/' },
   ],
   offices: [

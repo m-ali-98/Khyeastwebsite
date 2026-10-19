@@ -160,9 +160,9 @@ function Navbar() {
               {socials.map((s) => {
                 const Ic = socialIcon(s.id);
                 return (
-                  <a key={s.id} href={s.href} target="_blank" rel="noreferrer">
+                  <a key={s.id} href={s.href} target="_blank" rel="noreferrer" aria-label={s.label}>
                     <Ic size={15} />
-                    {s.label}
+                    <span>{s.label}</span>
                   </a>
                 );
               })}
