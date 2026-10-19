@@ -2069,7 +2069,11 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 
 @media (max-width: 900px) {
-  .split { grid-template-columns: 1fr; }
+  /* minmax(0, 1fr) lets long translated copy shrink with the viewport. A bare
+     1fr track retains its min-content floor and pushed the English intro past
+     320px even though the section itself clipped the spill. */
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .split > * { min-width: 0; }
   .steps {
     grid-template-columns: repeat(2, 1fr);
     column-gap: var(--grid-gap);
@@ -2142,6 +2146,160 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .contact-grid { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; }
   .brands-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Homepage card collections become short, swipeable previews rather than
+     four- and three-card vertical walls. A visible slice of the next card is
+     the scroll affordance, while native focus movement keeps the rail usable
+     from a keyboard without adding carousel controls or JavaScript. */
+  .home-products .products-grid,
+  .home-blog .posts-grid {
+    display: flex;
+    align-items: stretch;
+    gap: 14px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    padding: 6px 5px 15px;
+    scroll-padding-inline: 5px;
+    scroll-snap-type: inline mandatory;
+    scrollbar-width: none;
+  }
+  .home-products .products-grid::-webkit-scrollbar,
+  .home-blog .posts-grid::-webkit-scrollbar { display: none; }
+  .home-products .product-card,
+  .home-blog .post-card {
+    flex: 0 0 min(80vw, 310px);
+    scroll-snap-align: start;
+  }
+  .home-blog .post-card__body h2,
+  .home-blog .post-card__body p {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+  }
+  .home-blog .post-card__body h2 { -webkit-line-clamp: 3; }
+  .home-blog .post-card__body p { -webkit-line-clamp: 3; }
+
+  /* On phones the production sequence reads as a real vertical timeline.
+     Compact numbered nodes preserve the hierarchy without four oversized
+     circles and large islands of empty space. Logical placement serves RTL
+     Persian/Arabic and LTR English from the same rule. */
+  .home-process .steps {
+    display: grid;
+    gap: 0;
+  }
+  .home-process .steps::before { display: none; }
+  .home-process .step {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-areas:
+      'number title'
+      'number copy';
+    column-gap: 14px;
+    row-gap: 3px;
+    padding-block-end: 27px;
+    text-align: start;
+  }
+  .home-process .step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    inset-block-start: 22px;
+    inset-inline-start: 21px;
+    width: 2px;
+    height: 100%;
+    background: repeating-linear-gradient(180deg, rgba(220, 20, 60, 0.38) 0 8px, transparent 8px 14px);
+  }
+  .home-process .step:last-child { padding-block-end: 0; }
+  .home-process .step__num {
+    grid-area: number;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    border-width: 2px;
+    font-size: 19px;
+    box-shadow: 0 10px 24px -15px var(--crimson-glow);
+  }
+  .home-process .step h3 {
+    grid-area: title;
+    margin: 1px 0 2px;
+    font-size: 16px;
+    line-height: 1.7;
+  }
+  .home-process .step p {
+    grid-area: copy;
+    font-size: 13.5px;
+    line-height: 1.9;
+  }
+
+  /* Benefit cards switch from tall icon-over-copy tiles to concise media
+     rows. Their card treatment stays distinct from products and certificates. */
+  .home-features .features-grid { gap: 12px; }
+  .home-features .feature-card {
+    display: grid;
+    grid-template-columns: 50px minmax(0, 1fr);
+    grid-template-areas:
+      'icon title'
+      'icon copy';
+    align-content: start;
+    column-gap: 14px;
+    row-gap: 3px;
+    padding: 18px;
+  }
+  .home-features .feature-card::after {
+    top: 18px;
+    height: 44px;
+  }
+  .home-features .feature-card__icon {
+    grid-area: icon;
+    width: 48px;
+    height: 48px;
+    margin: 0;
+    border-radius: 14px;
+  }
+  .home-features .feature-card h3 {
+    grid-area: title;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.7;
+  }
+  .home-features .feature-card p {
+    grid-area: copy;
+    font-size: 13.5px;
+    line-height: 1.85;
+  }
+
+  /* Certification artwork remains optically contained, but two compact
+     columns avoid presenting four logo cards as a long single-column list. */
+  .home-certs .certs-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .home-certs .cert-card { padding: 10px 10px 16px; }
+  .home-certs .cert-card__mark {
+    height: 106px;
+    margin-block-end: 12px;
+    border-radius: 13px;
+  }
+  .home-certs .cert-card h3 {
+    margin-block-end: 4px;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .home-certs .cert-card p {
+    font-size: 12px;
+    line-height: 1.75;
+  }
+
+  .to-top {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+    opacity: 0.92;
+  }
+  [dir='ltr'] .to-top { right: 12px; left: auto; }
+
   .footer__grid { grid-template-columns: 1fr; gap: 34px; }
   .footer__trust { flex-direction: column; gap: 18px; margin-top: 36px; padding-top: 24px; }
   .footer__trust-list { justify-content: flex-start; }
@@ -2152,7 +2310,11 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .nav__topbar-tools { gap: 0; }
   .mobile-menu { padding-inline: 20px; }
   .hero__inner { padding-bottom: 140px; }
-  .split__media .img-float { left: 0; }
+  .split__media .img-float {
+    left: auto;
+    right: auto;
+    inset-inline-end: 0;
+  }
 }
 
 @media (max-width: 460px) {
@@ -2168,6 +2330,10 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
      the three equally-sized header controls on very narrow screens. */
   .nav__bar .nav__logo-text { display: none; }
   .nav__bar { gap: 10px; }
+
+  /* Highlighted phrases stay together where they fit. On the narrowest
+     English viewport, however, a multi-word phrase must be allowed to wrap. */
+  .section-title em { white-space: normal; }
 }
 
 /* Reduced motion */

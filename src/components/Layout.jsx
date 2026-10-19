@@ -304,7 +304,13 @@ function Navbar() {
 }
 
 function BackToTop() {
+  const { locale } = useLocale();
   const [show, setShow] = useState(false);
+  const label = {
+    fa: 'بازگشت به بالا',
+    en: 'Back to top',
+    ar: 'العودة إلى الأعلى',
+  }[locale];
   useEffect(() => {
     const onScroll = () => setShow(window.scrollY > 600);
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -319,7 +325,7 @@ function BackToTop() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 24, scale: 0.8 }}
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          aria-label="بازگشت به بالا"
+          aria-label={label}
         >
           <Icons.arrow size={20} style={{ transform: 'rotate(90deg)' }} />
         </mo.button>

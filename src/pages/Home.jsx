@@ -147,7 +147,7 @@ function HomeShopShelf() {
                 </li>
               ))}
             </ul>
-            <Link to="/shop" className="btn btn--primary">
+            <Link to="/shop" className="btn btn--outline home-shop-shelf__desktop-action">
               {t('home.shop.btnAll')}
               <Icons.arrow size={18} />
             </Link>
@@ -159,6 +159,13 @@ function HomeShopShelf() {
             <ShopCard key={product.slug} p={product} index={index} />
           ))}
         </div>
+
+        <Reveal className="home-shop-shelf__mobile-action">
+          <Link to="/shop" className="btn btn--outline">
+            {t('home.shop.btnAll')}
+            <Icons.arrow size={18} />
+          </Link>
+        </Reveal>
       </div>
     </section>
   );
@@ -230,7 +237,7 @@ function FeaturedProducts() {
   const { t, products } = useContent();
   const featured = products.filter((p) => p.featured).slice(0, 4);
   return (
-    <section className="section">
+    <section className="section home-products">
       <div className="container">
         <SectionHead
           overline={t('home.products.overline')}
@@ -258,7 +265,7 @@ function Process() {
   const { t, col } = useContent();
   const num = useNum();
   return (
-    <section className="section section--soft" style={{ overflow: 'hidden' }}>
+    <section className="section section--soft home-process" style={{ overflow: 'hidden' }}>
       <div className="container">
         <SectionHead overline={t('home.process.overline')} title={hl(t('home.process.title'))} sub={t('home.process.sub')} />
         <div className="steps">
@@ -278,7 +285,7 @@ function Process() {
 function Features() {
   const { t, col } = useContent();
   return (
-    <section className="section">
+    <section className="section home-features">
       <div className="container">
         <SectionHead overline={t('home.features.overline')} title={hl(t('home.features.title'))} align="start" />
         <div className="features-grid">
@@ -323,7 +330,7 @@ function StatsBand() {
 function CertsPreview() {
   const { t, col } = useContent();
   return (
-    <section className="section section--soft">
+    <section className="section section--soft home-certs">
       <div className="container">
         <SectionHead overline={t('home.certs.overline')} title={hl(t('home.certs.title'))} />
         <div className="certs-grid">

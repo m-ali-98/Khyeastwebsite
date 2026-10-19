@@ -641,10 +641,14 @@
     border-radius: 13px;
   }
 
-  /* On wide screens the shared four-column shop grid leaves one editorial
-     rail beneath the trust cues and CTA; the three products occupy the other
-     rails. The responsive rules close that rail from laptop width downward.
-     The shorter image stage also keeps every purchase option close to the hero. */
+  /* The shelf is intentionally a complete three-card row. The old shared
+     four-column grid left an empty rail beneath the header utilities, making
+     this compact purchase block read like an unfinished catalogue. */
+  & &__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+  &__mobile-action { display: none; }
+
+  /* The shorter image stage keeps every purchase option close to the hero. */
   .shop-card__img { aspect-ratio: 16 / 8.5; }
   .shop-card__img img { padding: 13px; }
 }
@@ -1934,9 +1938,20 @@
 
   .home-shop-shelf__trust li:last-child { grid-column: 1 / -1; }
 
-  .home-shop-shelf__aside,
-  .home-shop-shelf__aside .btn { width: 100%; }
-  .home-shop-shelf__aside .btn { justify-content: center; }
+  .home-shop-shelf__aside { width: 100%; }
+  .home-shop-shelf__desktop-action { display: none; }
+
+  .home-shop-shelf__mobile-action {
+    display: flex;
+    justify-content: center;
+    margin-block-start: 12px;
+  }
+
+  .home-shop-shelf__mobile-action .btn {
+    min-height: 44px;
+    padding-inline: 18px;
+    border-radius: 12px;
+  }
 
   .shop-showcase {
     padding-block-start: calc(var(--nav-h) + 54px);
@@ -2151,6 +2166,27 @@
     padding: 6px 8px;
     border-radius: 10px;
     font-size: 10.5px;
+  }
+
+  /* A single swipeable row keeps the purchase shelf genuinely compact on the
+     homepage while preserving the approved horizontal product-card geometry.
+     The partial next card is the affordance; no oversized prompt is needed. */
+  .home-shop-shelf__grid {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    padding: 3px 3px 14px;
+    scroll-padding-inline: 3px;
+    scroll-snap-type: inline mandatory;
+    scrollbar-width: none;
+  }
+
+  .home-shop-shelf__grid::-webkit-scrollbar { display: none; }
+
+  .home-shop-shelf__grid .shop-card {
+    flex: 0 0 calc(100% - 18px);
+    scroll-snap-align: start;
   }
 
   .cart-table__row {
