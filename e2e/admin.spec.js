@@ -53,7 +53,7 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
 
   const labels = [
     'محصولات', 'وبلاگ', 'فروشگاه — محصولات', 'سفارش‌ها', 'دیدگاه‌ها',
-    'درگاه پرداخت', 'متون سایت', 'تصاویر صفحات', 'پیوندها', 'اطلاعات تماس', 'پیام‌های مردم',
+    'درگاه پرداخت', 'متون سایت', 'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
   ];
   for (const label of labels) {
     await adminTab(page, label).first().click();
@@ -300,6 +300,68 @@ test('a message sent from the contact form appears in the inbox', async ({ page 
   await expect(msg).toContainText(BODY);
   await msg.getByRole('button', { name: /خوانده|نخوانده/ }).click();
   await expect(page.locator('.msg', { hasText: STAMP })).toBeVisible();
+});
+
+test('the admin can publish one to four third-party trust seals in the footer', async ({ page }) => {
+  await gotoReady(page, '/');
+  await expect(page.locator('.footer__trust')).toHaveCount(0);
+
+  await loginAdmin(page);
+  const token = await page.evaluate(() => localStorage.getItem('ky_admin_token'));
+  const original = await page.evaluate(() => fetch('/api/content', { cache: 'no-store' }).then((response) => response.json()));
+
+  /* The seal stays remote, like the real eNamad logo. Intercept only the test
+     host so the browser exercises the generated CSP without using the network. */
+  await page.route('https://seal.example/**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
+  }));
+
+  try {
+    await adminTab(page, 'نمادهای اعتماد').first().click();
+    const editor = page.getByTestId('trust-seals-editor');
+    await expect(editor).toContainText('هنوز نمادی ثبت نشده است');
+
+    const add = editor.getByRole('button', { name: /افزودن نماد/ });
+    for (let index = 0; index < 4; index += 1) await add.click();
+    await expect(editor.locator('.trust-seal-editor__item')).toHaveCount(4);
+    await expect(add).toBeDisabled();
+
+    /* Keep one configured row; the same controls support reordering and up to
+       four providers without special-casing eNamad. */
+    for (let index = 0; index < 3; index += 1) await editor.getByRole('button', { name: 'حذف نماد' }).last().click();
+    const item = editor.locator('.trust-seal-editor__item').first();
+    await item.getByLabel(/نام نماد/).fill('نماد اعتماد آزمایشی');
+    await item.getByLabel('لینک اعتبارسنجی (href)').fill('https://seal.example/verify?id=19077&Code=e2e');
+    await item.getByLabel('شناسه تصویر (id) — اختیاری').fill('e2eTrustCode');
+    await item.getByLabel('نشانی تصویر نماد (src)').fill('https://seal.example/logo.png');
+    await item.getByLabel('نمایش این نماد در فوتر').check();
+    await editor.getByRole('button', { name: 'ذخیره نمادها' }).click();
+    await expect(editor.getByRole('status')).toContainText('ذخیره شدند');
+
+    const root = await page.request.get(new URL('/', page.url()).href);
+    expect(root.headers()['content-security-policy']).toContain('https://seal.example');
+
+    await gotoReady(page, '/');
+    const seal = page.locator('.footer__trust-link');
+    await expect(seal).toHaveCount(1);
+    await expect(seal).toHaveAttribute('href', 'https://seal.example/verify?id=19077&Code=e2e');
+    await expect(seal).toHaveAttribute('referrerpolicy', 'origin');
+    await expect(seal.locator('img')).toHaveAttribute('src', 'https://seal.example/logo.png');
+    await expect(seal.locator('img')).toHaveAttribute('id', 'e2eTrustCode');
+    await expect(seal.locator('img')).toHaveAttribute('alt', 'نماد اعتماد آزمایشی');
+    await seal.scrollIntoViewIfNeeded();
+    await expect.poll(() => seal.locator('img').evaluate((image) => image.naturalWidth)).toBe(1);
+  } finally {
+    if (token && original) {
+      const restored = await page.request.put(new URL('/api/content', page.url()).href, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: original,
+      });
+      expect(restored.ok(), 'trust-seal fixture cleanup failed').toBe(true);
+    }
+  }
 });
 
 test('the shop products tab can refresh live stock without clobbering it', async ({ page }) => {

@@ -204,6 +204,7 @@ export const TEXTS = {
   'footer.quickTitle': 'Quick links',
   'footer.brandsTitle': 'Our brands',
   'footer.contactTitle': 'Contact us',
+  'footer.trustTitle': 'Trust seals and licences',
   'footer.allProducts': 'All products',
   'footer.sales': 'Sales:',
   'footer.address1': 'No. 55, Momennejad St., Eslami St., Pasdaran, Tehran, Iran',

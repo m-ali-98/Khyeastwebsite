@@ -204,6 +204,7 @@ export const TEXTS = {
   'footer.quickTitle': 'دسترسی سریع',
   'footer.brandsTitle': 'برندهای ما',
   'footer.contactTitle': 'تماس با ما',
+  'footer.trustTitle': 'نمادهای اعتماد و مجوزها',
   'footer.allProducts': 'همه محصولات',
   'footer.sales': 'واحد فروش:',
   'footer.address1': 'تهران، پاسداران، خیابان اسلامی، خیابان مومن‌نژاد، پلاک ۵۵',
@@ -446,6 +447,9 @@ export const LINKS = {
 };
 
 export const COLLECTIONS = {
+  /* Empty until the company receives an eNamad or another verified seal.
+     The admin panel may publish up to four; an empty list renders nothing. */
+  trustSeals: [],
   socials: [
     { id: 'whatsapp', label: 'واتس‌اپ', href: 'https://wa.me/989912214091' },
     { id: 'telegram', label: 'تلگرام', href: 'https://t.me/+989912214091' },

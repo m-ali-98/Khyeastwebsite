@@ -208,6 +208,84 @@ try {
      customer's order simply vanished from inventory. */
   await setStock(10);
   const snapshot = await (await fetch(`${BASE}/api/content`)).json();
+
+  /* Footer trust seals are admin-authored external resources. Valid HTTPS
+     providers expand img-src for the rendered document; unsafe schemes and a
+     fifth seal must be refused before they can reach either HTML or CSP. */
+  const trustFixture = JSON.parse(JSON.stringify(snapshot));
+  trustFixture.collections = {
+    ...(trustFixture.collections || {}),
+    trustSeals: [{
+      id: 'trust-test',
+      label: 'Test trust seal',
+      href: 'https://seal.example/verify?id=1',
+      image: 'https://seal.example/logo.png',
+      active: true,
+    }],
+  };
+  const trustPut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(trustFixture),
+  });
+  check(trustPut.ok, 'one valid HTTPS trust seal is accepted', `got ${trustPut.status}`);
+  const trustPage = await fetch(`${BASE}/`);
+  check(
+    (trustPage.headers.get('content-security-policy') || '').includes('https://seal.example'),
+    'a configured trust-logo origin is added to img-src',
+  );
+
+  const tooMany = JSON.parse(JSON.stringify(trustFixture));
+  tooMany.collections.trustSeals = Array.from({ length: 5 }, (_, index) => ({
+    ...trustFixture.collections.trustSeals[0],
+    id: `trust-test-${index + 1}`,
+  }));
+  const tooManyPut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(tooMany),
+  });
+  check(tooManyPut.status === 400, 'a fifth footer trust seal is refused', `got ${tooManyPut.status}`);
+
+  const unsafeSeal = JSON.parse(JSON.stringify(trustFixture));
+  unsafeSeal.collections.trustSeals[0].href = 'javascript:alert(1)';
+  const unsafePut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(unsafeSeal),
+  });
+  check(unsafePut.status === 400, 'an unsafe trust-seal destination is refused', `got ${unsafePut.status}`);
+
+  const unsafeImage = JSON.parse(JSON.stringify(trustFixture));
+  unsafeImage.collections.trustSeals[0].image = 'data:image/svg+xml,<svg onload=alert(1)>';
+  const unsafeImagePut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(unsafeImage),
+  });
+  check(unsafeImagePut.status === 400, 'an unsafe trust-seal image is refused', `got ${unsafeImagePut.status}`);
+
+  const unsafeImageId = JSON.parse(JSON.stringify(trustFixture));
+  unsafeImageId.collections.trustSeals[0].imageId = 'seal" onerror="alert(1)';
+  const unsafeImageIdPut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(unsafeImageId),
+  });
+  check(unsafeImageIdPut.status === 400, 'an unsafe provider image id is refused', `got ${unsafeImageIdPut.status}`);
+
+  const restoreTrust = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(snapshot),
+  });
+  check(restoreTrust.ok, 'trust-seal fixture restores the original content');
+  const restoredPage = await fetch(`${BASE}/`);
+  check(
+    !(restoredPage.headers.get('content-security-policy') || '').includes('https://seal.example'),
+    'removing the final trust seal removes its origin from img-src',
+  );
+
   const cOrder = await jpost('/api/shop-public/orders', {
     items: [{ slug: SLUG, qty: 4 }],
     customer: CUSTOMER,

@@ -199,6 +199,7 @@ export const TEXTS = {
   'footer.quickTitle': 'روابط سريعة',
   'footer.brandsTitle': 'علاماتنا التجارية',
   'footer.contactTitle': 'تواصل معنا',
+  'footer.trustTitle': 'شارات الثقة والتراخيص',
   'footer.allProducts': 'كل المنتجات',
   'footer.sales': 'المبيعات:',
   'footer.address1': 'طهران، باسداران، شارع إسلامي، شارع مؤمن‌نجاد، رقم ٥٥',

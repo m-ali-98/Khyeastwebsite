@@ -32,6 +32,7 @@ import { createShopRouter } from './shop.js';
 import { createAccountRouter } from './accountRoutes.js';
 import { optimizeImage, optimiserAvailable } from './images.js';
 import { UPLOAD_LADDER } from '../shared/uploadSizes.js';
+import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
 import * as store from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -363,11 +364,11 @@ const scriptHashes = () => {
    hash because each page carries different JSON-LD. */
 const INLINE_SCRIPTS = scriptHashes();
 
-const makeCsp = (inlineScripts = INLINE_SCRIPTS) => [
+const makeCsp = (inlineScripts = INLINE_SCRIPTS, trustedImageOrigins = []) => [
   "default-src 'self'",
   `script-src 'self' ${inlineScripts}`.trim(),
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob:${trustedImageOrigins.length ? ` ${trustedImageOrigins.join(' ')}` : ''}`,
   "media-src 'self'",
   "font-src 'self'",
   /* The admin panel talks to this origin only. */
@@ -555,6 +556,16 @@ app.put('/api/content', requireAuth, (req, res) => {
       seen.add(id);
     }
   }
+
+  /* Trust seals become executable destinations and expand img-src in the
+     document CSP, so this collection gets a stricter boundary than ordinary
+     copy. Incomplete rows may be saved only while disabled; published rows
+     require a label, an HTTPS verification URL and a safe logo URL. */
+  if (next.collections?.trustSeals !== undefined) {
+    const trustError = validateTrustSeals(next.collections.trustSeals);
+    if (trustError) return res.status(400).json({ error: trustError });
+  }
+
   /* never let a payload without translations wipe the stored ones */
   if (!next.i18n || typeof next.i18n !== 'object') next.i18n = readContent().i18n || {};
   writeContent(next);
@@ -793,7 +804,8 @@ if (fs.existsSync(DIST)) {
     const redirect = redirectPath(req.path);
     if (redirect) return res.redirect(301, `${redirect}${query}`);
 
-    const meta = resolveSeo(req.path, seoState(), origin);
+    const state = seoState();
+    const meta = resolveSeo(req.path, state, origin);
     let html;
     try {
       html = renderSeoDocument(seoTemplate, meta, {
@@ -807,7 +819,10 @@ if (fs.existsSync(DIST)) {
 
     /* JSON-LD differs by route and is an inline script element. Hash this
        exact response so the strict CSP permits it without unsafe-inline. */
-    res.setHeader('Content-Security-Policy', makeCsp(scriptHashesFromHtml(html)));
+    res.setHeader(
+      'Content-Security-Policy',
+      makeCsp(scriptHashesFromHtml(html), trustSealImageOrigins(state.collections?.trustSeals)),
+    );
     res.setHeader('Content-Language', meta.lang);
     res.setHeader('Cache-Control', meta.indexable ? 'no-cache' : 'private, no-store');
     res.vary('Host');

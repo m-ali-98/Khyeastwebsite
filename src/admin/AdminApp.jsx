@@ -4,7 +4,7 @@ import { m as mo } from 'framer-motion';
 import Logo from '../components/Logo';
 import { Icons, PasswordInput } from '../components/ui';
 import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
-import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, ContactTab, MessagesTab } from './tabs';
+import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, TrustSealsTab, ContactTab, MessagesTab } from './tabs';
 import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab } from './shopTabs';
 import { TranslationsTab } from './i18nTab';
 import { ProductsTransTab, PostsTransTab } from './entityTrans';
@@ -31,6 +31,7 @@ const TABS = [
   { id: 'translations', label: 'متون و فهرست‌ها', icon: 'translations', transOnly: true },
   { id: 'media', label: 'تصاویر صفحات', icon: 'media' },
   { id: 'links', label: 'پیوندها', icon: 'link' },
+  { id: 'trust', label: 'نمادهای اعتماد', icon: 'shield', base: true },
   { id: 'contact', label: 'اطلاعات تماس', icon: 'contact', base: true },
   { id: 'messages', label: 'پیام‌های مردم', icon: 'inbox' },
 ];
@@ -431,6 +432,7 @@ function AdminShell() {
     texts: TextsTab,
     media: MediaTab,
     links: LinksTab,
+    trust: TrustSealsTab,
     contact: ContactTab,
     messages: MessagesTab,
   }[activeTab];

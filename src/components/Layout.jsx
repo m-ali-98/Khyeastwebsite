@@ -6,6 +6,7 @@ import { Icons, socialIcon, hl, faNum, NUM_LOCALE } from './ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
 import { useLocale } from '../i18n/LocaleContext';
+import { activeTrustSeals } from '../../shared/trustSeals.js';
 
 export const NAV_LINKS = [
   { to: '/', key: 'nav.home', end: true },
@@ -334,10 +335,47 @@ function BackToTop() {
   );
 }
 
+function TrustSealLink({ seal }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [seal.image]);
+
+  return (
+    <a
+      className="footer__trust-link"
+      href={seal.href}
+      target="_blank"
+      rel="noopener nofollow"
+      referrerPolicy="origin"
+      title={seal.label}
+    >
+      {failed ? (
+        <span className="footer__trust-fallback">
+          <Icons.shield size={25} />
+          <small>{seal.label}</small>
+        </span>
+      ) : (
+        <img
+          id={seal.imageId || undefined}
+          src={seal.image}
+          alt={seal.label}
+          title={seal.label}
+          width="75"
+          height="75"
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="origin"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </a>
+  );
+}
+
 function Footer() {
   const { t, l, col, brands } = useContent();
   const { shopEnabled, locale } = useLocale();
   const socials = col('socials');
+  const trustSeals = activeTrustSeals(col('trustSeals'));
   return (
     <footer className="footer">
       <div className="container">
@@ -424,6 +462,18 @@ function Footer() {
             </ul>
           </div>
         </div>
+
+        {trustSeals.length > 0 && (
+          <section className="footer__trust" aria-labelledby="footer-trust-title">
+            <div className="footer__trust-heading">
+              <h2 id="footer-trust-title">{t('footer.trustTitle')}</h2>
+              <span aria-hidden="true">{trustSeals.length.toLocaleString(NUM_LOCALE[locale] || 'fa-IR')}</span>
+            </div>
+            <div className="footer__trust-list">
+              {trustSeals.map((seal) => <TrustSealLink seal={seal} key={seal.id} />)}
+            </div>
+          </section>
+        )}
 
         <div className="footer__bottom">
           <span>

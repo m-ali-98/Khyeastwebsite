@@ -4,6 +4,12 @@ import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
 import { Field, UploadButton, StringListEditor, PairListEditor, RichEditor } from './editors';
 import { getPack, LOCALES } from '../../shared/i18n/index.js';
+import {
+  MAX_TRUST_SEALS,
+  safeHttpsUrl,
+  safeTrustImageUrl,
+  validateTrustSeals,
+} from '../../shared/trustSeals.js';
 
 /* Badge shown on Persian list rows: which other languages still fall back to
    Persian for this item, so a newly added product/post is never quietly left
@@ -532,6 +538,212 @@ export function LinksTab() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ================= footer trust seals ================= */
+const trustSealSeed = (value) => (Array.isArray(value)
+  ? value.filter((item) => item && typeof item === 'object' && !Array.isArray(item)).slice(0, MAX_TRUST_SEALS)
+  : []);
+
+export function TrustSealsTab() {
+  const { state, save } = useContent();
+  const source = state.collections?.trustSeals;
+  const [seals, setSeals] = useState(() => clone(trustSealSeed(source)));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  useEffect(() => setSeals(clone(trustSealSeed(source))), [source]);
+
+  const change = (index, field, value) => setSeals((current) => current.map((seal, sealIndex) => (
+    sealIndex === index ? { ...seal, [field]: value } : seal
+  )));
+  const add = () => setSeals((current) => {
+    if (current.length >= MAX_TRUST_SEALS) return current;
+    return [...current, {
+      id: `trust-${Date.now()}-${current.length + 1}`,
+      label: '',
+      href: '',
+      image: '',
+      imageId: '',
+      active: false,
+    }];
+  });
+  const remove = (index) => setSeals((current) => current.filter((_, sealIndex) => sealIndex !== index));
+  const move = (index, direction) => setSeals((current) => {
+    const target = index + direction;
+    if (target < 0 || target >= current.length) return current;
+    const next = [...current];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+
+  const saveSeals = async () => {
+    const clean = seals.map((seal, index) => {
+      const hrefRaw = String(seal.href || '').trim();
+      const imageRaw = String(seal.image || '').trim();
+      return {
+        id: String(seal.id || `trust-${Date.now()}-${index + 1}`).trim(),
+        label: String(seal.label || '').trim(),
+        href: hrefRaw ? (safeHttpsUrl(hrefRaw) || hrefRaw) : '',
+        image: imageRaw ? (safeTrustImageUrl(imageRaw) || imageRaw) : '',
+        imageId: String(seal.imageId || '').trim(),
+        active: Boolean(seal.active),
+      };
+    });
+    const issue = validateTrustSeals(clean);
+    if (issue) {
+      const text = issue.includes('at most')
+        ? 'حداکثر چهار نماد قابل ثبت است.'
+        : issue.includes('active but incomplete')
+          ? 'برای نماد فعال، نام، لینک اعتبارسنجی و نشانی تصویر الزامی است.'
+          : issue.includes('.href')
+            ? 'لینک اعتبارسنجی باید یک نشانی کامل و امن https باشد.'
+            : issue.includes('imageId') && issue.includes('duplicate')
+              ? 'شناسه تصویر هر نماد باید یکتا باشد.'
+              : issue.includes('imageId')
+                ? 'شناسه اختیاری تصویر باید با حرف آغاز شود و فقط شامل حروف، عدد، خط تیره یا زیرخط باشد.'
+                : issue.includes('.image')
+                  ? 'نشانی تصویر باید https باشد یا از فایل بارگذاری‌شده سایت استفاده کند.'
+                  : 'اطلاعات نمادها معتبر نیست؛ فیلدهای هر ردیف را بررسی کنید.';
+      setMessage({ text, bad: true });
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+    try {
+      await save({
+        ...state,
+        collections: { ...state.collections, trustSeals: clean },
+      });
+      setSeals(clean);
+      setMessage({ text: 'نمادهای اعتماد ذخیره شدند.' });
+    } catch (error) {
+      setMessage({ text: error?.message || 'ذخیره نمادها ممکن نشد؛ اتصال را بررسی کنید.', bad: true });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="admin__panel">
+      <div className="admin__head">
+        <div>
+          <h1>نمادهای اعتماد فوتر</h1>
+          <p>تا چهار نماد مانند eNamad، مجوز اتحادیه یا نشان‌های اعتبارسنجی دیگر را بدون تغییر کد سایت مدیریت کنید.</p>
+        </div>
+      </div>
+
+      <section className="shop-showcase-editor trust-seal-editor" data-testid="trust-seals-editor" aria-labelledby="trust-seal-editor-title">
+        <div className="shop-showcase-editor__head">
+          <div>
+            <h2 id="trust-seal-editor-title">نمادهای قابل نمایش</h2>
+            <p>
+              لینک مقصد و نشانی تصویر را از کد ارائه‌دهنده وارد کنید. برای eNamad مقدار href در «لینک اعتبارسنجی» و مقدار src در «نشانی تصویر» قرار می‌گیرد.
+            </p>
+          </div>
+          <button type="button" className="btn btn--outline btn--sm" onClick={add} disabled={seals.length >= MAX_TRUST_SEALS}>
+            + افزودن نماد ({seals.length.toLocaleString('fa-IR')}/{MAX_TRUST_SEALS.toLocaleString('fa-IR')})
+          </button>
+        </div>
+
+        {!seals.length && (
+          <div className="trust-seal-editor__empty">
+            <Icons.shield size={28} />
+            <strong>هنوز نمادی ثبت نشده است.</strong>
+            <span>تا زمانی که نمادی اضافه و فعال نشود، هیچ بخش خالی در فوتر نمایش داده نمی‌شود.</span>
+          </div>
+        )}
+
+        <div className="shop-showcase-editor__list">
+          {seals.map((seal, index) => (
+            <article className="shop-showcase-editor__item trust-seal-editor__item" key={seal.id || index}>
+              <div className="shop-showcase-editor__preview trust-seal-editor__preview">
+                {/^\/(?!\/)/.test(String(seal.image || '').trim()) ? (
+                  <img key={seal.image} src={seal.image} alt="" />
+                ) : (
+                  <Icons.shield size={30} />
+                )}
+                <span>نماد {(index + 1).toLocaleString('fa-IR')}</span>
+              </div>
+
+              <div className="shop-showcase-editor__fields">
+                <div className="admin__grid2">
+                  <Field
+                    label={`نام نماد ${(index + 1).toLocaleString('fa-IR')}`}
+                    value={seal.label || ''}
+                    onChange={(value) => change(index, 'label', value)}
+                  />
+                  <label className="trust-seal-editor__toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(seal.active)}
+                      onChange={(event) => change(index, 'active', event.target.checked)}
+                    />
+                    <span>نمایش این نماد در فوتر</span>
+                  </label>
+                </div>
+                <div className="admin__grid2">
+                  <Field
+                    label="لینک اعتبارسنجی (href)"
+                    value={seal.href || ''}
+                    dir="ltr"
+                    onChange={(value) => change(index, 'href', value)}
+                  />
+                  <Field
+                    label="شناسه تصویر (id) — اختیاری"
+                    value={seal.imageId || ''}
+                    dir="ltr"
+                    onChange={(value) => change(index, 'imageId', value)}
+                  />
+                </div>
+                <div className="shop-showcase-editor__image-row">
+                  <Field
+                    label="نشانی تصویر نماد (src)"
+                    value={seal.image || ''}
+                    dir="ltr"
+                    onChange={(value) => change(index, 'image', value)}
+                  />
+                  <UploadButton
+                    accept="image/*"
+                    small
+                    label="بارگذاری تصویر"
+                    onUploaded={(url) => change(index, 'image', url)}
+                  />
+                  {safeHttpsUrl(seal.image) && (
+                    <a
+                      className="btn btn--outline btn--sm"
+                      href={safeHttpsUrl(seal.image)}
+                      target="_blank"
+                      rel="noopener"
+                      referrerPolicy="origin"
+                    >
+                      مشاهده تصویر
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              <div className="shop-showcase-editor__actions" aria-label={`مرتب‌سازی نماد ${index + 1}`}>
+                <button type="button" onClick={() => move(index, -1)} disabled={index === 0} aria-label="انتقال نماد به بالا">↑</button>
+                <button type="button" onClick={() => move(index, 1)} disabled={index === seals.length - 1} aria-label="انتقال نماد به پایین">↓</button>
+                <button type="button" className="is-danger" onClick={() => remove(index)} aria-label="حذف نماد">
+                  <Icons.trash size={16} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="shop-showcase-editor__footer">
+          <button type="button" className="btn btn--primary" onClick={saveSeals} disabled={saving}>
+            {saving ? 'در حال ذخیره…' : 'ذخیره نمادها'}
+          </button>
+          {message && <span role="status" className={message.bad ? 'is-bad' : ''}>{message.text}</span>}
+        </div>
+      </section>
     </div>
   );
 }
