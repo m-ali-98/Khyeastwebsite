@@ -1,7 +1,7 @@
 /* The first-paint splash lives in index.html so it can appear before the React
-   bundle. React calls this only after the active route has actually committed;
-   direct visits to a lazy page therefore keep meaningful feedback on screen
-   instead of revealing an empty shell while its chunk is still downloading. */
+   bundle. React calls this only after fresh content and the active route have
+   both committed; a direct visit therefore never reveals a stale or empty
+   shell while its API snapshot or lazy chunk is still downloading. */
 export function dismissBootSplash() {
   if (typeof document === 'undefined') return;
   const splash = document.getElementById('boot-splash');

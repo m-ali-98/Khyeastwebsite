@@ -6,13 +6,15 @@ import SeoHead from './components/SeoHead';
 import { useContent } from './content/ContentContext';
 import { useLocale, localePath } from './i18n/LocaleContext';
 import { dismissBootSplash } from './lib/bootSplash';
+import useLoadingGate from './hooks/useLoadingGate';
 import Home from './pages/Home'; // landing page stays in the main bundle
 
 /* ---------------------------------------------------------------------------
    Route-level code splitting: every page ships as its own chunk and starts
    loading only after the visitor asks for it. There is deliberately no idle,
-   hover, neighbour, or route-warm prefetch layer; every navigation owns an
-   explicit loading-screen phase instead of silently filling a route cache.
+   hover, neighbour, or route-warm prefetch layer. Browser-native module caching
+   remains useful, while the loading screen is driven only by unresolved route
+   code or a genuinely pending fresh-content request.
    --------------------------------------------------------------------------- */
 const About = lazy(() => import('./pages/About'));
 const Products = lazy(() => import('./pages/Products'));
@@ -35,13 +37,11 @@ const ShopAccount = lazy(() => import('./pages/ShopAccount'));
    It is reachable only by typing its address directly. */
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 
-/* Mounted inside each Suspense boundary, after the active route has resolved.
-   It dismisses first paint and tells the navigation gate that the new page is
-   genuinely ready. A keyed effect runs even when React.lazy already holds the
-   module in memory, so cached revisits still receive the loading screen. */
+/* Mounted inside each Suspense boundary after the active route has resolved.
+   Fresh content is acquired before the route is mounted, so this commit is the
+   final real readiness signal — not a timer and not a simulated loading beat. */
 function RouteCommit({ routeKey, onReady }) {
   useEffect(() => {
-    dismissBootSplash();
     onReady(routeKey);
   }, [routeKey, onReady]);
   return null;
@@ -85,89 +85,95 @@ function PublicRoutes() {
   );
 }
 
-const NAVIGATION_BEAT_MS = 420;
-
 function NavigationRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
   const { locale } = useLocale();
+  const { reload } = useContent();
   const routeKey = `${location.key || 'route'}:${location.pathname}${location.search}`;
-  const [settledKey, setSettledKey] = useState(routeKey);
+  const [freshKey, setFreshKey] = useState('');
+  const [settledKey, setSettledKey] = useState('');
   const activeKey = useRef(routeKey);
-  const settledKeyRef = useRef(settledKey);
-  const started = useRef({ key: routeKey, at: 0 });
-  const finishTimer = useRef(0);
+  const freshKeyRef = useRef('');
   activeKey.current = routeKey;
-  settledKeyRef.current = settledKey;
-  const transitioning = routeKey !== settledKey;
-  /* On a direct visit the static splash already owns first-paint feedback.
-     Keeping React's fallback empty beneath it avoids two simultaneous live
-     status announcements; subsequent Suspense waits use the orbital screen. */
-  const bootSplashPresent = typeof document !== 'undefined' && document.getElementById('boot-splash');
 
-  /* Start immediately on every history navigation, including revisits whose
-     module is already held by React.lazy/the browser. The page renders under
-     this screen so a cold chunk and a cached chunk follow the same path. */
+  /* A destination is genuinely pending until a no-store content request has
+     settled and its route (including a lazy module) has committed. The visual
+     loader is adaptively delayed, so fast cached routes never flash it; when it
+     does appear, minVisible=0 removes it at the exact completion signal. */
+  const waiting = routeKey !== settledKey;
+  const loaderState = useLoadingGate(waiting, { minVisible: 0 });
+  const bootSplashPresent = typeof document !== 'undefined' && document.getElementById('boot-splash');
+  const loaderVisible = waiting && loaderState === 'visible' && !bootSplashPresent;
+
+  /* Do not mount the destination against an old content snapshot. Every unique
+     history entry revalidates first; concurrent first-paint/admin requests are
+     de-duplicated by ContentProvider. A failed backend still releases the route
+     with its shipped defaults instead of trapping somebody on a loader. */
   useLayoutEffect(() => {
-    if (routeKey === settledKeyRef.current) return undefined;
-    window.clearTimeout(finishTimer.current);
-    started.current = { key: routeKey, at: performance.now() };
-    return () => window.clearTimeout(finishTimer.current);
-  }, [routeKey]);
+    let current = true;
+    reload()
+      .catch(() => null)
+      .finally(() => {
+        if (!current || activeKey.current !== routeKey) return;
+        freshKeyRef.current = routeKey;
+        setFreshKey(routeKey);
+      });
+    return () => {
+      current = false;
+    };
+  }, [routeKey, reload]);
 
   const markRouteReady = useCallback((key) => {
-    if (key !== activeKey.current || key === settledKeyRef.current) return;
-    const beganAt = started.current.key === key ? started.current.at : performance.now();
-    const elapsed = performance.now() - beganAt;
-    const remaining = Math.max(0, NAVIGATION_BEAT_MS - elapsed);
-    window.clearTimeout(finishTimer.current);
-    finishTimer.current = window.setTimeout(() => {
-      if (activeKey.current === key) setSettledKey(key);
-    }, remaining);
+    if (key !== activeKey.current || freshKeyRef.current !== key) return;
+    setSettledKey(key);
+    dismissBootSplash();
   }, []);
-
-  useEffect(() => () => window.clearTimeout(finishTimer.current), []);
 
   /* Reconstruct the public URL because useLocation is relative to the locale
      basename (`/en/products` appears here as `/products`). The same resolver
      renders direct-request metadata on the server and updates it here after
      client navigation. */
   const seoPath = localePath(locale, location.pathname);
+  const contentIsFresh = freshKey === routeKey;
 
   if (isAdmin) {
     return (
       <>
         <SeoHead pathname={seoPath} />
-        {transitioning && <RouteFallback mode="admin" />}
-        <Suspense
-          fallback={transitioning || bootSplashPresent ? null : <RouteFallback mode="admin" />}
-        >
-          <AdminApp />
-          <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
+        {loaderVisible && <RouteFallback mode="admin" />}
+        <Suspense fallback={null}>
+          {contentIsFresh && (
+            <>
+              <AdminApp />
+              <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
+            </>
+          )}
         </Suspense>
       </>
     );
   }
 
-  /* The outgoing page leaves immediately. A single opaque loading layer then
-     covers the new route until both conditions are true: its Suspense content
-     committed, and the orbital screen completed a short readable beat. There
-     is never a two-page cross-fade or a stale page retained underneath. */
+  /* The outgoing page is not retained or cross-faded. The destination mounts
+     only with fresh content; a single cover appears only when that real wait
+     outlives the connection-aware threshold. */
   return (
     <>
       <SeoHead pathname={seoPath} />
       <Layout>
-        {transitioning && <RouteFallback />}
+        {loaderVisible && <RouteFallback />}
         <main
-          key={location.pathname}
-          aria-hidden={transitioning ? 'true' : undefined}
-          inert={transitioning ? true : undefined}
+          key={routeKey}
+          aria-hidden={loaderVisible ? 'true' : undefined}
+          inert={loaderVisible ? true : undefined}
         >
-          <Suspense
-            fallback={transitioning || bootSplashPresent ? null : <RouteFallback />}
-          >
-            <PublicRoutes />
-            <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
+          <Suspense fallback={null}>
+            {contentIsFresh && (
+              <>
+                <PublicRoutes />
+                <RouteCommit routeKey={routeKey} onReady={markRouteReady} />
+              </>
+            )}
           </Suspense>
         </main>
       </Layout>

@@ -2022,9 +2022,9 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 
 /* --- Navigation loading --------------------------------------------------- */
-/* Every client-side history change gets this opaque cover, even when the
-   destination module is already in React's cache. The new route commits below
-   it; no outgoing page is retained and no two full-page surfaces cross-fade. */
+/* This opaque cover is mounted only when fresh content or destination code is
+   still pending beyond the adaptive threshold. Fast cached routes skip it;
+   no outgoing page is retained and no two full-page surfaces cross-fade. */
 .navigation-loader {
   position: fixed;
   z-index: 2000;

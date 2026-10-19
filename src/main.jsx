@@ -16,8 +16,9 @@ import { localeFromPath } from './i18n/LocaleContext';
 /* The English / Arabic dictionaries are separate chunks; the Persian site
    never downloads them. Wait for the active one before the first render so
    the page never flashes Persian on the way to another language. The inline
-   splash is dismissed by RouteCommit in App.jsx only after the active route —
-   including a lazy route chunk — has actually rendered. */
+   splash is dismissed by the readiness coordinator in App.jsx only after fresh
+   content is loaded and the active route — including a lazy chunk — has
+   actually rendered. */
 loadPack(localeFromPath(window.location.pathname)).finally(() => {
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>

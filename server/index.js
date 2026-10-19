@@ -414,6 +414,11 @@ app.get('/api/health', async (_req, res) =>
 );
 
 app.get('/api/content', (_req, res) => {
+  /* Public copy is edited while visitors may already have the SPA open. A
+     cached JSON response would make route-level revalidation meaningless, so
+     neither the browser nor an intermediary may store this snapshot. */
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
   try {
     res.json(readContent());
   } catch {

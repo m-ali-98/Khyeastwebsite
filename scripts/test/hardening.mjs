@@ -177,6 +177,10 @@ try {
     !cors.headers.get('access-control-allow-origin'),
     'no Access-Control-Allow-Origin for a foreign origin',
   );
+  check(
+    /no-store/.test(cors.headers.get('cache-control') || ''),
+    'live content snapshots are never stored by a browser or intermediary',
+  );
 } catch (e) {
   check(false, 'hardening harness', String(e.message).slice(0, 120));
 } finally {

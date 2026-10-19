@@ -1,6 +1,6 @@
-/* A single textless transition screen for every page navigation. Route chunks
-   are no longer prefetched, and this screen is also forced for already-loaded
-   chunks so browser/module caching never suppresses navigation feedback. */
+/* A single textless transition screen for a real, perceptible wait. Route code
+   is not prefetched, but cached routes that finish alongside fresh content
+   before the adaptive threshold never mount this screen at all. */
 import { useLocale } from '../i18n/LocaleContext';
 import Logo from './Logo';
 

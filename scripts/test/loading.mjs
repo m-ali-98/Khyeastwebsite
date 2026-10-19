@@ -1,6 +1,6 @@
-/* Loading UX contract — first paint waits for a real route commit, and every
-   client-side navigation shows the orbital screen even when its chunk is held
-   by browser-native caching. */
+/* Loading UX contract — first paint waits for fresh content and a real route
+   commit. Client-side navigation revalidates content, but the orbital screen
+   appears only when genuine work outlives the adaptive delay. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,8 @@ const layout = read('src/components/Layout.jsx');
 const main = read('src/main.jsx');
 const boot = read('src/lib/bootSplash.js');
 const fallback = read('src/components/RouteFallback.jsx');
+const content = read('src/content/ContentContext.jsx');
+const server = read('server/index.js');
 const pagePending = read('src/components/PagePending.jsx');
 const adminApp = read('src/admin/AdminApp.jsx');
 const dataPages = ['ShopOrder.jsx', 'ShopAccount.jsx', 'ShopAuth.jsx', 'ShopCheckout.jsx']
@@ -42,23 +44,32 @@ const doneRule = html.match(/#boot-splash\.is-done\s*\{([\s\S]*?)\}/)?.[1] || ''
 check(/translate3d\(0,\s*-101%/.test(doneRule), 'boot screen no longer reveals with a one-layer transform');
 check(!/opacity\s*:/.test(doneRule), 'boot screen exit regressed to a full-page cross-fade');
 
-check(/function RouteCommit\(\{ routeKey, onReady \}\)[\s\S]*dismissBootSplash\(\)[\s\S]*onReady\(routeKey\)/.test(app), 'route commit does not signal real readiness');
+check(/function RouteCommit\(\{ routeKey, onReady \}\)[\s\S]*onReady\(routeKey\)/.test(app), 'route commit does not signal real readiness');
 check((app.match(/<RouteCommit routeKey=/g) || []).length === 2, 'public and admin Suspense boundaries do not both signal readiness');
-check(!/dismissBootSplash/.test(main), 'entrypoint dismisses the splash before the route commits');
+check(!/dismissBootSplash/.test(main), 'entrypoint dismisses the splash before content and route readiness');
+check(/freshKeyRef\.current !== key[\s\S]*setSettledKey\(key\)[\s\S]*dismissBootSplash\(\)/.test(app), 'boot splash is not tied to fresh content plus a committed route');
 check(/requestAnimationFrame\([\s\S]*requestAnimationFrame/.test(boot), 'splash does not wait for a painted route frame');
 check(/transitionend/.test(boot) && /safety/.test(boot), 'splash cleanup is not transition-driven and fail-safe');
 check(/new MutationObserver\(look\)/.test(layout) && !/tries\+\+ < 60/.test(layout), 'slow lazy heroes can outlive navbar detection');
 
 check(!fs.existsSync(path.join(ROOT, 'src/routes.js')), 'legacy route-prefetch module still exists');
 check(!/usePrefetchRoutes|\bprefetch\(|\bisWarm\b/.test(app + fallback), 'custom route warming/cache suppression still exists');
-check(/transitioning && <RouteFallback/.test(app), 'navigation loader is not forced for cached routes');
-check(/NAVIGATION_BEAT_MS\s*=\s*420/.test(app) && /NAVIGATION_BEAT_MS - elapsed/.test(app), 'cached routes can skip the readable loading-screen beat');
-check(/key !== activeKey\.current/.test(app), 'stale route commits can dismiss a newer navigation screen');
+check(!/NAVIGATION_BEAT_MS|finishTimer|readable loading-screen beat/.test(app), 'an artificial navigation loading duration still exists');
+check(/useLoadingGate\(waiting,\s*\{\s*minVisible:\s*0\s*\}\)/.test(app), 'navigation loading is not adaptively delayed or does not stop immediately');
+check(/loaderVisible\s*=\s*waiting\s*&&\s*loaderState\s*===\s*'visible'/.test(app), 'loader visibility is not derived from real pending work');
+check((app.match(/loaderVisible && <RouteFallback/g) || []).length === 2, 'public and admin waits do not share the smart loading gate');
+check(/useLayoutEffect\(\(\) => \{[\s\S]*reload\(\)[\s\S]*setFreshKey\(routeKey\)/.test(app), 'route changes do not revalidate content before mounting the destination');
+check((app.match(/contentIsFresh &&/g) || []).length === 2, 'a destination can mount against stale content');
+check(/key !== activeKey\.current/.test(app), 'stale route work can dismiss a newer navigation screen');
 check(/<main\s+[\s\S]{0,160}key=/.test(app) && /useTransitions=\{false\}/.test(app) && !/<mo\.main|AnimatePresence/.test(app), 'page transitions still cross-fade or retain an outgoing page layer');
-check(/fallback=\{transitioning \|\| bootSplashPresent \? null : <RouteFallback/.test(app), 'cold routes can stack a second loading screen over the navigation or boot gate');
+check((app.match(/<Suspense fallback=\{null\}>/g) || []).length === 2, 'route Suspense can stack a second loading screen over the smart gate');
+check(/fetch\('\/api\/content',\s*\{\s*cache:\s*'no-store'\s*\}\)/.test(content), 'content refresh can reuse an HTTP-cached response');
+check(!/cacheRead|cacheWrite|CACHE_TTL/.test(content), 'persistent stale content cache still exists');
+check(/localStorage\.removeItem\(LEGACY_CONTENT_CACHE_KEY\)/.test(content), 'legacy stale browser snapshots are not removed');
+check(/app\.get\('\/api\/content'[\s\S]*Cache-Control', 'private, no-store, max-age=0'/.test(server), 'content API responses can still be stored by browsers or intermediaries');
 check(/fa:\s*\{/.test(fallback) && /en:\s*\{/.test(fallback) && /ar:\s*\{/.test(fallback), 'route loading accessibility copy is not trilingual');
 check(/role="status"[\s\S]*aria-live="polite"[\s\S]*aria-busy="true"/.test(fallback), 'route loader is not announced accessibly');
-check(/aria-hidden=\{transitioning[\s\S]*inert=\{transitioning/.test(app), 'covered destination content remains exposed during navigation');
+check(/aria-hidden=\{loaderVisible[\s\S]*inert=\{loaderVisible/.test(app), 'covered destination content remains exposed during navigation');
 check(/className="sr-only"/.test(fallback) && /navigation-loader__orbit/.test(fallback), 'route loading is not visually text-free with an accessible name');
 check(!/route-loader__status/.test(fallback + pagePending), 'visible loading status copy returned');
 check(!/<p>در حال آماده‌سازی پنل/.test(adminApp), 'admin loading screen still renders visible copy');
@@ -71,6 +82,7 @@ check(/\.navigation-loader\s*\{[\s\S]*position:\s*fixed/.test(css), 'navigation 
 check(/navigation-loader__orbit[\s\S]*animation: navigation-loader-orbit/.test(css), 'navigation loader lost its orbital motion');
 check(/prefers-reduced-motion:[\s\S]*navigation-loader__orbit/.test(css), 'route loading does not respect reduced motion');
 check(/navigator\.connection/.test(gate) && /effectiveType/.test(gate), 'loading delay is no longer connection-aware');
+check(/minVisible = MIN_VISIBLE/.test(gate) && /held >= minVisible/.test(gate), 'navigation cannot opt out of an artificial post-load hold');
 check(/useLoadingGate\(true\)/.test(pagePending), 'post-route data loading is not adaptively gated');
 check((dataPages.match(/<PagePending/g) || []).length >= 4, 'shop page data transitions still fall back to bare ellipses');
 

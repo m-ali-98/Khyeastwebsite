@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import { mergeContentState } from '../../shared/contentState.js';
 import { localizeState } from '../../shared/i18n/index.js';
@@ -42,72 +42,67 @@ export const api = async (path, { method = 'GET', body, auth = false, formData }
 };
 
 /* -------------------------------------------------------------------------
-   Offline-first content cache.
-   On a slow connection the /api/content round-trip is what makes the first
-   screen wait. We render the last known content from localStorage instantly
-   ("stale-while-revalidate") and quietly swap in the fresh copy when it lands.
-   ------------------------------------------------------------------------- */
-const CACHE_KEY = 'ky_content_cache_v1';
-const CACHE_TTL = 24 * 60 * 60 * 1000; // keep for a day
+   Live content, not a persisted browser snapshot.
 
-const cacheRead = () => {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const { at, data } = JSON.parse(raw);
-    if (!data || Date.now() - at > CACHE_TTL) return null;
-    return data;
-  } catch {
-    return null;
-  }
-};
-const cacheWrite = (data) => {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), data }));
-  } catch {}
-};
+   The previous stale-while-revalidate cache could paint yesterday's copy from
+   localStorage and keep it for an entire open session. Content now always comes
+   from a no-store request. `reload` de-duplicates concurrent callers so first
+   paint, a route change and an admin refresh can safely ask for freshness at
+   the same time without racing three responses into state.
+   ------------------------------------------------------------------------- */
+const LEGACY_CONTENT_CACHE_KEY = 'ky_content_cache_v1';
 
 export function ContentProvider({ children }) {
   const { locale } = useLocale();
-  const cached = typeof window !== 'undefined' ? cacheRead() : null;
-  const [state, setState] = useState(() => (cached ? mergeContentState(DEFAULT_STATE, cached) : clone(DEFAULT_STATE)));
-  const [ready, setReady] = useState(Boolean(cached));
+  const [state, setState] = useState(() => clone(DEFAULT_STATE));
+  const [ready, setReady] = useState(false);
   const [backend, setBackend] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const inFlight = useRef(null);
 
-  /* Re-read the server copy on demand. Stock changes constantly (every order,
-     every order-status change), so the snapshot taken at page load goes stale
-     while the admin works. This backs the refresh button on the shop tab. */
-  const reload = useCallback(async () => {
-    const r = await fetch('/api/content', { cache: 'no-store' });
-    if (!r.ok) throw Object.assign(new Error('no api'), { status: r.status });
-    const data = await r.json();
-    setState(mergeContentState(DEFAULT_STATE, data));
-    setBackend(true);
-    cacheWrite(data);
-    return data;
+  /* Re-read the complete public snapshot. Stock can move after an order and
+     copy can be published while somebody is browsing, so callers must never
+     receive an HTTP/browser-cached response. */
+  const reload = useCallback(() => {
+    if (inFlight.current) return inFlight.current;
+
+    setRefreshing(true);
+    const request = (async () => {
+      const r = await fetch('/api/content', { cache: 'no-store' });
+      if (!r.ok) throw Object.assign(new Error('no api'), { status: r.status });
+      const data = await r.json();
+      setState(mergeContentState(DEFAULT_STATE, data));
+      setBackend(true);
+      return data;
+    })()
+      .catch((error) => {
+        setBackend(false);
+        throw error;
+      })
+      .finally(() => {
+        if (inFlight.current !== request) return;
+        inFlight.current = null;
+        setRefreshing(false);
+        setReady(true);
+      });
+
+    inFlight.current = request;
+    return request;
   }, []);
 
   useEffect(() => {
-    let alive = true;
-    fetch('/api/content')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('no api'))))
-      .then((data) => {
-        if (!alive) return;
-        setState(mergeContentState(DEFAULT_STATE, data));
-        setBackend(true);
-        cacheWrite(data);
-      })
-      .catch(() => {})
-      .finally(() => alive && setReady(true));
-    return () => {
-      alive = false;
-    };
-  }, []);
+    /* Remove snapshots written by older releases; leaving the key behind makes
+       a rollback or a second tab capable of resurrecting stale public copy. */
+    try {
+      localStorage.removeItem(LEGACY_CONTENT_CACHE_KEY);
+    } catch {}
+    reload().catch(() => {});
+  }, [reload]);
 
   const save = useCallback(async (next) => {
     setState(next);
-    cacheWrite(next);
     await api('/api/content', { method: 'PUT', body: next, auth: true });
+    setBackend(true);
   }, []);
 
   /* Persian is the base language; English and Arabic are overlays applied on
@@ -122,6 +117,7 @@ export function ContentProvider({ children }) {
       locale,
       ready,
       backend,
+      refreshing,
       save,
       reload,
       t: (k) => view.texts?.[k] ?? fallback.texts[k] ?? '',
@@ -132,7 +128,7 @@ export function ContentProvider({ children }) {
       posts: view.posts ?? [],
       brands: view.brands ?? fallback.brands,
     }),
-    [state, view, fallback, locale, ready, backend, save, reload]
+    [state, view, fallback, locale, ready, backend, refreshing, save, reload]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

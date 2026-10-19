@@ -206,8 +206,10 @@ check(
   'App has no custom route warming or route-cache checks',
 );
 check(
-  /transitioning && <RouteFallback/.test(appSrc) && /NAVIGATION_BEAT_MS - elapsed/.test(appSrc),
-  'every client navigation has an explicit loading-screen phase',
+  /useLoadingGate\(waiting,\s*\{\s*minVisible:\s*0\s*\}\)/.test(appSrc) &&
+    /loaderVisible && <RouteFallback/.test(appSrc) &&
+    !/NAVIGATION_BEAT_MS/.test(appSrc),
+  'navigation loading is driven by real pending work rather than a forced beat',
 );
 
 /* ---- CSP: the inline-script hash must survive a Windows checkout ---------

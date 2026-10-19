@@ -53,11 +53,13 @@ export function loadingDelay() {
 
 /**
  * @param {boolean} active  whether the thing we are waiting for is still pending
- * @param {{ skip?: boolean }} [opts]  skip=true never shows the indicator
- *        (used when the chunk is already in memory, so there is no real wait)
+ * @param {{ skip?: boolean, minVisible?: number }} [opts]
+ *        skip=true never shows the indicator. minVisible controls how long an
+ *        already-visible indicator is held after work ends; navigation passes
+ *        zero so its full-screen cover disappears at the real completion time.
  */
 export default function useLoadingGate(active = true, opts = {}) {
-  const { skip = false } = opts;
+  const { skip = false, minVisible = MIN_VISIBLE } = opts;
   const [visible, setVisible] = useState(false);
   const shownAt = useRef(0);
 
@@ -79,13 +81,13 @@ export default function useLoadingGate(active = true, opts = {}) {
     if (active || !visible) return undefined;
 
     const held = Date.now() - shownAt.current;
-    if (held >= MIN_VISIBLE) {
+    if (held >= minVisible) {
       setVisible(false);
       return undefined;
     }
-    const id = setTimeout(() => setVisible(false), MIN_VISIBLE - held);
+    const id = setTimeout(() => setVisible(false), minVisible - held);
     return () => clearTimeout(id);
-  }, [active, visible]);
+  }, [active, visible, minVisible]);
 
   return visible ? 'visible' : 'hidden';
 }
