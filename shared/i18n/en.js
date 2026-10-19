@@ -349,7 +349,7 @@ export const COLLECTIONS = {
   managers: [
     { name: 'Amir Salari Nasab', role: 'Chairman of the Board' },
     { name: 'Seyed Mohammad Alavi', role: 'Chief Executive Officer' },
-    { name: 'Amir Hasanvand', role: 'Vice-Chairman of the Board' },
+    { name: 'Hesam Mahmoudi', role: 'Commercial Manager' },
     { name: 'Seyed Abdolvahab Seyedan', role: 'Member of the Board' },
   ],
   certs: [
