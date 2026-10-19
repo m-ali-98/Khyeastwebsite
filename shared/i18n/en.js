@@ -56,10 +56,10 @@ export const TEXTS = {
   'home.certs.overline': 'Standards and certifications',
   'home.certs.title': 'Quality carrying [[international approval]]',
   'home.certs.link': 'See all certificates and the quality control system',
-  'home.blog.overline': 'Specialist blog',
-  'home.blog.title': 'From yeast science to [[the art of baking]]',
-  'home.blog.sub': 'Technical articles on yeast, bakery practice and the food industry',
-  'home.blog.btnAll': 'All articles',
+  'home.blog.overline': 'Expert insights & company news',
+  'home.blog.title': 'Expertise, experience and [[what’s new]] at Khuzestan Yeast',
+  'home.blog.sub': 'Technical articles on yeast and the baking industry, alongside company news, achievements, events and market reports.',
+  'home.blog.btnAll': 'All stories',
   'home.cta.title': 'Start working with us today',
   'home.cta.text':
     'The Khuzestan Yeast commercial team is ready to provide quotations, samples and technical consultation.',
@@ -160,18 +160,18 @@ export const TEXTS = {
   'quality.awards.btn': 'Request quality documentation',
 
   /* ---------- blog ---------- */
-  'blog.hero.title': 'Blog and technical articles',
+  'blog.hero.title': 'Insights and news from Khuzestan Yeast',
   'blog.hero.sub':
-    'Yeast expertise, the art of baking and field experience from the industry — written by the Khuzestan Yeast R&D department.',
-  'blog.featured': 'Featured article',
+    'A home for yeast and baking-industry expertise, company news, achievements, events and market reports.',
+  'blog.featured': 'Featured story',
   'blog.readMore': 'Read more',
   'blog.readMinutes': 'min read',
-  'blog.related': 'Related [[articles]]',
-  'blog.back': 'Back to all articles',
-  'blog.callout.title': 'Khuzestan Yeast Research & Development (R&D)',
+  'blog.related': 'Related [[stories]]',
+  'blog.back': 'Back to all stories',
+  'blog.callout.title': 'Knowledge, innovation and the latest from Khuzestan Yeast',
   'blog.callout.text':
-    'The research and quality control centre of Khuzestan Yeast Co. is equipped with advanced instruments for flour rheology and yeast bioactivity analysis, under the supervision of the VH Berlin laboratory in Germany.',
-  'blog.meta.author': 'Research & Development (R&D)',
+    'Follow technical insights from our R&D team, experience from the baking industry, and the latest news, achievements and events from Khuzestan Yeast.',
+  'blog.meta.author': 'Khuzestan Yeast editorial team',
 
   /* ---------- contact ---------- */
   'contact.hero.title': 'Contact Khuzestan Yeast Co.',
