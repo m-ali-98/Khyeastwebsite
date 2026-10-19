@@ -519,6 +519,11 @@ input, select, textarea { font-family: inherit; }
 .nav__topbar a:hover { opacity: 1; }
 .nav__topbar-socials { display: flex; gap: 16px; }
 .nav__topbar-socials a { white-space: nowrap; }
+.nav__topbar-tools {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
 
 .nav.is-scrolled .nav__topbar { height: 0; opacity: 0; }
 .nav.is-scrolled .nav__bar {
@@ -635,109 +640,173 @@ input, select, textarea { font-family: inherit; }
 .nav.is-scrolled .nav__link.active::after { background: var(--crimson); }
 .nav__cta { flex: none; white-space: nowrap; }
 
+/* Header controls share one geometry and one state model. Previously the
+   burger was larger than the cart/account controls, and each lived in a
+   different stylesheet, which made the mobile header look assembled rather
+   than designed as one system. */
+.nav__icon,
+.nav__burger {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  backdrop-filter: blur(8px);
+  transition:
+    transform 0.25s var(--ease-soft),
+    border-color 0.25s var(--ease-soft),
+    background-color 0.25s var(--ease-soft),
+    color 0.25s var(--ease-soft);
+}
+.nav__icon {
+  display: grid;
+  place-items: center;
+}
 .nav__burger {
   display: none;
-  width: 46px; height: 46px;
-  border-radius: 14px;
-  border: 1.5px solid rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(8px);
+  padding: 0;
+}
+.nav__icon:hover,
+.nav__burger:hover {
+  border-color: #fff;
+  background-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+.nav__icon:focus-visible,
+.nav__burger:focus-visible {
+  outline: 2px solid var(--crimson-bright);
+  outline-offset: 3px;
+}
+.nav.is-scrolled :is(.nav__icon, .nav__burger) {
+  border-color: var(--line);
+  background-color: var(--surface);
+  color: var(--ink-2);
+  backdrop-filter: none;
+}
+.nav.is-scrolled :is(.nav__icon, .nav__burger):hover {
+  border-color: var(--crimson);
+  background-color: var(--surface);
+  color: var(--crimson-ink);
+}
+.nav__cart-badge {
+  position: absolute;
+  inset-block-start: -7px;
+  inset-inline-end: -7px;
+  display: grid;
   place-items: center;
-  transition: border-color 0.3s, background 0.3s;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 5px;
+  border-radius: 999px;
+  background: var(--crimson-solid);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 4px 12px -3px var(--crimson-glow);
 }
-.nav.is-scrolled .nav__burger { border-color: var(--line); background: var(--surface); }
-.nav.is-scrolled .nav__burger span { background: var(--ink); }
+
+/* Absolute bars make the open state a centred X at every writing direction;
+   translating flow-positioned bars produced a chevron-like mark in RTL. */
 .nav__burger span {
-  display: block;
-  width: 20px; height: 2px;
-  background: #fff;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 2px;
+  margin: 0;
   border-radius: 2px;
-  margin: 2.5px auto;
-  transition: transform 0.35s var(--ease), opacity 0.2s, background 0.3s;
+  background: currentColor;
+  transform-origin: center;
+  transition: transform 0.3s var(--ease), opacity 0.18s ease;
 }
-.nav.is-scrolled .nav__burger span { background: var(--ink); }
-.nav__burger.is-open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.nav__burger span:nth-child(1) { transform: translate(-50%, -8px); }
+.nav__burger span:nth-child(2) { transform: translate(-50%, -50%); }
+.nav__burger span:nth-child(3) { transform: translate(-50%, 6px); }
+.nav__burger.is-open span:nth-child(1) { transform: translate(-50%, -50%) rotate(45deg); }
 .nav__burger.is-open span:nth-child(2) { opacity: 0; }
-.nav__burger.is-open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+.nav__burger.is-open span:nth-child(3) { transform: translate(-50%, -50%) rotate(-45deg); }
+
+/* The overlay preserves the header's current vertical state: opening it at the
+   hero keeps the compact phone strip, while a previously collapsed header
+   stays collapsed. Only the paint changes to the inverse palette, so neither
+   case jumps by 40px as the menu appears. */
+.nav.is-menu-open .nav__bar {
+  background: rgba(16, 10, 12, 0.96);
+  box-shadow: inset 0 -1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: none;
+}
+.nav.is-menu-open .nav__logo-mark.is-solid { filter: brightness(0) invert(1); }
+.nav.is-menu-open .nav__logo-text strong { color: #fff; }
+.nav.is-menu-open .nav__logo-text small { color: rgba(255, 255, 255, 0.7); }
+.nav.is-menu-open :is(.nav__icon, .nav__burger) {
+  border-color: rgba(255, 255, 255, 0.4);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  backdrop-filter: none;
+}
+.nav.is-menu-open :is(.nav__icon, .nav__burger):hover {
+  border-color: #fff;
+  background-color: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
 
 .mobile-menu {
   position: fixed;
   inset: 0;
   z-index: 99;
-  background:
-    radial-gradient(80% 60% at 100% 0%, rgba(220, 20, 60, 0.2), transparent 64%),
-    linear-gradient(160deg, var(--inverse), var(--inverse-deep));
-  padding: calc(var(--nav-h) + 40px) 28px 40px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
   overflow-y: auto;
+  padding: calc(var(--nav-h) + 56px) 28px 26px;
+  background:
+    radial-gradient(80% 60% at 100% 0%, rgba(220, 20, 60, 0.16), transparent 64%),
+    linear-gradient(160deg, var(--inverse), var(--inverse-deep));
+  overscroll-behavior: contain;
+}
+.nav.is-scrolled + .mobile-menu {
+  padding-block-start: calc(var(--nav-h) + 16px);
 }
 .mobile-menu a.m-link {
-  color: #fff;
-  font-size: 21px;
-  font-weight: 700;
-  padding: 13px 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  position: relative;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 9px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.11);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 18.5px;
+  font-weight: 700;
+  transition: color 0.2s ease, padding-inline 0.25s var(--ease-soft);
+}
+.mobile-menu a.m-link:hover,
+.mobile-menu a.m-link:focus-visible {
+  padding-inline: 8px;
+  color: #fff;
+}
+.mobile-menu a.m-link:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--crimson-bright);
+  outline-offset: -2px;
 }
 .mobile-menu a.m-link.active { color: var(--crimson-bright); }
-.mobile-menu .m-shop-primary {
-  margin-block-end: 10px;
-}
-.mobile-menu .m-shop-primary .btn {
-  width: 100%;
-  min-height: 50px;
-  justify-content: center;
-  border-radius: 14px;
-  font-size: 15px;
-}
-/* The shop shortcuts the collapsed bar can no longer show. Pills rather
-   than more full-width rows: they are secondary to the page links above
-   them and should not compete with them for weight. */
-.mobile-menu .m-shop {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 10px;
-}
-.mobile-menu .m-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 18px;
+.mobile-menu a.m-link.active::before {
+  content: '';
+  position: absolute;
+  inset-block: 14px;
+  inset-inline-start: -12px;
+  width: 3px;
   border-radius: 999px;
-  border: 1.5px solid rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  font-size: 14.5px;
-  font-weight: 700;
-  transition: background-color 0.25s var(--ease-soft), border-color 0.25s var(--ease-soft);
+  background: var(--crimson-bright);
 }
-.mobile-menu .m-pill:hover {
-  background-color: rgba(255, 255, 255, 0.18);
-  border-color: #fff;
-}
-.mobile-menu .m-pill__badge {
-  min-width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--crimson-solid);
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  font-weight: 900;
-  padding: 0 5px;
-}
-
 .mobile-menu .m-slogan {
-  margin-top: auto;
-  padding-top: 28px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
+  margin-top: 0;
+  padding: 12px 4px 0;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 12.5px;
 }
 
 /* ---------- Hero (home) ---------- */
@@ -1996,6 +2065,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 @media (max-width: 1100px) {
   .nav__links, .nav__cta { display: none; }
   .nav__burger { display: grid; }
+  .nav__actions { gap: 8px; }
 }
 
 @media (max-width: 900px) {
@@ -2076,7 +2146,11 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .footer__trust { flex-direction: column; gap: 18px; margin-top: 36px; padding-top: 24px; }
   .footer__trust-list { justify-content: flex-start; }
   .footer__trust-link { width: 90px; height: 90px; padding: 7px; }
-  .nav__topbar-socials { display: none; }
+  .nav__topbar-socials,
+  .nav__topbar .nav__topbar-email { display: none; }
+  .nav__topbar-inner { justify-content: center; }
+  .nav__topbar-tools { gap: 0; }
+  .mobile-menu { padding-inline: 20px; }
   .hero__inner { padding-bottom: 140px; }
   .split__media .img-float { left: 0; }
 }
@@ -2087,6 +2161,13 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .cert-card__mark { height: 142px; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .fact-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 350px) {
+  /* Keep the official mark, but drop the long wordmark before it collides with
+     the three equally-sized header controls on very narrow screens. */
+  .nav__bar .nav__logo-text { display: none; }
+  .nav__bar { gap: 10px; }
 }
 
 /* Reduced motion */
@@ -2434,7 +2515,9 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 22px 4px 6px;
+  margin-top: auto;
+  padding: 18px 4px 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.11);
 }
 .lang-switch--block { gap: 4px; }
 .lang-switch--block .lang-switch__btn { padding: 7px 14px; font-size: 13px; }

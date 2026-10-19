@@ -234,7 +234,10 @@ export const TEXTS = {
   'nav.contact': 'Contact',
   'nav.cta': 'Request a quote',
   'nav.shopCta': 'Shop online',
+  'nav.main': 'Main navigation',
+  'nav.mobile': 'Mobile navigation',
   'nav.menu': 'Site menu',
+  'nav.close': 'Close menu',
   'nav.breadcrumb.home': 'Home',
 };
 

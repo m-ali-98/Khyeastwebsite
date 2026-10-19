@@ -145,8 +145,13 @@ function Navbar() {
 
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    if (open) window.addEventListener('keydown', closeOnEscape);
     return () => {
       document.body.style.overflow = '';
+      window.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
 
@@ -154,7 +159,10 @@ function Navbar() {
 
   return (
     <>
-      <nav className={`nav ${(scrolled || !hasHero) && !open ? 'is-scrolled' : ''}`}>
+      <nav
+        className={`nav ${scrolled || !hasHero ? 'is-scrolled' : ''} ${open ? 'is-menu-open' : ''}`.trim()}
+        aria-label={t('nav.main')}
+      >
         <div className="nav__topbar">
           <div className="container nav__topbar-inner">
             <div className="nav__topbar-socials">
@@ -168,12 +176,12 @@ function Navbar() {
                 );
               })}
             </div>
-            <div style={{ display: 'flex', gap: 18 }}>
-              <a href={`mailto:${t('global.email')}`}>
+            <div className="nav__topbar-tools">
+              <a className="nav__topbar-email" href={`mailto:${t('global.email')}`}>
                 <Icons.mail size={15} />
                 {t('global.email')}
               </a>
-              <a href={l('sales.tel')}>
+              <a className="nav__topbar-phone" href={l('sales.tel')}>
                 <Icons.phone size={15} />
                 {t('global.sales.phone.fa')}
               </a>
@@ -235,8 +243,9 @@ function Navbar() {
             <button
               className={`nav__burger ${open ? 'is-open' : ''}`}
               onClick={() => setOpen((v) => !v)}
-              aria-label={t('nav.menu')}
+              aria-label={t(open ? 'nav.close' : 'nav.menu')}
               aria-expanded={open}
+              aria-controls="mobile-navigation"
             >
               <span />
               <span />
@@ -248,27 +257,16 @@ function Navbar() {
 
       <AnimatePresence>
         {open && (
-          <mo.div
+          <mo.nav
+            id="mobile-navigation"
             className="mobile-menu"
+            aria-label={t('nav.mobile')}
             initial={{ opacity: 0, x: menuOffset }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: menuOffset }}
             transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
           >
-            {storefrontEnabled && (
-              <mo.div
-                className="m-shop-primary"
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.06, duration: 0.3 }}
-              >
-                <Link to="/shop" className="btn btn--primary">
-                  <Icons.cart size={18} />
-                  {t('nav.shopCta')}
-                </Link>
-              </mo.div>
-            )}
-            {navLinks.filter((link) => !link.shopOnly).map((link, i) => (
+            {navLinks.map((link, i) => (
               <mo.div
                 key={link.to}
                 initial={{ opacity: 0, x: menuOffset }}
@@ -281,29 +279,6 @@ function Navbar() {
                 </NavLink>
               </mo.div>
             ))}
-            {shopEnabled && (
-              <mo.div
-                initial={{ opacity: 0, x: menuOffset }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.2, duration: 0.32 }}
-                className="m-shop"
-              >
-                {/* On a phone the two icon buttons are gone from the bar, so
-                    the menu has to carry them or the account is unreachable
-                    from the header. */}
-                {storefrontEnabled && (
-                  <NavLink to="/shop/cart" className="m-pill">
-                    <Icons.cart size={18} />
-                    {t('shop.cart.title')}
-                    {count > 0 && <span className="m-pill__badge">{faNum(count)}</span>}
-                  </NavLink>
-                )}
-                <NavLink to="/shop/account" className="m-pill">
-                  <Icons.users size={18} />
-                  {t('shop.account.title')}
-                </NavLink>
-              </mo.div>
-            )}
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -321,7 +296,7 @@ function Navbar() {
             >
               {t('global.slogan')}
             </mo.div>
-          </mo.div>
+          </mo.nav>
         )}
       </AnimatePresence>
     </>

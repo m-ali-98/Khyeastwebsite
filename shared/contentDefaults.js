@@ -237,7 +237,10 @@ export const TEXTS = {
   'nav.contact': 'تماس با ما',
   'nav.cta': 'استعلام قیمت',
   'nav.shopCta': 'خرید آنلاین',
+  'nav.main': 'ناوبری اصلی',
+  'nav.mobile': 'ناوبری موبایل',
   'nav.menu': 'منوی سایت',
+  'nav.close': 'بستن منو',
   'nav.breadcrumb.home': 'صفحه اصلی',
 
   /* ---------- shop ---------- */
