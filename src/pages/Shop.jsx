@@ -69,6 +69,13 @@ export default function Shop() {
     setSaleOnly(false);
     setQuery('');
   };
+  const selectBrand = (key) => {
+    if (key === 'all') {
+      resetFilters();
+      return;
+    }
+    setBrand(key);
+  };
   const countText = (t('shop.results.count') || '{count} محصول نمایش داده می‌شود')
     .replace('{count}', faNum(filteredProducts.length));
 
@@ -78,6 +85,7 @@ export default function Shop() {
         items={display.showcase}
         title={t('shop.hero.title')}
         sub={t('shop.hero.sub')}
+        onBrowseAll={resetFilters}
       />
 
       <section className="shop-trust container" aria-label="مزایای خرید">
@@ -109,17 +117,21 @@ export default function Shop() {
               {[
                 ['all', t('shop.filter.all')],
                 ...shopBrands.map((item) => [item.id, item.fa || item.en || BRAND_LABEL[item.id] || item.id]),
-              ].map(([key, label]) => (
-                <button
-                  type="button"
-                  key={key}
-                  className={`filter-chip${brand === key ? ' is-active' : ''}`}
-                  onClick={() => setBrand(key)}
-                  aria-pressed={brand === key}
-                >
-                  {label}
-                </button>
-              ))}
+              ].map(([key, label]) => {
+                const selected = key === 'all' ? !hasFilters : brand === key;
+                return (
+                  <button
+                    type="button"
+                    key={key}
+                    className={`filter-chip${selected ? ' is-active' : ''}`}
+                    onClick={() => selectBrand(key)}
+                    aria-pressed={selected}
+                    data-testid={key === 'all' ? 'shop-all-filter' : undefined}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
               <button
                 type="button"
                 className={`filter-chip shop-filter__sale${saleOnly ? ' is-active' : ''}`}

@@ -38,7 +38,7 @@ function ShowcaseLink({ slide, active, children }) {
   );
 }
 
-export default function ShopShowcase({ items, title, sub, crumb }) {
+export default function ShopShowcase({ items, title, sub, crumb, onBrowseAll }) {
   const { t } = useContent();
   const { isRTL } = useLocale();
   const slides = useMemo(() => {
@@ -107,6 +107,22 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
   const goToLabel = (index) =>
     (t('shop.showcase.goTo') || 'نمایش تصویر {count}').replace('{count}', (index + 1).toLocaleString('fa-IR'));
 
+  /* Native same-page hashes create a history entry and can re-apply their
+     scroll position after a back navigation or reload. That made the primary
+     “all products” action feel intermittent: repeat taps could land at a
+     different offset as the fixed header collapsed. Keep the real href as a
+     no-JavaScript fallback, but make ordinary clicks deterministic and safe to
+     repeat without mutating the URL. */
+  const browseCatalog = (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const catalog = document.getElementById('shop-catalog');
+    if (!catalog) return;
+    event.preventDefault();
+    onBrowseAll?.();
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    catalog.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
+  };
+
   return (
     <header
       className="shop-showcase"
@@ -135,7 +151,12 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
           </div>
 
           <Reveal className="shop-showcase__actions" delay={0.3} y={18}>
-            <a className="btn btn--primary" href="#shop-catalog">
+            <a
+              className="btn btn--primary shop-showcase__catalog-link"
+              href="#shop-catalog"
+              aria-controls="shop-catalog"
+              onClick={browseCatalog}
+            >
               {t('shop.filter.all')}
               <Icons.arrow size={18} />
             </a>

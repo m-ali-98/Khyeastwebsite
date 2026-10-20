@@ -94,20 +94,23 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 12px;
     margin-block-start: 30px;
 
     .btn {
+      min-width: 154px;
       min-height: 50px;
       justify-content: center;
       padding: 12px 22px;
       border-radius: 14px;
       font-size: 13.5px;
+      touch-action: manipulation;
     }
 
-    .btn--primary { min-width: 154px; }
     .btn--ghost { border-color: rgba(255, 255, 255, 0.26); }
   }
+
+  &__catalog-link { cursor: pointer; }
 
   &__media-shell {
     grid-area: media;
@@ -244,17 +247,37 @@
   }
 
   &__dots button {
-    width: 8px;
-    height: 8px;
+    position: relative;
+    width: 22px;
+    height: 42px;
     padding: 0;
     border: 0;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.6);
-    transition: width 220ms var(--ease-soft), background-color 220ms ease;
+    background: transparent;
+    transition: width 220ms var(--ease-soft);
 
-    &.is-active {
-      width: 25px;
+    &::before {
+      content: '';
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      inset: 50% auto auto 50%;
+      border-radius: inherit;
+      background: rgba(255, 255, 255, 0.62);
+      transform: translate(-50%, -50%);
+      transition: width 220ms var(--ease-soft), background-color 220ms ease;
+    }
+
+    &.is-active { width: 31px; }
+
+    &.is-active::before {
+      width: 21px;
       background: var(--crimson);
+    }
+
+    &:focus-visible {
+      outline: 2px solid #fff;
+      outline-offset: -4px;
     }
   }
 }
@@ -434,7 +457,11 @@
   gap: 6px;
   flex-wrap: nowrap;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding: 3px;
+  scroll-padding-inline: 3px;
   scrollbar-width: none;
+  touch-action: pan-x pan-y;
 
   &::-webkit-scrollbar { display: none; }
 
@@ -445,6 +472,9 @@
     border-width: 1px;
     font-size: 12.5px;
   }
+
+  .filter-chip:focus-visible { outline-offset: -2px; }
+  .filter-chip.is-active { box-shadow: 0 9px 20px -13px var(--crimson-glow); }
 
   &__sale {
     display: inline-flex;
@@ -494,21 +524,26 @@
 
   button {
     position: absolute;
-    inset-inline-end: 8px;
+    inset-inline-end: 3px;
     inset-block-start: 50%;
     display: grid;
     place-items: center;
-    width: 29px;
-    height: 29px;
+    width: 36px;
+    height: 36px;
     padding: 0;
     border: 0;
     border-radius: 50%;
     background: transparent;
     color: var(--muted);
-    font: 700 20px/1 Arial, sans-serif;
+    font: 700 19px/1 Arial, sans-serif;
+    touch-action: manipulation;
     transform: translateY(-50%);
 
     &:hover { background: var(--bg-soft); color: var(--crimson-ink); }
+    &:focus-visible {
+      outline: 2px solid var(--crimson);
+      outline-offset: -2px;
+    }
   }
 }
 
@@ -1857,18 +1892,30 @@
 }
 
 @media (max-width: 800px) {
-  .shop-trust {
-    display: flex;
-    overflow-x: auto;
-    scroll-snap-type: inline mandatory;
-    scrollbar-width: none;
+  /* Four guarantees are more useful when they can be scanned at once. The old
+     horizontal strip hid three of them off-screen and created a non-focusable
+     scroll region, so tablet and phone layouts use a quiet 2×2 information
+     rail instead. Product-detail inline assurances keep their own treatment. */
+  .shop-trust:not(.shop-trust--inline) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
   }
 
-  .shop-trust::-webkit-scrollbar { display: none; }
+  .shop-trust:not(.shop-trust--inline) .shop-trust__item {
+    min-width: 0;
+  }
 
-  .shop-trust__item {
-    flex: 0 0 min(70vw, 280px);
-    scroll-snap-align: start;
+  .shop-trust:not(.shop-trust--inline) .shop-trust__item + .shop-trust__item::before {
+    display: none;
+  }
+
+  .shop-trust:not(.shop-trust--inline) .shop-trust__item:nth-child(even) {
+    border-inline-start: 1px solid var(--line);
+  }
+
+  .shop-trust:not(.shop-trust--inline) .shop-trust__item:nth-child(n + 3) {
+    border-block-start: 1px solid var(--line);
   }
 
   .shop-trust--inline {
@@ -1998,11 +2045,10 @@
   }
 
   .shop-showcase__navigation { inset: auto 12px 12px; }
-  .shop-showcase__arrows button { width: 36px; height: 36px; }
-  .shop-showcase__dots { min-height: 36px; padding-inline: 10px; }
+  .shop-showcase__arrows button { width: 42px; height: 42px; }
+  .shop-showcase__dots { min-height: 42px; padding-inline: 8px; }
 
   .shop-trust__item {
-    flex-basis: min(78vw, 286px);
     min-height: 62px;
     padding: 9px 12px;
   }
@@ -2066,7 +2112,21 @@
     padding-inline: 9px;
   }
 
-  .shop-filter .filter-chip { padding-inline: 11px; }
+  /* All discovery controls remain visible on phones. The previous one-line
+     scroller routinely left half a brand chip at the edge and made the sale
+     toggle look missing; two restrained rows are clearer and still compact. */
+  .shop-filter {
+    flex-wrap: wrap;
+    gap: 5px;
+    overflow: visible;
+    padding: 0;
+    touch-action: auto;
+  }
+
+  .shop-filter .filter-chip {
+    padding-inline: 9px;
+    font-size: 12px;
+  }
 
   .shop-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -2168,6 +2228,18 @@
     font-size: 10.5px;
   }
 
+  /* Catalogue actions are repeated purchase targets, so they retain the full
+     mobile hit area. The homepage shelf stays deliberately denser. */
+  .shop-listing .shop-card__actions .btn {
+    min-height: 42px;
+    font-size: 11px;
+  }
+
+  :is(.shop-listing, .home-shop-shelf) .shop-card:hover .shop-card__img img,
+  :is(.shop-listing, .home-shop-shelf) .shop-card:focus-within .shop-card__img img {
+    transform: none;
+  }
+
   /* A single swipeable row keeps the purchase shelf genuinely compact on the
      homepage while preserving the approved horizontal product-card geometry.
      The partial next card is the affordance; no oversized prompt is needed. */
@@ -2208,6 +2280,7 @@
   .shop-showcase__track,
   .shop-showcase__link img,
   .shop-showcase__dots button,
+  .shop-showcase__dots button::before,
   .shop-card,
   .shop-card__img img { transition: none; }
 

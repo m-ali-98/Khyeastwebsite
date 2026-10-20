@@ -264,6 +264,25 @@ test('shop search, sale and brand filters compose without hiding their controls 
   await expect(showcase.getByRole('heading', { level: 1 })).toContainText('فروشگاه');
   await expect(showcase.locator('.shop-showcase__link')).toHaveAttribute('href', '/products');
 
+  /* The hero action is a repeatable in-page control, not a history mutation.
+     It must land below the fixed header every time without leaving a hash that
+     re-jumps the page after Back or reload. */
+  const browseAll = showcase.locator('.shop-showcase__catalog-link');
+  await expect(browseAll).toHaveAttribute('href', '#shop-catalog');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await browseAll.click();
+    await expect.poll(() => page.locator('#shop-catalog').evaluate((node) => {
+      const margin = parseFloat(getComputedStyle(node).scrollMarginTop) || 0;
+      return Math.abs(node.getBoundingClientRect().top - margin);
+    })).toBeLessThan(2);
+    expect(await page.evaluate(() => window.location.hash)).toBe('');
+  }
+
+  const filterBar = page.locator('.shop-filter');
+  expect(await filterBar.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+  expect(await page.locator('.shop-trust').evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+
   const search = page.getByTestId('shop-search');
   await search.fill('ايكس پاور');
   await expect(page.locator('.shop-card')).toHaveCount(1);
@@ -294,6 +313,16 @@ test('shop search, sale and brand filters compose without hiding their controls 
   await page.locator('.shop-toolbar__sort select').selectOption('expensive');
   await expect(page.locator('.shop-card')).toHaveCount(1);
   await expect(page.locator('.shop-card')).toContainText('۸۰ گرمی');
+
+  /* “All products” means all products, rather than merely clearing the brand
+     while an invisible search or sale-only constraint remains active. */
+  const allProducts = page.getByTestId('shop-all-filter');
+  await expect(allProducts).toHaveAttribute('aria-pressed', 'false');
+  await allProducts.click();
+  await expect(allProducts).toHaveAttribute('aria-pressed', 'true');
+  await expect(search).toHaveValue('');
+  await expect(sale).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.shop-card')).toHaveCount(7);
 });
 
 test('the shop is reachable in Persian and absent in English and Arabic', async ({ page }) => {
@@ -379,30 +408,43 @@ test('a cold client-side route stays behind the navigation screen until it commi
   await expect(page.locator('form')).toBeVisible();
 });
 
-test('a cached route revisit still gets the complete navigation screen', async ({ page }) => {
-  /* A direct visit puts the Products chunk into React.lazy and the browser
-     cache. Returning to it proves feedback does not depend on chunk latency. */
+test('a cached route revisit does not force a navigation screen', async ({ page }) => {
+  /* A direct visit puts the Products module into React.lazy and the browser
+     cache. Smart feedback should cover genuine loading (tested above), not
+     flash a decorative delay when a cached route can commit immediately. */
   await gotoReady(page, '/products');
   await expect(page.locator('.product-card').first()).toBeVisible();
   await expect(page.locator('.navigation-loader, #boot-splash')).toHaveCount(0);
 
   await page.locator('nav.nav .nav__logo').click();
-  await expect(page.locator('.navigation-loader')).toBeVisible();
-  /* Home intentionally has featured product cards too. The catalogue filter
-     is the route-specific marker that proves the outgoing Products page was
-     removed while the single navigation cover is visible. */
-  await expect(page.locator('.filter-bar')).toHaveCount(0);
-  await expect(page.locator('.hero')).toBeAttached();
-  await expect(page.locator('.navigation-loader')).toHaveCount(0, { timeout: 3000 });
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.hero')).toBeVisible();
+  await expect(page.locator('.navigation-loader')).toHaveCount(0);
+
+  /* A DOM observer catches even a loader that mounts and unmounts between two
+     Playwright assertions; polling alone could miss that one-frame flash. */
+  await page.evaluate(() => {
+    window.__cachedLoaderMounts = 0;
+    window.__cachedLoaderObserver = new MutationObserver((records) => {
+      records.forEach((record) => record.addedNodes.forEach((node) => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        if (node.matches?.('.navigation-loader') || node.querySelector?.('.navigation-loader')) {
+          window.__cachedLoaderMounts += 1;
+        }
+      }));
+    });
+    window.__cachedLoaderObserver.observe(document.body, { childList: true, subtree: true });
+  });
 
   await page.locator('.nav__links a[href="/products"]').click();
-  const cachedLoader = page.locator('.navigation-loader');
-  await expect(cachedLoader).toBeVisible();
-  await expect(page.locator('main')).toHaveCount(1);
-  await expect(page.locator('.hero')).toHaveCount(0);
-  await expect(cachedLoader).toHaveCount(0, { timeout: 3000 });
+  await expect(page).toHaveURL(/\/products$/);
   await expect(page.locator('.product-card').first()).toBeVisible();
+  await expect(page.locator('.navigation-loader')).toHaveCount(0);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await page.evaluate(() => {
+    window.__cachedLoaderObserver?.disconnect();
+    return window.__cachedLoaderMounts;
+  })).toBe(0);
 });
 
 test('a first visit defaults to light even when the operating system is dark', async ({ page }) => {

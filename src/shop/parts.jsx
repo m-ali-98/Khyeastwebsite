@@ -41,10 +41,14 @@ export function ShopCard({ p, index = 0 }) {
   return (
     <mo.article
       className="shop-card"
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.94 }}
-      transition={{ duration: 0.5, delay: Math.min(index * 0.07, 0.45), ease: [0.22, 1, 0.36, 1] }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{
+        duration: 0.28,
+        delay: Math.min(index * 0.018, 0.08),
+        ease: [0.22, 1, 0.36, 1],
+      }}
     >
       <div className="shop-card__img">
         <Link to={`/shop/${p.slug}`} aria-label={p.title}>
