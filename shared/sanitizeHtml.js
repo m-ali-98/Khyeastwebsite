@@ -144,19 +144,21 @@ function pushChildren(stack, node, depth) {
 /** Sanitise the children of `root` in place, without recursive JavaScript.
  * The explicit node/depth bounds make pathological authenticated input fail
  * closed instead of overflowing either Node's or a browser's call stack. */
-export function sanitizeDomRoot(root) {
+function sanitizeDomRootDetailed(root) {
   const stack = [];
   pushChildren(stack, root, 1);
   let visited = 0;
+
+  const reject = (code, limit) => {
+    root.replaceChildren();
+    return { ok: false, code, limit, visited };
+  };
 
   while (stack.length) {
     const { node, depth } = stack.pop();
     if (!node?.parentNode) continue;
     visited += 1;
-    if (visited > MAX_HTML_NODES) {
-      root.replaceChildren();
-      return root;
-    }
+    if (visited > MAX_HTML_NODES) return reject('node-limit', MAX_HTML_NODES);
 
     /* Comments are never persisted. In particular, this removes malformed
        `--!>` boundaries whose meaning differs between server and browser HTML
@@ -168,7 +170,10 @@ export function sanitizeDomRoot(root) {
     if (node.nodeType !== 1) continue;
 
     const tag = String(node.tagName || '').toUpperCase();
-    if (DROP_WITH_CONTENT.has(tag) || (ALLOWED.has(tag) && depth > MAX_HTML_DEPTH)) {
+    if (ALLOWED.has(tag) && depth > MAX_HTML_DEPTH) {
+      return reject('depth-limit', MAX_HTML_DEPTH);
+    }
+    if (DROP_WITH_CONTENT.has(tag)) {
       node.remove();
       continue;
     }
@@ -190,32 +195,61 @@ export function sanitizeDomRoot(root) {
     }
     pushChildren(stack, node, depth + 1);
   }
+  return { ok: true, visited };
+}
+
+/** Preserve the original DOM helper contract for browser callers while the
+ * server-facing detailed API below can distinguish rejection from valid empty
+ * HTML. */
+export function sanitizeDomRoot(root) {
+  sanitizeDomRootDetailed(root);
   return root;
 }
 
-/** Sanitize with an explicit parser. Used by Node at the storage boundary. */
-export function sanitizeHtmlWithParser(html, DOMParserImpl) {
+/** Sanitize with an explicit parser and report why untrusted input was refused.
+ * The ordinary string-returning wrapper remains fail-closed for browser
+ * rendering; persistence code must use this result and reject the save. */
+export function sanitizeHtmlResultWithParser(html, DOMParserImpl) {
   if (typeof DOMParserImpl !== 'function') throw new Error('DOMParser implementation is required');
-  const source = String(html ?? '');
-  if (source.length > MAX_HTML_INPUT_LENGTH) return '';
+  let source;
+  try {
+    source = String(html ?? '');
+  } catch {
+    return { ok: false, html: '', code: 'invalid-input' };
+  }
+  if (source.length > MAX_HTML_INPUT_LENGTH) {
+    return { ok: false, html: '', code: 'input-too-large', limit: MAX_HTML_INPUT_LENGTH, actual: source.length };
+  }
   try {
     const documentRef = new DOMParserImpl().parseFromString('<!doctype html><html><body></body></html>', 'text/html');
-    if (!documentRef?.createElement) return '';
+    if (!documentRef?.createElement) return { ok: false, html: '', code: 'parser-error' };
     /* Assigning through innerHTML gives the parser a fragment context without
        interpolating input into a wrapper string that `</div>` could escape. */
     const root = documentRef.createElement('div');
     root.innerHTML = source;
-    sanitizeDomRoot(root);
-    return root.innerHTML;
+    const result = sanitizeDomRootDetailed(root);
+    if (!result.ok) return { ...result, html: '' };
+    return { ok: true, html: root.innerHTML, visited: result.visited };
   } catch {
     /* DOM parsers may themselves recurse while constructing an adversarially
-       deep tree. A parser RangeError is untrusted-input failure, not a reason
-       to take down the Admin save request or the rendering process. */
-    return '';
+       deep tree. Report the refusal so persistence can return 400 rather than
+       silently replacing the field with an empty string. */
+    return { ok: false, html: '', code: 'parser-error' };
   }
 }
 
-/** Browser entry point. */
+/** Sanitize with an explicit parser. Used by browsers and compatibility
+ * callers that need a fail-closed string rather than persistence validation. */
+export function sanitizeHtmlWithParser(html, DOMParserImpl) {
+  return sanitizeHtmlResultWithParser(html, DOMParserImpl).html;
+}
+
+/** Browser entry points. Rendering uses the fail-closed string API; Admin
+ * persistence flows may use the detailed result to explain a refused bound. */
+export function sanitizeHtmlResult(html) {
+  return sanitizeHtmlResultWithParser(html, globalThis.DOMParser);
+}
+
 export function sanitizeHtml(html) {
-  return sanitizeHtmlWithParser(html, globalThis.DOMParser);
+  return sanitizeHtmlResult(html).html;
 }

@@ -1241,6 +1241,31 @@
 .ord__summary { margin: 10px 0 0; }
 .ord__address { max-width: 82ch; margin: 10px 0 0; line-height: 2; }
 .ord__payment { margin: 7px 0 0; color: var(--muted); font-size: 11.5px; }
+.ord__attempts {
+  max-width: 840px;
+  display: grid;
+  gap: 7px;
+  margin-top: 13px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface-2) 66%, transparent);
+}
+.ord__attempt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding-block: 6px;
+  border-bottom: 1px dashed var(--line);
+
+  &:last-child { border-bottom: 0; }
+  > div { min-width: min(100%, 300px); display: grid; gap: 3px; flex: 1 1 360px; }
+  b { overflow-wrap: anywhere; font-size: 11.5px; }
+  small { display: block; color: var(--muted); line-height: 1.7; }
+  small.is-error { color: var(--crimson-ink); }
+  .pay__msg { flex-basis: 100%; margin: 0; }
+}
 .ord__detail-actions,
 .ord__gateway { margin-top: 11px; flex-wrap: wrap; gap: 9px; }
 .ord__gateway .pay__msg { margin: 0; }

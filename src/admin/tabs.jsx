@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
-import { sanitizeHtml } from '../content/sanitize';
+import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
 import { Field, UploadButton, StringListEditor, PairListEditor, RichEditor } from './editors';
 import { getPack, LOCALES } from '../../shared/i18n/index.js';
 import {
@@ -285,11 +285,13 @@ export function PostsTab() {
       body: '<p></p>',
     });
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     const { _orig, ...rest } = draft;
+    const sanitizedBody = sanitizeHtmlResult(rest.body);
+    if (!sanitizedBody.ok) return window.alert(richTextRejectionMessage(sanitizedBody));
     const clean = {
       ...rest,
-      body: sanitizeHtml(rest.body),
+      body: sanitizedBody.html,
       updatedAt: localIsoDate(),
     };
 
@@ -304,12 +306,16 @@ export function PostsTab() {
         ? state.posts.map((p) => (p.slug === clean.slug ? clean : p))
         : [clean, ...state.posts];
 
-    save({
-      ...state,
-      posts: next,
-      i18n: editing ? renameTranslations(state.i18n, 'posts', _orig, clean.slug) : state.i18n,
-    });
-    setDraft(null);
+    try {
+      await save({
+        ...state,
+        posts: next,
+        i18n: editing ? renameTranslations(state.i18n, 'posts', _orig, clean.slug) : state.i18n,
+      }, { optimistic: false });
+      setDraft(null);
+    } catch (error) {
+      window.alert(error.message || 'ذخیره مقاله ممکن نشد؛ هیچ تغییری ذخیره نشد.');
+    }
   };
 
   const remove = (slug) => {

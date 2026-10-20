@@ -31,6 +31,9 @@ export const rateLimitDefaults = (environment = process.env) => ({
     comment: { max: envMax(environment, 'RL_MAX_COMMENT', 5), windowMs: 10 * 60 * 1000 },
     order: { max: envMax(environment, 'RL_MAX_ORDER', 12), windowMs: 10 * 60 * 1000 },
     paymentRetry: { max: envMax(environment, 'RL_MAX_PAYMENT_RETRY', 5), windowMs: 10 * 60 * 1000 },
+    /* Scoped to an authority only after its immutable order mapping succeeds,
+       so random probes cannot fill a legitimate payment's bucket. */
+    paymentCallback: { max: envMax(environment, 'RL_MAX_PAYMENT_CALLBACK', 12), windowMs: 10 * 60 * 1000 },
     adminLogin: { max: envMax(environment, 'RL_MAX_ADMIN_LOGIN', 8), windowMs: 15 * 60 * 1000 },
     otpPhone: { max: envMax(environment, 'RL_MAX_OTP_PHONE', 5), windowMs: 60 * 60 * 1000 },
     otpIp: { max: envMax(environment, 'RL_MAX_OTP_IP', 30), windowMs: 60 * 60 * 1000 },
@@ -76,6 +79,11 @@ export function createRateLimiter({ database, store }) {
   let settings = normalizeRateLimitSettings(store.getSetting(database, SETTING_KEY, {}));
   let fingerprint = JSON.stringify(settings);
   const hits = new Map();
+  /* Async password work can overlap. Reservations count in-flight attempts so
+     a burst cannot slip every scrypt job past check() before the first failure
+     is recorded; callers decide on completion whether the attempt should
+     become a normal hit. */
+  const reservations = new Map();
 
   /* Passenger may run several Node workers against the same SQLite file. Read
      the tiny settings row at each limited request so an Admin change (most
@@ -88,6 +96,7 @@ export function createRateLimiter({ database, store }) {
       settings = next;
       fingerprint = nextFingerprint;
       hits.clear();
+      reservations.clear();
     }
     return settings;
   };
@@ -113,6 +122,7 @@ export function createRateLimiter({ database, store }) {
       /* A policy change starts clean and, when disabled, takes effect
          immediately. Other Passenger workers clear on their next check. */
       hits.clear();
+      reservations.clear();
       return JSON.parse(fingerprint);
     },
 
@@ -129,6 +139,40 @@ export function createRateLimiter({ database, store }) {
       };
     },
 
+    reserve(kind, key) {
+      refreshSettings();
+      const rule = settings.rules[kind];
+      const noop = () => {};
+      if (!settings.enabled || !rule) return { limited: false, retryAfter: 0, finish: noop };
+      const now = Date.now();
+      const id = bucketId(kind, key);
+      const times = recent(kind, key, now);
+      const pending = reservations.get(id) || 0;
+      if (times.length + pending >= rule.max) {
+        return {
+          limited: true,
+          retryAfter: times.length
+            ? Math.max(1, Math.ceil((rule.windowMs - (now - times[0])) / 1000))
+            : 1,
+          finish: noop,
+        };
+      }
+      reservations.set(id, pending + 1);
+      let active = true;
+      return {
+        limited: false,
+        retryAfter: 0,
+        finish(record = false) {
+          if (!active) return;
+          active = false;
+          const remaining = Math.max(0, (reservations.get(id) || 0) - 1);
+          if (remaining) reservations.set(id, remaining);
+          else reservations.delete(id);
+          if (record) api.record(kind, key);
+        },
+      };
+    },
+
     record(kind, key) {
       refreshSettings();
       const rule = settings.rules[kind];
@@ -138,11 +182,15 @@ export function createRateLimiter({ database, store }) {
     },
 
     clear(kind, key) {
+      /* Clear completed failures after a successful login, but keep other
+         requests' live reservations. Dropping them here would briefly reopen
+         the bucket while concurrent scrypt work is still consuming workers. */
       hits.delete(bucketId(kind, key));
     },
 
     clearAll() {
       hits.clear();
+      reservations.clear();
     },
   };
 

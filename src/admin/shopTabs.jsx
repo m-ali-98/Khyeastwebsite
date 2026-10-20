@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
-import { sanitizeHtml } from '../content/sanitize';
+import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
 import { Field, UploadButton, PairListEditor, RichEditor } from './editors';
 import { formatMoney } from '../shop/ShopContext';
 
@@ -24,6 +24,14 @@ const STATUS_FA = {
   shipped: 'ارسال‌شده',
   delivered: 'تحویل‌شده',
   cancelled: 'لغو شده',
+};
+const PAYMENT_ATTEMPT_STATUS_FA = {
+  issued: 'صادرشده',
+  verified: 'تأییدشده؛ نیازمند رسیدگی',
+  settled: 'تسویه‌کننده سفارش',
+  reversing: 'reverse در حال انجام',
+  reversal_failed: 'reverse ناموفق',
+  reversed: 'بازگردانده‌شده',
 };
 
 /* Merchants scan different facts first, so the two long operational lists do
@@ -305,7 +313,7 @@ export function ShopProductsTab() {
     }
   };
 
-  const commitShop = (next) => save({ ...state, shop: { ...shop, ...next } });
+  const commitShop = (next, options) => save({ ...state, shop: { ...shop, ...next } }, options);
 
   const startNew = () => {
     setDraftOriginalSlug(null);
@@ -329,13 +337,15 @@ export function ShopProductsTab() {
   };
 
   const saveDraft = async () => {
+    const sanitizedDescription = sanitizeHtmlResult(draft.description || '');
+    if (!sanitizedDescription.ok) return window.alert(richTextRejectionMessage(sanitizedDescription));
     const clean = {
       ...draft,
       slug: slugify(draft.slug),
       price: Math.max(0, Math.round(num(draft.price))),
       oldPrice: draft.oldPrice ? Math.max(0, Math.round(num(draft.oldPrice))) : null,
       stock: Math.round(num(draft.stock, -1)),
-      description: sanitizeHtml(draft.description || ''),
+      description: sanitizedDescription.html,
       specs: (draft.specs || []).filter(([k, v]) => k || v),
     };
     /* slugify() no longer invents a slug, so the blank case is caught here
@@ -364,7 +374,7 @@ export function ShopProductsTab() {
       /* Metadata saves preserve live inventory on the server. If this was an
          intentional stock edit, apply it separately with the value the admin
          saw; a sale in the meantime then produces 409 instead of disappearing. */
-      await commitShop({ products: nextProducts });
+      await commitShop({ products: nextProducts }, { optimistic: false });
       if (existing && clean.slug === existing.slug && Number(clean.stock) !== Number(existing.stock)) {
         await api(`/api/shop-admin/products/${encodeURIComponent(clean.slug)}/stock`, {
           method: 'PATCH',
@@ -585,6 +595,7 @@ const RATE_FIELDS = [
   ['comment', 'دیدگاه‌های فروشگاه'],
   ['order', 'ثبت سفارش'],
   ['paymentRetry', 'تلاش دوباره برای پرداخت'],
+  ['paymentCallback', 'بازگشت درگاه برای هر authority نگاشت‌شده'],
   ['adminLogin', 'ورود ناموفق مدیر'],
   ['otpPhone', 'ارسال کد به هر شماره'],
   ['otpIp', 'ارسال کد از هر IP'],
@@ -837,6 +848,30 @@ export function ShopOrdersTab() {
     }
   };
 
+  const reverseAttempt = async (orderId, authority) => {
+    const key = `${orderId}:${authority}`;
+    setGw((current) => ({ ...current, [key]: { msg: 'در حال بازیابی reverse این تلاش…' } }));
+    try {
+      const result = await api(
+        `/api/shop-admin/orders/${encodeURIComponent(orderId)}/payment-attempts/${encodeURIComponent(authority)}/reverse`,
+        { method: 'POST', auth: true },
+      );
+      setGw((current) => ({
+        ...current,
+        [key]: { msg: result.reclaimed ? 'claim متوقف‌شده بازیابی و مبلغ بازگردانده شد.' : 'مبلغ این تلاش بازگردانده شد.' },
+      }));
+      await load();
+    } catch (error) {
+      setGw((current) => ({
+        ...current,
+        [key]: { msg: error.message || 'بازگرداندن این تلاش ممکن نشد.', err: true },
+      }));
+      /* The failed claim and durable attention flag are server state too; show
+         them immediately instead of requiring a manual panel refresh. */
+      await load();
+    }
+  };
+
   const patch = async (id, body, method = 'PATCH') => {
     setErr('');
     setFeedback('');
@@ -911,6 +946,12 @@ export function ShopOrdersTab() {
               const detailId = `order-detail-${String(o.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
               const at = new Date(o.at);
               const validDate = !Number.isNaN(at.getTime());
+              const paymentAttempts = Array.isArray(o.paymentAttempts) ? o.paymentAttempts : [];
+              const hasProtectedPayment = paymentAttempts.length > 0 || (
+                o.provider !== 'offline' && Boolean(
+                  o.payRef || o.paidAt || ['paid', 'shipped', 'delivered'].includes(o.status),
+                )
+              );
               return (
                 <article
                   className={`ord__item ${expanded ? 'is-open' : ''} ${o.status === 'pending_payment' ? 'is-attention' : ''} ${o.needsAttention ? 'is-needs-attention' : ''}`}
@@ -1011,13 +1052,56 @@ export function ShopOrdersTab() {
                         {o.payRef ? ` · شناسه پیگیری: ${String(o.payRef).slice(0, 30)}` : ''}
                         {o.paidAt ? ` · پرداخت: ${new Date(o.paidAt).toLocaleString('fa-IR')}` : ''}
                       </p>
+                      {paymentAttempts.length > 0 && (
+                        <div className="ord__attempts">
+                          <p className="ord__detail-title">تلاش‌های پرداخت</p>
+                          {paymentAttempts.map((attempt) => {
+                            const attemptKey = `${o.id}:${attempt.authority}`;
+                            const canRetryReverse =
+                              attempt.authority !== o.payAuthority &&
+                              ['verified', 'reversing', 'reversal_failed'].includes(attempt.status);
+                            return (
+                              <div className="ord__attempt" key={attempt.authority}>
+                                <div>
+                                  <b dir="ltr">{attempt.authority}</b>
+                                  <small>
+                                    {PAYMENT_ATTEMPT_STATUS_FA[attempt.status] || attempt.status}
+                                    {attempt.refId ? ` · ref_id: ${attempt.refId}` : ''}
+                                    {attempt.reversalStartedAt
+                                      ? ` · شروع reverse: ${new Date(attempt.reversalStartedAt).toLocaleString('fa-IR')}`
+                                      : ''}
+                                  </small>
+                                  {attempt.lastError && <small className="is-error">خطا: {attempt.lastError}</small>}
+                                </div>
+                                {canRetryReverse && (
+                                  <button
+                                    type="button"
+                                    className="btn btn--outline btn--sm ord__delete"
+                                    onClick={() =>
+                                      window.confirm('reverse همین تلاش پرداخت دوباره اجرا شود؟ پرداخت اصلی سفارش دست‌نخورده می‌ماند.') &&
+                                      reverseAttempt(o.id, attempt.authority)
+                                    }
+                                  >
+                                    بازیابی reverse این تلاش
+                                  </button>
+                                )}
+                                {gw[attemptKey] && (
+                                  <span className={`pay__msg ${gw[attemptKey].err ? 'is-err' : ''}`}>{gw[attemptKey].msg}</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                       <div className="admin__row ord__detail-actions">
                         <button
                           type="button"
                           className="btn btn--outline btn--sm ord__delete"
+                          disabled={hasProtectedPayment}
+                          title={hasProtectedPayment ? 'سفارش دارای تلاش پرداخت آنلاین است و برای نگاشت callback و سوابق مالی باید نگهداری شود.' : undefined}
                           onClick={() => window.confirm('این سفارش حذف شود؟') && patch(o.id, null, 'DELETE')}
                         >
-                          حذف سفارش
+                          {hasProtectedPayment ? 'حذف غیرفعال — تلاش پرداخت' : 'حذف سفارش'}
                         </button>
                       </div>
 

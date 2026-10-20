@@ -62,6 +62,21 @@ const G = await import(pathToFileURL(path.join(ROOT, 'shared/iranGeo.js')).href)
   check(a !== b, 'the same password hashes differently each time (random salt)');
   check(A.verifyPassword('samepassword', a) && A.verifyPassword('samepassword', b), 'both still verify');
 
+  let eventLoopYielded = false;
+  const asyncHashPromise = A.hashPasswordAsync('async correct horse battery');
+  setImmediate(() => { eventLoopYielded = true; });
+  const asyncHash = await asyncHashPromise;
+  check(eventLoopYielded, 'request-path scrypt hashing yields the Node event loop');
+  check(
+    asyncHash.startsWith('scrypt$') && await A.verifyPasswordAsync('async correct horse battery', asyncHash),
+    'the asynchronous hash preserves the self-describing format and verifies',
+  );
+  check(
+    !(await A.verifyPasswordAsync('async wrong password', asyncHash)) &&
+      !(await A.verifyLoginPasswordAsync('async wrong password', null)),
+    'asynchronous wrong and nonexistent-account comparisons both fail closed',
+  );
+
   const weak = A.passwordProblems('1234567');
   check(weak.length > 0, 'a 7-character password is refused');
   check(A.passwordProblems('12345678').length > 0, 'an all-digit password is refused');

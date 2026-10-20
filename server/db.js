@@ -92,6 +92,7 @@ function migrate(db) {
       ref_id     TEXT,
       at         TEXT NOT NULL,
       verified_at TEXT,
+      reversal_started_at TEXT,
       reversed_at TEXT,
       last_error TEXT NOT NULL DEFAULT ''
     );
@@ -242,6 +243,11 @@ function migrate(db) {
     db.exec('ALTER TABLE orders ADD COLUMN pay_authority TEXT');
   }
 
+  const paymentCols = db.prepare('PRAGMA table_info(order_payments)').all().map((column) => column.name);
+  if (!paymentCols.includes('reversal_started_at')) {
+    db.exec('ALTER TABLE order_payments ADD COLUMN reversal_started_at TEXT');
+  }
+
   /* Before pay_authority existed, pay_ref changed meaning mid-payment: it held
      the authority while pending, then was overwritten with ref_id after
      settlement. Preserve authorities we can identify without guessing. Paid
@@ -367,7 +373,10 @@ const productIn = (p, pos) => ({
   featured: bool(p.featured),
   comments_locked: bool(p.commentsLocked),
   short: String(p.short || ''),
-  description: sanitizeRichText(p.description || ''),
+  description: sanitizeRichText(
+    p.description || '',
+    `shop product ${String(p.slug || '').trim() || `#${pos + 1}`} description`,
+  ),
   specs: JSON.stringify(Array.isArray(p.specs) ? p.specs : []),
 });
 
@@ -503,17 +512,34 @@ const itemsOf = (db, id) =>
     .prepare('SELECT slug, title, unit, price, qty, sum FROM order_items WHERE order_id = ? ORDER BY pos ASC')
     .all(id);
 
-const paymentAttemptOut = (row) => row && ({
-  authority: row.authority,
-  orderId: row.order_id,
-  provider: row.provider,
-  status: row.status,
-  refId: row.ref_id || null,
-  at: row.at,
-  verifiedAt: row.verified_at || null,
-  reversedAt: row.reversed_at || null,
-  lastError: row.last_error || '',
-});
+export const PAYMENT_REVERSAL_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+const paymentAttemptOut = (row) => {
+  if (!row) return row;
+  const reversalStarted = Date.parse(row.reversal_started_at || '');
+  const reversalReclaimAt = Number.isFinite(reversalStarted)
+    ? reversalStarted + PAYMENT_REVERSAL_CLAIM_TTL_MS
+    : 0;
+  const reversalReclaimable = row.status === 'reversing' && (
+    !reversalReclaimAt || reversalReclaimAt <= Date.now()
+  );
+  return {
+    authority: row.authority,
+    orderId: row.order_id,
+    provider: row.provider,
+    status: row.status,
+    refId: row.ref_id || null,
+    at: row.at,
+    verifiedAt: row.verified_at || null,
+    reversalStartedAt: row.reversal_started_at || null,
+    reversalReclaimable,
+    reversalRetryAfter: row.status === 'reversing' && !reversalReclaimable
+      ? Math.max(1, Math.ceil((reversalReclaimAt - Date.now()) / 1000))
+      : 0,
+    reversedAt: row.reversed_at || null,
+    lastError: row.last_error || '',
+  };
+};
 
 /** Insert an immutable authority → order binding. INSERT OR IGNORE makes a
  * repeated write for the same order idempotent; the ownership check turns a
@@ -579,6 +605,7 @@ export function updateOrderPaymentAttempt(database, orderId, authority, patch = 
     status: 'status',
     refId: 'ref_id',
     verifiedAt: 'verified_at',
+    reversalStartedAt: 'reversal_started_at',
     reversedAt: 'reversed_at',
     lastError: 'last_error',
   };
@@ -588,6 +615,10 @@ export function updateOrderPaymentAttempt(database, orderId, authority, patch = 
     if (!(key in patch)) continue;
     sets.push(`${column} = ?`);
     values.push(patch[key]);
+  }
+  if ('status' in patch && patch.status !== 'reversing' && !('reversalStartedAt' in patch)) {
+    sets.push('reversal_started_at = ?');
+    values.push(null);
   }
   if (!sets.length) return false;
   values.push(String(orderId || ''), String(authority || ''));
@@ -599,27 +630,77 @@ export function updateOrderPaymentAttempt(database, orderId, authority, patch = 
 export function claimOrderPaymentReversal(database, orderId, authority, {
   refId = null,
   verifiedAt = new Date().toISOString(),
+  claimedAt = new Date().toISOString(),
+  staleBefore = new Date(Date.now() - PAYMENT_REVERSAL_CLAIM_TTL_MS).toISOString(),
 } = {}) {
   const id = String(orderId || '');
   const value = String(authority || '');
-  if (!value) return { claimed: false, attempt: null };
+  if (!value) return { claimed: false, reclaimed: false, attempt: null };
   return database.transaction(() => {
+    const previous = getOrderPaymentAttempt(database, id, value);
     const claimed = database.prepare(
       `UPDATE order_payments
-          SET status = 'reversing', ref_id = ?, verified_at = ?, last_error = ''
+          SET status = 'reversing', ref_id = ?, verified_at = ?,
+              reversal_started_at = ?, last_error = ''
         WHERE order_id = ? AND authority = ?
-          AND status IN ('issued', 'verified', 'reversal_failed')`,
-    ).run(refId || null, verifiedAt, id, value).changes === 1;
+          AND (
+            status IN ('issued', 'verified', 'reversal_failed')
+            OR (
+              status = 'reversing'
+              AND (reversal_started_at IS NULL OR reversal_started_at <= ?)
+            )
+          )`,
+    ).run(refId || null, verifiedAt, claimedAt, id, value, staleBefore).changes === 1;
     if (claimed) {
       /* Commit the visible alert with the claim. A worker crash after this
-         point cannot leave the extra charge hidden from Admin. */
+         point cannot leave the extra charge hidden from Admin, and a later
+         worker may reclaim it after PAYMENT_REVERSAL_CLAIM_TTL_MS. */
       database.prepare('UPDATE orders SET needs_attention = 1 WHERE id = ?').run(id);
     }
     return {
       claimed,
+      reclaimed: claimed && previous?.status === 'reversing',
       attempt: getOrderPaymentAttempt(database, id, value),
     };
   })();
+}
+
+/** Complete a reversal without allowing an expired worker to overwrite its
+ * replacement. A gateway-confirmed success is terminal and may resolve a
+ * newer/failed lease, but a failure belongs only to the exact lease that made
+ * the request. This is the fencing step paired with the reclaimable claim. */
+export function finishOrderPaymentReversal(database, orderId, authority, {
+  claimedAt,
+  ok,
+  reversedAt = new Date().toISOString(),
+  lastError = '',
+} = {}) {
+  const id = String(orderId || '');
+  const value = String(authority || '');
+  let changes = 0;
+  if (ok) {
+    /* A real gateway success is stronger than a stale local failure. Never
+       overwrite the authority that actually settled the order, though. */
+    changes = database.prepare(
+      `UPDATE order_payments
+          SET status = 'reversed', reversed_at = ?, last_error = '',
+              reversal_started_at = NULL
+        WHERE order_id = ? AND authority = ?
+          AND status IN ('verified', 'reversing', 'reversal_failed')`,
+    ).run(reversedAt, id, value).changes;
+  } else if (claimedAt) {
+    changes = database.prepare(
+      `UPDATE order_payments
+          SET status = 'reversal_failed', last_error = ?,
+              reversal_started_at = NULL
+        WHERE order_id = ? AND authority = ?
+          AND status = 'reversing' AND reversal_started_at = ?`,
+    ).run(String(lastError || '').slice(0, 300), id, value, claimedAt).changes;
+  }
+  return {
+    finished: changes === 1,
+    attempt: getOrderPaymentAttempt(database, id, value),
+  };
 }
 
 export function clearOrderPaymentAttentionIfResolved(database, orderId) {
@@ -925,8 +1006,51 @@ export function claimExpiredPayment(db, id, {
   })();
 }
 
-export function deleteOrder(db, id) {
-  db.prepare('DELETE FROM orders WHERE id = ?').run(String(id));
+/** Delete only orders that never received an online payment authority.
+ * Payment evidence is deliberately retained: even an issued link may be paid
+ * later, and its callback still needs the exact order mapping for settlement
+ * or reversal. Inventory restoration and deletion share this transaction so
+ * no database state change can race a pre-check and DELETE. */
+export function deleteOrder(db, id, { restoreInventory = false } = {}) {
+  const orderId = String(id || '');
+  return db.transaction(() => {
+    const order = db.prepare(
+      'SELECT id, status, provider, pay_ref, paid_at FROM orders WHERE id = ?',
+    ).get(orderId);
+    if (!order) return { ok: false, error: 'not found' };
+
+    /* Even an issued authority can still be open in a customer's browser and
+       become a real charge after this request. Keep every online attempt and
+       its parent order; otherwise that late callback would have nothing left
+       to map, settle, or reverse. */
+    const protectedAttempt = db.prepare(
+      `SELECT *
+         FROM order_payments
+        WHERE order_id = ?
+        ORDER BY verified_at DESC, at DESC
+        LIMIT 1`,
+    ).get(orderId);
+    const protectedOrder = order.provider !== 'offline' && (
+      order.pay_ref ||
+      order.paid_at ||
+      ['paid', 'shipped', 'delivered'].includes(order.status)
+    );
+    if (protectedAttempt || protectedOrder) {
+      return {
+        ok: false,
+        error: 'payment history protected',
+        attempt: paymentAttemptOut(protectedAttempt),
+      };
+    }
+
+    if (restoreInventory && order.status !== 'cancelled') {
+      const lines = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?').all(orderId);
+      const increment = db.prepare('UPDATE products SET stock = stock + ? WHERE slug = ? AND stock >= 0');
+      for (const line of mergeStockLines(lines)) increment.run(line.qty, line.slug);
+    }
+    const removed = db.prepare('DELETE FROM orders WHERE id = ?').run(orderId).changes === 1;
+    return removed ? { ok: true } : { ok: false, error: 'not found' };
+  })();
 }
 
 /* ============================================================== comments */
@@ -1149,6 +1273,13 @@ export function updateCustomer(db, id, patch) {
   if (!sets.length) return getCustomerById(db, id);
   db.prepare(`UPDATE customers SET ${sets.join(', ')} WHERE id = @id`).run({ ...vals, id });
   return getCustomerById(db, id);
+}
+
+export function updateCustomerPasswordIfCurrent(db, id, expectedHash, passHash) {
+  const changed = db.prepare(
+    'UPDATE customers SET pass_hash = ? WHERE id = ? AND pass_hash = ?',
+  ).run(String(passHash || ''), String(id || ''), String(expectedHash || '')).changes === 1;
+  return changed ? getCustomerById(db, id) : null;
 }
 
 export function countCustomers(db) {

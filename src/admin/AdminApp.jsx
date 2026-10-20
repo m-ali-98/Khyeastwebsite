@@ -289,8 +289,12 @@ function Login({ onDone }) {
     try {
       await api('/api/auth/login', { method: 'POST', body: { user, pass } });
       onDone();
-    } catch {
-      setErr('نام کاربری یا رمز عبور نادرست است.');
+    } catch (error) {
+      setErr(
+        error.status === 426
+          ? error.message
+          : 'نام کاربری یا رمز عبور نادرست است.',
+      );
     } finally {
       setBusy(false);
     }

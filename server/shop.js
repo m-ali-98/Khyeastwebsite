@@ -38,6 +38,7 @@ import {
 } from './sms.js';
 import * as db from './db.js';
 import { rateLimitResponse } from './rateLimits.js';
+import { isRichTextValidationError } from './sanitize.js';
 
 /* ---------------------------------------------------------------------------
    Trusted origin for payment callback URLs.
@@ -215,7 +216,13 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     });
     if (!claim.claimed) {
       if (claim.attempt?.status === 'reversed') return { ok: true, alreadyReversed: true };
-      if (claim.attempt?.status === 'reversing') return { ok: false, pending: true, error: 'reversal in progress' };
+      if (claim.attempt?.status === 'reversing') {
+        const started = new Date(claim.attempt.reversalStartedAt || 0).getTime();
+        const retryAfter = Number.isFinite(started)
+          ? Math.max(1, Math.ceil((started + db.PAYMENT_REVERSAL_CLAIM_TTL_MS - Date.now()) / 1000))
+          : Math.ceil(db.PAYMENT_REVERSAL_CLAIM_TTL_MS / 1000);
+        return { ok: false, pending: true, retryAfter, error: 'reversal in progress' };
+      }
       db.appendOrderAdminNote(
         D,
         order.id,
@@ -230,31 +237,74 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     db.appendOrderAdminNote(
       D,
       order.id,
-      `${reason} بازگرداندن خودکار تلاش پرداخت ${authority} آغاز شد.`,
+      `${reason} ${claim.reclaimed ? 'ادامه' : 'آغاز'} بازگرداندن خودکار تلاش پرداخت ${authority}.`,
       { needsAttention: true },
     );
 
+    const claimedAt = claim.attempt?.reversalStartedAt;
     const reversed = await reversePayment(payment(), authority);
     if (reversed.ok) {
-      db.updateOrderPaymentAttempt(D, order.id, authority, {
-        status: 'reversed',
+      /* Success is terminal financial evidence. It may safely finish after a
+         lease was reclaimed, while the failed stale owner below is fenced by
+         its exact claimedAt token and cannot overwrite this result. */
+      const finished = db.finishOrderPaymentReversal(D, order.id, authority, {
+        claimedAt,
+        ok: true,
         reversedAt: new Date().toISOString(),
-        lastError: '',
       });
-      db.appendOrderAdminNote(
-        D,
-        order.id,
-        `${reason} وجهِ تلاش پرداخت اضافه با شناسه ${authority} خودکار بازگردانده شد.`,
-      );
-      if (!order.needsAttention) db.clearOrderPaymentAttentionIfResolved(D, order.id);
-      return { ok: true, reversed: true };
+      if (!finished.finished && finished.attempt?.status !== 'reversed') {
+        db.appendOrderAdminNote(
+          D,
+          order.id,
+          `${reason} درگاه موفقیت reverse تلاش ${authority} را اعلام کرد اما وضعیت ledger تغییر نکرد؛ بررسی فوری لازم است.`,
+          { needsAttention: true },
+        );
+        return { ok: false, error: 'reversal succeeded but ledger completion was refused', code: 'ledger-conflict' };
+      }
+      if (finished.finished) {
+        db.appendOrderAdminNote(
+          D,
+          order.id,
+          `${reason} وجهِ تلاش پرداخت اضافه با شناسه ${authority} خودکار بازگردانده شد.`,
+        );
+      }
+      db.clearOrderPaymentAttentionIfResolved(D, order.id);
+      return {
+        ok: true,
+        reversed: true,
+        alreadyReversed: !finished.finished,
+        reclaimed: claim.reclaimed,
+      };
     }
 
     const error = String(reversed.message || reversed.error || `gateway code ${reversed.code ?? 'unknown'}`);
-    db.updateOrderPaymentAttempt(D, order.id, authority, {
-      status: 'reversal_failed',
-      lastError: error.slice(0, 300),
+    const finished = db.finishOrderPaymentReversal(D, order.id, authority, {
+      claimedAt,
+      ok: false,
+      lastError: error,
     });
+    if (!finished.finished) {
+      /* This request outlived its lease. Its failure says nothing about the
+         replacement worker and must not turn that worker's success into a
+         false reversal_failed alert. */
+      if (finished.attempt?.status === 'reversed') {
+        db.clearOrderPaymentAttentionIfResolved(D, order.id);
+        return { ok: true, reversed: true, alreadyReversed: true, reclaimed: claim.reclaimed };
+      }
+      if (finished.attempt?.status === 'reversing') {
+        const started = new Date(finished.attempt.reversalStartedAt || 0).getTime();
+        const retryAfter = Number.isFinite(started)
+          ? Math.max(1, Math.ceil((started + db.PAYMENT_REVERSAL_CLAIM_TTL_MS - Date.now()) / 1000))
+          : Math.ceil(db.PAYMENT_REVERSAL_CLAIM_TTL_MS / 1000);
+        return { ok: false, pending: true, retryAfter, error: 'reversal lease was superseded' };
+      }
+      return {
+        ok: false,
+        error: finished.attempt?.lastError || error,
+        code: reversed.code,
+        superseded: true,
+      };
+    }
     db.appendOrderAdminNote(
       D,
       order.id,
@@ -569,6 +619,17 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
     }
 
+    /* Do not let a callback URL become an unbounded gateway-verification
+       proxy. Scope the bucket to the successfully mapped immutable authority:
+       random probes cannot consume a real payment's allowance, while normal
+       browser/gateway retries retain a bounded dedicated budget. */
+    const callbackLimitKey = `${order.id}:${attempt.authority}`;
+    const callbackLimit = rateLimiter.check('paymentCallback', callbackLimitKey);
+    if (callbackLimit.limited) {
+      return rateLimitResponse(res, callbackLimit.retryAfter, 'payment callback rate limited');
+    }
+    rateLimiter.record('paymentCallback', callbackLimitKey);
+
     let ok = false;
     let refId = '';
     let paymentNote = '';
@@ -749,7 +810,11 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
   /* ---------------- admin ---------------- */
   r.get('/api/shop-admin', requireAuth, (_req, res) => {
     sweepExpiredOrders();
-    res.json({ orders: db.listOrders(D), comments: db.listComments(D) });
+    const orders = db.listOrders(D).map((order) => ({
+      ...order,
+      paymentAttempts: db.listOrderPaymentAttempts(D, order.id),
+    }));
+    res.json({ orders, comments: db.listComments(D) });
   });
 
   /* products + display settings (admin panel) */
@@ -766,7 +831,19 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
          safe way to change an existing absolute inventory value. */
       const problems = shopProductProblems(b.products);
       if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
-      db.replaceProducts(D, b.products, { preserveStock: true });
+      try {
+        db.replaceProducts(D, b.products, { preserveStock: true });
+      } catch (error) {
+        if (isRichTextValidationError(error)) {
+          return res.status(400).json({
+            error: error.message,
+            code: error.code,
+            field: error.field,
+            limit: error.limit,
+          });
+        }
+        throw error;
+      }
     }
     if (b.display && typeof b.display === 'object')
       db.setSetting(D, 'shop.display', { ...display(), ...b.display });
@@ -875,9 +952,15 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
        stock" in lockstep. When un-cancelling did not re-reserve, the status
        lied: a resurrected order looked like it held stock it had already
        given back, and deleting it credited the same units twice. */
-    const order = db.getOrderById(D, req.params.id);
-    if (order && order.status !== 'cancelled') db.restoreStock(D, order.items);
-    db.deleteOrder(D, req.params.id);
+    const result = db.deleteOrder(D, req.params.id, { restoreInventory: true });
+    if (!result.ok && result.error === 'not found') return res.status(404).json({ error: 'not found' });
+    if (!result.ok && result.error === 'payment history protected') {
+      return res.status(409).json({
+        error: 'سفارش دارای تلاش پرداخت آنلاین است و برای حفظ نگاشت درگاه قابل حذف نیست.',
+        detail: 'حتی authority صادرشده ممکن است بعداً پرداخت شود؛ این سفارش برای تسویه، استعلام یا بازگرداندن وجه باید نگهداری شود.',
+        code: 'payment-history-protected',
+      });
+    }
     res.json({ ok: true });
   });
 
@@ -1037,6 +1120,57 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       });
     }
     res.json({ ok: true, ref: out.refId, order: db.getOrderById(D, order.id) });
+  });
+
+  /** Retry reversal for one specific extra payment attempt. The order-level
+   * reverse action intentionally targets the settled authority; this route is
+   * what lets Admin recover a stale/crashed reversal claim without touching
+   * the payment that legitimately settled the order. */
+  r.post('/api/shop-admin/orders/:id/payment-attempts/:authority/reverse', requireAuth, async (req, res) => {
+    const order = db.getOrderById(D, req.params.id);
+    if (!order) return res.status(404).json({ error: 'not found' });
+    const authority = String(req.params.authority || '');
+    const attempt = mappedPaymentAttempt(order.id, authority);
+    if (!attempt) return res.status(404).json({ error: 'تلاش پرداخت برای این سفارش پیدا نشد.' });
+    if (attempt.provider !== 'zarinpal') {
+      return res.status(409).json({ error: 'بازگرداندن خودکار برای این درگاه پشتیبانی نمی‌شود.' });
+    }
+    if (attempt.status === 'settled' || paymentAuthorityMatches(authority, order.payAuthority)) {
+      return res.status(409).json({
+        error: 'این authority پرداخت اصلی سفارش است؛ از دکمه بازگرداندن وجه سفارش استفاده کنید.',
+      });
+    }
+    if (attempt.status === 'issued') {
+      return res.status(409).json({ error: 'این تلاش هنوز پرداخت تأییدشده‌ای برای reverse ندارد.' });
+    }
+
+    const out = await reverseUnusablePayment(
+      order,
+      authority,
+      attempt.refId,
+      'اقدام مدیر برای بازیابی reverse متوقف‌شده:',
+    );
+    if (!out.ok) {
+      if (out.pending) {
+        res.setHeader('Retry-After', String(out.retryAfter || 1));
+        return res.status(409).json({
+          error: `reverse هنوز در حال اجراست؛ حدود ${out.retryAfter || 1} ثانیه دیگر دوباره تلاش کنید.`,
+          code: 'reversal-in-progress',
+          retryAfter: out.retryAfter || 1,
+        });
+      }
+      return res.status(409).json({
+        error: out.error || 'بازگرداندن این تلاش پرداخت ممکن نشد؛ هشدار سفارش فعال ماند.',
+        code: out.code,
+      });
+    }
+    res.json({
+      ok: true,
+      reversed: true,
+      reclaimed: !!out.reclaimed,
+      attempt: db.getOrderPaymentAttempt(D, order.id, authority),
+      order: db.getOrderById(D, order.id),
+    });
   });
 
   /** What does the gateway say happened to this order's payment? */

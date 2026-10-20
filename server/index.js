@@ -36,7 +36,7 @@ import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
-import { sanitizeContentPayload } from './sanitize.js';
+import { sanitizeContentPayload, isRichTextValidationError } from './sanitize.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -272,22 +272,46 @@ const verify = (token) => {
 };
 /* __Host- forces supporting browsers to require Secure + Path=/ and forbids a
    Domain attribute. A compromised sibling subdomain can therefore neither set
-   nor shadow the Admin credential. */
+   nor shadow the Admin credential. Plain-HTTP development uses a separate
+   name, so making localhost usable cannot weaken or shadow production auth. */
 const ADMIN_COOKIE = '__Host-ky_admin';
+const ADMIN_DEV_COOKIE = 'ky_admin_dev';
 const LEGACY_ADMIN_COOKIE = 'ky_admin';
 const bearer = (req) => {
   const header = req.get('authorization') || '';
   return header.startsWith('Bearer ') ? header.slice(7) : null;
 };
-const adminCookie = (token) => [
-  `${ADMIN_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${Math.floor(TOKEN_TTL / 1000)}`,
-  /* Expire the pre-hardening cookie during migration. */
-  `${LEGACY_ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0`,
-];
-const clearAdminCookie = () => [
-  `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0`,
-  `${LEGACY_ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0`,
-];
+const secureRequest = (req) => req.secure === true || req.protocol === 'https';
+const adminCookieMode = (req) => {
+  const secure = secureRequest(req);
+  if (secure || process.env.NODE_ENV === 'production') {
+    return { name: ADMIN_COOKIE, secure: true, transportAllowed: secure };
+  }
+  return { name: ADMIN_DEV_COOKIE, secure: false, transportAllowed: true };
+};
+const serializeAdminCookie = (name, value, { secure = false, maxAge }) =>
+  `${name}=${value}; Path=/; HttpOnly; SameSite=Strict;${secure ? ' Secure;' : ''} Max-Age=${maxAge}`;
+const adminCookie = (req, token) => {
+  const mode = adminCookieMode(req);
+  return [
+    serializeAdminCookie(mode.name, token, {
+      secure: mode.secure,
+      maxAge: Math.floor(TOKEN_TTL / 1000),
+    }),
+    /* Expire old or alternate non-production names during migration. */
+    serializeAdminCookie(LEGACY_ADMIN_COOKIE, '', { secure: mode.secure, maxAge: 0 }),
+    ...(mode.name === ADMIN_COOKIE
+      ? [serializeAdminCookie(ADMIN_DEV_COOKIE, '', { secure: false, maxAge: 0 })]
+      : []),
+  ];
+};
+const clearAdminCookie = (req) => {
+  const mode = adminCookieMode(req);
+  return [
+    serializeAdminCookie(mode.name, '', { secure: mode.secure, maxAge: 0 }),
+    serializeAdminCookie(LEGACY_ADMIN_COOKIE, '', { secure: mode.secure, maxAge: 0 }),
+  ];
+};
 const ownOrigin = (req) => {
   if (process.env.PUBLIC_ORIGIN) return String(process.env.PUBLIC_ORIGIN).replace(/\/+$/, '');
   return `${req.secure ? 'https' : 'http'}://${req.get('host')}`;
@@ -299,7 +323,10 @@ const requireAuth = (req, res, next) => {
      the page can issue a request while it runs; it can no longer copy the
      credential out of localStorage and take it somewhere else. */
   const bearerToken = bearer(req);
-  const cookieToken = readCookie(req.headers.cookie, ADMIN_COOKIE);
+  const cookieMode = adminCookieMode(req);
+  const cookieToken = cookieMode.transportAllowed
+    ? readCookie(req.headers.cookie, cookieMode.name)
+    : null;
   const token = bearerToken || cookieToken;
   const payload = token && verify(token);
   if (!payload) return res.status(401).json({ error: 'unauthorized' });
@@ -524,10 +551,18 @@ app.use('/api/auth', (_req, res, next) => {
   next();
 });
 
-/* Failed admin logins share the runtime-configurable limiter. The default is
-   intentionally much more forgiving than the old eight-attempt ceiling, but
-   still bounds network-speed password guessing. */
+/* Failed Admin logins share the runtime-configurable limiter. The restored
+   conservative default bounds network-speed password guessing, and Admin can
+   still disable all limiters from the security panel when diagnosing issues. */
 app.post('/api/auth/login', (req, res) => {
+  const cookieMode = adminCookieMode(req);
+  if (!cookieMode.transportAllowed) {
+    return res.status(426).json({
+      error: 'ورود مدیر در محیط production فقط از طریق HTTPS مجاز است.',
+      code: 'https-required',
+    });
+  }
+
   const ip = req.ip || 'unknown';
   const limit = rateLimiter.check('adminLogin', ip);
   if (limit.limited)
@@ -549,7 +584,7 @@ app.post('/api/auth/login', (req, res) => {
   rateLimiter.clear('adminLogin', ip); // successful login clears the counter
   const exp = Date.now() + TOKEN_TTL;
   const token = sign({ user, exp, sid: sessionStart(exp) });
-  res.setHeader('Set-Cookie', adminCookie(token));
+  res.setHeader('Set-Cookie', adminCookie(req, token));
   /* The credential exists only in Set-Cookie. Returning it in JSON would make
      the supposedly HttpOnly session readable to page JavaScript at login. */
   res.json({ ok: true });
@@ -560,7 +595,11 @@ app.get('/api/auth/me', (req, res) => {
      Admin page. Return a quiet negative result when there is no credential at
      all (rather than creating a noisy browser 401); presented-but-invalid or
      revoked credentials still fail closed through requireAuth. */
-  if (!bearer(req) && !readCookie(req.headers.cookie, ADMIN_COOKIE)) {
+  const cookieMode = adminCookieMode(req);
+  if (
+    !bearer(req) &&
+    (!cookieMode.transportAllowed || !readCookie(req.headers.cookie, cookieMode.name))
+  ) {
     return res.json({ ok: false, authenticated: false });
   }
   return requireAuth(req, res, () => res.json({ ok: true, authenticated: true }));
@@ -570,7 +609,7 @@ app.get('/api/auth/me', (req, res) => {
    expiring the browser cookie alone would only hide its copied value. */
 app.post('/api/auth/logout', requireAuth, (req, res) => {
   sessionEnd(req.session.sid);
-  res.setHeader('Set-Cookie', clearAdminCookie());
+  res.setHeader('Set-Cookie', clearAdminCookie(req));
   res.json({ ok: true });
 });
 
@@ -578,7 +617,7 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
    including the caller's, so the admin can lock everyone out and log back in. */
 app.post('/api/auth/logout-all', requireAuth, (req, res) => {
   sessionEndAll();
-  res.setHeader('Set-Cookie', clearAdminCookie());
+  res.setHeader('Set-Cookie', clearAdminCookie(req));
   res.json({ ok: true });
 });
 
@@ -658,7 +697,19 @@ app.put('/api/content', requireAuth, (req, res) => {
 
   /* never let a payload without translations wipe the stored ones */
   if (!next.i18n || typeof next.i18n !== 'object') next.i18n = readContent().i18n || {};
-  writeContent(next);
+  try {
+    writeContent(next);
+  } catch (error) {
+    if (isRichTextValidationError(error)) {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code,
+        field: error.field,
+        limit: error.limit,
+      });
+    }
+    throw error;
+  }
   res.json({ ok: true });
 });
 

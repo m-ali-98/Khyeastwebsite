@@ -129,8 +129,8 @@ export { E2E };
  *  context, which makes this work without driving three forms. */
 export async function signUpCustomer(page, { phone, password = 'e2e-customer-1404', name = 'مشتری آزمون' } = {}) {
   const adminLogin = await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
-  const adminCookie = (adminLogin.headers()['set-cookie'] || '').match(/__Host-ky_admin=[^;]+/)?.[0];
-  if (!adminCookie) throw new Error('admin did not issue the __Host- session cookie');
+  const adminCookie = (adminLogin.headers()['set-cookie'] || '').match(/(?:__Host-ky_admin|ky_admin_dev)=[^;]+/)?.[0];
+  if (!adminCookie) throw new Error('admin did not issue the expected session cookie');
 
   await page.request.post('/api/account/otp', { data: { phone, purpose: 'register' } });
 

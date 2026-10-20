@@ -20,9 +20,9 @@ import * as db from './db.js';
 import { normalizePhone, toLocalPhone } from './sms.js';
 import { rateLimitResponse } from './rateLimits.js';
 import {
-  hashPassword,
-  verifyPassword,
-  verifyLoginPassword,
+  hashPasswordAsync,
+  verifyPasswordAsync,
+  verifyLoginPasswordAsync,
   passwordProblems,
   generateOtp,
   hashOtp,
@@ -250,54 +250,109 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
 
   /* ----------------------------------------------------- 3. registration */
 
-  r.post('/api/account/register', (req, res) => {
+  r.post('/api/account/register', async (req, res) => {
     if (!sameOrigin(req, res)) return;
     if (blocked('register', ip(req), res)) return;
 
-    const ticket = db.consumeTicket(D, hashToken(String(req.body?.ticket || '')), 'register');
-    if (!ticket) return res.status(400).json({ error: 'تأیید شماره منقضی شده است؛ دوباره کد بگیرید.' });
-
-    const problems = passwordProblems(req.body?.password);
-    if (problems.length) return res.status(400).json({ error: problems[0], problems });
-
-    const prof = normalizeProfile({ name: req.body?.name, email: req.body?.email });
-    if (!prof.ok) return res.status(400).json({ error: Object.values(prof.errors)[0], fields: prof.errors });
-
-    /* The ticket proves this phone, but the account may have been created in
-       the meantime — by a second tab, or by someone replaying the flow. */
-    if (db.getCustomerByPhone(D, ticket.phone)) {
-      return res.status(409).json({ error: 'این شماره قبلاً ثبت شده است؛ وارد شوید.' });
+    /* Valid tickets from parallel signup flows can reach scrypt together.
+       Reserve before consuming a one-use ticket: a request refused for load
+       must not burn the customer's proof and force another OTP round trip. */
+    const registrationAttempt = rateLimiter.reserve('register', ip(req));
+    if (registrationAttempt.limited) {
+      return rateLimitResponse(res, registrationAttempt.retryAfter);
     }
 
-    const row = db.insertCustomer(D, {
-      id: crypto.randomUUID(),
-      phone: ticket.phone,
-      name: prof.profile.name,
-      email: prof.profile.email,
-      passHash: hashPassword(req.body.password),
-      at: new Date().toISOString(),
-    });
+    try {
+      const ticket = db.consumeTicket(D, hashToken(String(req.body?.ticket || '')), 'register');
+      if (!ticket) {
+        registrationAttempt.finish(false);
+        return res.status(400).json({ error: 'تأیید شماره منقضی شده است؛ دوباره کد بگیرید.' });
+      }
 
-    rateLimiter.record('register', ip(req));
-    startSession(req, res, row.id);
-    res.json({ ok: true, ...accountOf(row) });
+      const problems = passwordProblems(req.body?.password);
+      if (problems.length) {
+        registrationAttempt.finish(false);
+        return res.status(400).json({ error: problems[0], problems });
+      }
+
+      const prof = normalizeProfile({ name: req.body?.name, email: req.body?.email });
+      if (!prof.ok) {
+        registrationAttempt.finish(false);
+        return res.status(400).json({ error: Object.values(prof.errors)[0], fields: prof.errors });
+      }
+
+      /* The ticket proves this phone, but the account may have been created in
+         the meantime — by a second tab, or by someone replaying the flow. */
+      if (db.getCustomerByPhone(D, ticket.phone)) {
+        registrationAttempt.finish(false);
+        return res.status(409).json({ error: 'این شماره قبلاً ثبت شده است؛ وارد شوید.' });
+      }
+
+      let passHash;
+      try {
+        passHash = await hashPasswordAsync(req.body.password);
+      } catch (error) {
+        registrationAttempt.finish(false);
+        throw error;
+      }
+      /* Async scrypt deliberately yields. Re-check after that yield so two tabs
+         completing registration together produce a clean conflict, not a UNIQUE
+         exception after both passed the first lookup. */
+      if (db.getCustomerByPhone(D, ticket.phone)) {
+        registrationAttempt.finish(false);
+        return res.status(409).json({ error: 'این شماره قبلاً ثبت شده است؛ وارد شوید.' });
+      }
+      let row;
+      try {
+        row = db.insertCustomer(D, {
+          id: crypto.randomUUID(),
+          phone: ticket.phone,
+          name: prof.profile.name,
+          email: prof.profile.email,
+          passHash,
+          at: new Date().toISOString(),
+        });
+      } catch (error) {
+        registrationAttempt.finish(false);
+        if (db.getCustomerByPhone(D, ticket.phone)) {
+          return res.status(409).json({ error: 'این شماره قبلاً ثبت شده است؛ وارد شوید.' });
+        }
+        throw error;
+      }
+
+      registrationAttempt.finish(true);
+      startSession(req, res, row.id);
+      res.json({ ok: true, ...accountOf(row) });
+    } finally {
+      /* Idempotent: explicit success/failure paths already finished it, while
+         unexpected database errors still release their in-flight capacity. */
+      registrationAttempt.finish(false);
+    }
   });
 
   /* ------------------------------------------------------------ 4. login */
 
-  r.post('/api/account/login', (req, res) => {
+  r.post('/api/account/login', async (req, res) => {
     if (!sameOrigin(req, res)) return;
     const phone = normalizePhone(req.body?.phone);
     const phoneKey = phone || `invalid:${ip(req)}`;
-    if (blocked('customerLogin', phoneKey, res)) return;
-    if (blocked('customerLoginIp', ip(req), res)) return;
+    /* Reserve both buckets before yielding to async scrypt. Without an
+       in-flight reservation, a parallel burst could pass every check before
+       its first wrong-password result was recorded. */
+    const phoneAttempt = rateLimiter.reserve('customerLogin', phoneKey);
+    if (phoneAttempt.limited) return rateLimitResponse(res, phoneAttempt.retryAfter);
+    const ipAttempt = rateLimiter.reserve('customerLoginIp', ip(req));
+    if (ipAttempt.limited) {
+      phoneAttempt.finish(false);
+      return rateLimitResponse(res, ipAttempt.retryAfter);
+    }
 
     /* One sentence for every failure — wrong number, wrong password,
        blocked account. Anything more tells a stranger which numbers are
        customers of this shop. */
     const deny = () => {
-      rateLimiter.record('customerLogin', phoneKey);
-      rateLimiter.record('customerLoginIp', ip(req));
+      phoneAttempt.finish(true);
+      ipAttempt.finish(true);
       return res.status(401).json({ error: 'شماره موبایل یا رمز عبور درست نیست.' });
     };
 
@@ -305,26 +360,41 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
       /* Invalid syntax is already distinguishable by the caller; still do the
          same expensive work so this path cannot become a cheap hash-flooding
          variant of the account-existence oracle. */
-      verifyLoginPassword(String(req.body?.password || ''), null);
+      await verifyLoginPasswordAsync(String(req.body?.password || ''), null);
       return deny();
     }
-    const row = db.getCustomerByPhone(D, phone);
-    /* Never short-circuit before scrypt. A miss uses the process-local dummy
-       hash; a blocked account verifies its real hash and is denied afterwards.
-       Registered and unregistered phones therefore take the same expensive
-       path and return the same message. */
-    const passwordOk = verifyLoginPassword(String(req.body?.password || ''), row?.pass_hash);
-    if (!row || row.blocked || !passwordOk) return deny();
+    let row;
+    let passwordOk;
+    let current;
+    try {
+      row = db.getCustomerByPhone(D, phone);
+      /* Never short-circuit before scrypt. A miss uses the process-local dummy
+         hash; a blocked account verifies its real hash and is denied afterwards.
+         Registered and unregistered phones therefore take the same expensive
+         path and return the same message. */
+      passwordOk = await verifyLoginPasswordAsync(String(req.body?.password || ''), row?.pass_hash);
+      current = row ? db.getCustomerById(D, row.id) : null;
+    } catch (error) {
+      phoneAttempt.finish(false);
+      ipAttempt.finish(false);
+      throw error;
+    }
+    if (
+      !row || !current || current.blocked || !passwordOk ||
+      current.pass_hash !== row.pass_hash
+    ) return deny();
 
+    phoneAttempt.finish(false);
+    ipAttempt.finish(false);
     rateLimiter.clear('customerLogin', phoneKey);
-    const loggedIn = db.updateCustomer(D, row.id, { lastLoginAt: new Date().toISOString() });
-    startSession(req, res, row.id);
+    const loggedIn = db.updateCustomer(D, current.id, { lastLoginAt: new Date().toISOString() });
+    startSession(req, res, current.id);
     res.json({ ok: true, ...accountOf(loggedIn) });
   });
 
   /* --------------------------------------------------- 5. password reset */
 
-  r.post('/api/account/reset', (req, res) => {
+  r.post('/api/account/reset', async (req, res) => {
     if (!sameOrigin(req, res)) return;
     const ticket = db.consumeTicket(D, hashToken(String(req.body?.ticket || '')), 'reset');
     if (!ticket) return res.status(400).json({ error: 'تأیید شماره منقضی شده است؛ دوباره کد بگیرید.' });
@@ -335,7 +405,7 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     const row = db.getCustomerByPhone(D, ticket.phone);
     if (!row) return res.status(400).json({ error: 'حسابی با این شماره پیدا نشد.' });
 
-    const resetCustomer = db.updateCustomer(D, row.id, { passHash: hashPassword(req.body.password) });
+    const resetCustomer = db.updateCustomer(D, row.id, { passHash: await hashPasswordAsync(req.body.password) });
     /* A reset is also what someone does after losing their phone, so every
        other session must die with the old password. */
     db.deleteSessionsFor(D, row.id);
@@ -358,15 +428,24 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     res.json({ ok: true });
   });
 
-  r.post('/api/account/password', requireCustomer, (req, res) => {
+  r.post('/api/account/password', requireCustomer, async (req, res) => {
     if (!sameOrigin(req, res)) return;
     /* The current password is required even though the session is valid: a
        borrowed, unlocked laptop must not become a permanent takeover. */
-    if (!verifyPassword(String(req.body?.current || ''), req.customer.pass_hash))
+    if (!(await verifyPasswordAsync(String(req.body?.current || ''), req.customer.pass_hash)))
       return res.status(400).json({ error: 'رمز عبور فعلی درست نیست.' });
     const problems = passwordProblems(req.body?.password);
     if (problems.length) return res.status(400).json({ error: problems[0], problems });
-    db.updateCustomer(D, req.customer.id, { passHash: hashPassword(req.body.password) });
+    const passHash = await hashPasswordAsync(req.body.password);
+    const changed = db.updateCustomerPasswordIfCurrent(
+      D,
+      req.customer.id,
+      req.customer.pass_hash,
+      passHash,
+    );
+    if (!changed) {
+      return res.status(409).json({ error: 'رمز عبور هم‌زمان تغییر کرده است؛ دوباره وارد شوید.' });
+    }
     res.json({ ok: true });
   });
 

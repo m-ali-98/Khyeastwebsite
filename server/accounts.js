@@ -14,6 +14,7 @@
                                     cannot copy its credential elsewhere
    ========================================================================== */
 import crypto from 'node:crypto';
+import { promisify } from 'node:util';
 import { isProvince, normalizePostal } from '../shared/iranGeo.js';
 import { normalizePhone } from './sms.js';
 
@@ -24,6 +25,10 @@ import { normalizePhone } from './sms.js';
    parameters cost ~100ms on a small VPS, which is the right order: slow
    enough to hurt an attacker, fast enough that a login does not feel stuck. */
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
+const scryptAsync = promisify(crypto.scrypt);
+
+const encodedPasswordHash = (salt, key, params = SCRYPT) =>
+  `scrypt$${params.N}$${params.r}$${params.p}$${salt.toString('base64')}$${key.toString('base64')}`;
 
 export function hashPassword(password, salt = crypto.randomBytes(16)) {
   const key = crypto.scryptSync(String(password), salt, SCRYPT.keylen, {
@@ -34,7 +39,19 @@ export function hashPassword(password, salt = crypto.randomBytes(16)) {
   });
   /* Self-describing: the parameters travel with the hash, so they can be
      raised later without invalidating everyone's password. */
-  return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('base64')}$${key.toString('base64')}`;
+  return encodedPasswordHash(salt, key);
+}
+
+/** Request handlers use libuv's worker-pool variant so scrypt's CPU/memory
+ * work does not stop unrelated health checks, callbacks, or static requests. */
+export async function hashPasswordAsync(password, salt = crypto.randomBytes(16)) {
+  const key = await scryptAsync(String(password), salt, SCRYPT.keylen, {
+    N: SCRYPT.N,
+    r: SCRYPT.r,
+    p: SCRYPT.p,
+    maxmem: 128 * SCRYPT.N * SCRYPT.r * 2,
+  });
+  return encodedPasswordHash(salt, key);
 }
 
 export function verifyPassword(password, stored) {
@@ -56,6 +73,33 @@ export function verifyPassword(password, stored) {
   }
 }
 
+export async function verifyPasswordAsync(password, stored) {
+  try {
+    const [scheme, NText, rText, pText, saltText, keyText] = String(stored || '').split('$');
+    const N = Number(NText);
+    const r = Number(rText);
+    const p = Number(pText);
+    if (
+      scheme !== 'scrypt' ||
+      !Number.isSafeInteger(N) || N <= 1 ||
+      !Number.isSafeInteger(r) || r <= 0 ||
+      !Number.isSafeInteger(p) || p <= 0
+    ) return false;
+    const expected = Buffer.from(keyText || '', 'base64');
+    const salt = Buffer.from(saltText || '', 'base64');
+    if (!expected.length || !salt.length) return false;
+    const actual = await scryptAsync(String(password), salt, expected.length, {
+      N,
+      r,
+      p,
+      maxmem: 128 * N * r * 2,
+    });
+    return actual.length === expected.length && crypto.timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
+}
+
 /* A missing account must cost the same scrypt work as a wrong password for a
    real account. Generate one valid, process-local hash at startup and use it
    on every miss; the random password is never accepted by any route. */
@@ -66,6 +110,10 @@ export const DUMMY_PASSWORD_HASH = hashPassword(crypto.randomBytes(32).toString(
  * future login refactor to accidentally restore the phone-enumeration oracle. */
 export function verifyLoginPassword(password, storedHash) {
   return verifyPassword(password, storedHash || DUMMY_PASSWORD_HASH);
+}
+
+export async function verifyLoginPasswordAsync(password, storedHash) {
+  return verifyPasswordAsync(password, storedHash || DUMMY_PASSWORD_HASH);
 }
 
 /** Why a password was refused, in Persian, as a list.

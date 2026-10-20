@@ -38,9 +38,9 @@ test('the login screen rejects a wrong password and accepts the right one', asyn
   await expect(page.locator('.admin__side')).toBeVisible();
 
   expect(await page.evaluate(() => localStorage.getItem('ky_admin_token'))).toBeNull();
-  const session = (await page.context().cookies()).find((cookie) => cookie.name === '__Host-ky_admin');
+  const session = (await page.context().cookies()).find((cookie) => cookie.name === 'ky_admin_dev');
   expect(session?.httpOnly).toBe(true);
-  expect(session?.secure).toBe(true);
+  expect(session?.secure).toBe(false);
   expect(session?.path).toBe('/');
   expect(session?.sameSite).toBe('Strict');
 });

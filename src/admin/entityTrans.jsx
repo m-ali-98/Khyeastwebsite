@@ -13,7 +13,7 @@
 import { useMemo, useState } from 'react';
 import { Icons } from '../components/ui';
 import { useContent } from '../content/ContentContext';
-import { sanitizeHtml } from '../content/sanitize';
+import { sanitizeHtml, sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
 import { getPack } from '../../shared/i18n/index.js';
 import { useAdminLocale } from './adminLocale';
 import { RichEditor } from './editors';
@@ -42,7 +42,7 @@ function useEntitySave(bucket) {
   const { locale } = useAdminLocale();
   const pack = getPack(locale) || {};
 
-  return (slug, draft) => {
+  return (slug, draft, options) => {
     const shipped = pack[bucket]?.[slug] || {};
     const kept = {};
     for (const [k, v] of Object.entries(draft)) {
@@ -56,7 +56,7 @@ function useEntitySave(bucket) {
     else delete bucketData[slug];
     locData[bucket] = bucketData;
 
-    save({ ...state, i18n: { ...(state.i18n || {}), [locale]: locData } });
+    return save({ ...state, i18n: { ...(state.i18n || {}), [locale]: locData } }, options);
   };
 }
 
@@ -284,14 +284,20 @@ export function PostsTransTab() {
     setShowFa(false);
   };
 
-  const commit = () => {
-    persist(editing.slug, {
-      ...draft,
-      body: sanitizeHtml(draft.body),
-      updatedAt: localIsoDate(),
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1800);
+  const commit = async () => {
+    const sanitizedBody = sanitizeHtmlResult(draft.body);
+    if (!sanitizedBody.ok) return window.alert(richTextRejectionMessage(sanitizedBody));
+    try {
+      await persist(editing.slug, {
+        ...draft,
+        body: sanitizedBody.html,
+        updatedAt: localIsoDate(),
+      }, { optimistic: false });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+    } catch (error) {
+      window.alert(error.message || 'ذخیره ترجمه ممکن نشد؛ هیچ تغییری ذخیره نشد.');
+    }
   };
 
   const items = useMemo(

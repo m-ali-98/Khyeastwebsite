@@ -1,5 +1,11 @@
 import { parseHTML, DOMParser as LD } from 'linkedom';
-import { sanitizeHtmlWithParser, MAX_HTML_INPUT_LENGTH } from '../../shared/sanitizeHtml.js';
+import {
+  sanitizeHtmlWithParser,
+  sanitizeHtmlResultWithParser,
+  MAX_HTML_INPUT_LENGTH,
+  MAX_HTML_DEPTH,
+  MAX_HTML_NODES,
+} from '../../shared/sanitizeHtml.js';
 import { sanitizeContentPayload } from '../../server/sanitize.js';
 const { window } = parseHTML('<!doctype html><html><body></body></html>');
 globalThis.document = window.document;
@@ -150,4 +156,40 @@ for (const [name, input, run = sanitizeHtml] of CASES) {
   const why = problems.length ? ` [${[...new Set(problems)].join(' ')}]` : '';
   console.log(`${leaked ? 'LEAK' : 'ok  '} ${name.padEnd(22)} -> ${out.slice(0, 60)}${why}`);
 }
-console.log(`\n${CASES.length - fails}/${CASES.length} sanitizer cases safe`);
+
+const strictCases = [
+  ['persistence rejects oversized HTML', 'x'.repeat(MAX_HTML_INPUT_LENGTH + 1), 'input-too-large'],
+  ['persistence rejects excess nodes', '<br>'.repeat(MAX_HTML_NODES + 1), 'node-limit'],
+  [
+    'persistence rejects excess depth',
+    '<strong>'.repeat(MAX_HTML_DEPTH + 1) + 'x' + '</strong>'.repeat(MAX_HTML_DEPTH + 1),
+    'depth-limit',
+  ],
+];
+for (const [name, body, expectedCode] of strictCases) {
+  let error;
+  try {
+    sanitizeContentPayload({ posts: [{ slug: 'bounded', body }] });
+  } catch (caught) {
+    error = caught;
+  }
+  const passed = error?.status === 400 && error?.code === expectedCode && error?.field?.includes('body');
+  if (!passed) fails += 1;
+  console.log(`${passed ? 'ok  ' : 'LEAK'} ${name.padEnd(38)} -> ${error?.code || 'accepted'}`);
+}
+
+const emptyButValid = sanitizeContentPayload({ posts: [{ body: '<script>removed</script>' }] });
+const emptyPassed = emptyButValid.posts[0].body === '';
+if (!emptyPassed) fails += 1;
+console.log(`${emptyPassed ? 'ok  ' : 'LEAK'} ${'valid sanitized-empty HTML is accepted'.padEnd(38)} -> ${JSON.stringify(emptyButValid.posts[0].body)}`);
+
+class BrokenParser {
+  parseFromString() { throw new Error('synthetic parser failure'); }
+}
+const parserResult = sanitizeHtmlResultWithParser('<p>x</p>', BrokenParser);
+const parserPassed = !parserResult.ok && parserResult.code === 'parser-error';
+if (!parserPassed) fails += 1;
+console.log(`${parserPassed ? 'ok  ' : 'LEAK'} ${'parser failure has a distinct result'.padEnd(38)} -> ${parserResult.code}`);
+
+const total = CASES.length + strictCases.length + 2;
+console.log(`\n${total - fails}/${total} sanitizer cases safe`);

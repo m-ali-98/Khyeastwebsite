@@ -58,6 +58,7 @@ try {
     { slug: 'late-empty', title: 'Late callback without stock', price: 1000, stock: 3, active: true },
     { slug: 'nested-a', title: 'Nested transaction A', price: 1000, stock: 5, active: true },
     { slug: 'nested-b', title: 'Nested transaction B', price: 1000, stock: 5, active: true },
+    { slug: 'protected-stock', title: 'Protected payment stock', price: 1000, stock: 5, active: true },
     { slug: 'unlimited', title: 'Unlimited', price: 1000, stock: -1, active: true },
   ]);
 
@@ -108,7 +109,13 @@ try {
     duplicateAuthorityRejected = true;
   }
   check(duplicateAuthorityRejected, 'the database unique index rejects one authority on two orders');
-  db.deleteOrder(D, authorityOwner.id);
+  const settledDelete = db.deleteOrder(D, authorityOwner.id, { restoreInventory: true });
+  check(
+    !settledDelete.ok && settledDelete.error === 'payment history protected' &&
+      db.getOrderById(D, authorityOwner.id)?.payRef === 'REF-SETTLED' &&
+      db.getOrderPaymentAttempt(D, authorityOwner.id, 'A-ONE-PAYMENT-ONE-ORDER')?.status === 'settled',
+    'settled orders cannot be deleted with their authority and ref_id evidence',
+  );
 
   const pendingAuthority = order({
     id: crypto.randomUUID(),
@@ -135,6 +142,13 @@ try {
   check(
     db.getOrderByPaymentAuthority(D, 'A-PENDING-OWNER')?.id === pendingAuthority.id,
     'an earlier authority still maps back to its exact order after retry',
+  );
+  const issuedDelete = db.deleteOrder(D, pendingAuthority.id);
+  check(
+    !issuedDelete.ok && issuedDelete.error === 'payment history protected' &&
+      db.getOrderById(D, pendingAuthority.id)?.status === 'pending_payment' &&
+      db.listOrderPaymentAttempts(D, pendingAuthority.id).length === 2,
+    'an issued payment link also protects its order because it may be paid later',
   );
   let historicalAuthorityRejected = false;
   try {
@@ -180,19 +194,94 @@ try {
   check(
     firstReversalClaim.claimed && !duplicateReversalClaim.claimed &&
       duplicateReversalClaim.attempt?.status === 'reversing' &&
+      duplicateReversalClaim.attempt?.reversalStartedAt &&
       db.getOrderById(D, pendingAuthority.id).needsAttention,
-    'only one worker can claim reversal and a crash-safe Admin alert is committed with it',
+    'only one worker can claim a fresh reversal and its lease timestamp is durable',
   );
-  db.updateOrderPaymentAttempt(D, pendingAuthority.id, retryAuthority, {
-    status: 'reversed',
-    reversedAt: new Date().toISOString(),
+  const reclaimedReversal = db.claimOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    refId: 'REF-EXTRA',
+    claimedAt: new Date(Date.now() + 1_000).toISOString(),
+    /* Force this test's prior claim beyond the lease boundary without waiting
+       fifteen real minutes. Production callers use the conservative default. */
+    staleBefore: new Date(Date.now() + 500).toISOString(),
+  });
+  const duplicateAfterReclaim = db.claimOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    refId: 'REF-EXTRA',
   });
   check(
-    db.clearOrderPaymentAttentionIfResolved(D, pendingAuthority.id) &&
-      !db.getOrderById(D, pendingAuthority.id).needsAttention,
-    'a completed reversal clears only its resolved payment alert',
+    reclaimedReversal.claimed && reclaimedReversal.reclaimed && !duplicateAfterReclaim.claimed,
+    'an expired reversing claim is atomically reclaimable while the fresh replacement remains exclusive',
   );
-  db.deleteOrder(D, pendingAuthority.id);
+  const staleFailure = db.finishOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    claimedAt: firstReversalClaim.attempt.reversalStartedAt,
+    ok: false,
+    lastError: 'the expired worker returned late',
+  });
+  check(
+    !staleFailure.finished && staleFailure.attempt?.status === 'reversing' &&
+      staleFailure.attempt?.reversalStartedAt === reclaimedReversal.attempt?.reversalStartedAt,
+    'an expired worker failure is fenced and cannot overwrite the replacement lease',
+  );
+  const replacementFailure = db.finishOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    claimedAt: reclaimedReversal.attempt.reversalStartedAt,
+    ok: false,
+    lastError: 'replacement request failed',
+  });
+  const finalClaim = db.claimOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    refId: 'REF-EXTRA',
+  });
+  check(
+    replacementFailure.finished && replacementFailure.attempt?.status === 'reversal_failed' && finalClaim.claimed,
+    'only the current lease may record failure and that failure remains retryable',
+  );
+  const terminalSuccess = db.finishOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    /* A delayed gateway success is still authoritative even after reclaim. */
+    claimedAt: firstReversalClaim.attempt.reversalStartedAt,
+    ok: true,
+  });
+  const failureAfterSuccess = db.finishOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    claimedAt: finalClaim.attempt.reversalStartedAt,
+    ok: false,
+    lastError: 'must not replace success',
+  });
+  check(
+    terminalSuccess.finished && !failureAfterSuccess.finished &&
+      db.getOrderPaymentAttempt(D, pendingAuthority.id, retryAuthority)?.status === 'reversed' &&
+      db.getOrderPaymentAttempt(D, pendingAuthority.id, retryAuthority)?.reversalStartedAt === null &&
+      db.clearOrderPaymentAttentionIfResolved(D, pendingAuthority.id) &&
+      !db.getOrderById(D, pendingAuthority.id).needsAttention,
+    'gateway success is terminal, clears its lease, and cannot be overwritten by a late failure',
+  );
+  const paidDelete = db.deleteOrder(D, pendingAuthority.id);
+  check(
+    !paidDelete.ok && db.getOrderById(D, pendingAuthority.id) &&
+      db.listOrderPaymentAttempts(D, pendingAuthority.id).length === 2,
+    'deletion cannot cascade away a settled attempt or its reversed retry evidence',
+  );
+
+  const protectedStockOrder = order({
+    id: crypto.randomUUID(),
+    code: `KY-PROTECTED-STOCK-${Date.now()}`,
+    status: 'paid',
+    provider: 'zarinpal',
+    payAuthority: 'A-PROTECTED-STOCK',
+    paidAt: new Date().toISOString(),
+    items: [{ slug: 'protected-stock', title: 'Protected payment stock', unit: '', price: 1000, qty: 2, sum: 2000 }],
+  });
+  check(db.reserveStock(D, protectedStockOrder.items).ok, 'protected-delete fixture reserves inventory');
+  db.insertOrder(D, protectedStockOrder);
+  db.updateOrderPaymentAttempt(D, protectedStockOrder.id, 'A-PROTECTED-STOCK', {
+    status: 'verified',
+    refId: 'REF-PROTECTED-STOCK',
+    verifiedAt: new Date().toISOString(),
+  });
+  const refusedProtectedDelete = db.deleteOrder(D, protectedStockOrder.id, { restoreInventory: true });
+  check(
+    !refusedProtectedDelete.ok &&
+      db.getProduct(D, 'protected-stock').stock === 3 &&
+      db.getOrderPaymentAttempt(D, protectedStockOrder.id, 'A-PROTECTED-STOCK')?.refId === 'REF-PROTECTED-STOCK',
+    'a refused verified-order deletion cannot restore stock or cascade payment evidence',
+  );
 
   /* Force a failure after the first UPDATE while reserveStock runs inside an
      outer transaction. The node:sqlite fallback must roll the inner writes

@@ -32,7 +32,10 @@ export const api = async (path, { method = 'GET', body, auth: _auth = false, for
     }
     throw Object.assign(new Error(payload?.error || `api error ${res.status}`), {
       status: res.status,
+      code: payload?.code || '',
       detail: payload?.detail || '',
+      field: payload?.field || '',
+      retryAfter: Number(payload?.retryAfter || res.headers.get('Retry-After') || 0),
     });
   }
   return res.json();
@@ -56,6 +59,9 @@ export function ContentProvider({ children }) {
   const [backend, setBackend] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const inFlight = useRef(null);
+  const persistedState = useRef(state);
+  const saveTail = useRef(Promise.resolve());
+  const saveRevision = useRef(0);
 
   /* Re-read the complete public snapshot. Stock can move after an order and
      copy can be published while somebody is browsing, so callers must never
@@ -68,7 +74,9 @@ export function ContentProvider({ children }) {
       const r = await fetch('/api/content', { cache: 'no-store' });
       if (!r.ok) throw Object.assign(new Error('no api'), { status: r.status });
       const data = await r.json();
-      setState(mergeContentState(DEFAULT_STATE, data));
+      const next = mergeContentState(DEFAULT_STATE, data);
+      persistedState.current = next;
+      setState(next);
       setBackend(true);
       return data;
     })()
@@ -96,10 +104,35 @@ export function ContentProvider({ children }) {
     reload().catch(() => {});
   }, [reload]);
 
-  const save = useCallback(async (next) => {
-    setState(next);
-    await api('/api/content', { method: 'PUT', body: next, auth: true });
-    setBackend(true);
+  const save = useCallback((next, { optimistic = true } = {}) => {
+    const revision = ++saveRevision.current;
+
+    /* Controlled text/link/media inputs save on every change and must repaint
+       immediately or the browser drops keystrokes while the request is in
+       flight. Rich-text publish flows pass optimistic:false: a sanitizer 400
+       then leaves the accepted snapshot visible and keeps the editor open. */
+    if (optimistic) setState(next);
+
+    /* Preserve invocation order. Apart from preventing older responses from
+       winning, this gives a rollback one unambiguous last-persisted snapshot. */
+    const request = saveTail.current
+      .catch(() => {})
+      .then(() => api('/api/content', { method: 'PUT', body: next, auth: true }));
+    saveTail.current = request;
+
+    return request
+      .then(() => {
+        persistedState.current = next;
+        if (!optimistic && revision === saveRevision.current) setState(next);
+        setBackend(true);
+      })
+      .catch((error) => {
+        /* A later optimistic edit already supersedes this request. If the
+           latest request itself fails, roll the controls back to what the
+           server most recently accepted rather than displaying a false save. */
+        if (revision === saveRevision.current) setState(persistedState.current);
+        throw error;
+      });
   }, []);
 
   /* Persian is the base language; English and Arabic are overlays applied on

@@ -21,7 +21,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { rateLimitDefaults } from '../../server/rateLimits.js';
+import crypto from 'node:crypto';
+import { createRateLimiter, rateLimitDefaults } from '../../server/rateLimits.js';
+import * as dbStore from '../../server/db.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -58,6 +60,7 @@ const start = async () => {
       RL_MAX_COMMENT: '5',
       RL_MAX_ORDER: '20',
       RL_MAX_PAYMENT_RETRY: '3',
+      RL_MAX_PAYMENT_CALLBACK: '2',
     },
     stdio: 'ignore',
   });
@@ -76,6 +79,8 @@ const start = async () => {
    a session cookie. It is set once, after registration, and attached by
    default — the alternative was threading a header through forty calls. */
 let shopperCookie = '';
+let mappedCallbackUrl = '';
+let reversalFixture = null;
 
 const jpost = (url, body, headers = {}) =>
   fetch(BASE + url, {
@@ -105,6 +110,7 @@ try {
     comment: 5,
     order: 12,
     paymentRetry: 5,
+    paymentCallback: 12,
     adminLogin: 8,
     otpPhone: 5,
     otpIp: 30,
@@ -118,12 +124,103 @@ try {
     JSON.stringify(publishedLimits),
   );
 
+  const reservationSettings = {
+    enabled: true,
+    rules: { customerLogin: { max: 2, windowMs: 60_000 } },
+  };
+  const reservationLimiter = createRateLimiter({
+    database: {},
+    store: {
+      getSetting: () => reservationSettings,
+      setSetting: () => {},
+    },
+  });
+  const reservedA = reservationLimiter.reserve('customerLogin', 'phone');
+  const reservedB = reservationLimiter.reserve('customerLogin', 'phone');
+  check(
+    !reservedA.limited && !reservedB.limited && reservationLimiter.reserve('customerLogin', 'phone').limited,
+    'in-flight password checks consume rate-limit capacity before async scrypt finishes',
+  );
+  reservedA.finish(false);
+  reservationLimiter.clear('customerLogin', 'phone');
+  const reservedC = reservationLimiter.reserve('customerLogin', 'phone');
+  check(
+    !reservedC.limited && reservationLimiter.reserve('customerLogin', 'phone').limited,
+    'clearing completed failures cannot erase another password check that is still in flight',
+  );
+  reservedB.finish(false);
+  reservedC.finish(false);
+
   await start();
 
   const login = await jpost('/api/auth/login', { user: 'admin', pass: 'khyeast-1404' });
   const adminCookie = (login.headers.get('set-cookie') || '').split(';')[0];
   const auth = { Cookie: adminCookie };
   check(Boolean(adminCookie), 'the admin test session is cookie-authenticated');
+
+  /* Build one immutable order/authority mapping directly in the throwaway DB.
+     Status=NOK lets the callback exercise routing and limiting without any
+     network request to the real gateway. */
+  const callbackCode = `KY-CALLBACK-${Date.now()}`;
+  const callbackAuthority = `A${crypto.randomBytes(18).toString('hex').slice(0, 35)}`;
+  const callbackOrderId = crypto.randomUUID();
+  const fixtureDb = await dbStore.openDB(DB);
+  dbStore.insertOrder(fixtureDb, {
+    id: callbackOrderId,
+    code: callbackCode,
+    token: crypto.randomBytes(20).toString('hex'),
+    customer: {},
+    subtotal: 1000,
+    shipping: 0,
+    total: 1000,
+    currency: 'IRR',
+    status: 'pending_payment',
+    provider: 'zarinpal',
+    payAuthority: callbackAuthority,
+    payRef: null,
+    adminNote: '',
+    at: new Date().toISOString(),
+    paidAt: null,
+    items: [],
+  });
+
+  reversalFixture = {
+    id: crypto.randomUUID(),
+    code: `KY-REVERSAL-${Date.now()}`,
+    token: crypto.randomBytes(20).toString('hex'),
+    main: `A${crypto.randomBytes(18).toString('hex').slice(0, 35)}`,
+    extra: `A${crypto.randomBytes(18).toString('hex').slice(0, 35)}`,
+  };
+  dbStore.insertOrder(fixtureDb, {
+    id: reversalFixture.id,
+    code: reversalFixture.code,
+    token: reversalFixture.token,
+    customer: {},
+    subtotal: 2000,
+    shipping: 0,
+    total: 2000,
+    currency: 'IRR',
+    status: 'paid',
+    provider: 'zarinpal',
+    payAuthority: reversalFixture.main,
+    payRef: 'REF-MAIN',
+    adminNote: '',
+    at: new Date().toISOString(),
+    paidAt: new Date().toISOString(),
+    items: [],
+  });
+  dbStore.recordOrderPaymentAttempt(fixtureDb, reversalFixture.id, {
+    authority: reversalFixture.extra,
+    provider: 'zarinpal',
+  });
+  dbStore.updateOrderPaymentAttempt(fixtureDb, reversalFixture.id, reversalFixture.extra, {
+    status: 'reversing',
+    refId: 'REF-EXTRA',
+    verifiedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    reversalStartedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+  });
+  fixtureDb.close();
+  mappedCallbackUrl = `/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(callbackCode)}&Authority=${encodeURIComponent(callbackAuthority)}&Status=NOK`;
 
   /* Sign up the shopper whose orders the rest of this file places. The
      verification code is read back out of the SMS log, exactly as a
@@ -142,6 +239,79 @@ try {
     shopperCookie = (reg.headers.get('set-cookie') || '').split(';')[0];
     check(Boolean(shopperCookie), 'the test shopper has a session', `register returned ${reg.status}`);
   }
+
+  const issuedAttemptDelete = await fetch(`${BASE}/api/shop-admin/orders/${callbackOrderId}`, {
+    method: 'DELETE',
+    headers: auth,
+  });
+  const issuedAttemptDeleteBody = await issuedAttemptDelete.json();
+  check(
+    issuedAttemptDelete.status === 409 && issuedAttemptDeleteBody.code === 'payment-history-protected',
+    'Admin cannot delete even an issued authority that may still be paid later',
+    JSON.stringify(issuedAttemptDeleteBody),
+  );
+
+  const wrongCallbackUrl = mappedCallbackUrl.replace(/Authority=[^&]+/, `Authority=A${'f'.repeat(35)}`);
+  const wrongCallbackStatuses = [];
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    wrongCallbackStatuses.push((await fetch(BASE + wrongCallbackUrl, { redirect: 'manual' })).status);
+  }
+  const firstMappedCallback = await fetch(BASE + mappedCallbackUrl, { redirect: 'manual' });
+  const secondMappedCallback = await fetch(BASE + mappedCallbackUrl, { redirect: 'manual' });
+  const limitedMappedCallback = await fetch(BASE + mappedCallbackUrl, { redirect: 'manual' });
+  check(
+    wrongCallbackStatuses.every((status) => status === 302) &&
+      firstMappedCallback.status === 302 && secondMappedCallback.status === 302,
+    'unknown callback probes cannot consume a mapped authority’s legitimate allowance',
+    JSON.stringify({ wrongCallbackStatuses, first: firstMappedCallback.status, second: secondMappedCallback.status }),
+  );
+  check(
+    limitedMappedCallback.status === 429 && Number(limitedMappedCallback.headers.get('retry-after')) > 0,
+    'the dedicated mapped payment-callback bucket returns an actionable 429',
+    `got ${limitedMappedCallback.status}`,
+  );
+
+  const adminOrdersBeforeReverse = await (await fetch(`${BASE}/api/shop-admin`, { headers: auth })).json();
+  const reversalAdminOrder = adminOrdersBeforeReverse.orders.find((order) => order.id === reversalFixture.id);
+  check(
+    reversalAdminOrder?.paymentAttempts?.length === 2 &&
+      reversalAdminOrder.paymentAttempts.some((attempt) =>
+        attempt.authority === reversalFixture.extra && attempt.status === 'reversing'),
+    'Admin order responses expose the private per-attempt payment history',
+  );
+  const publicReversalOrder = await (
+    await fetch(`${BASE}/api/shop-public/orders/${encodeURIComponent(reversalFixture.code)}?token=${encodeURIComponent(reversalFixture.token)}`)
+  ).json();
+  check(
+    publicReversalOrder.order && !Object.hasOwn(publicReversalOrder.order, 'paymentAttempts'),
+    'public order tracking never exposes payment-attempt history',
+  );
+  const protectedDelete = await fetch(`${BASE}/api/shop-admin/orders/${reversalFixture.id}`, {
+    method: 'DELETE',
+    headers: auth,
+  });
+  const protectedDeleteBody = await protectedDelete.json();
+  check(
+    protectedDelete.status === 409 && protectedDeleteBody.code === 'payment-history-protected',
+    'Admin cannot delete an order whose settled attempt evidence must be retained',
+    JSON.stringify(protectedDeleteBody),
+  );
+
+  const attemptReverse = await fetch(
+    `${BASE}/api/shop-admin/orders/${reversalFixture.id}/payment-attempts/${encodeURIComponent(reversalFixture.extra)}/reverse`,
+    { method: 'POST', headers: auth },
+  );
+  const attemptReverseBody = await attemptReverse.json();
+  const adminOrdersAfterReverse = await (await fetch(`${BASE}/api/shop-admin`, { headers: auth })).json();
+  const failedAttempt = adminOrdersAfterReverse.orders
+    .find((order) => order.id === reversalFixture.id)
+    ?.paymentAttempts?.find((attempt) => attempt.authority === reversalFixture.extra);
+  check(
+    attemptReverse.status === 409 && failedAttempt?.status === 'reversal_failed' &&
+      failedAttempt.reversalStartedAt === null && failedAttempt.lastError,
+    'the per-attempt Admin action reclaims a stale lease and leaves a visible terminal failure',
+    JSON.stringify({ response: attemptReverseBody, attempt: failedAttempt }),
+  );
 
   /* The rate-limit checks below place many orders. They use their own product
      with unlimited stock (-1) so a 400 can only ever mean "rate limited",
@@ -560,6 +730,12 @@ try {
     customer: CUSTOMER,
   });
   check(unlimitedOrder.ok, 'disabled limits stop an exhausted bucket from blocking checkout', `got ${unlimitedOrder.status}`);
+  const callbackWhileDisabled = await fetch(BASE + mappedCallbackUrl, { redirect: 'manual' });
+  check(
+    callbackWhileDisabled.status === 302,
+    'the Admin global switch also disables the exhausted callback limiter',
+    `got ${callbackWhileDisabled.status}`,
+  );
   const restoreLimits = await fetch(`${BASE}/api/admin/security`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...auth },
