@@ -1728,3 +1728,149 @@
     gap: 0 14px;
   }
 }
+
+/* Security diagnostics keep operational settings readable without turning the
+   admin panel into a wall of raw server values. */
+.security-admin {
+  &__notice,
+  &__warning {
+    padding: 11px 14px;
+    border-radius: 11px;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+
+  &__notice {
+    background: color-mix(in srgb, #1f9d62 10%, var(--surface));
+    color: var(--ink-2);
+
+    &.is-bad { background: var(--crimson-soft); color: var(--crimson-ink); }
+  }
+
+  &__warning {
+    margin: 14px 0 0;
+    border: 1px solid color-mix(in srgb, var(--crimson) 30%, var(--line));
+    background: var(--crimson-soft);
+    color: var(--crimson-ink);
+  }
+
+  &__card {
+    margin-top: 18px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  &__card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+
+    h2 { margin: 0; font-size: 18px; }
+    p { max-width: 720px; margin: 6px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.8; }
+  }
+
+  &__state {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 800;
+
+    &.is-resolved { background: color-mix(in srgb, #1f9d62 12%, var(--surface)); color: #167348; }
+    &.is-forwarded-header-not-trusted { background: var(--crimson-soft); color: var(--crimson-ink); }
+  }
+
+  &__diagnostics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin: 18px 0 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--line);
+
+    div { min-width: 0; padding: 12px 14px; background: var(--bg); }
+    dt { color: var(--ink-2); font-size: 11.5px; }
+    dd { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--ink-2); font: 700 12.5px/1.6 var(--font-latin), monospace; }
+  }
+
+  &__help {
+    margin: 13px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.9;
+
+    code { direction: ltr; unicode-bidi: isolate; color: var(--ink-2); }
+  }
+
+  &__switch {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--bg);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+
+    input { width: 18px; height: 18px; accent-color: var(--crimson-solid); }
+  }
+
+  &__limits {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  &__limit {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px 10px;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--bg);
+
+    span { color: var(--ink-2); font-size: 12.5px; font-weight: 750; }
+    small { grid-column: 1; color: var(--muted); font-size: 10.5px; }
+    input {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      width: 78px;
+      min-height: 39px;
+      padding: 7px 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--ink);
+      text-align: center;
+      font: 700 13px/1 var(--font-latin), sans-serif;
+    }
+  }
+
+  &__actions { margin-top: 18px; }
+}
+
+@media (max-width: 680px) {
+  .security-admin {
+    &__card { padding: 15px; }
+    &__card-head { align-items: stretch; flex-direction: column; }
+    &__state, &__switch { align-self: flex-start; }
+    &__diagnostics { grid-template-columns: minmax(0, 1fr); }
+    &__limits { grid-template-columns: minmax(0, 1fr); }
+  }
+}

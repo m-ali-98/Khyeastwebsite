@@ -184,6 +184,17 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     check(fakeZarinpal.lastCreate.mobile === expected, `zarinpal: mobile ${JSON.stringify(phone)} → ${expected}`, String(fakeZarinpal.lastCreate.mobile));
   }
 
+  /* Zero is never an order: reject it before provider selection so even an
+     offline/misconfigured gateway cannot turn a free cart into a durable
+     payment attempt. */
+  let zeroError = '';
+  try {
+    await createPayment({ provider: 'offline' }, { ...order, total: 0 }, { origin: 'https://e.com' });
+  } catch (e) {
+    zeroError = e.message;
+  }
+  check(zeroError.includes('greater than zero'), 'a zero-total payment is rejected before the gateway', zeroError);
+
   /* Below the gateway minimum, and with an unusable merchant id, checkout
      must degrade to an offline order rather than erroring out. */
   let threw = '';
@@ -507,8 +518,8 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
    the function is extracted and evaluated on its own rather than importing
    the whole module. */
 const shopSrc = fs.readFileSync(path.join(ROOT, 'server', 'shop.js'), 'utf8');
-const start = shopSrc.indexOf('const PUBLIC_ORIGIN');
-const end = shopSrc.indexOf('\n}', shopSrc.indexOf('function safeOrigin')) + 2;
+const start = shopSrc.indexOf('function safeOrigin');
+const end = shopSrc.indexOf('\n}', start) + 2;
 
 if (start === -1 || end < start) {
   check(false, 'safeOrigin present in server/shop.js');

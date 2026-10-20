@@ -284,7 +284,9 @@ export function ShopProductsTab() {
   const items = shop.products || [];
   const display = shop.display || {};
   const [draft, setDraft] = useState(null);
+  const [draftOriginalSlug, setDraftOriginalSlug] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [note, setNote] = useState(null);
 
   /* Stock moves on its own: every customer order and every order-status change
@@ -305,7 +307,8 @@ export function ShopProductsTab() {
 
   const commitShop = (next) => save({ ...state, shop: { ...shop, ...next } });
 
-  const startNew = () =>
+  const startNew = () => {
+    setDraftOriginalSlug(null);
     setDraft({
       slug: `shop-${Date.now()}`,
       title: '',
@@ -323,8 +326,9 @@ export function ShopProductsTab() {
       description: '',
       specs: [['وزن خالص', '']],
     });
+  };
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     const clean = {
       ...draft,
       slug: slugify(draft.slug),
@@ -337,10 +341,51 @@ export function ShopProductsTab() {
     /* slugify() no longer invents a slug, so the blank case is caught here
        instead of silently becoming shop-1712… */
     if (!clean.slug) return window.alert('شناسه (slug) نمی‌تواند خالی باشد.');
+    if (draftOriginalSlug && clean.slug !== draftOriginalSlug)
+      return window.alert('شناسه محصول موجود قابل تغییر نیست؛ برای شناسه تازه، محصول جدید بسازید.');
+    if (items.some((product) => product.slug === clean.slug && product.slug !== draftOriginalSlug))
+      return window.alert('شناسه محصول باید یکتا باشد.');
+    if (clean.active !== false && clean.price <= 0)
+      return window.alert('برای محصول فعال، قیمت باید بیشتر از صفر ریال باشد.');
+    if (!Number.isSafeInteger(clean.stock) || clean.stock < -1)
+      return window.alert('موجودی باید ۱- (نامحدود) یا عددی نامنفی باشد.');
     if (clean.oldPrice && clean.oldPrice <= clean.price) clean.oldPrice = null;
-    const exists = items.some((p) => p.slug === clean.slug);
-    commitShop({ products: exists ? items.map((p) => (p.slug === clean.slug ? clean : p)) : [clean, ...items] });
-    setDraft(null);
+
+    const existing = draftOriginalSlug
+      ? items.find((product) => product.slug === draftOriginalSlug)
+      : null;
+    const nextProducts = existing
+      ? items.map((product) => (product.slug === draftOriginalSlug ? clean : product))
+      : [clean, ...items];
+
+    setSavingDraft(true);
+    setNote(null);
+    try {
+      /* Metadata saves preserve live inventory on the server. If this was an
+         intentional stock edit, apply it separately with the value the admin
+         saw; a sale in the meantime then produces 409 instead of disappearing. */
+      await commitShop({ products: nextProducts });
+      if (existing && clean.slug === existing.slug && Number(clean.stock) !== Number(existing.stock)) {
+        await api(`/api/shop-admin/products/${encodeURIComponent(clean.slug)}/stock`, {
+          method: 'PATCH',
+          auth: true,
+          body: { stock: clean.stock, expectedStock: existing.stock },
+        });
+      }
+      await reload();
+      setDraft(null);
+      setDraftOriginalSlug(null);
+      setNote({ text: 'محصول و موجودی زنده ذخیره شد.' });
+    } catch (error) {
+      await reload().catch(() => {});
+      if (error.status === 409) {
+        window.alert(error.detail || 'موجودی در همین فاصله تغییر کرده است. اطلاعات تازه شد؛ مقدار جدید را بررسی کنید.');
+      } else {
+        window.alert(error.message || 'ذخیره محصول ممکن نشد.');
+      }
+    } finally {
+      setSavingDraft(false);
+    }
   };
 
   const remove = (slug) => {
@@ -352,7 +397,7 @@ export function ShopProductsTab() {
     return (
       <div className="admin__panel">
         <div className="admin__head">
-          <h1>{items.some((p) => p.slug === draft.slug) ? 'ویرایش محصول فروشگاه' : 'محصول جدید فروشگاه'}</h1>
+          <h1>{draftOriginalSlug ? 'ویرایش محصول فروشگاه' : 'محصول جدید فروشگاه'}</h1>
         </div>
         <div className="admin__grid2">
           <Field label="عنوان محصول" value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} />
@@ -418,10 +463,17 @@ export function ShopProductsTab() {
         <h3 style={{ margin: '22px 0 10px' }}>جدول مشخصات</h3>
         <PairListEditor items={draft.specs} onChange={(v) => setDraft({ ...draft, specs: v })} />
         <div className="admin__row" style={{ marginTop: 24 }}>
-          <button className="btn btn--primary" onClick={saveDraft}>
-            ذخیره محصول
+          <button className="btn btn--primary" onClick={saveDraft} disabled={savingDraft}>
+            {savingDraft ? 'در حال ذخیره…' : 'ذخیره محصول'}
           </button>
-          <button className="btn btn--outline" onClick={() => setDraft(null)}>
+          <button
+            className="btn btn--outline"
+            disabled={savingDraft}
+            onClick={() => {
+              setDraft(null);
+              setDraftOriginalSlug(null);
+            }}
+          >
             انصراف
           </button>
         </div>
@@ -471,7 +523,14 @@ export function ShopProductsTab() {
               </small>
             </div>
             <div className="admin__actions">
-              <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft(clone(p))}>
+              <button
+                className="admin__iconbtn"
+                title="ویرایش"
+                onClick={() => {
+                  setDraftOriginalSlug(p.slug);
+                  setDraft(clone(p));
+                }}
+              >
                 <Icons.edit size={16} />
               </button>
               <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>
@@ -516,6 +575,185 @@ export function ShopProductsTab() {
           دیدگاه‌ها پیش از نمایش، نیازمند تأیید مدیر باشند
         </label>
       </div>
+    </div>
+  );
+}
+
+/* ================= security + rate limits ================= */
+const RATE_FIELDS = [
+  ['message', 'پیام‌های تماس'],
+  ['comment', 'دیدگاه‌های فروشگاه'],
+  ['order', 'ثبت سفارش'],
+  ['paymentRetry', 'تلاش دوباره برای پرداخت'],
+  ['adminLogin', 'ورود ناموفق مدیر'],
+  ['otpPhone', 'ارسال کد به هر شماره'],
+  ['otpIp', 'ارسال کد از هر IP'],
+  ['customerLogin', 'ورود ناموفق هر مشتری'],
+  ['customerLoginIp', 'ورود مشتری از هر IP'],
+  ['register', 'تکمیل ثبت‌نام از هر IP'],
+];
+
+const faDuration = (milliseconds) => {
+  const minutes = Math.round(Number(milliseconds || 0) / 60_000);
+  return minutes >= 60 && minutes % 60 === 0
+    ? `${new Intl.NumberFormat('fa-IR').format(minutes / 60)} ساعت`
+    : `${new Intl.NumberFormat('fa-IR').format(minutes)} دقیقه`;
+};
+
+export function AdminSecurityTab() {
+  const [snapshot, setSnapshot] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    setError('');
+    try {
+      setSnapshot(await api('/api/admin/security', { auth: true }));
+    } catch (requestError) {
+      setError(requestError.status === 401 ? 'نشست مدیر منقضی شده است.' : 'دریافت تنظیمات امنیتی ممکن نشد.');
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const changeMax = (kind, value) => {
+    const max = Math.max(1, Math.min(100_000, Math.round(num(value, 1))));
+    setSnapshot((current) => ({
+      ...current,
+      rateLimits: {
+        ...current.rateLimits,
+        rules: {
+          ...current.rateLimits.rules,
+          [kind]: { ...current.rateLimits.rules[kind], max },
+        },
+      },
+    }));
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setMessage('');
+    setError('');
+    try {
+      const result = await api('/api/admin/security', {
+        method: 'PUT',
+        auth: true,
+        body: { rateLimits: snapshot.rateLimits },
+      });
+      setSnapshot(result);
+      setMessage('تنظیمات محدودیت درخواست‌ها ذخیره شد.');
+    } catch (requestError) {
+      setError(requestError.status === 401 ? 'نشست مدیر منقضی شده است.' : 'ذخیره تنظیمات ممکن نشد.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!snapshot && !error) return <div className="admin__panel"><p>در حال دریافت تنظیمات امنیتی…</p></div>;
+
+  const proxy = snapshot?.proxy || {};
+  const rateLimits = snapshot?.rateLimits;
+  const proxyStatus = {
+    direct: 'درخواست مستقیم است؛ هدر پراکسی دیده نشد.',
+    resolved: 'IP واقعی بازدیدکننده از زنجیره پراکسی استخراج شد.',
+    'forwarded-header-not-trusted': 'هدر پراکسی رسیده اما IP مؤثر هنوز IP اتصال Node است؛ TRUST_PROXY را روی سرور بررسی کنید.',
+  }[proxy.status] || 'وضعیت پراکسی نامشخص است.';
+
+  return (
+    <div className="admin__panel security-admin" data-testid="admin-security">
+      <div className="admin__head">
+        <div>
+          <h1>امنیت و محدودیت درخواست‌ها</h1>
+          <p>مشاهده IP مؤثر پشت Apache/Passenger و تنظیم سقف‌های ضدسوءاستفاده</p>
+        </div>
+        <button type="button" className="btn btn--outline" onClick={load} disabled={busy}>
+          <Icons.refresh size={16} />
+          بررسی دوباره
+        </button>
+      </div>
+
+      {error && <p className="security-admin__notice is-bad" role="alert">{error}</p>}
+      {message && <p className="security-admin__notice" role="status">{message}</p>}
+
+      {snapshot && (
+        <>
+          <section className="security-admin__card" aria-labelledby="proxy-diagnostics-title">
+            <div className="security-admin__card-head">
+              <div>
+                <h2 id="proxy-diagnostics-title">تشخیص IP و پراکسی</h2>
+                <p>{proxyStatus}</p>
+              </div>
+              <span className={`security-admin__state is-${proxy.status || 'unknown'}`}>
+                {proxy.status === 'resolved' ? 'پراکسی درست' : proxy.status === 'direct' ? 'اتصال مستقیم' : 'نیازمند بررسی'}
+              </span>
+            </div>
+            <dl className="security-admin__diagnostics">
+              <div><dt>IP مؤثر (req.ip)</dt><dd dir="ltr">{proxy.clientIp || '—'}</dd></div>
+              <div><dt>IP اتصال Node</dt><dd dir="ltr">{proxy.socketIp || '—'}</dd></div>
+              <div><dt>X-Forwarded-For</dt><dd dir="ltr">{proxy.forwardedFor || '—'}</dd></div>
+              <div><dt>trust proxy</dt><dd dir="ltr">{proxy.setting || '—'}</dd></div>
+            </dl>
+            <p className="security-admin__help">
+              مقدار پیش‌فرض فقط پراکسی‌های loopback/private را می‌پذیرد و برای Apache یا Passenger معمول است.
+              اگر توپولوژی میزبان متفاوت است، متغیر محیطی <code>TRUST_PROXY</code> را تنظیم و Node را راه‌اندازی دوباره کنید؛
+              پذیرش همه پراکسی‌ها (<code>true</code>) توصیه نمی‌شود.
+            </p>
+          </section>
+
+          <section className="security-admin__card" aria-labelledby="rate-limits-title">
+            <div className="security-admin__card-head">
+              <div>
+                <h2 id="rate-limits-title">محدودیت درخواست‌ها</h2>
+                <p>سقف‌ها برای IPهای مشترک شبکه موبایل سخاوتمندانه‌اند؛ فقط درخواست معتبر یا ناموفقِ قابل‌سوءاستفاده شمرده می‌شود.</p>
+              </div>
+              <label className="security-admin__switch">
+                <input
+                  type="checkbox"
+                  checked={rateLimits.enabled}
+                  onChange={(event) => setSnapshot({
+                    ...snapshot,
+                    rateLimits: { ...rateLimits, enabled: event.target.checked },
+                  })}
+                />
+                <span>{rateLimits.enabled ? 'محدودیت‌ها فعال' : 'همه محدودیت‌ها غیرفعال'}</span>
+              </label>
+            </div>
+
+            {!rateLimits.enabled && (
+              <p className="security-admin__warning" role="note">
+                همه سقف‌ها، از جمله ورود مدیر و ارسال کد پیامکی، غیرفعال خواهند بود. فقط برای عیب‌یابی کوتاه‌مدت استفاده کنید.
+              </p>
+            )}
+
+            <div className="security-admin__limits">
+              {RATE_FIELDS.map(([kind, label]) => {
+                const rule = rateLimits.rules[kind];
+                return (
+                  <label className="security-admin__limit" key={kind}>
+                    <span>{label}</span>
+                    <small>در {faDuration(rule.windowMs)}</small>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100000"
+                      dir="ltr"
+                      value={rule.max}
+                      onChange={(event) => changeMax(kind, event.target.value)}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="admin__row security-admin__actions">
+              <button type="button" className="btn btn--primary" onClick={save} disabled={busy}>
+                {busy ? 'در حال ذخیره…' : 'ذخیره تنظیمات امنیتی'}
+              </button>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }

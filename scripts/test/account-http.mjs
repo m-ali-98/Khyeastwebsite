@@ -82,10 +82,10 @@ const call = (method, url, body, { cookie, origin = ORIGIN, auth } = {}) =>
 
 const json = async (res) => ({ status: res.status, body: await res.json().catch(() => ({})), res });
 
-let adminToken = '';
+let adminCookie = '';
 /* The customer's inbox, as the admin sees it. */
 const lastSms = async (phoneEnding) => {
-  const { body } = await json(await call('GET', '/api/shop-admin/sms', undefined, { auth: adminToken }));
+  const { body } = await json(await call('GET', '/api/shop-admin/sms', undefined, { cookie: adminCookie }));
   const rows = body.log || [];
   const row = phoneEnding ? rows.find((l) => l.phone.endsWith(phoneEnding)) : rows[0];
   return row || null;
@@ -114,8 +114,8 @@ try {
 
   /* admin session, used only to read the SMS log */
   const login = await json(await call('POST', '/api/auth/login', { user: ADMIN.user, pass: ADMIN.pass }));
-  adminToken = login.body.token;
-  check(Boolean(adminToken), 'admin login for reading the SMS log');
+  adminCookie = cookieOf(login.res);
+  check(Boolean(adminCookie), 'admin cookie login for reading the SMS log');
 
   /* ---------------------------------------------- 1. registration flow */
   const PHONE = '09120000001';
@@ -336,7 +336,7 @@ try {
   const afterGuesses = await json(await call('POST', '/api/account/otp/verify', { phone: VICTIM, code: real, purpose: 'register' }));
   check(afterGuesses.status === 400, 'the real code is dead after repeated wrong guesses', String(afterGuesses.status));
   /* --------------------------------------------- 11. the admin's view */
-  const list = await json(await call('GET', '/api/shop-admin/customers', undefined, { auth: adminToken }));
+  const list = await json(await call('GET', '/api/shop-admin/customers', undefined, { cookie: adminCookie }));
   check(list.status === 200, 'the admin can list customers');
   check(list.body.customers.length >= 2, 'both test customers are there', String(list.body.customers.length));
   /* The admin panel is a browser page like any other: a password hash that
@@ -355,7 +355,7 @@ try {
   const customerPeek = await json(await call('GET', '/api/shop-admin/customers', undefined, { cookie: cookieOf(newPass.res) }));
   check(customerPeek.status === 401, 'a signed-in customer cannot read the customer list', String(customerPeek.status));
 
-  const detail = await json(await call('GET', `/api/shop-admin/customers/${target.id}`, undefined, { auth: adminToken }));
+  const detail = await json(await call('GET', `/api/shop-admin/customers/${target.id}`, undefined, { cookie: adminCookie }));
   check(detail.status === 200 && detail.body.orders.length >= 1, 'the admin can see a customer orders');
   check(detail.body.addresses.length >= 1, 'and their addresses');
   check(!JSON.stringify(detail.body.orders).includes('"token"'), 'but not the order tracking tokens');
@@ -366,7 +366,7 @@ try {
   const before = await json(await call('GET', '/api/account/me', undefined, { cookie: live }));
   check(before.body.customer !== null, 'the customer is signed in before the block');
 
-  const block = await json(await call('PATCH', `/api/shop-admin/customers/${target.id}`, { blocked: true }, { auth: adminToken }));
+  const block = await json(await call('PATCH', `/api/shop-admin/customers/${target.id}`, { blocked: true }, { cookie: adminCookie }));
   check(block.status === 200 && block.body.customer.blocked === true, 'the admin can block an account');
 
   const afterBlock = await json(await call('GET', '/api/account/me', undefined, { cookie: live }));
@@ -375,15 +375,15 @@ try {
   const blockedLogin = await json(await call('POST', '/api/account/login', { phone: PHONE, password: NEWPASS }));
   check(blockedLogin.status === 401, 'and the right password no longer logs in');
 
-  const unblock = await json(await call('PATCH', `/api/shop-admin/customers/${target.id}`, { blocked: false }, { auth: adminToken }));
+  const unblock = await json(await call('PATCH', `/api/shop-admin/customers/${target.id}`, { blocked: false }, { cookie: adminCookie }));
   check(unblock.body.customer.blocked === false, 'unblocking is possible');
   const backIn = await json(await call('POST', '/api/account/login', { phone: PHONE, password: NEWPASS }));
   check(backIn.status === 200, 'and the customer can sign in again');
 
-  const stillOrders = await json(await call('GET', `/api/shop-admin/customers/${target.id}`, undefined, { auth: adminToken }));
+  const stillOrders = await json(await call('GET', `/api/shop-admin/customers/${target.id}`, undefined, { cookie: adminCookie }));
   check(stillOrders.body.orders.length >= 1, 'blocking never deleted the order history');
 
-  const ghost = await json(await call('GET', '/api/shop-admin/customers/not-a-real-id', undefined, { auth: adminToken }));
+  const ghost = await json(await call('GET', '/api/shop-admin/customers/not-a-real-id', undefined, { cookie: adminCookie }));
   check(ghost.status === 404, 'an unknown customer id is a 404, not a crash');
 
 } catch (e) {

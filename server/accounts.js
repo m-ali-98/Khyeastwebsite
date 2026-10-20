@@ -9,9 +9,9 @@
      - the database file leaks   → passwords must be useless to the reader
      - an attacker guesses OTPs  → short window, few attempts, hashed at rest
      - an attacker steals a cookie → the stored value must not be the cookie
-     - XSS on the shop           → the session cookie is httpOnly, so JS
-                                    cannot read it, unlike the admin's
-                                    localStorage token
+     - XSS on the shop/admin     → both session cookies are HttpOnly, so JS
+                                    can use the active same-origin session but
+                                    cannot copy its credential elsewhere
    ========================================================================== */
 import crypto from 'node:crypto';
 import { isProvince, normalizePostal } from '../shared/iranGeo.js';
@@ -126,7 +126,7 @@ export function sessionCookie(token, { secure, maxAgeMs = SESSION_TTL_MS } = {})
   const parts = [
     `${SESSION_COOKIE}=${token}`,
     'Path=/',
-    'HttpOnly', // unreadable from JavaScript, unlike a localStorage token
+    'HttpOnly', // unreadable from JavaScript
     'SameSite=Lax', // a cross-site POST cannot carry it
     `Max-Age=${Math.floor(maxAgeMs / 1000)}`,
   ];

@@ -74,7 +74,9 @@ const login = async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user: 'admin', pass: PASS }),
   });
-  return (await r.json()).token;
+  await r.json();
+  const cookie = r.headers.get('set-cookie') || '';
+  return cookie.match(/(?:^|;\s*)ky_admin=([^;]+)/)?.[1] || '';
 };
 
 /* Status of an authenticated probe carrying `token`. */

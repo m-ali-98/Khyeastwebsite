@@ -27,7 +27,8 @@ const ROOT = path.resolve(HERE, '../..');
 
 const PORT = 8977;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DB = path.join(os.tmpdir(), `ky-behaviour-test-${process.pid}.db`);
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-behaviour-test-'));
+const DB = path.join(DATA_DIR, 'behaviour.db');
 
 let pass = 0;
 let fail = 0;
@@ -43,7 +44,20 @@ let server;
 const start = async () => {
   server = spawn('node', ['server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), DB_FILE: DB, NODE_ENV: 'development' },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      DATA_DIR,
+      UPLOAD_DIR: path.join(DATA_DIR, 'uploads'),
+      DB_FILE: DB,
+      NODE_ENV: 'development',
+      /* Keep buckets small so this regression harness reaches 429 quickly;
+         production defaults are intentionally far more generous. */
+      RL_MAX_MESSAGE: '5',
+      RL_MAX_COMMENT: '5',
+      RL_MAX_ORDER: '20',
+      RL_MAX_PAYMENT_RETRY: '3',
+    },
     stdio: 'ignore',
   });
   for (let i = 0; i < 120; i += 1) {
@@ -85,8 +99,9 @@ try {
   await start();
 
   const login = await jpost('/api/auth/login', { user: 'admin', pass: 'khyeast-1404' });
-  const token = (await login.json()).token;
-  const auth = { Authorization: `Bearer ${token}` };
+  const adminCookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  const auth = { Cookie: adminCookie };
+  check(Boolean(adminCookie), 'the admin test session is cookie-authenticated');
 
   /* Sign up the shopper whose orders the rest of this file places. The
      verification code is read back out of the SMS log, exactly as a
@@ -130,10 +145,18 @@ try {
   /* ---- 1. inventory balances across the order lifecycle ------------------
      Runs FIRST: later checks deliberately exhaust the order rate limit, which
      would otherwise make these unreachable. */
-  const setStock = putProducts;
   const stockOf = async () => {
     const all = await (await fetch(`${BASE}/api/shop-products`)).json();
     return all.products.find((p) => p.slug === SLUG)?.stock;
+  };
+  const setStock = async (next) => {
+    const current = await stockOf();
+    if (current === undefined) return putProducts(next); // creates both fixtures
+    return fetch(`${BASE}/api/shop-admin/products/${SLUG}/stock`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify({ stock: next, expectedStock: current }),
+    });
   };
   const orderIdFor = async (code) => {
     const admin = await (await fetch(`${BASE}/api/shop-admin`, { headers: auth })).json();
@@ -145,6 +168,30 @@ try {
       headers: { 'Content-Type': 'application/json', ...auth },
       body: JSON.stringify({ status }),
     });
+
+  /* Duplicate slugs are one inventory claim, not independent lines. */
+  await setStock(5);
+  const duplicateOversell = await jpost('/api/shop-public/orders', {
+    items: [{ slug: SLUG, qty: 5 }, { slug: SLUG, qty: 5 }],
+    customer: CUSTOMER,
+  });
+  check(duplicateOversell.status === 409, 'duplicate cart lines cannot oversell stock', `got ${duplicateOversell.status}`);
+  check((await stockOf()) === 5, 'a refused duplicate-line order leaves all stock intact');
+
+  const duplicateValid = await jpost('/api/shop-public/orders', {
+    items: [{ slug: SLUG, qty: 2 }, { slug: SLUG, qty: 3 }],
+    customer: CUSTOMER,
+  });
+  check(duplicateValid.ok, 'duplicate lines within stock are merged and accepted', `got ${duplicateValid.status}`);
+  if (duplicateValid.ok) {
+    const duplicateOrder = (await duplicateValid.json()).order;
+    const admin = await (await fetch(`${BASE}/api/shop-admin`, { headers: auth })).json();
+    const saved = admin.orders.find((entry) => entry.code === duplicateOrder.code);
+    check(saved?.items?.length === 1 && saved.items[0].qty === 5, 'the durable order stores one merged product line');
+    check((await stockOf()) === 0, 'merged quantity is deducted exactly once');
+    if (saved) await fetch(`${BASE}/api/shop-admin/orders/${saved.id}`, { method: 'DELETE', headers: auth });
+    check((await stockOf()) === 5, 'deleting the merged order restores the merged quantity');
+  }
 
   await setStock(10);
   const invOrder = await jpost('/api/shop-public/orders', {
@@ -312,10 +359,41 @@ try {
     await fetch(`${BASE}/api/shop-admin/orders/${cid}`, { method: 'DELETE', headers: auth });
   }
 
-  /* The shop tab is the one place stock is edited on purpose, so that path
-     must still be able to set it. */
+  /* The latent products endpoint receives the same kind of whole-list
+     snapshot. It must preserve live stock too; explicit inventory edits use
+     the compare-and-set route and reject a stale expected value. */
+  await setStock(10);
+  const productSnapshot = await (await fetch(`${BASE}/api/shop-admin/products`, { headers: auth })).json();
+  const staleOrder = await jpost('/api/shop-public/orders', {
+    items: [{ slug: SLUG, qty: 2 }],
+    customer: CUSTOMER,
+  });
+  if (staleOrder.ok) {
+    check((await stockOf()) === 8, 'products-endpoint fixture: ordering 2 of 10 leaves 8');
+    const staleSave = await fetch(`${BASE}/api/shop-admin/products`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify({ products: productSnapshot.products }),
+    });
+    check(staleSave.ok, 'stale products snapshot is accepted without overwriting stock');
+    check((await stockOf()) === 8, 'products endpoint preserves stock changed since page load');
+
+    const staleStockEdit = await fetch(`${BASE}/api/shop-admin/products/${SLUG}/stock`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify({ stock: 42, expectedStock: 10 }),
+    });
+    check(staleStockEdit.status === 409, 'stale explicit stock edit is refused with 409', `got ${staleStockEdit.status}`);
+    check((await stockOf()) === 8, 'refused stale stock edit leaves live stock untouched');
+
+    const sid = await orderIdFor((await staleOrder.json()).order.code);
+    await fetch(`${BASE}/api/shop-admin/orders/${sid}`, { method: 'DELETE', headers: auth });
+  }
+
+  /* The shop tab can still set inventory deliberately when its expected value
+     is current. */
   await setStock(42);
-  check((await stockOf()) === 42, 'the shop products endpoint can still set stock deliberately');
+  check((await stockOf()) === 42, 'the compare-and-set stock endpoint applies a deliberate edit');
 
   /* Deleting an order must also return its stock, otherwise tidying the admin
      order list silently destroys sellable inventory. */
@@ -386,6 +464,19 @@ try {
     `valid order returned ${goodOrder.status}`,
   );
 
+  /* Payment retry has its own cap before any gateway call. Invalid tokens are
+     counted by IP so the secret cannot be brute-forced for free. */
+  const goodOrderBody = goodOrder.ok ? await goodOrder.json() : null;
+  let retryLimited = null;
+  if (goodOrderBody?.order?.code) {
+    for (let attempt = 0; attempt < 5 && !retryLimited; attempt += 1) {
+      const response = await jpost(`/api/shop-public/orders/${goodOrderBody.order.code}/pay`, { token: `wrong-${attempt}` });
+      if (response.status === 429) retryLimited = response;
+    }
+  }
+  check(retryLimited?.status === 429, 'payment retry is rate limited before gateway work');
+  check(Boolean(retryLimited?.headers.get('retry-after')), 'payment retry 429 includes Retry-After');
+
   /* ---- 4b. an Iranian keyboard must be able to buy things --------------- */
   /* ۰۹۱۲۳۴۵۶۷۸۹ is what a Persian layout produces, and the site is Persian
      first. An ASCII-only phone pattern told those customers their own phone
@@ -432,6 +523,27 @@ try {
   } else {
     check(false, 'order rate limit is reachable at all');
   }
+
+  /* Admin can completely disable every bucket for diagnostics, and restoring
+     the saved settings re-enables protection without retaining stale hits. */
+  const security = await (await fetch(`${BASE}/api/admin/security`, { headers: auth })).json();
+  const disable = await fetch(`${BASE}/api/admin/security`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ rateLimits: { ...security.rateLimits, enabled: false } }),
+  });
+  check(disable.ok, 'admin can disable all rate limits', `got ${disable.status}`);
+  const unlimitedOrder = await jpost('/api/shop-public/orders', {
+    items: [{ slug: RL_SLUG, qty: 1 }],
+    customer: CUSTOMER,
+  });
+  check(unlimitedOrder.ok, 'disabled limits stop an exhausted bucket from blocking checkout', `got ${unlimitedOrder.status}`);
+  const restoreLimits = await fetch(`${BASE}/api/admin/security`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ rateLimits: security.rateLimits }),
+  });
+  check(restoreLimits.ok, 'admin can re-enable the saved rate limits');
 
   /* ---- 6. upload errors are 4xx with a reason, never 500 ----------------- */
   const png = Buffer.concat([
@@ -481,6 +593,7 @@ try {
     'slug with slash': [{ ...seed[0], slug: 'sl/ash' }],
     'slug with space': [{ ...seed[0], slug: 'has space' }],
     'null slug': [{ ...seed[0], slug: null }],
+    'zero active price': [{ ...seed[0], price: 0, active: true }],
   };
   for (const [name, list] of Object.entries(bad)) {
     const res = await putRaw(list);
@@ -494,13 +607,7 @@ try {
   check(false, 'behaviour harness', String(e.message).slice(0, 140));
 } finally {
   if (server) server.kill('SIGKILL');
-  for (const f of [DB, `${DB}-wal`, `${DB}-shm`]) {
-    try {
-      fs.unlinkSync(f);
-    } catch {
-      /* already gone */
-    }
-  }
+  try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch {}
 }
 
 console.log(`${pass}/${pass + fail}`);

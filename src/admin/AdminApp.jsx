@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { m as mo } from 'framer-motion';
 import Logo from '../components/Logo';
 import { Icons, PasswordInput } from '../components/ui';
-import { api, tokenGet, tokenSet, useContent } from '../content/ContentContext';
+import { api, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, TrustSealsTab, ContactTab, MessagesTab } from './tabs';
-import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab } from './shopTabs';
+import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab, AdminSecurityTab } from './shopTabs';
 import { TranslationsTab } from './i18nTab';
 import { ProductsTransTab, PostsTransTab } from './entityTrans';
 import { AdminLocaleProvider, useAdminLocale } from './adminLocale';
@@ -27,6 +27,7 @@ const TABS = [
   { id: 'payment', label: 'درگاه پرداخت', icon: 'payment', faOnly: true },
   { id: 'customers', label: 'مشتریان', icon: 'users', faOnly: true },
   { id: 'sms', label: 'پیامک', icon: 'send', faOnly: true },
+  { id: 'security', label: 'امنیت و محدودیت‌ها', icon: 'shield', faOnly: true },
   { id: 'texts', label: 'متون سایت', icon: 'text', base: true },
   { id: 'translations', label: 'متون و فهرست‌ها', icon: 'translations', transOnly: true },
   { id: 'media', label: 'تصاویر صفحات', icon: 'media' },
@@ -286,8 +287,7 @@ function Login({ onDone }) {
     setBusy(true);
     setErr('');
     try {
-      const { token } = await api('/api/auth/login', { method: 'POST', body: { user, pass } });
-      tokenSet(token);
+      await api('/api/auth/login', { method: 'POST', body: { user, pass } });
       onDone();
     } catch {
       setErr('نام کاربری یا رمز عبور نادرست است.');
@@ -394,13 +394,13 @@ function AdminShell() {
   }, []);
 
   useEffect(() => {
-    if (!tokenGet()) return setAuthed(false);
+    /* Older builds stored a bearer token where any script could read it.
+       Remove that legacy copy and ask the server about the HttpOnly cookie;
+       JavaScript intentionally has no API for reading the new credential. */
+    try { localStorage.removeItem('ky_admin_token'); } catch {}
     api('/api/auth/me', { auth: true })
-      .then(() => setAuthed(true))
-      .catch(() => {
-        tokenSet('');
-        setAuthed(false);
-      });
+      .then((session) => setAuthed(session?.authenticated !== false))
+      .catch(() => setAuthed(false));
   }, []);
 
   useEffect(() => {
@@ -429,6 +429,7 @@ function AdminShell() {
     payment: ShopPaymentTab,
     customers: ShopCustomersTab,
     sms: ShopSmsTab,
+    security: AdminSecurityTab,
     texts: TextsTab,
     media: MediaTab,
     links: LinksTab,
@@ -479,15 +480,12 @@ function AdminShell() {
             href="#logout"
             onClick={(e) => {
               e.preventDefault();
-              /* Tell the server first so the token is revoked, not merely
-                 forgotten by this browser. The local state is cleared either
+              /* Tell the server first so the session is revoked and its
+                 HttpOnly cookie is cleared. Local UI state is cleared either
                  way — a failed call must never trap the admin in the panel. */
               api('/api/auth/logout', { method: 'POST', auth: true })
                 .catch(() => {})
-                .finally(() => {
-                  tokenSet('');
-                  setAuthed(false);
-                });
+                .finally(() => setAuthed(false));
             }}
           >
             <Icons.arrow size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginInlineEnd: 6 }} />

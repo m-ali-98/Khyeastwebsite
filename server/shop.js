@@ -36,6 +36,7 @@ import {
   orderSmsText,
 } from './sms.js';
 import * as db from './db.js';
+import { rateLimitResponse } from './rateLimits.js';
 
 /* ---------------------------------------------------------------------------
    Trusted origin for payment callback URLs.
@@ -47,17 +48,18 @@ import * as db from './db.js';
    host when it is in the allowlist (or when no allowlist is configured, which
    is the local-development case).
 --------------------------------------------------------------------------- */
-const PUBLIC_ORIGIN = String(process.env.PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
-const TRUSTED_HOSTS = String(process.env.TRUSTED_HOSTS || '')
-  .split(',')
-  .map((h) => h.trim().toLowerCase())
-  .filter(Boolean);
-
 function safeOrigin(req, configuredBase) {
   if (configuredBase) return configuredBase;
-  if (PUBLIC_ORIGIN) return PUBLIC_ORIGIN;
+  /* index.js loads the optional .env after ESM imports are evaluated, so read
+     these values at request time rather than freezing empty module constants. */
+  const publicOrigin = String(process.env.PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
+  if (publicOrigin) return publicOrigin;
+  const trustedHosts = String(process.env.TRUSTED_HOSTS || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
   const host = String(req.get('host') || '').toLowerCase();
-  if (TRUSTED_HOSTS.length && !TRUSTED_HOSTS.includes(host)) return '';
+  if (trustedHosts.length && !trustedHosts.includes(host)) return '';
   if (!/^[a-z0-9.\-]+(:\d+)?$/.test(host)) return '';
   return `${req.protocol}://${host}`;
 }
@@ -68,65 +70,41 @@ const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancel
 const rand = (n) => crypto.randomBytes(n).toString('hex');
 const orderCode = () => `KY-${Date.now().toString(36).slice(-5).toUpperCase()}${rand(2).toUpperCase()}`;
 
-/* Tiny in-memory rate limit, per IP.
-
-   Two things here are deliberate and were both bugs before:
-
-   1. Orders and comments get SEPARATE buckets. Sharing one counter meant a
-      shopper who asked five questions on product pages could no longer place
-      an order at all — the checkout answered "rate limited" with no
-      explanation.
-   2. `check()` only reports; `record()` is called by the route *after* the
-      request is known to be valid. Counting on entry meant five mistyped
-      phone numbers locked a real customer out of checkout for ten minutes.
-
-   Limits differ by intent: comments are chatter, orders are revenue, so
-   ordering is far more permissive. */
-/* The ceiling is overridable so an end-to-end run, which drives the same
-   flows from one address far faster than any person, is not throttled into
-   false failures. Unset — i.e. in production — the published limit applies. */
-const RL_WINDOW = 10 * 60 * 1000;
-const RL_MAX = {
-  comment: Number(process.env.RL_MAX_COMMENT) || 5,
-  order: Number(process.env.RL_MAX_ORDER) || 12,
-};
-const hits = { comment: new Map(), order: new Map() };
-
-const recentFor = (kind, ip) => {
-  const now = Date.now();
-  return (hits[kind].get(ip) || []).filter((t) => now - t < RL_WINDOW);
+/* Thirty minutes is long enough to complete an ordinary gateway round trip
+   and short enough that abandoned baskets cannot hold scarce inventory all
+   day. The environment hooks make the sweeper testable without a 30-minute
+   sleep; production defaults remain fixed and safe. */
+/* Hashing both sides first gives timingSafeEqual equal-length buffers even for
+   a malformed candidate. The order token is secret, so ordinary === is an
+   avoidable timing oracle on both retry and tracking endpoints. */
+const secretEqual = (candidate, expected) => {
+  const digest = (value) => crypto.createHash('sha256').update(String(value ?? '')).digest();
+  return crypto.timingSafeEqual(digest(candidate), digest(expected));
 };
 
-/** True when this IP has already used up the bucket. Does not consume it. */
-function rateLimited(kind, ip) {
-  return recentFor(kind, ip).length >= RL_MAX[kind];
-}
+export const shopProductProblems = (products) => {
+  const problems = [];
+  const seen = new Set();
+  (Array.isArray(products) ? products : []).forEach((product, index) => {
+    const slug = typeof product?.slug === 'string' ? product.slug.trim() : '';
+    const where = `ردیف ${index + 1}`;
+    if (!slug) problems.push(`${where}: شناسه (slug) خالی است`);
+    else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+      problems.push(`${where}: شناسه «${slug}» باید فقط حروف کوچک انگلیسی، عدد و خط تیره باشد`);
+    else if (seen.has(slug)) problems.push(`${where}: شناسه «${slug}» تکراری است`);
+    else seen.add(slug);
 
-/** Consume one slot. Call only for requests that actually did something. */
-function recordHit(kind, ip) {
-  hits[kind].set(ip, [...recentFor(kind, ip), Date.now()]);
-}
-
-/* Sweep expired entries — otherwise every IP that ever posted stays in memory
-   for the lifetime of the process. */
-setInterval(() => {
-  const cut = Date.now() - RL_WINDOW;
-  for (const map of Object.values(hits)) {
-    for (const [ip, times] of map) {
-      const keep = times.filter((t) => t > cut);
-      if (keep.length) map.set(ip, keep);
-      else map.delete(ip);
-    }
-  }
-}, RL_WINDOW).unref();
-
-/* Tell the client how long to wait instead of showing a generic failure. */
-const tooMany = (res) => {
-  res.setHeader('Retry-After', Math.ceil(RL_WINDOW / 1000));
-  return res.status(429).json({ error: 'rate limited', retryAfter: Math.ceil(RL_WINDOW / 1000) });
+    const price = Number(product?.price);
+    if (product?.active !== false && (!Number.isSafeInteger(price) || price <= 0))
+      problems.push(`${where}: محصول فعال باید قیمت صحیح بیشتر از صفر داشته باشد`);
+    const stock = Number(product?.stock);
+    if (product?.stock !== undefined && (!Number.isSafeInteger(stock) || stock < -1))
+      problems.push(`${where}: موجودی باید ۱- (نامحدود) یا عددی نامنفی باشد`);
+  });
+  return problems;
 };
 
-export function createShopRouter({ database, requireAuth }) {
+export function createShopRouter({ database, requireAuth, rateLimiter }) {
   /* Set by index.js once the account router exists. The two routers need
      each other — orders need the signed-in customer, accounts need the
      logged-and-capped SMS sender — so one of the two links is late-bound
@@ -134,10 +112,36 @@ export function createShopRouter({ database, requireAuth }) {
   let getCustomer = () => null;
   const r = express.Router();
   const D = database;
+  /* Like the origin settings above, evaluate after index.js has loaded .env. */
+  const pendingOrderTtlMs = Math.max(60_000, Number(process.env.PENDING_ORDER_TTL_MS) || 30 * 60 * 1000);
+  const orderSweepIntervalMs = Math.max(30_000, Number(process.env.ORDER_SWEEP_INTERVAL_MS) || 60 * 1000);
 
   const display = () => ({ ...DEFAULT_STATE.shop.display, ...(db.getSetting(D, 'shop.display') || {}) });
   const payment = () => normalizePayment(db.getSetting(D, 'shop.payment') || {});
   const smsCfg = () => normalizeSms(db.getSetting(D, 'shop.sms') || {});
+
+  const limited = (kind, key, res) => {
+    const check = rateLimiter.check(kind, key);
+    return check.limited ? rateLimitResponse(res, check.retryAfter) : null;
+  };
+
+  const sweepExpiredOrders = () => {
+    const cutoff = new Date(Date.now() - pendingOrderTtlMs).toISOString();
+    try {
+      const expired = db.expirePendingOrders(D, cutoff);
+      if (expired.length) console.log(`[shop] expired ${expired.length} unpaid order(s): ${expired.map((order) => order.code).join(', ')}`);
+      return expired;
+    } catch (error) {
+      console.error('[shop] unpaid-order sweep failed:', error.message);
+      return [];
+    }
+  };
+
+  /* Run once on boot for orders left behind while the process was down, then
+     often enough that the practical hold is about thirty minutes rather than
+     thirty minutes plus a deployment cycle. */
+  sweepExpiredOrders();
+  setInterval(sweepExpiredOrders, orderSweepIntervalMs).unref?.();
 
   /* One place where an SMS is attempted, logged and capped.
      Deliberately not awaited by the order path: a message that takes four
@@ -194,7 +198,8 @@ export function createShopRouter({ database, requireAuth }) {
   });
 
   r.post('/api/shop-public/comments', (req, res) => {
-    if (rateLimited('comment', req.ip)) return tooMany(res);
+    const blocked = limited('comment', req.ip, res);
+    if (blocked) return blocked;
     const { slug, name, text } = req.body || {};
     if (!slug || !name || !text) return res.status(400).json({ error: 'fields required' });
     const product = db.getProduct(D, slug);
@@ -212,12 +217,13 @@ export function createShopRouter({ database, requireAuth }) {
       replyAt: null,
     };
     db.insertComment(D, item);
-    recordHit('comment', req.ip);
+    rateLimiter.record('comment', req.ip);
     res.json({ ok: true, id: item.id, pending: !item.approved });
   });
 
   r.post('/api/shop-public/orders', async (req, res) => {
-    if (rateLimited('order', req.ip)) return tooMany(res);
+    const blocked = limited('order', req.ip, res);
+    if (blocked) return blocked;
     const { items, customer } = req.body || {};
     const d = display();
     if (!d.enabled) return res.status(403).json({ error: 'shop disabled' });
@@ -258,29 +264,45 @@ export function createShopRouter({ database, requireAuth }) {
     if (!canonicalPhone) return res.status(400).json({ error: 'invalid phone' });
     const localPhone = toLocalPhone(canonicalPhone);
 
-    /* price strictly server-side */
+    /* Canonicalise the cart BEFORE looking at stock. A hostile client can send
+       the same slug in several lines even though the normal UI stores one map
+       entry per product. Checking five + five separately against stock five
+       approved both lines; reserveStock then deducted ten. */
+    const quantities = new Map();
+    for (const item of items) {
+      const slug = String(item?.slug || '').trim();
+      if (!slug) return res.status(400).json({ error: 'invalid product' });
+      const qty = item?.qty === undefined ? 1 : Number(item.qty);
+      if (!Number.isSafeInteger(qty) || qty <= 0) return res.status(400).json({ error: 'invalid quantity' });
+      const totalQty = (quantities.get(slug) || 0) + qty;
+      if (!Number.isSafeInteger(totalQty) || totalQty > 999)
+        return res.status(400).json({ error: 'invalid quantity' });
+      quantities.set(slug, totalQty);
+    }
+
+    /* Price is strictly server-side and every sellable line must cost at least
+       one rial. This prevents a stale/mistyped zero-price product from reaching
+       either an offline order or a payment gateway with total zero. */
     const lines = [];
     let subtotal = 0;
-    for (const it of items) {
-      const product = db.getProduct(D, it?.slug);
-      if (!product || !product.active) return res.status(400).json({ error: `unknown product: ${it?.slug}` });
-      const qty = Math.max(1, Math.min(999, parseInt(it?.qty, 10) || 1));
+    for (const [slug, qty] of quantities) {
+      const product = db.getProduct(D, slug);
+      if (!product || !product.active) return res.status(400).json({ error: `unknown product: ${slug}` });
       if (Number(product.stock) >= 0 && qty > Number(product.stock))
         return res.status(409).json({ error: 'insufficient stock' });
-      const price = Math.max(0, Math.round(Number(product.price) || 0));
-      lines.push({ slug: product.slug, title: product.title, unit: product.unit || '', price, qty, sum: price * qty });
-      subtotal += price * qty;
+      const price = Math.round(Number(product.price));
+      if (!Number.isSafeInteger(price) || price <= 0)
+        return res.status(409).json({ error: 'product is not available for purchase' });
+      const sum = price * qty;
+      if (!Number.isSafeInteger(sum)) return res.status(400).json({ error: 'invalid order total' });
+      lines.push({ slug: product.slug, title: product.title, unit: product.unit || '', price, qty, sum });
+      subtotal += sum;
     }
     const freeOver = Number(d.freeShippingOver) || 0;
     const shipping = freeOver > 0 && subtotal >= freeOver ? 0 : Math.max(0, Math.round(Number(d.shippingCost) || 0));
     const total = subtotal + shipping;
-
-    /* atomic stock check + decrement (transaction) */
-    const reserved = db.reserveStock(D, lines);
-    if (!reserved.ok) {
-      const status = reserved.error === 'insufficient stock' ? 409 : 400;
-      return res.status(status).json({ error: reserved.error });
-    }
+    if (!Number.isSafeInteger(total) || subtotal <= 0 || total <= 0)
+      return res.status(400).json({ error: 'invalid order total' });
 
     const order = {
       id: crypto.randomUUID(),
@@ -307,7 +329,19 @@ export function createShopRouter({ database, requireAuth }) {
       adminNote: '',
       at: new Date().toISOString(),
       paidAt: null,
+      autoCancelled: false,
     };
+
+    /* Hold stock and create its sweepable order in the same SQLite commit. If
+       Node dies before/during the gateway request, there is no invisible stock
+       leak: the reservation either never happened or the expiry worker can see
+       and release it. */
+    const placed = db.reserveAndInsertOrder(D, order);
+    if (!placed.ok) {
+      const status = placed.error === 'insufficient stock' ? 409 : 400;
+      return res.status(status).json({ error: placed.error });
+    }
+    rateLimiter.record('order', req.ip);
 
     /* payment */
     const pm = payment();
@@ -323,9 +357,17 @@ export function createShopRouter({ database, requireAuth }) {
     }
     order.provider = pay.provider;
     order.payRef = pay.ref;
-
-    db.insertOrder(D, order);
-    recordHit('order', req.ip);
+    /* A very fast callback can settle while createPayment is returning. Do not
+       overwrite its status or verification reference with this earlier
+       authority; only a still-pending order needs the initiation fields. */
+    const afterGateway = db.getOrderById(D, order.id);
+    if (afterGateway?.status === 'pending_payment') {
+      db.updateOrder(D, order.id, { provider: pay.provider, payRef: pay.ref });
+    } else if (afterGateway) {
+      order.status = afterGateway.status;
+      order.provider = afterGateway.provider;
+      order.payRef = afterGateway.payRef;
+    }
 
     /* After the commit, and not awaited: the order exists whatever the SMS
        does. The status link carries the order's private token, which is the
@@ -356,14 +398,34 @@ export function createShopRouter({ database, requireAuth }) {
     });
   });
 
-  /* retry payment for a pending order */
+  /* Retry payment for a pending order. Both the address and the order get a
+     bucket: rotating order codes must not multiply gateway calls, while one
+     leaked token must not be hammered from a botnet without a per-order cap. */
   r.post('/api/shop-public/orders/:code/pay', async (req, res) => {
+    sweepExpiredOrders();
+    const ipKey = `ip:${req.ip || 'unknown'}`;
+    const orderKey = `order:${String(req.params.code || '')}`;
+    const ipLimit = rateLimiter.check('paymentRetry', ipKey);
+    const orderLimit = rateLimiter.check('paymentRetry', orderKey);
+    if (ipLimit.limited || orderLimit.limited)
+      return rateLimitResponse(res, Math.max(ipLimit.retryAfter, orderLimit.retryAfter));
+
     const order = db.getOrderByCode(D, req.params.code);
-    if (!order) return res.status(404).json({ error: 'not found' });
-    if (req.body?.token !== order.token) return res.status(403).json({ error: 'invalid token' });
+    /* Invalid probes consume the IP bucket. A valid call consumes both just
+       before it can cost a gateway request. */
+    if (!order) {
+      rateLimiter.record('paymentRetry', ipKey);
+      return res.status(404).json({ error: 'not found' });
+    }
+    if (!secretEqual(req.body?.token, order.token)) {
+      rateLimiter.record('paymentRetry', ipKey);
+      return res.status(403).json({ error: 'invalid token' });
+    }
     if (order.status !== 'pending_payment') return res.status(409).json({ error: 'order already processed' });
     const pm = payment();
     if (pm.provider === 'offline') return res.status(409).json({ error: 'online payment disabled' });
+    rateLimiter.record('paymentRetry', ipKey);
+    rateLimiter.record('paymentRetry', orderKey);
     const origin = safeOrigin(req, pm.callbackBase);
     try {
       const pay = await createPayment(pm, order, { origin });
@@ -374,10 +436,12 @@ export function createShopRouter({ database, requireAuth }) {
     }
   });
 
-  /* order tracking (needs the private order token) */
+  /* Order tracking (needs the private order token). Use the same constant-time
+     comparison as payment retry so this second token gate is not weaker. */
   r.get('/api/shop-public/orders/:code', (req, res) => {
+    sweepExpiredOrders();
     const order = db.getOrderByCode(D, req.params.code);
-    if (!order || req.query.token !== order.token) return res.status(404).json({ error: 'not found' });
+    if (!order || !secretEqual(req.query.token, order.token)) return res.status(404).json({ error: 'not found' });
     const { token, ...rest } = order;
     res.json({ order: rest });
   });
@@ -424,20 +488,74 @@ export function createShopRouter({ database, requireAuth }) {
     } catch (e) {
       console.error('[shop] verify error:', e.message);
     }
-    if (ok && order.status === 'pending_payment') {
-      db.updateOrder(D, order.id, {
-        status: 'paid',
-        provider,
-        payRef: ref || order.payRef,
-        paidAt: new Date().toISOString(),
-        adminNote: [order.adminNote, paymentNote].filter(Boolean).join('\n'),
-      });
+    if (ok) {
+      /* Verification awaited the gateway, so the order may have expired or an
+         admin may have cancelled it in the meantime. Re-read instead of using
+         the stale status captured before the await. */
+      const current = db.getOrderById(D, order.id);
+      if (current?.status === 'pending_payment') {
+        db.updateOrder(D, order.id, {
+          status: 'paid',
+          provider,
+          payRef: ref || current.payRef,
+          paidAt: new Date().toISOString(),
+          adminNote: [current.adminNote, paymentNote].filter(Boolean).join('\n'),
+          autoCancelled: false,
+        });
+      } else if (current?.status === 'cancelled' && current.autoCancelled) {
+        /* The customer completed payment on the expiry boundary. Claim the
+           callback and re-reserve in one database transaction so duplicate
+           callbacks handled by different Passenger workers cannot deduct the
+           same units twice. A failed reservation commits a claimed-refund
+           marker and urgent note before we await the gateway, while keeping the
+           order cancelled so it never pretends to hold inventory. */
+        const lateSuccess = [
+          current.adminNote,
+          'پرداخت پس از انقضا تأیید و موجودی دوباره رزرو شد.',
+          paymentNote,
+        ].filter(Boolean).join('\n');
+        const lateFailure = [
+          current.adminNote,
+          'هشدار فوری: پرداخت پس از انقضا تأیید شد اما موجودی کافی نبود؛ بازگرداندن خودکار وجه در حال انجام است.',
+          paymentNote,
+        ].filter(Boolean).join('\n');
+        const claimed = db.claimExpiredPayment(D, current.id, {
+          provider,
+          payRef: ref || current.payRef,
+          paidAt: new Date().toISOString(),
+          successNote: lateSuccess,
+          failureNote: lateFailure,
+        });
+
+        if (!claimed.ok) {
+          /* Another callback worker won the compare-and-set. Its committed
+             state is authoritative; this response must not reserve or refund. */
+          ok = db.getOrderById(D, current.id)?.status === 'paid';
+        } else if (!claimed.reserved) {
+          const reversed = await reversePayment(payment(), current.payRef);
+          if (reversed.ok) {
+            ok = false;
+            db.updateOrder(D, current.id, {
+              status: 'cancelled',
+              autoCancelled: false,
+              adminNote: [lateFailure, 'پرداخت دیرهنگام خودکار بازگردانده شد.'].join('\n'),
+            });
+          } else {
+            db.updateOrder(D, current.id, {
+              status: 'paid',
+              autoCancelled: false,
+              adminNote: [lateFailure, 'بازگرداندن خودکار وجه ناموفق بود؛ پیگیری فوری لازم است.'].join('\n'),
+            });
+          }
+        }
+      }
     }
     res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=${ok ? 'ok' : 'fail'}`);
   });
 
   /* ---------------- admin ---------------- */
   r.get('/api/shop-admin', requireAuth, (_req, res) => {
+    sweepExpiredOrders();
     res.json({ orders: db.listOrders(D), comments: db.listComments(D) });
   });
 
@@ -449,32 +567,36 @@ export function createShopRouter({ database, requireAuth }) {
   r.put('/api/shop-admin/products', requireAuth, (req, res) => {
     const b = req.body || {};
     if (Array.isArray(b.products)) {
-      /* Validate the WHOLE list before touching the database. replaceProducts
-         deletes every row and re-inserts, skipping any entry without a usable
-         slug — so a single mistyped slug used to delete that product and still
-         answer 200. Rejecting up front means a bad save changes nothing and
-         the admin is told exactly which row is wrong.
-
-         The duplicate check matters just as much: the slug is the primary key
-         and the URL, so two rows sharing one makes the second unreachable.
-         It also used to hit a UNIQUE constraint and surface as HTTP 500. */
-      const problems = [];
-      const seen = new Set();
-      b.products.forEach((p, i) => {
-        const slug = typeof p?.slug === 'string' ? p.slug.trim() : '';
-        const where = `ردیف ${i + 1}`;
-        if (!slug) problems.push(`${where}: شناسه (slug) خالی است`);
-        else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
-          problems.push(`${where}: شناسه «${slug}» باید فقط حروف کوچک انگلیسی، عدد و خط تیره باشد`);
-        else if (seen.has(slug)) problems.push(`${where}: شناسه «${slug}» تکراری است`);
-        else seen.add(slug);
-      });
+      /* Validate the WHOLE list before replaceProducts deletes/re-inserts it.
+         Stock is always preserved here: this endpoint also receives whole-page
+         snapshots, and an explicit compare-and-set endpoint below is the only
+         safe way to change an existing absolute inventory value. */
+      const problems = shopProductProblems(b.products);
       if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
-      db.replaceProducts(D, b.products);
+      db.replaceProducts(D, b.products, { preserveStock: true });
     }
     if (b.display && typeof b.display === 'object')
       db.setSetting(D, 'shop.display', { ...display(), ...b.display });
     res.json({ ok: true, products: db.listProducts(D), display: display() });
+  });
+
+  /* Existing inventory is an operational value, not ordinary page content.
+     Require the value the admin saw so a sale made in another tab turns into a
+     clear 409 instead of being overwritten by a stale absolute count. */
+  r.patch('/api/shop-admin/products/:slug/stock', requireAuth, (req, res) => {
+    if (!Object.hasOwn(req.body || {}, 'stock') || !Object.hasOwn(req.body || {}, 'expectedStock'))
+      return res.status(400).json({ error: 'stock and expectedStock are required' });
+    const result = db.updateProductStock(D, req.params.slug, req.body.stock, req.body.expectedStock);
+    if (result.ok) return res.json({ ok: true, stock: result.stock });
+    if (result.error === 'not found') return res.status(404).json({ error: 'not found' });
+    if (result.error === 'stock changed') {
+      return res.status(409).json({
+        error: 'stock changed',
+        currentStock: result.stock,
+        detail: 'موجودی پس از باز شدن این صفحه تغییر کرده است؛ اطلاعات را بروزرسانی و دوباره تلاش کنید.',
+      });
+    }
+    return res.status(400).json({ error: result.error });
   });
 
   r.patch('/api/shop-admin/comments/:id', requireAuth, (req, res) => {
@@ -529,6 +651,10 @@ export function createShopRouter({ database, requireAuth }) {
       }
 
       patch.status = b.status;
+      /* A real admin transition supersedes an automatic timeout marker. Merely
+         saving a note while the select still says cancelled must not erase why
+         the timeout happened (late gateway callbacks rely on that fact). */
+      if (b.status !== order.status) patch.autoCancelled = false;
       if (b.status === 'paid' && !order.paidAt) patch.paidAt = new Date().toISOString();
     }
     if ('adminNote' in b) patch.adminNote = String(b.adminNote || '').slice(0, 1000);
@@ -672,7 +798,7 @@ export function createShopRouter({ database, requireAuth }) {
        reserved stock for an order nobody paid for. */
     if (order.status !== 'cancelled') {
       db.restoreStock(D, order.items);
-      db.updateOrder(D, order.id, { status: 'cancelled', adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال بازگردانده شد.`.trim() });
+      db.updateOrder(D, order.id, { status: 'cancelled', autoCancelled: false, adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال بازگردانده شد.`.trim() });
     }
     res.json({ ok: true, order: db.getOrderById(D, order.id) });
   });
@@ -703,6 +829,7 @@ export function createShopRouter({ database, requireAuth }) {
       db.restoreStock(D, order.items);
       db.updateOrder(D, order.id, {
         status: 'cancelled',
+        autoCancelled: false,
         adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال برگشت داده شد.`.trim(),
       });
     }

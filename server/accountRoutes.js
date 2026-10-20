@@ -18,6 +18,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import * as db from './db.js';
 import { normalizePhone, toLocalPhone } from './sms.js';
+import { rateLimitResponse } from './rateLimits.js';
 import {
   hashPassword,
   verifyPassword,
@@ -43,61 +44,10 @@ import {
 
 /* ------------------------------------------------------------ throttles */
 
-/* Per-phone and per-IP, because either alone is trivially sidestepped: one
-   IP can walk a thousand numbers, and a thousand IPs can hammer one number.
-
-   The two axes are deliberately tuned differently. The PER-PHONE cap is the
-   real guard — it is what stops an attacker spending SMS credit and burying
-   someone's inbox, and it is strict. The PER-IP caps are blunt, and in Iran
-   they are blunter than they look: the mobile networks sit behind
-   carrier-grade NAT, so a large number of unrelated customers share one
-   public address. An IP cap tight enough to be meaningful against a bot is
-   also tight enough to lock out a street. They are set to the loosest value
-   that still bounds bulk abuse, and the money is protected by the per-phone
-   cap and the daily send ceiling instead.
-
-   The e2e suite also runs every request from one address, and hitting these
-   is how that was noticed. */
-const LIMITS = {
-  /* OTP is the expensive one: every send costs money and lands on someone's
-     phone. Deliberately tight — per phone. */
-  otpPhone: { max: 5, windowMs: 60 * 60 * 1000 },
-  otpIp: { max: 30, windowMs: 60 * 60 * 1000 },
-  login: { max: 10, windowMs: 15 * 60 * 1000 },
-  /* Registering costs nothing by itself — the SMS that precedes it is
-     already capped twice over — so this one can be generous. */
-  register: { max: 40, windowMs: 60 * 60 * 1000 },
-};
-
-function makeLimiter() {
-  const hits = new Map();
-  /* Unbounded growth is a memory leak an attacker can drive, so the map is
-     swept on every read of a bucket. */
-  const prune = (key, windowMs) => {
-    const now = Date.now();
-    const kept = (hits.get(key) || []).filter((t) => now - t < windowMs);
-    if (kept.length) hits.set(key, kept);
-    else hits.delete(key);
-    return kept;
-  };
-  return {
-    exceeded(key, { max, windowMs }) {
-      return prune(key, windowMs).length >= max;
-    },
-    record(key, { windowMs }) {
-      const kept = prune(key, windowMs);
-      hits.set(key, [...kept, Date.now()]);
-    },
-    clear(key) {
-      hits.delete(key);
-    },
-  };
-}
-
-const tooMany = (res, seconds = 900) => {
-  res.setHeader('Retry-After', String(seconds));
-  return res.status(429).json({ error: 'تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.' });
-};
+/* Per-phone and per-IP buckets are supplied by the shared limiter. The phone
+   axis protects one person's inbox; the much more generous IP axis only
+   bounds bulk abuse because carrier-grade NAT can put a whole neighbourhood
+   behind one public address. Both can be inspected or disabled from Admin. */
 
 /* ---------------------------------------------------------------- router */
 
@@ -110,10 +60,9 @@ const tooMany = (res, seconds = 900) => {
  * @param selfOrigin   (req) => the site's own origin, for the CSRF check
  * @param requireAdmin the admin session guard, for the customers tab
  */
-export function createAccountRouter({ database, dispatchSms, smsSettings, selfOrigin, requireAdmin }) {
+export function createAccountRouter({ database, dispatchSms, smsSettings, selfOrigin, requireAdmin, rateLimiter }) {
   const D = database;
   const r = express.Router();
-  const limiter = makeLimiter();
   const PEPPER = process.env.ADMIN_SECRET || 'khyeast-content-secret-dev';
 
   /* Housekeeping: expired sessions, codes and tickets. Cheap, and it keeps
@@ -127,6 +76,12 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
   }, 15 * 60 * 1000).unref?.();
 
   const ip = (req) => req.ip || 'unknown';
+  const blocked = (kind, key, res) => {
+    const check = rateLimiter.check(kind, key);
+    if (!check.limited) return false;
+    rateLimitResponse(res, check.retryAfter, 'تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.');
+    return true;
+  };
 
   /* Reject a cross-origin state change even if the cookie somehow rode
      along. SameSite=Lax is the first line; this is the second. */
@@ -165,7 +120,9 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
       expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
       ua: req.get('user-agent') || '',
     });
-    const secure = req.secure || req.get('x-forwarded-proto') === 'https';
+    /* Express derives req.secure from X-Forwarded-Proto only when the actual
+       peer matches the configured trust-proxy policy. */
+    const secure = req.secure;
     res.setHeader('Set-Cookie', sessionCookie(token, { secure }));
   };
 
@@ -198,8 +155,8 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     const purpose = ['register', 'reset'].includes(req.body?.purpose) ? req.body.purpose : 'register';
     if (!phone) return res.status(400).json({ error: 'شماره موبایل معتبر نیست.' });
 
-    if (limiter.exceeded(`otp:ip:${ip(req)}`, LIMITS.otpIp)) return tooMany(res, 3600);
-    if (limiter.exceeded(`otp:ph:${phone}`, LIMITS.otpPhone)) return tooMany(res, 3600);
+    if (blocked('otpIp', ip(req), res)) return;
+    if (blocked('otpPhone', phone, res)) return;
 
     /* A code already sent moments ago is still valid — resending would cost
        another message and confuse the customer about which code is live. */
@@ -236,8 +193,8 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
       });
     }
 
-    limiter.record(`otp:ip:${ip(req)}`, LIMITS.otpIp);
-    limiter.record(`otp:ph:${phone}`, LIMITS.otpPhone);
+    rateLimiter.record('otpIp', ip(req));
+    rateLimiter.record('otpPhone', phone);
     res.json({ ok: true, sent: true, resendAfter: Math.ceil(OTP_RESEND_MS / 1000) });
   });
 
@@ -285,7 +242,7 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
 
   r.post('/api/account/register', (req, res) => {
     if (!sameOrigin(req, res)) return;
-    if (limiter.exceeded(`reg:${ip(req)}`, LIMITS.register)) return tooMany(res, 3600);
+    if (blocked('register', ip(req), res)) return;
 
     const ticket = db.consumeTicket(D, hashToken(String(req.body?.ticket || '')), 'register');
     if (!ticket) return res.status(400).json({ error: 'تأیید شماره منقضی شده است؛ دوباره کد بگیرید.' });
@@ -311,7 +268,7 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
       at: new Date().toISOString(),
     });
 
-    limiter.record(`reg:${ip(req)}`, LIMITS.register);
+    rateLimiter.record('register', ip(req));
     startSession(req, res, row.id);
     res.json({ ok: true, ...accountOf(row) });
   });
@@ -321,16 +278,16 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
   r.post('/api/account/login', (req, res) => {
     if (!sameOrigin(req, res)) return;
     const phone = normalizePhone(req.body?.phone);
-    const key = `login:${phone || ip(req)}`;
-    if (limiter.exceeded(key, LIMITS.login) || limiter.exceeded(`login:ip:${ip(req)}`, { max: 30, windowMs: 15 * 60 * 1000 }))
-      return tooMany(res);
+    const phoneKey = phone || `invalid:${ip(req)}`;
+    if (blocked('customerLogin', phoneKey, res)) return;
+    if (blocked('customerLoginIp', ip(req), res)) return;
 
     /* One sentence for every failure — wrong number, wrong password,
        blocked account. Anything more tells a stranger which numbers are
        customers of this shop. */
     const deny = () => {
-      limiter.record(key, LIMITS.login);
-      limiter.record(`login:ip:${ip(req)}`, { windowMs: 15 * 60 * 1000 });
+      rateLimiter.record('customerLogin', phoneKey);
+      rateLimiter.record('customerLoginIp', ip(req));
       return res.status(401).json({ error: 'شماره موبایل یا رمز عبور درست نیست.' });
     };
 
@@ -339,7 +296,7 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     if (!row || row.blocked) return deny();
     if (!verifyPassword(String(req.body?.password || ''), row.pass_hash)) return deny();
 
-    limiter.clear(key);
+    rateLimiter.clear('customerLogin', phoneKey);
     const loggedIn = db.updateCustomer(D, row.id, { lastLoginAt: new Date().toISOString() });
     startSession(req, res, row.id);
     res.json({ ok: true, ...accountOf(loggedIn) });

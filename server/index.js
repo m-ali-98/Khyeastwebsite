@@ -28,23 +28,16 @@ import {
   renderSitemap,
   resolveSeo,
 } from '../shared/seo.js';
-import { createShopRouter } from './shop.js';
+import { createShopRouter, shopProductProblems } from './shop.js';
 import { createAccountRouter } from './accountRoutes.js';
 import { optimizeImage, optimiserAvailable } from './images.js';
 import { UPLOAD_LADDER } from '../shared/uploadSizes.js';
 import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
 import * as store from './db.js';
+import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
+import { readCookie } from './accounts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-/* DATA_DIR / UPLOAD_DIR are overridable so an automated run can point the
-   whole persistence layer at a scratch directory. Without this the browser
-   tests would edit the real content.json of whoever runs them. */
-const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
-const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(__dirname, 'uploads');
-const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
-const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
-const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
-const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'khyeast.db');
 
 /* Load server/.env or ./.env if present, without adding a dependency.
    Real environment variables always win, so a host's own settings are never
@@ -62,6 +55,14 @@ for (const envPath of [path.join(__dirname, '.env'), path.join(__dirname, '..', 
   }
 }
 
+/* Evaluate filesystem overrides only after .env has been loaded. This keeps a
+   cPanel deployment and the scratch test harnesses out of the real data tree. */
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(__dirname, 'uploads');
+const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
+const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
+const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
+const DB_FILE = process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : path.join(DATA_DIR, 'khyeast.db');
 const PORT = process.env.PORT || 8787;
 
 /* The SEO renderer needs all three translation packs synchronously while it
@@ -135,6 +136,8 @@ if (!seedReport.skipped) {
   );
 }
 
+const rateLimiter = createRateLimiter({ database: db, store });
+
 /* content.json no longer stores the shop section — the DB does. */
 try {
   const c = readJSON(CONTENT_FILE);
@@ -173,9 +176,10 @@ const readContent = () => {
  *  snapshot back over the live figures, silently undoing every sale made since
  *  the page was opened — a customer's order would vanish from inventory.
  *
- *  The shop tab has no stock field for existing products, so the payload never
- *  carries a deliberate stock change: the live value always wins. A genuinely
- *  new product still gets the stock it was created with. */
+ *  The shop editor does have an inventory field. Existing stock changes use a
+ *  dedicated compare-and-set endpoint after this content save, so an explicit
+ *  edit is applied only if the live value still matches what the admin saw.
+ *  A genuinely new product keeps the initial stock carried by this payload. */
 const writeContent = (next) => {
   const { shop, ...rest } = next;
   if (shop && typeof shop === 'object') {
@@ -261,14 +265,52 @@ const verify = (token) => {
     return null;
   }
 };
+const ADMIN_COOKIE = 'ky_admin';
 const bearer = (req) => {
   const header = req.get('authorization') || '';
   return header.startsWith('Bearer ') ? header.slice(7) : null;
 };
+const adminCookie = (token, req) => {
+  /* req.secure is proxy-aware because trust proxy is configured below. Never
+     inspect X-Forwarded-Proto directly: an untrusted direct client can forge
+     that header. */
+  const secure = req.secure;
+  const parts = [
+    `${ADMIN_COOKIE}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    `Max-Age=${Math.floor(TOKEN_TTL / 1000)}`,
+  ];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+};
+const clearAdminCookie = (req) => {
+  return `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${req.secure ? '; Secure' : ''}`;
+};
+const ownOrigin = (req) => {
+  if (process.env.PUBLIC_ORIGIN) return String(process.env.PUBLIC_ORIGIN).replace(/\/+$/, '');
+  return `${req.secure ? 'https' : 'http'}://${req.get('host')}`;
+};
 const requireAuth = (req, res, next) => {
-  const token = bearer(req);
+  res.setHeader('Cache-Control', 'private, no-store');
+  /* Bearer support remains for trusted scripts and existing integrations, but
+     the browser panel uses only the HttpOnly cookie. A script injected into
+     the page can issue a request while it runs; it can no longer copy the
+     credential out of localStorage and take it somewhere else. */
+  const bearerToken = bearer(req);
+  const cookieToken = readCookie(req.headers.cookie, ADMIN_COOKIE);
+  const token = bearerToken || cookieToken;
   const payload = token && verify(token);
   if (!payload) return res.status(401).json({ error: 'unauthorized' });
+
+  /* Cookie authentication needs an explicit CSRF boundary in addition to
+     SameSite=Strict. Native tools omit Origin and use Bearer; a browser that
+     sends an Origin on a state change must name this exact site. */
+  if (!bearerToken && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    const origin = req.get('origin');
+    if (origin && origin !== ownOrigin(req)) return res.status(403).json({ error: 'forbidden' });
+  }
   req.session = payload;
   next();
 };
@@ -276,8 +318,9 @@ const requireAuth = (req, res, next) => {
 /* ---------------- uploads ---------------- */
 /* SVG is deliberately NOT accepted. An .svg is an XML document that may carry
    <script> and event handlers, and it is served from our own origin — so an
-   uploaded SVG becomes stored XSS able to read the admin token out of
-   localStorage. Raster formats cannot execute. */
+   uploaded SVG becomes stored XSS able to act through the admin's live cookie
+   even though HttpOnly prevents stealing that credential. Raster formats
+   cannot execute. */
 const ALLOWED = {
   image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif'],
   video: ['.mp4', '.webm', '.mov', '.m4v'],
@@ -313,6 +356,27 @@ const upload = multer({
 const DIST = path.join(__dirname, '..', 'dist');
 
 const app = express();
+
+/* Apache/Passenger on cPanel normally reaches Node over loopback or a private
+   address. Trusting only those proxy ranges lets Express peel their
+   X-Forwarded-For hop and expose the real visitor as req.ip, while a direct
+   public connection still cannot spoof that header. Override with TRUST_PROXY
+   when the deployment topology is different (`false`, a hop count, or any
+   Express proxy-addr expression). Never default to `true`, which trusts every
+   client-supplied hop. */
+const parseTrustProxy = (raw) => {
+  const value = String(raw ?? '').trim();
+  if (!value) return 'loopback, linklocal, uniquelocal';
+  if (/^(false|off|no|0)$/i.test(value)) return false;
+  if (/^(true|on|yes)$/i.test(value)) return true;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+};
+const TRUST_PROXY_SETTING = parseTrustProxy(process.env.TRUST_PROXY);
+app.set('trust proxy', TRUST_PROXY_SETTING);
+if (TRUST_PROXY_SETTING === true) {
+  console.warn('[content-api] WARNING: TRUST_PROXY=true trusts forwarded IP headers from every direct client.');
+}
 
 /* gzip/deflate every text response — the single biggest win on slow links
    (HTML/JS/CSS/JSON shrink ~70%). Images are already compressed, so skipped. */
@@ -397,7 +461,7 @@ app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   /* HSTS only over TLS, and only in production — sending it from a plain-HTTP
      dev server would pin developers to https://localhost. */
-  if (IS_PROD && (req.secure || req.get('x-forwarded-proto') === 'https')) {
+  if (IS_PROD && req.secure) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
   next();
@@ -427,39 +491,19 @@ app.get('/api/content', (_req, res) => {
 });
 
 /* The contact form is public and unauthenticated, so without a limit anyone
-   can flood the inbox — burying real enquiries and growing the database
-   until the disk fills. Generous enough that a person correcting a typo and
-   resubmitting is never blocked. */
-/* The ceiling is overridable so an end-to-end run, which drives the same
-   flows from one address far faster than any person, is not throttled into
-   false failures. Unset — i.e. in production — the published limit applies. */
-const MSG_WINDOW = 10 * 60 * 1000;
-const MSG_MAX = Number(process.env.RL_MAX_MESSAGE) || 5;
-const msgHits = new Map();
-
-setInterval(() => {
-  const cut = Date.now() - MSG_WINDOW;
-  for (const [ip, times] of msgHits) {
-    const keep = times.filter((t) => t > cut);
-    if (keep.length) msgHits.set(ip, keep);
-    else msgHits.delete(ip);
-  }
-}, MSG_WINDOW).unref();
-
+   can flood the inbox. The shared limiter defaults to a generous 30 valid
+   messages per visitor / 10 minutes and can be tuned or disabled in Admin. */
 app.post('/api/messages', (req, res) => {
   const ip = req.ip || 'unknown';
-  const now = Date.now();
-  const recent = (msgHits.get(ip) || []).filter((t) => now - t < MSG_WINDOW);
-  if (recent.length >= MSG_MAX) {
-    res.setHeader('Retry-After', Math.ceil(MSG_WINDOW / 1000));
-    return res.status(429).json({ error: 'too many messages, please try again later' });
-  }
+  const limit = rateLimiter.check('message', ip);
+  if (limit.limited)
+    return rateLimitResponse(res, limit.retryAfter, 'too many messages, please try again later');
   const { name, phone, email, subject, message } = req.body || {};
   if (!name || !phone || !message) return res.status(400).json({ error: 'fields required' });
   /* Count the attempt only once it is known to be a real submission. Charging
      the quota before validation meant a visitor who mistyped their phone five
      times was locked out for ten minutes without ever sending a message. */
-  msgHits.set(ip, [...recent, now]);
+  rateLimiter.record('message', ip);
   const item = {
     id: crypto.randomUUID(),
     name: String(name).slice(0, 200),
@@ -475,31 +519,19 @@ app.post('/api/messages', (req, res) => {
 });
 
 /* ---------------- auth ---------------- */
-/* Throttle password guessing. Without this the admin password can be brute
-   forced at network speed; the panel is protected by a single credential, so
-   this is the only thing standing between a guesser and full content control.
-   Entries are swept so the map cannot grow without bound. */
-const LOGIN_WINDOW = 15 * 60 * 1000;
-const LOGIN_MAX = 8;
-const loginHits = new Map();
+app.use('/api/auth', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
 
-setInterval(() => {
-  const cut = Date.now() - LOGIN_WINDOW;
-  for (const [ip, times] of loginHits) {
-    const keep = times.filter((t) => t > cut);
-    if (keep.length) loginHits.set(ip, keep);
-    else loginHits.delete(ip);
-  }
-}, LOGIN_WINDOW).unref();
-
+/* Failed admin logins share the runtime-configurable limiter. The default is
+   intentionally much more forgiving than the old eight-attempt ceiling, but
+   still bounds network-speed password guessing. */
 app.post('/api/auth/login', (req, res) => {
   const ip = req.ip || 'unknown';
-  const now = Date.now();
-  const recent = (loginHits.get(ip) || []).filter((t) => now - t < LOGIN_WINDOW);
-  if (recent.length >= LOGIN_MAX) {
-    res.setHeader('Retry-After', Math.ceil(LOGIN_WINDOW / 1000));
-    return res.status(429).json({ error: 'too many attempts, try again later' });
-  }
+  const limit = rateLimiter.check('adminLogin', ip);
+  if (limit.limited)
+    return rateLimitResponse(res, limit.retryAfter, 'too many attempts, try again later');
 
   const { user, pass } = req.body || {};
   /* Compare in constant time so response latency cannot reveal how much of
@@ -510,29 +542,77 @@ app.post('/api/auth/login', (req, res) => {
     return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
   };
   if (!eq(user, ADMIN_USER) || !eq(pass, ADMIN_PASS)) {
-    loginHits.set(ip, [...recent, now]);
+    rateLimiter.record('adminLogin', ip);
     return res.status(401).json({ error: 'invalid credentials' });
   }
 
-  loginHits.delete(ip); // successful login clears the counter
+  rateLimiter.clear('adminLogin', ip); // successful login clears the counter
   const exp = Date.now() + TOKEN_TTL;
-  res.json({ token: sign({ user, exp, sid: sessionStart(exp) }) });
+  const token = sign({ user, exp, sid: sessionStart(exp) });
+  res.setHeader('Set-Cookie', adminCookie(token, req));
+  /* The credential exists only in Set-Cookie. Returning it in JSON would make
+     the supposedly HttpOnly session readable to page JavaScript at login. */
+  res.json({ ok: true });
 });
 
-app.get('/api/auth/me', requireAuth, (req, res) => res.json({ ok: true }));
+app.get('/api/auth/me', (req, res) => {
+  /* Session discovery is an expected anonymous request on the address-bar-only
+     Admin page. Return a quiet negative result when there is no credential at
+     all (rather than creating a noisy browser 401); presented-but-invalid or
+     revoked credentials still fail closed through requireAuth. */
+  if (!bearer(req) && !readCookie(req.headers.cookie, ADMIN_COOKIE)) {
+    return res.json({ ok: false, authenticated: false });
+  }
+  return requireAuth(req, res, () => res.json({ ok: true, authenticated: true }));
+});
 
-/* Ending the session server-side is what actually revokes the token; clearing
-   localStorage in the browser only hides it. */
+/* Ending the session server-side is what actually revokes the credential;
+   expiring the browser cookie alone would only hide its copied value. */
 app.post('/api/auth/logout', requireAuth, (req, res) => {
   sessionEnd(req.session.sid);
+  res.setHeader('Set-Cookie', clearAdminCookie(req));
   res.json({ ok: true });
 });
 
 /* Escape hatch for a token believed to be stolen: invalidates every session,
    including the caller's, so the admin can lock everyone out and log back in. */
-app.post('/api/auth/logout-all', requireAuth, (_req, res) => {
+app.post('/api/auth/logout-all', requireAuth, (req, res) => {
   sessionEndAll();
+  res.setHeader('Set-Cookie', clearAdminCookie(req));
   res.json({ ok: true });
+});
+
+/* ---------------- admin: proxy + rate limits ---------------- */
+const trustProxyDescription = () => {
+  if (TRUST_PROXY_SETTING === false) return 'disabled';
+  if (TRUST_PROXY_SETTING === true) return 'all (unsafe unless direct access is impossible)';
+  if (typeof TRUST_PROXY_SETTING === 'number') return `${TRUST_PROXY_SETTING} hop(s)`;
+  return String(TRUST_PROXY_SETTING);
+};
+
+const securitySnapshot = (req) => {
+  const forwardedFor = String(req.get('x-forwarded-for') || '').slice(0, 500);
+  const socketIp = String(req.socket?.remoteAddress || 'unknown');
+  const forwardedSeen = Boolean(forwardedFor);
+  const proxyResolved = forwardedSeen && Array.isArray(req.ips) && req.ips.length > 0;
+  return {
+    rateLimits: rateLimiter.settings(),
+    proxy: {
+      setting: trustProxyDescription(),
+      configuredBy: process.env.TRUST_PROXY === undefined ? 'safe-default' : 'environment',
+      clientIp: req.ip || 'unknown',
+      chain: Array.isArray(req.ips) ? req.ips : [],
+      socketIp,
+      forwardedFor,
+      status: !forwardedSeen ? 'direct' : proxyResolved ? 'resolved' : 'forwarded-header-not-trusted',
+    },
+  };
+};
+
+app.get('/api/admin/security', requireAuth, (req, res) => res.json(securitySnapshot(req)));
+app.put('/api/admin/security', requireAuth, (req, res) => {
+  rateLimiter.update(req.body?.rateLimits || req.body || {});
+  res.json({ ok: true, ...securitySnapshot(req) });
 });
 
 /* ---------------- admin: content ---------------- */
@@ -560,6 +640,11 @@ app.put('/api/content', requireAuth, (req, res) => {
       if (seen.has(id)) return res.status(400).json({ error: `${bucket}[${i}]: duplicate ${key} "${id}"` });
       seen.add(id);
     }
+  }
+
+  if (Array.isArray(next.shop?.products)) {
+    const problems = shopProductProblems(next.shop.products);
+    if (problems.length) return res.status(400).json({ error: 'invalid shop products', problems });
   }
 
   /* Trust seals become executable destinations and expand img-src in the
@@ -699,7 +784,7 @@ app.use(
 );
 
 /* ---------------- online shop + customer accounts ---------------- */
-const shopRouter = createShopRouter({ database: db, requireAuth });
+const shopRouter = createShopRouter({ database: db, requireAuth, rateLimiter });
 app.use(shopRouter);
 
 /* The account router borrows the shop's SMS sender so the daily cap and the
@@ -710,10 +795,11 @@ const accountRouter = createAccountRouter({
   dispatchSms: shopRouter.dispatchSms,
   smsSettings: shopRouter.smsSettings,
   requireAdmin: requireAuth,
+  rateLimiter,
   /* Same rule as the payment callbacks: PUBLIC_ORIGIN wins, and a Host
      header from the client is never trusted to describe us. */
   selfOrigin: (req) =>
-    process.env.PUBLIC_ORIGIN || `${req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http'}://${req.get('host')}`,
+    process.env.PUBLIC_ORIGIN || `${req.secure ? 'https' : 'http'}://${req.get('host')}`,
 });
 shopRouter.useCustomer(accountRouter.currentCustomer);
 app.use(accountRouter);
@@ -735,8 +821,7 @@ if (fs.existsSync(DIST)) {
   const canonicalProductionOrigin = configuredOrigin || (IS_PROD && trustedHosts[0] ? normalizeOrigin(`https://${trustedHosts[0]}`) : '');
   const requestOrigin = (req) => {
     if (canonicalProductionOrigin) return canonicalProductionOrigin;
-    const secure = req.secure || req.get('x-forwarded-proto') === 'https';
-    return normalizeOrigin(`${secure ? 'https' : 'http'}://${req.get('host')}`);
+    return normalizeOrigin(`${req.secure ? 'https' : 'http'}://${req.get('host')}`);
   };
   const seoState = () => {
     try {
@@ -751,8 +836,7 @@ if (fs.existsSync(DIST)) {
      independent, but before robots, sitemap and static files. */
   app.use((req, res, next) => {
     if (!IS_PROD || !canonicalProductionOrigin) return next();
-    const secure = req.secure || req.get('x-forwarded-proto') === 'https';
-    const incoming = normalizeOrigin(`${secure ? 'https' : 'http'}://${req.get('host')}`);
+    const incoming = normalizeOrigin(`${req.secure ? 'https' : 'http'}://${req.get('host')}`);
     if (incoming === canonicalProductionOrigin) return next();
     return res.redirect(301, `${canonicalProductionOrigin}${req.originalUrl}`);
   });

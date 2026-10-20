@@ -27,7 +27,8 @@ const ROOT = path.resolve(HERE, '../..');
 
 const PORT = 8973;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DB = path.join(os.tmpdir(), `ky-harden-test-${process.pid}.db`);
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-harden-test-'));
+const DB = path.join(DATA_DIR, 'hardening.db');
 
 let pass = 0;
 let fail = 0;
@@ -43,7 +44,15 @@ let server;
 const start = async () => {
   server = spawn('node', ['server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), DB_FILE: DB, PUBLIC_ORIGIN: BASE, NODE_ENV: 'development' },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      DATA_DIR,
+      UPLOAD_DIR: path.join(DATA_DIR, 'uploads'),
+      DB_FILE: DB,
+      PUBLIC_ORIGIN: BASE,
+      NODE_ENV: 'development',
+    },
     stdio: 'ignore',
   });
   for (let i = 0; i < 100; i += 1) {
@@ -181,17 +190,44 @@ try {
     /no-store/.test(cors.headers.get('cache-control') || ''),
     'live content snapshots are never stored by a browser or intermediary',
   );
+
+  /* The default proxy policy trusts only loopback/private reverse proxies.
+     This is the cPanel Apache/Passenger shape: Node sees Apache on loopback
+     and req.ip must become the public address Apache forwarded. */
+  const login = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-Proto': 'https' },
+    body: JSON.stringify({ user: 'admin', pass: 'khyeast-1404' }),
+  });
+  const loginBody = await login.json();
+  const adminCookie = login.headers.get('set-cookie') || '';
+  const adminCookiePair = adminCookie.split(';')[0];
+  check(/\bky_admin=/.test(adminCookie) && /HttpOnly/i.test(adminCookie), 'admin session is issued as an HttpOnly cookie');
+  check(/SameSite=Strict/i.test(adminCookie), 'admin session cookie is SameSite=Strict');
+  check(/;\s*Secure/i.test(adminCookie), 'trusted HTTPS proxy makes the admin cookie Secure');
+  check(!Object.hasOwn(loginBody, 'token'), 'admin credential is never returned to JavaScript in login JSON');
+
+  const csrf = await fetch(`${BASE}/api/admin/security`, {
+    method: 'PUT',
+    headers: { Cookie: adminCookiePair, Origin: 'https://evil.example', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rateLimits: { enabled: false } }),
+  });
+  check(csrf.status === 403, 'cross-origin state changes cannot ride the admin cookie', `got ${csrf.status}`);
+
+  const diagnostic = await fetch(`${BASE}/api/admin/security`, {
+    headers: {
+      Cookie: adminCookiePair,
+      'X-Forwarded-For': '203.0.113.42',
+    },
+  });
+  const security = await diagnostic.json();
+  check(diagnostic.ok && security.proxy?.clientIp === '203.0.113.42', 'trusted local proxy resolves the real visitor IP', JSON.stringify(security.proxy));
+  check(security.proxy?.status === 'resolved', 'admin proxy diagnostics report a resolved forwarded address');
 } catch (e) {
   check(false, 'hardening harness', String(e.message).slice(0, 120));
 } finally {
   if (server) server.kill('SIGKILL');
-  for (const f of [DB, `${DB}-wal`, `${DB}-shm`]) {
-    try {
-      fs.unlinkSync(f);
-    } catch {
-      /* already gone */
-    }
-  }
+  try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch {}
 }
 
 console.log(`${pass}/${pass + fail}`);

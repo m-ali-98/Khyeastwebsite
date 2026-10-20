@@ -36,6 +36,11 @@ test('the login screen rejects a wrong password and accepts the right one', asyn
   await card.locator('input[type="password"]').fill(E2E.pass);
   await card.getByRole('button', { name: 'ورود به پنل' }).click();
   await expect(page.locator('.admin__side')).toBeVisible();
+
+  expect(await page.evaluate(() => localStorage.getItem('ky_admin_token'))).toBeNull();
+  const session = (await page.context().cookies()).find((cookie) => cookie.name === 'ky_admin');
+  expect(session?.httpOnly).toBe(true);
+  expect(session?.sameSite).toBe('Strict');
 });
 
 test('the panel logo stays small on the login card', async ({ page }) => {
@@ -53,7 +58,8 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
 
   const labels = [
     'محصولات', 'وبلاگ', 'فروشگاه — محصولات', 'سفارش‌ها', 'دیدگاه‌ها',
-    'درگاه پرداخت', 'متون سایت', 'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
+    'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'متون سایت',
+    'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
   ];
   for (const label of labels) {
     await adminTab(page, label).first().click();
@@ -61,6 +67,31 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
     await expect(page.locator('.admin__panel h1').first()).not.toBeEmpty();
   }
   expect(errors, 'console errors while touring the panel').toEqual([]);
+});
+
+test('security settings show the effective IP and can disable all rate limits', async ({ page }) => {
+  await loginAdmin(page);
+  await adminTab(page, 'امنیت و محدودیت‌ها').click();
+
+  const panel = page.getByTestId('admin-security');
+  await expect(panel.getByRole('heading', { name: 'تشخیص IP و پراکسی' })).toBeVisible();
+  await expect(panel).toContainText('req.ip');
+  await expect(panel).toContainText('loopback');
+
+  const toggle = panel.getByRole('checkbox');
+  const originallyEnabled = await toggle.isChecked();
+  if (originallyEnabled) await toggle.uncheck();
+  await panel.getByRole('button', { name: 'ذخیره تنظیمات امنیتی' }).click();
+  await expect(panel.getByRole('status')).toContainText('ذخیره شد');
+  await expect(toggle).not.toBeChecked();
+
+  /* Do not leave the shared E2E server unprotected for later specs. */
+  if (originallyEnabled) {
+    await toggle.check();
+    await panel.getByRole('button', { name: 'ذخیره تنظیمات امنیتی' }).click();
+    await expect(panel.getByRole('status')).toContainText('ذخیره شد');
+    await expect(toggle).toBeChecked();
+  }
 });
 
 test('switching the panel to English swaps in the translation editors', async ({ page }) => {
@@ -307,7 +338,6 @@ test('the admin can publish one to four third-party trust seals in the footer', 
   await expect(page.locator('.footer__trust')).toHaveCount(0);
 
   await loginAdmin(page);
-  const token = await page.evaluate(() => localStorage.getItem('ky_admin_token'));
   const original = await page.evaluate(() => fetch('/api/content', { cache: 'no-store' }).then((response) => response.json()));
 
   /* The seal stays remote, like the real eNamad logo. Intercept only the test
@@ -354,11 +384,8 @@ test('the admin can publish one to four third-party trust seals in the footer', 
     await seal.scrollIntoViewIfNeeded();
     await expect.poll(() => seal.locator('img').evaluate((image) => image.naturalWidth)).toBe(1);
   } finally {
-    if (token && original) {
-      const restored = await page.request.put(new URL('/api/content', page.url()).href, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: original,
-      });
+    if (original) {
+      const restored = await page.request.put(new URL('/api/content', page.url()).href, { data: original });
       expect(restored.ok(), 'trust-seal fixture cleanup failed').toBe(true);
     }
   }
@@ -383,7 +410,6 @@ test('the shop products tab can refresh live stock without clobbering it', async
 
 test('the shop showcase can publish multiple independently linked images', async ({ page }) => {
   await loginAdmin(page);
-  const token = await page.evaluate(() => localStorage.getItem('ky_admin_token'));
   const original = await page.evaluate(() => fetch('/api/content', { cache: 'no-store' }).then((response) => response.json()));
 
   try {
@@ -418,11 +444,8 @@ test('the shop showcase can publish multiple independently linked images', async
     await expect(showcase.locator('.shop-showcase__slide').nth(0)).toHaveAttribute('aria-hidden', 'false');
     await expect(showcase).toHaveAttribute('data-autoplay', 'false');
   } finally {
-    if (token && original) {
-      const restored = await page.request.put(new URL('/api/content', page.url()).href, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: original,
-      });
+    if (original) {
+      const restored = await page.request.put(new URL('/api/content', page.url()).href, { data: original });
       expect(restored.ok(), 'showcase fixture cleanup failed').toBe(true);
     }
   }

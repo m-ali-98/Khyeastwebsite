@@ -8,16 +8,13 @@ const Ctx = createContext(null);
 
 const clone = (v) => (typeof structuredClone === 'function' ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
 
-export const tokenGet = () => localStorage.getItem('ky_admin_token') || '';
-export const tokenSet = (t) => (t ? localStorage.setItem('ky_admin_token', t) : localStorage.removeItem('ky_admin_token'));
-
-export const api = async (path, { method = 'GET', body, auth = false, formData } = {}) => {
+export const api = async (path, { method = 'GET', body, auth: _auth = false, formData } = {}) => {
   const headers = {};
-  if (auth) headers.Authorization = `Bearer ${tokenGet()}`;
   if (body && !formData) headers['Content-Type'] = 'application/json';
   const res = await fetch(path, {
     method,
     headers,
+    credentials: 'same-origin',
     body: formData || (body ? JSON.stringify(body) : undefined),
   });
   if (res.status === 401) throw Object.assign(new Error('unauthorized'), { status: 401 });

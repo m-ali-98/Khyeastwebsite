@@ -135,7 +135,7 @@ test('a11y the customer account panel', async ({ page }) => {
 
 test('a11y the admin tabs added with the shop', async ({ page }) => {
   await loginAdmin(page);
-  for (const tab of ['سفارش‌ها', 'مشتریان', 'پیامک', 'درگاه پرداخت']) {
+  for (const tab of ['سفارش‌ها', 'مشتریان', 'پیامک', 'درگاه پرداخت', 'امنیت و محدودیت‌ها']) {
     await page.locator('.admin__side button', { hasText: tab }).click();
     await expect(page.locator('.admin__panel h1')).toBeVisible();
     const results = await audit(page);

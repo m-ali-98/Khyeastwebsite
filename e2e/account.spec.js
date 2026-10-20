@@ -12,9 +12,8 @@ import { gotoReady, routeSettled, watchConsole, loginAdmin, E2E, uniquePhone, si
 
 /* The customer's inbox, read through the admin API. */
 async function codeFor(page, phone) {
-  const admin = await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
-  const { token } = await admin.json();
-  const log = await (await page.request.get('/api/shop-admin/sms', { headers: { Authorization: `Bearer ${token}` } })).json();
+  await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
+  const log = await (await page.request.get('/api/shop-admin/sms')).json();
   const row = (log.log || []).find((l) => l.kind === 'otp' && l.phone.endsWith(phone.slice(-4)));
   return row?.text.match(/(\d{5})/)?.[1];
 }

@@ -169,7 +169,7 @@ try {
   console.log('  FAIL sms harness error');
 }
 
-console.log('\nAuth — logging out must revoke the token, not just forget it');
+console.log('\nAuth — logging out must revoke the session, not just hide its cookie');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'auth.mjs')], { cwd: HERE, timeout: 60000 });
   const line = stdout.trim().split('\n').pop();
@@ -290,6 +290,19 @@ for (const [file, label, timeout] of [
     record(false, name, String(e.message).slice(0, 90));
     console.log(`  FAIL ${name} harness error`);
   }
+}
+
+console.log('\nInventory — duplicate carts and abandoned payments cannot oversell');
+{
+  const { stdout, crashed, err } = await suite('inventory.mjs', 40000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'inventory', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} stock and expiry checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
 }
 
 console.log('\nBehaviour — limits, errors and inventory must not cost a sale');

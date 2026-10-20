@@ -91,15 +91,16 @@ const login = async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user: 'admin', pass: PASS }),
   });
-  return (await r.json()).token;
+  await r.json();
+  return (r.headers.get('set-cookie') || '').split(';')[0];
 };
 
-const send = async (token, buf, filename, type) => {
+const send = async (cookie, buf, filename, type) => {
   const fd = new FormData();
   fd.append('file', new Blob([buf], { type }), filename);
   const r = await fetch(`${BASE}/api/upload`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Cookie: cookie, Origin: BASE },
     body: fd,
   });
   return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -154,7 +155,7 @@ try {
     /* ---- and deleting the image takes the set with it ------------------ */
     const del = await fetch(`${BASE}/api/upload`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
       body: JSON.stringify({ url: body.url }),
     });
     const delBody = await del.json().catch(() => ({}));

@@ -128,12 +128,11 @@ export { E2E };
  *  `page.request` shares cookies with the browser context, which is what
  *  makes this work without driving three forms. */
 export async function signUpCustomer(page, { phone, password = 'e2e-customer-1404', name = 'مشتری آزمون' } = {}) {
-  const admin = await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
-  const { token } = await admin.json();
+  await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
 
   await page.request.post('/api/account/otp', { data: { phone, purpose: 'register' } });
 
-  const log = await (await page.request.get('/api/shop-admin/sms', { headers: { Authorization: `Bearer ${token}` } })).json();
+  const log = await (await page.request.get('/api/shop-admin/sms')).json();
   const row = (log.log || []).find((l) => l.kind === 'otp' && l.phone.endsWith(phone.slice(-4)));
   const code = row?.text.match(/(\d{5})/)?.[1];
   if (!code) throw new Error(`no verification code was sent to ${phone}`);

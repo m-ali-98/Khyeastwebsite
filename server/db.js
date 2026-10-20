@@ -71,10 +71,12 @@ function migrate(db) {
       pay_ref    TEXT,
       admin_note TEXT NOT NULL DEFAULT '',
       at         TEXT NOT NULL,
-      paid_at    TEXT
+      paid_at    TEXT,
+      auto_cancelled INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_orders_at ON orders(at DESC);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+    CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at);
 
     CREATE TABLE IF NOT EXISTS order_items (
       order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -211,6 +213,10 @@ function migrate(db) {
     db.exec('ALTER TABLE orders ADD COLUMN customer_id TEXT');
     db.exec('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)');
   }
+  if (!orderCols.includes('auto_cancelled')) {
+    db.exec('ALTER TABLE orders ADD COLUMN auto_cancelled INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at)');
 }
 
 /* ------------------------------------------------------- small utilities */
@@ -314,17 +320,45 @@ export function replaceProducts(db, products, { preserveStock = false } = {}) {
   run(Array.isArray(products) ? products : []);
 }
 
+/** Collapse repeated product lines before any inventory arithmetic.
+ *
+ *  This is deliberately repeated at the database boundary even though the
+ *  checkout route also canonicalises its payload. reserveStock is used by
+ *  admin status changes and migrations too; trusting every caller to remember
+ *  the invariant is how duplicate lines once sold ten units out of five. */
+export function mergeStockLines(lines) {
+  const merged = new Map();
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const slug = String(line?.slug || '').trim();
+    const qty = Number(line?.qty);
+    if (!slug) throw new Error('invalid product');
+    if (!Number.isSafeInteger(qty) || qty <= 0) throw new Error('invalid quantity');
+    const total = (merged.get(slug) || 0) + qty;
+    if (!Number.isSafeInteger(total)) throw new Error('invalid quantity');
+    merged.set(slug, total);
+  }
+  return [...merged].map(([slug, qty]) => ({ slug, qty }));
+}
+
 /** Atomically check + decrement stock for an order. Returns {ok, error}. */
 export function reserveStock(db, lines) {
   const get = db.prepare('SELECT stock FROM products WHERE slug = ?');
-  const dec = db.prepare('UPDATE products SET stock = MAX(0, stock - ?) WHERE slug = ? AND stock >= 0');
-  const run = db.transaction((items) => {
-    for (const l of items) {
-      const row = get.get(l.slug);
-      if (!row) throw new Error(`unknown product: ${l.slug}`);
-      if (row.stock >= 0 && l.qty > row.stock) throw new Error('insufficient stock');
+  /* The quantity appears in the WHERE as well as the subtraction. The earlier
+     SELECT gives a useful error, while this predicate is the final invariant
+     should another writer ever be introduced around this transaction. */
+  const dec = db.prepare('UPDATE products SET stock = stock - ? WHERE slug = ? AND stock >= ?');
+  const run = db.transaction((rawItems) => {
+    const items = mergeStockLines(rawItems);
+    for (const line of items) {
+      const row = get.get(line.slug);
+      if (!row) throw new Error(`unknown product: ${line.slug}`);
+      if (row.stock >= 0 && line.qty > row.stock) throw new Error('insufficient stock');
     }
-    for (const l of items) dec.run(l.qty, l.slug);
+    for (const line of items) {
+      const row = get.get(line.slug);
+      if (row.stock < 0) continue; // -1 means unlimited
+      if (dec.run(line.qty, line.slug, line.qty).changes !== 1) throw new Error('insufficient stock');
+    }
   });
   try {
     run(lines);
@@ -337,7 +371,30 @@ export function reserveStock(db, lines) {
 /** Give stock back (cancelled order / deleted order). */
 export function restoreStock(db, lines) {
   const inc = db.prepare('UPDATE products SET stock = stock + ? WHERE slug = ? AND stock >= 0');
-  db.transaction((items) => items.forEach((l) => inc.run(l.qty, l.slug)))(lines || []);
+  db.transaction((rawItems) => {
+    for (const line of mergeStockLines(rawItems)) inc.run(line.qty, line.slug);
+  })(lines || []);
+}
+
+/** Compare-and-set an existing product's stock.
+ *
+ *  The expected value is the figure the admin actually saw. If an order moved
+ *  stock after that page loaded, changes is zero and the UI must refresh rather
+ *  than overwrite the sale with a stale absolute number. */
+export function updateProductStock(db, slug, stock, expectedStock) {
+  const next = Number(stock);
+  const expected = Number(expectedStock);
+  if ((!Number.isSafeInteger(next) || next < -1) || (!Number.isSafeInteger(expected) || expected < -1)) {
+    return { ok: false, error: 'invalid stock' };
+  }
+  const result = db
+    .prepare('UPDATE products SET stock = ? WHERE slug = ? AND stock = ?')
+    .run(next, String(slug || ''), expected);
+  if (result.changes === 1) return { ok: true, stock: next };
+  const current = db.prepare('SELECT stock FROM products WHERE slug = ?').get(String(slug || ''));
+  return current
+    ? { ok: false, error: 'stock changed', stock: current.stock }
+    : { ok: false, error: 'not found' };
 }
 
 /* ================================================================ orders */
@@ -358,6 +415,7 @@ const orderOut = (r, items) => ({
   at: r.at,
   paidAt: r.paid_at,
   customerId: r.customer_id || null,
+  autoCancelled: Boolean(r.auto_cancelled),
 });
 
 const itemsOf = (db, id) =>
@@ -381,9 +439,9 @@ export function getOrderById(db, id) {
 export function insertOrder(db, o) {
   const ins = db.prepare(`
     INSERT INTO orders (id, code, token, customer, subtotal, shipping, total, currency, status,
-                        provider, pay_ref, admin_note, at, paid_at, customer_id)
+                        provider, pay_ref, admin_note, at, paid_at, customer_id, auto_cancelled)
     VALUES (@id, @code, @token, @customer, @subtotal, @shipping, @total, @currency, @status,
-            @provider, @pay_ref, @admin_note, @at, @paid_at, @customer_id)
+            @provider, @pay_ref, @admin_note, @at, @paid_at, @customer_id, @auto_cancelled)
   `);
   const insItem = db.prepare(`
     INSERT INTO order_items (order_id, pos, slug, title, unit, price, qty, sum)
@@ -406,12 +464,35 @@ export function insertOrder(db, o) {
       at: o.at,
       paid_at: o.paidAt || null,
       customer_id: o.customerId || null,
+      auto_cancelled: bool(o.autoCancelled),
     });
     (o.items || []).forEach((l, i) =>
       insItem.run(o.id, i, l.slug, l.title, l.unit || '', l.price, l.qty, l.sum),
     );
   })();
   return o;
+}
+
+/** Reserve every order line and persist the matching order in one commit.
+ *  A process crash can therefore leave either both the stock hold and its
+ *  sweepable order, or neither — never an invisible permanent reservation. */
+export function reserveAndInsertOrder(db, order) {
+  const run = db.transaction(() => {
+    const reserved = reserveStock(db, order?.items);
+    if (!reserved.ok) {
+      const error = new Error(reserved.error || 'stock reservation failed');
+      error.inventoryFailure = true;
+      throw error;
+    }
+    insertOrder(db, order);
+  });
+  try {
+    run();
+    return { ok: true };
+  } catch (error) {
+    if (error?.inventoryFailure) return { ok: false, error: error.message };
+    throw error;
+  }
 }
 
 export function updateOrder(db, id, patch) {
@@ -421,18 +502,95 @@ export function updateOrder(db, id, patch) {
     payRef: 'pay_ref',
     adminNote: 'admin_note',
     paidAt: 'paid_at',
+    autoCancelled: 'auto_cancelled',
   };
   const sets = [];
   const vals = [];
   for (const [k, col] of Object.entries(map)) {
     if (k in patch) {
       sets.push(`${col} = ?`);
-      vals.push(patch[k]);
+      vals.push(k === 'autoCancelled' ? bool(patch[k]) : patch[k]);
     }
   }
   if (!sets.length) return;
   vals.push(String(id));
   db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+/** Cancel stale unpaid orders and release their stock in one transaction.
+ *
+ *  The conditional UPDATE is the race guard: a gateway callback or admin may
+ *  have moved an order after the SELECT. Stock is restored only when this
+ *  transaction itself changed pending_payment → cancelled, so no sweep can
+ *  credit the same units twice. */
+export function expirePendingOrders(db, cutoffIso, atIso = new Date().toISOString()) {
+  const candidates = db.prepare(
+    `SELECT id, code, admin_note FROM orders
+     WHERE status = 'pending_payment' AND at <= ?
+     ORDER BY at ASC`,
+  );
+  const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
+  const cancel = db.prepare(
+    `UPDATE orders
+     SET status = 'cancelled', auto_cancelled = 1, admin_note = ?
+     WHERE id = ? AND status = 'pending_payment'`,
+  );
+  const inc = db.prepare('UPDATE products SET stock = stock + ? WHERE slug = ? AND stock >= 0');
+  const note = `لغو خودکار: مهلت پرداخت ۳۰ دقیقه‌ای در ${atIso} پایان یافت.`;
+
+  return db.transaction((cutoff) => {
+    const expired = [];
+    for (const row of candidates.all(String(cutoff))) {
+      const adminNote = [row.admin_note, note].filter(Boolean).join('\n');
+      if (cancel.run(adminNote, row.id).changes !== 1) continue;
+      for (const line of mergeStockLines(items.all(row.id))) inc.run(line.qty, line.slug);
+      expired.push({ id: row.id, code: row.code });
+    }
+    return expired;
+  })(cutoffIso);
+}
+
+/** Atomically claim a verified payment that arrived after automatic expiry.
+ *
+ *  A transient auto_cancelled=2 marker is the cross-process compare-and-set:
+ *  only one Passenger worker may handle duplicate gateway callbacks. In the
+ *  same transaction we try to reserve the released units and move to paid. If
+ *  that is no longer possible the marker and urgent note commit, allowing one
+ *  worker to refund while the order remains cancelled and does not pretend to
+ *  hold inventory. */
+export function claimExpiredPayment(db, id, {
+  provider,
+  payRef,
+  paidAt,
+  successNote,
+  failureNote,
+}) {
+  const claim = db.prepare(
+    `UPDATE orders
+     SET provider = ?, pay_ref = ?, paid_at = ?, admin_note = ?, auto_cancelled = 2
+     WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 1`,
+  );
+  const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
+  const finishPaid = db.prepare(
+    `UPDATE orders SET status = 'paid', admin_note = ?, auto_cancelled = 0
+     WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
+  );
+  const noteFailure = db.prepare(
+    `UPDATE orders SET admin_note = ? WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
+  );
+
+  return db.transaction(() => {
+    if (claim.run(provider, payRef, paidAt, failureNote, id).changes !== 1) {
+      return { ok: false, error: 'state changed' };
+    }
+    const reserved = reserveStock(db, items.all(id));
+    if (reserved.ok) {
+      finishPaid.run(successNote, id);
+      return { ok: true, reserved: true };
+    }
+    noteFailure.run(failureNote, id);
+    return { ok: true, reserved: false, error: reserved.error };
+  })();
 }
 
 export function deleteOrder(db, id) {

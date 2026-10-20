@@ -491,6 +491,8 @@ export async function calculateFee(payment, rial, deps) {
 
 /* returns { provider, ref, payUrl } — payUrl is null for offline */
 export async function createPayment(payment, order, { origin, deps } = {}) {
+  const total = Number(order?.total);
+  if (!Number.isSafeInteger(total) || total <= 0) throw new Error('payment amount must be greater than zero');
   const cfg = normalizePayment(payment);
   const base = cfg.callbackBase || origin;
   if (cfg.provider !== 'zarinpal') return { provider: 'offline', ref: null, payUrl: null };

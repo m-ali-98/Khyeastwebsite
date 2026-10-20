@@ -1,0 +1,205 @@
+/* Inventory invariants that are easiest to prove directly against SQLite.
+   HTTP behaviour (accounts, validation and status controls) is covered by
+   behaviour.mjs; this file exercises the atomic database boundary itself. */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import * as db from '../../server/db.js';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-inventory-test-'));
+const file = path.join(dir, 'inventory.db');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const PORT = 8981;
+const BASE = `http://127.0.0.1:${PORT}`;
+let pass = 0;
+let fail = 0;
+const check = (ok, name, detail = '') => {
+  if (ok) pass += 1;
+  else {
+    fail += 1;
+    console.log(`LEAK ${name}${detail ? ` — ${detail}` : ''}`);
+  }
+};
+
+const line = (slug, qty, title = slug) => ({
+  slug, title, unit: '', price: 1000, qty, sum: 1000 * qty,
+});
+
+const order = (over = {}) => ({
+  id: crypto.randomUUID(),
+  code: `KY-TEST-${crypto.randomBytes(3).toString('hex')}`,
+  token: crypto.randomBytes(16).toString('hex'),
+  customer: { name: 'Test' },
+  subtotal: 3000,
+  shipping: 0,
+  total: 3000,
+  currency: 'IRR',
+  status: 'pending_payment',
+  provider: 'offline',
+  payRef: null,
+  adminNote: '',
+  at: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
+  paidAt: null,
+  autoCancelled: false,
+  items: [{ slug: 'limited', title: 'Limited', unit: '', price: 1000, qty: 3, sum: 3000 }],
+  ...over,
+});
+
+let D;
+let server;
+try {
+  D = await db.openDB(file);
+  db.replaceProducts(D, [
+    { slug: 'limited', title: 'Limited', price: 1000, stock: 5, active: true },
+    { slug: 'late', title: 'Late callback', price: 1000, stock: 5, active: true },
+    { slug: 'late-empty', title: 'Late callback without stock', price: 1000, stock: 3, active: true },
+    { slug: 'unlimited', title: 'Unlimited', price: 1000, stock: -1, active: true },
+  ]);
+
+  const oversell = db.reserveStock(D, [
+    { slug: 'limited', qty: 5 },
+    { slug: 'limited', qty: 5 },
+  ]);
+  check(!oversell.ok && oversell.error === 'insufficient stock', 'duplicate lines are checked as one quantity');
+  check(db.getProduct(D, 'limited').stock === 5, 'failed duplicate reservation is atomic');
+
+  const valid = db.reserveStock(D, [
+    { slug: 'limited', qty: 1 },
+    { slug: 'limited', qty: 2 },
+  ]);
+  check(valid.ok, 'duplicate lines within stock can reserve');
+  check(db.getProduct(D, 'limited').stock === 2, 'merged quantity is subtracted exactly once');
+  db.restoreStock(D, [{ slug: 'limited', qty: 1 }, { slug: 'limited', qty: 2 }]);
+  check(db.getProduct(D, 'limited').stock === 5, 'duplicate restoration also merges safely');
+
+  const expiring = order();
+  check(db.reserveStock(D, expiring.items).ok, 'expiry fixture reserves stock');
+  db.insertOrder(D, expiring);
+  check(db.getProduct(D, 'limited').stock === 2, 'pending order holds its stock');
+
+  let duplicateInsertRejected = false;
+  try {
+    db.reserveAndInsertOrder(D, order({ id: expiring.id, code: `KY-CONFLICT-${Date.now()}`, items: [line('limited', 1)] }));
+  } catch {
+    duplicateInsertRejected = true;
+  }
+  check(duplicateInsertRejected, 'an order insert failure is surfaced');
+  check(db.getProduct(D, 'limited').stock === 2, 'failed order insertion rolls its stock reservation back atomically');
+
+  const expired = db.expirePendingOrders(D, new Date(Date.now() - 30 * 60 * 1000).toISOString());
+  check(expired.length === 1 && expired[0].id === expiring.id, 'stale pending order is swept');
+  const cancelled = db.getOrderById(D, expiring.id);
+  check(cancelled.status === 'cancelled' && cancelled.autoCancelled, 'swept order records automatic cancellation');
+  check(db.getProduct(D, 'limited').stock === 5, 'sweeper restores held stock');
+
+  const again = db.expirePendingOrders(D, new Date().toISOString());
+  check(again.length === 0, 'repeated sweeps do not cancel twice');
+  check(db.getProduct(D, 'limited').stock === 5, 'repeated sweeps cannot mint stock');
+
+  const late = order({
+    id: crypto.randomUUID(),
+    code: `KY-LATE-${Date.now()}`,
+    items: [line('late', 3)],
+  });
+  check(db.reserveAndInsertOrder(D, late).ok, 'late-callback fixture is atomically reserved and inserted');
+  check(db.expirePendingOrders(D, new Date().toISOString()).length === 1, 'late-callback fixture first expires');
+  const lateClaim = db.claimExpiredPayment(D, late.id, {
+    provider: 'zarinpal',
+    payRef: 'verified-ref',
+    paidAt: new Date().toISOString(),
+    successNote: 'late success',
+    failureNote: 'late failure',
+  });
+  check(lateClaim.ok && lateClaim.reserved, 'late verified payment can atomically reclaim available stock');
+  check(db.getOrderById(D, late.id).status === 'paid', 'claimed late payment becomes paid');
+  check(db.getProduct(D, 'late').stock === 2, 'late-payment claim reserves its units exactly once');
+  const duplicateClaim = db.claimExpiredPayment(D, late.id, {
+    provider: 'zarinpal', payRef: 'again', paidAt: new Date().toISOString(), successNote: 'again', failureNote: 'again',
+  });
+  check(!duplicateClaim.ok && db.getProduct(D, 'late').stock === 2, 'duplicate callback cannot reserve late-payment stock twice');
+
+  const lateEmpty = order({
+    id: crypto.randomUUID(),
+    code: `KY-LATE-EMPTY-${Date.now()}`,
+    items: [line('late-empty', 3)],
+  });
+  check(db.reserveAndInsertOrder(D, lateEmpty).ok, 'no-stock late callback fixture starts with a valid hold');
+  db.expirePendingOrders(D, new Date().toISOString());
+  db.updateProductStock(D, 'late-empty', 2, 3); // units sold after the hold expired
+  const noStockClaim = db.claimExpiredPayment(D, lateEmpty.id, {
+    provider: 'zarinpal',
+    payRef: 'late-no-stock',
+    paidAt: new Date().toISOString(),
+    successNote: 'unexpected success',
+    failureNote: 'refund pending',
+  });
+  const claimedForRefund = db.getOrderById(D, lateEmpty.id);
+  check(noStockClaim.ok && !noStockClaim.reserved, 'late payment without inventory is claimed for one refund worker');
+  check(claimedForRefund.status === 'cancelled' && claimedForRefund.autoCancelled, 'refund-pending claim does not pretend to hold stock');
+  check(claimedForRefund.adminNote === 'refund pending', 'refund-pending claim leaves an urgent durable note');
+  check(!db.claimExpiredPayment(D, lateEmpty.id, {
+    provider: 'zarinpal', payRef: 'duplicate', paidAt: new Date().toISOString(), successNote: 'duplicate', failureNote: 'duplicate',
+  }).ok, 'a second worker cannot claim the same late refund');
+
+  const paid = order({ id: crypto.randomUUID(), code: `KY-PAID-${Date.now()}`, status: 'paid', paidAt: new Date().toISOString() });
+  check(db.reserveStock(D, paid.items).ok, 'paid fixture reserves stock');
+  db.insertOrder(D, paid);
+  check(db.expirePendingOrders(D, new Date().toISOString()).length === 0, 'paid orders never expire');
+  check(db.getProduct(D, 'limited').stock === 2, 'paid order keeps its reservation');
+
+  const stale = db.updateProductStock(D, 'limited', 20, 5);
+  check(!stale.ok && stale.error === 'stock changed' && stale.stock === 2, 'stale absolute inventory edit is rejected');
+  const fresh = db.updateProductStock(D, 'limited', 20, 2);
+  check(fresh.ok && db.getProduct(D, 'limited').stock === 20, 'fresh compare-and-set inventory edit succeeds');
+  check(!db.updateProductStock(D, 'limited', -2, 20).ok, 'stock below -1 is rejected');
+
+  check(db.reserveStock(D, [{ slug: 'unlimited', qty: 50_000 }]).ok, 'unlimited stock accepts a large valid claim');
+  check(db.getProduct(D, 'unlimited').stock === -1, 'unlimited stock remains -1 after reserve');
+
+  /* Prove the HTTP server actually invokes the sweeper at startup, including
+     orders abandoned while Node was offline. */
+  const bootExpiry = order({ id: crypto.randomUUID(), code: `KY-BOOT-${Date.now()}` });
+  check(db.reserveStock(D, bootExpiry.items).ok, 'startup-sweep fixture reserves stock');
+  db.insertOrder(D, bootExpiry);
+  db.setSetting(D, 'seeded', new Date().toISOString());
+  check(db.getProduct(D, 'limited').stock === 17, 'startup-sweep fixture holds three units');
+  D.close();
+  D = null;
+
+  server = spawn('node', ['server/index.js'], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      DATA_DIR: dir,
+      DB_FILE: file,
+      NODE_ENV: 'development',
+      PUBLIC_ORIGIN: BASE,
+    },
+    stdio: 'ignore',
+  });
+  let ready = false;
+  for (let attempt = 0; attempt < 100 && !ready; attempt += 1) {
+    try {
+      ready = (await fetch(`${BASE}/api/health`)).ok;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  check(ready, 'server starts for startup expiry check');
+  if (ready) {
+    const products = await (await fetch(`${BASE}/api/shop-products`)).json();
+    check(products.products.find((product) => product.slug === 'limited')?.stock === 20, 'server startup sweep restores offline abandoned stock');
+  }
+} catch (error) {
+  check(false, 'inventory harness', String(error?.stack || error).slice(0, 300));
+} finally {
+  try { server?.kill('SIGKILL'); } catch {}
+  try { D?.close?.(); } catch {}
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+}
+
+console.log(`${pass}/${pass + fail}`);
+if (fail) process.exitCode = 1;
