@@ -168,7 +168,7 @@ function Navbar() {
   return (
     <>
       <nav
-        className={`nav ${scrolled || !hasHero ? 'is-scrolled' : ''} ${open ? 'is-menu-open' : ''}`.trim()}
+        className={`nav ${scrolled || !hasHero ? 'is-scrolled' : ''} ${!hasHero && !scrolled ? 'is-solid-at-top' : ''} ${open ? 'is-menu-open' : ''}`.trim()}
         aria-label={t('nav.main')}
       >
         <div className="nav__topbar">

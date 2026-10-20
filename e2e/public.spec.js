@@ -87,54 +87,99 @@ test('html lang and dir follow the locale @mobile', async ({ page }) => {
   }
 });
 
-test('the mobile header stays compact without wrapping or overlapping its locale wordmarks @mobile', async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 844 });
+test('the mobile header keeps its bilingual identity and contacts visible without overlaps @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
   await gotoReady(page, '/');
   const header = page.locator('nav.nav');
+  const email = header.locator('.nav__topbar-email');
+  const faName = header.locator('.nav__logo-text strong');
+  const faEnglishName = header.locator('.nav__logo-text small');
 
-  /* Persian carries three controls. On a 375px phone the mark-only treatment
-     is intentional; retaining a wrapped company name made the header almost
-     as tall as the hero copy beneath it. */
-  await expect(header.locator('.nav__logo-text')).toBeHidden();
+  /* Even the narrowest supported Persian header keeps the complete email and
+     both company-name lines. Only the Latin line may balance across two short
+     rows; the Persian name, logo, and three 42px controls must not collide. */
+  await expect(email).toBeVisible();
+  await expect(email).toContainText('info@khuzestanyeast-co.com');
+  await expect(email).toHaveAttribute('href', 'mailto:info@khuzestanyeast-co.com');
+  await expect(faName).toBeVisible();
+  await expect(faEnglishName).toBeVisible();
+  await expect(faEnglishName).toHaveText('KHUZESTAN YEAST CO.');
+
   const compact = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
-    const targets = [...document.querySelectorAll('.nav__icon, .nav__burger')]
+    const line = (selector) => {
+      const node = document.querySelector(selector);
+      return {
+        height: node.getBoundingClientRect().height,
+        lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+      };
+    };
+    const targets = [...document.querySelectorAll('nav .nav__icon, nav .nav__burger')]
       .filter((node) => node.getClientRects().length)
       .map((node) => node.getBoundingClientRect());
+    const logo = rect('nav .nav__logo');
+    const actions = rect('nav .nav__actions');
+    const emailRect = rect('nav .nav__topbar-email');
+    const phoneRect = rect('nav .nav__topbar-phone');
     return {
-      nav: rect('.nav').height,
-      topbar: rect('.nav__topbar').height,
-      bar: rect('.nav__bar').height,
+      nav: rect('nav.nav').height,
+      topbar: rect('nav .nav__topbar').height,
+      bar: rect('nav .nav__bar').height,
+      strong: line('nav .nav__logo-text strong'),
+      subtitle: line('nav .nav__logo-text small'),
+      logoSeparated: logo.right <= actions.left || actions.right <= logo.left,
+      contactsSeparated: emailRect.right <= phoneRect.left || phoneRect.right <= emailRect.left,
+      contactsInside: Math.min(emailRect.left, phoneRect.left) >= 0
+        && Math.max(emailRect.right, phoneRect.right) <= innerWidth,
       minTarget: Math.min(...targets.flatMap(({ width, height }) => [width, height])),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   });
-  expect(compact).toMatchObject({ nav: 102, topbar: 34, bar: 68, overflow: 0 });
+  expect(compact).toMatchObject({
+    nav: 102,
+    topbar: 34,
+    bar: 68,
+    logoSeparated: true,
+    contactsSeparated: true,
+    contactsInside: true,
+    overflow: 0,
+  });
   expect(compact.minTarget).toBeGreaterThanOrEqual(42);
+  expect(compact.strong.height).toBeLessThanOrEqual(compact.strong.lineHeight + 0.5);
+  expect(compact.subtitle.height).toBeLessThanOrEqual((compact.subtitle.lineHeight * 2) + 0.5);
 
-  /* Once there is room, show the Persian company name as one clean line and
-     discard only the redundant Latin subtitle. */
+  /* At a typical 390px width both identity lines settle to one line. */
   await page.setViewportSize({ width: 390, height: 844 });
-  const faName = header.locator('.nav__logo-text strong');
-  await expect(faName).toBeVisible();
-  await expect(header.locator('.nav__logo-text small')).toBeHidden();
-  const faLine = await faName.evaluate((node) => ({
-    height: node.getBoundingClientRect().height,
-    lineHeight: parseFloat(getComputedStyle(node).lineHeight),
-  }));
-  expect(faLine.height).toBeLessThanOrEqual(faLine.lineHeight + 0.5);
+  for (const locator of [faName, faEnglishName]) {
+    const metric = await locator.evaluate((node) => ({
+      height: node.getBoundingClientRect().height,
+      lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+    }));
+    expect(metric.height).toBeLessThanOrEqual(metric.lineHeight + 0.5);
+  }
 
-  /* English and Arabic have one control, so hiding their full identity at the
-     old generic breakpoint wasted space. Both wordmarks must fit even at 320. */
+  /* A page without a hero is solid at the top, not genuinely scrolled. Its
+     contact strip remains available there and collapses only after movement. */
+  await gotoReady(page, '/products/dezmaye-gold-80');
+  await expect(header).toHaveClass(/is-solid-at-top/);
+  await expect(email).toBeVisible();
+  expect(await header.evaluate((node) => node.getBoundingClientRect().height)).toBe(102);
+  await page.evaluate(() => window.scrollTo({ top: 120, behavior: 'instant' }));
+  await expect(header).not.toHaveClass(/is-solid-at-top/);
+  await expect.poll(() => header.locator('.nav__topbar').evaluate((node) => node.getBoundingClientRect().height)).toBe(0);
+
+  /* English and Arabic have one control and retain their full wordmarks at
+     320px too, with the Latin corporate subtitle isolated left-to-right. */
   await page.setViewportSize({ width: 320, height: 844 });
   for (const route of ['/en', '/ar']) {
     await gotoReady(page, route);
     await expect(header.locator('.nav__logo-text')).toBeVisible();
     await expect(header.locator('.nav__logo-text small')).toBeVisible();
+    await expect(header.locator('.nav__topbar-email')).toBeVisible();
     const geometry = await page.evaluate(() => {
-      const logo = document.querySelector('.nav__logo').getBoundingClientRect();
-      const actions = document.querySelector('.nav__actions').getBoundingClientRect();
-      const subtitle = document.querySelector('.nav__logo-text small');
+      const logo = document.querySelector('nav .nav__logo').getBoundingClientRect();
+      const actions = document.querySelector('nav .nav__actions').getBoundingClientRect();
+      const subtitle = document.querySelector('nav .nav__logo-text small');
       const subRect = subtitle.getBoundingClientRect();
       return {
         separated: logo.right <= actions.left || actions.right <= logo.left,

@@ -2326,18 +2326,38 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   :root { --nav-h: 68px; }
   .nav__topbar {
     height: 34px;
-    font-size: 12.5px;
+    font-size: 11px;
   }
   .nav__topbar-inner {
     height: 34px;
     justify-content: center;
   }
-  .nav__topbar-socials,
-  .nav__topbar .nav__topbar-email { display: none; }
-  .nav__topbar-tools { gap: 0; }
+  .nav__topbar-socials { display: none; }
+  .nav__topbar-tools {
+    width: 100%;
+    justify-content: center;
+    gap: clamp(8px, 3vw, 16px);
+  }
+  .nav__topbar-email,
   .nav__topbar-phone {
     min-height: 34px;
-    padding-inline: 8px;
+    padding-inline: 0;
+    white-space: nowrap;
+  }
+  .nav__topbar-email {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .nav__topbar-tools svg {
+    width: 13px;
+    height: 13px;
+  }
+  /* Hero-less pages need a solid bar at y=0, but they have not actually been
+     scrolled. Keep their contact strip visible until the visitor moves, then
+     collapse to the same compact 68px state as every other route. */
+  .nav.is-solid-at-top .nav__topbar {
+    height: 34px;
+    opacity: 1;
   }
 
   .nav__bar {
@@ -2363,10 +2383,13 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
     font-size: 9.5px;
     letter-spacing: 0.16em;
   }
-  /* Persian carries cart + account + menu controls. Its English subtitle is
-     the expendable line; keeping the local company name gives the mark enough
-     room to breathe without weakening the English/Arabic corporate headers. */
-  [data-locale='fa'] .nav__bar .nav__logo-text small { display: none; }
+  /* Persian carries cart + account + menu controls, but the bilingual company
+     identity remains part of the logo on phones. A tighter Latin line keeps
+     “KHUZESTAN YEAST CO.” directly beneath the Persian name without clipping. */
+  [data-locale='fa'] .nav__bar .nav__logo-text small {
+    font-size: 8.75px;
+    letter-spacing: 0.1em;
+  }
 
   /* Opaque mobile surfaces avoid continuously re-blurring a full-width strip
      during scroll, and the small top-state controls do not need their own GPU
@@ -2379,6 +2402,9 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .nav__burger { backdrop-filter: none; }
 
   .mobile-menu { padding-inline: 20px; }
+  .nav.is-solid-at-top + .mobile-menu {
+    padding-block-start: calc(var(--nav-h) + 56px);
+  }
   .hero__inner { padding-bottom: 140px; }
   .split__media .img-float {
     left: auto;
@@ -2396,10 +2422,32 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 
 @media (max-width: 380px) {
-  /* The Persian storefront has three header controls. Below this width the
-     official mark alone is clearer than squeezing or wrapping its wordmark;
-     English and Arabic only have the menu control and keep their full name. */
-  [data-locale='fa'] .nav__bar .nav__logo-text { display: none; }
+  /* The Persian storefront has three 42px controls. Slightly tighter gutters
+     and a smaller official mark preserve both company-name lines beside those
+     controls instead of dropping the wordmark on common 320–375px phones. */
+  .nav__topbar-inner,
+  .nav__bar { padding-inline: 12px; }
+  .nav__bar { gap: 8px; }
+  [data-locale='fa'] .nav__bar .nav__logo { gap: 6px; }
+  [data-locale='fa'] .nav__bar .nav__logo-mark {
+    height: 40px !important;
+    width: auto !important;
+  }
+  [data-locale='fa'] .nav__bar .nav__logo-text strong { font-size: 14px; }
+}
+
+@media (max-width: 340px) {
+  [data-locale='fa'] .nav__bar .nav__logo-text strong { font-size: 13px; }
+  [data-locale='fa'] .nav__bar .nav__logo-text small {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    text-wrap: balance;
+    line-height: 1.08;
+  }
+  /* The address is still fully visible; dropping only its decorative envelope
+     leaves a comfortable separation from the phone number at 320px. */
+  .nav__topbar-email svg { display: none; }
 }
 
 @media (max-width: 350px) {
@@ -2801,6 +2849,15 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   }
   input::placeholder, textarea::placeholder { color: var(--muted); }
   select option { background: var(--surface-2); color: var(--ink); }
+}
+
+@media (max-width: 640px) {
+  [data-theme='dark'] .nav.is-scrolled:not(.is-menu-open) .nav__bar {
+    background: var(--surface);
+  }
+  [data-theme='dark'] .nav.is-menu-open .nav__bar {
+    background: rgba(16, 10, 12, 0.96);
+  }
 }
 
 /* The footer ground is always dark, so its mark stays knocked out to white. */
