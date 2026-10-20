@@ -101,6 +101,24 @@ test('the shop header is transparent over its showcase and solid only after scro
   await expect(nav).not.toHaveClass(/is-scrolled/);
 });
 
+test('the mobile menu opens immediately above the shop showcase @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoReady(page, '/shop');
+
+  const nav = page.locator('nav.nav');
+  await page.getByRole('button', { name: 'منوی سایت' }).click();
+  await expect(page.locator('#mobile-navigation')).toBeVisible();
+  await expect(page.locator('body')).toHaveClass(/is-mobile-menu-open/);
+  await expect(page.locator('main')).toBeHidden();
+  await expect(page.locator('#mobile-navigation').getByRole('link', { name: /فروشگاه/ })).toHaveClass(/active/);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#mobile-navigation')).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveClass(/is-mobile-menu-open/);
+  await expect(page.locator('main')).toBeVisible();
+  await expect(nav).not.toHaveClass(/is-scrolled/);
+});
+
 test('shop search, sale and brand filters compose without hiding their controls @mobile', async ({ page }) => {
   await gotoReady(page, '/shop');
 

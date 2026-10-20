@@ -404,8 +404,19 @@ test('the shop showcase can publish multiple independently linked images', async
     await expect(showcase.locator('.shop-showcase__link')).toHaveCount(2);
     await expect(showcase.locator('.shop-showcase__link').nth(0)).toHaveAttribute('href', '/products');
     await expect(showcase.locator('.shop-showcase__link').nth(1)).toHaveAttribute('href', '/about');
-    await showcase.getByRole('button', { name: 'تصویر بعدی' }).click();
-    await expect(showcase.locator('.shop-showcase__slide').nth(1)).toHaveAttribute('aria-hidden', 'false');
+
+    /* Rotation starts without input and advances on the fixed four-second
+       cadence. Move the test pointer off the showcase so its intentional
+       hover-pause does not turn this into a timing-dependent assertion. */
+    await page.mouse.move(0, (page.viewportSize()?.height || 900) - 1);
+    await expect(showcase).toHaveAttribute('data-autoplay', 'true');
+    await expect(showcase.locator('.shop-showcase__slide').nth(1)).toHaveAttribute('aria-hidden', 'false', { timeout: 5_500 });
+
+    /* Manual controls still wrap correctly and pause while keyboard focus is
+       inside the carousel, so an automatic tick cannot fight the user. */
+    await showcase.getByRole('button', { name: 'تصویر قبلی' }).click();
+    await expect(showcase.locator('.shop-showcase__slide').nth(0)).toHaveAttribute('aria-hidden', 'false');
+    await expect(showcase).toHaveAttribute('data-autoplay', 'false');
   } finally {
     if (token && original) {
       const restored = await page.request.put(new URL('/api/content', page.url()).href, {

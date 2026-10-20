@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import Logo from './Logo';
@@ -143,14 +143,22 @@ function Navbar() {
 
   useEffect(() => setOpen(false), [location.pathname]);
 
-  useEffect(() => {
+  /* Apply the modal page state before the browser paints the opened menu.
+     The shop showcase keeps a large composited image track and several blur
+     layers alive; leaving those visible underneath an animating full-screen
+     panel made the first mobile menu frame noticeably late on that route.
+     The menu background is opaque, so suspending the covered page is visually
+     identical and gives the tap response the same budget on every page. */
+  useLayoutEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
+    document.body.classList.toggle('is-mobile-menu-open', open);
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') setOpen(false);
     };
     if (open) window.addEventListener('keydown', closeOnEscape);
     return () => {
       document.body.style.overflow = '';
+      document.body.classList.remove('is-mobile-menu-open');
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
@@ -264,14 +272,14 @@ function Navbar() {
             initial={{ opacity: 0, x: menuOffset }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: menuOffset }}
-            transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
             {navLinks.map((link, i) => (
               <mo.div
                 key={link.to}
-                initial={{ opacity: 0, x: menuOffset }}
+                initial={{ opacity: 0, x: menuOffset * 0.35 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.08 + Math.min(i, 3) * 0.04, duration: 0.32 }}
+                transition={{ delay: 0.025 + Math.min(i, 4) * 0.018, duration: 0.2 }}
               >
                 <NavLink to={link.to} end={link.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
                   {t(link.key)}
@@ -282,7 +290,7 @@ function Navbar() {
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.22, duration: 0.28 }}
+              transition={{ delay: 0.1, duration: 0.18 }}
               className="m-controls"
             >
               <LangSwitch block />
@@ -291,7 +299,7 @@ function Navbar() {
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.24, duration: 0.28 }}
+              transition={{ delay: 0.12, duration: 0.18 }}
               className="m-slogan"
             >
               {t('global.slogan')}

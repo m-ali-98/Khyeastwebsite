@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useContent } from '../content/ContentContext';
 import { useLocale } from '../i18n/LocaleContext';
 import { imgProps, SIZES } from '../lib/img';
 import { Icons, Reveal } from '../components/ui';
+
+const SHOWCASE_INTERVAL_MS = 4000;
 
 const FALLBACK_SLIDE = {
   id: 'shop-showcase-fallback',
@@ -50,10 +53,46 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
     return valid.length ? valid : [{ ...FALLBACK_SLIDE, alt: title || FALLBACK_SLIDE.alt }];
   }, [items, title]);
   const [active, setActive] = useState(0);
+  const [interactionPaused, setInteractionPaused] = useState(false);
+  const [pageVisible, setPageVisible] = useState(() => typeof document === 'undefined' || !document.hidden);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     setActive((current) => Math.min(current, slides.length - 1));
   }, [slides.length]);
+
+  useEffect(() => {
+    const syncVisibility = () => setPageVisible(!document.hidden);
+    document.addEventListener('visibilitychange', syncVisibility);
+    return () => document.removeEventListener('visibilitychange', syncVisibility);
+  }, []);
+
+  /* Warm the next responsive image before its four-second turn arrives. Lazy
+     slides remain cheap at first paint, while the actual transition never has
+     to reveal an undecoded blank frame on a slower mobile connection. */
+  useEffect(() => {
+    if (slides.length < 2 || typeof window === 'undefined') return;
+    const next = slides[(active + 1) % slides.length];
+    const source = imgProps(next.image, SIZES.full);
+    const preload = new window.Image();
+    if (source.srcSet) preload.srcset = source.srcSet;
+    if (source.sizes) preload.sizes = source.sizes;
+    preload.decoding = 'async';
+    preload.src = source.src;
+  }, [active, slides]);
+
+  const autoPlaying = slides.length > 1 && !reduceMotion && !interactionPaused && pageVisible;
+
+  /* A timeout (rather than a free-running interval) gives every image a full
+     four seconds after either an automatic or manual selection. Hover/focus,
+     a hidden tab, and reduced-motion preferences pause rotation. */
+  useEffect(() => {
+    if (!autoPlaying) return undefined;
+    const timer = window.setTimeout(() => {
+      setActive((current) => (current + 1) % slides.length);
+    }, SHOWCASE_INTERVAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [active, autoPlaying, slides.length]);
 
   const select = (index) => {
     const count = slides.length;
@@ -72,8 +111,15 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
     <header
       className="shop-showcase"
       data-testid="shop-showcase"
+      data-autoplay={autoPlaying ? 'true' : 'false'}
       aria-roledescription="اسلایدشو"
       onKeyDown={onKeyDown}
+      onMouseEnter={() => setInteractionPaused(true)}
+      onMouseLeave={() => setInteractionPaused(false)}
+      onFocusCapture={() => setInteractionPaused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setInteractionPaused(false);
+      }}
     >
       <div className="container shop-showcase__stage">
         <div className="shop-showcase__copy">
@@ -148,7 +194,7 @@ export default function ShopShowcase({ items, title, sub, crumb }) {
         </div>
       </div>
 
-      <span className="sr-only" aria-live="polite">
+      <span className="sr-only" aria-live={autoPlaying ? 'off' : 'polite'} aria-atomic="true">
         {slides.length > 1 ? `${(active + 1).toLocaleString('fa-IR')} از ${slides.length.toLocaleString('fa-IR')}: ${slides[active]?.alt}` : ''}
       </span>
     </header>
