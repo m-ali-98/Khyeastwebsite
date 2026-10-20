@@ -1,5 +1,6 @@
 import { parseHTML, DOMParser as LD } from 'linkedom';
-import { sanitizeHtmlWithParser } from '../../shared/sanitizeHtml.js';
+import { sanitizeHtmlWithParser, MAX_HTML_INPUT_LENGTH } from '../../shared/sanitizeHtml.js';
+import { sanitizeContentPayload } from '../../server/sanitize.js';
 const { window } = parseHTML('<!doctype html><html><body></body></html>');
 globalThis.document = window.document;
 const sanitizeHtml = (html) => sanitizeHtmlWithParser(html, LD);
@@ -8,6 +9,7 @@ const CASES = [
   ['img onerror',             '<img src="/a.png" onerror="alert(1)">'],
   ['svg onload',              '<svg onload="alert(1)"><circle/></svg>'],
   ['javascript: href',        '<a href="javascript:alert(1)">x</a>'],
+  ['uppercase HREF',          '<a HREF="javascript:alert(1)">x</a>'],
   ['JaVaScRiPt: href',        '<a href="JaVaScRiPt:alert(1)">x</a>'],
   ['js with tab',             '<a href="java\tscript:alert(1)">x</a>'],
   ['js with newline',         '<a href="java\nscript:alert(1)">x</a>'],
@@ -16,6 +18,9 @@ const CASES = [
   ['data: uri img',           '<img src="data:text/html;base64,PHNjcmlwdD4=">'],
   ['data: svg xss',           '<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+">'],
   ['protocol-relative',       '<img src="//evil.com/x.png">'],
+  ['anchor protocol-relative','<a href="//evil.com">x</a>'],
+  ['protocol-relative base',  '<a href="//khyeast.invalid/path">x</a>'],
+  ['anchor slash-backslash',  '<a href="/\\evil.com">x</a>'],
   ['iframe',                  '<iframe src="https://evil.com"></iframe>'],
   ['style tag',               '<style>body{display:none}</style>'],
   ['style attr',              '<p style="position:fixed;inset:0">x</p>'],
@@ -27,6 +32,7 @@ const CASES = [
   ['base tag',                '<base href="//evil/">'],
   ['nested script in p',      '<p><script>alert(1)</script></p>'],
   ['mXSS comment',            '<!--<img src="--><img src=x onerror=alert(1)//">'],
+  ['malformed --!> comment',  '<!-- a --!><img src=x onerror=alert(1)>-->'],
   ['unclosed script',         '<script>alert(1)'],
   ['srcset',                  '<img src="/a.png" srcset="//evil 1x">'],
   ['video onerror',           '<video src="/a.mp4" onerror="alert(1)"></video>'],
@@ -74,6 +80,15 @@ const CASES = [
   ['attr tag breakout',       '<img src="/a.png" alt="</title><script>alert(1)</script>">'],
   ['null byte in tag name',   '<scr\0ipt>alert(1)</scr\0ipt>'],
   ['huge attr name',          '<img src="/a.png" '+'a'.repeat(5000)+'=1>'],
+  ['20k nested allowed tags', '<b>'.repeat(20_000) + 'x' + '</b>'.repeat(20_000)],
+  ['oversized input cap',     `<p>${'x'.repeat(MAX_HTML_INPUT_LENGTH + 1)}</p>`],
+  /* Exercise the actual persistence boundary, not only the shared helper. */
+  ['stored post uppercase',   '<a HREF="javascript:alert(1)">x</a>', (input) => (
+    sanitizeContentPayload({ posts: [{ body: input }] }).posts[0].body
+  )],
+  ['stored product comment',  '<!-- a --!><img src=x onerror=alert(1)>-->', (input) => (
+    sanitizeContentPayload({ shop: { products: [{ description: input }] } }).shop.products[0].description
+  )],
 ];
 /* A regex over the output string cannot tell live markup from escaped text:
    `alt="&lt;script&gt;"` contains the characters of a script tag but is inert.
@@ -92,6 +107,12 @@ const BAD_URL = /^\s*(javascript|vbscript|data|blob|filesystem)\s*:/i;
 function inspect(html) {
   const doc = new LD().parseFromString(`<body>${html}</body>`, 'text/html');
   const problems = [];
+  const pending = [...doc.childNodes];
+  while (pending.length) {
+    const node = pending.pop();
+    if (node.nodeType === 8) problems.push('<!--comment-->');
+    pending.push(...(node.childNodes || []));
+  }
   for (const el of doc.querySelectorAll('*')) {
     const tag = el.tagName.toLowerCase();
     if (FORBIDDEN_TAGS.has(tag)) problems.push(`<${tag}>`);
@@ -105,15 +126,18 @@ function inspect(html) {
         const inlineImg = n === 'src' && tag === 'img' && /^data:image\/(png|jpe?g|gif|webp);/i.test(attr.value);
         if (!inlineImg) problems.push(`${tag}[${n}=${attr.value.slice(0, 24)}]`);
       }
+      if (/^(href|src)$/.test(n) && (/^\/\//.test(attr.value) || attr.value.includes('\\'))) {
+        problems.push(`${tag}[${n}=external-confusion]`);
+      }
     }
   }
   return problems;
 }
 
 let fails = 0;
-for (const [name, input] of CASES) {
+for (const [name, input, run = sanitizeHtml] of CASES) {
   let out;
-  try { out = String(sanitizeHtml(input) ?? ''); } catch (e) { out = 'THREW: ' + e.message; }
+  try { out = String(run(input) ?? ''); } catch (e) { out = 'THREW: ' + e.message; }
 
   /* Sanitize the output a second time: a stable sanitizer must reach a fixed
      point, and anything that only becomes dangerous on re-parse shows up here. */

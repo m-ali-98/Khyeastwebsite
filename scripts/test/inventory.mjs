@@ -86,6 +86,15 @@ try {
     storedPayment.payAuthority === 'A-ONE-PAYMENT-ONE-ORDER' && storedPayment.payRef === 'REF-SETTLED',
     'settlement reference cannot overwrite the payment authority',
   );
+  /* Simulate an existing pre-ledger database: reopening must backfill its
+     current authority without changing the separate settlement reference. */
+  D.prepare('DELETE FROM order_payments WHERE authority = ?').run('A-ONE-PAYMENT-ONE-ORDER');
+  D.close();
+  D = await db.openDB(file);
+  check(
+    db.getOrderPaymentAttempt(D, authorityOwner.id, 'A-ONE-PAYMENT-ONE-ORDER')?.refId === 'REF-SETTLED',
+    'migration backfills existing order authorities into the attempt ledger',
+  );
   let duplicateAuthorityRejected = false;
   try {
     db.insertOrder(D, order({
@@ -109,17 +118,79 @@ try {
     items: [],
   });
   db.insertOrder(D, pendingAuthority);
+  const retryAuthority = 'A-PENDING-RETRY';
+  const retryRecorded = db.recordOrderPaymentAttempt(D, pendingAuthority.id, {
+    authority: retryAuthority,
+    provider: 'zarinpal',
+  });
+  const preservedAttempts = db.listOrderPaymentAttempts(D, pendingAuthority.id);
+  check(
+    retryRecorded.current && db.getOrderById(D, pendingAuthority.id).payAuthority === retryAuthority,
+    'a retry becomes the current payment pointer while the order is pending',
+  );
+  check(
+    preservedAttempts.map((attempt) => attempt.authority).join(',') === `A-PENDING-OWNER,${retryAuthority}`,
+    'a retry preserves every previously issued authority in its order ledger',
+  );
+  check(
+    db.getOrderByPaymentAuthority(D, 'A-PENDING-OWNER')?.id === pendingAuthority.id,
+    'an earlier authority still maps back to its exact order after retry',
+  );
+  let historicalAuthorityRejected = false;
+  try {
+    db.insertOrder(D, order({
+      id: crypto.randomUUID(),
+      code: `KY-HISTORICAL-AUTH-COPY-${Date.now()}`,
+      provider: 'zarinpal',
+      payAuthority: 'A-PENDING-OWNER',
+      items: [],
+    }));
+  } catch {
+    historicalAuthorityRejected = true;
+  }
+  check(
+    historicalAuthorityRejected,
+    'the ledger primary key rejects reuse even after an authority is no longer the current pointer',
+  );
   check(
     !db.settlePendingOrder(D, pendingAuthority.id, 'A-STOLEN-FROM-ANOTHER-ORDER', {
       provider: 'zarinpal', payRef: 'REF-WRONG', paidAt: new Date().toISOString(), adminNote: '',
     }) && db.getOrderById(D, pendingAuthority.id).status === 'pending_payment',
-    'the atomic settlement predicate rejects a different authority',
+    'the atomic settlement predicate rejects an authority outside the order ledger',
   );
   check(
     db.settlePendingOrder(D, pendingAuthority.id, 'A-PENDING-OWNER', {
       provider: 'zarinpal', payRef: 'REF-RIGHT', paidAt: new Date().toISOString(), adminNote: '',
-    }) && db.getOrderById(D, pendingAuthority.id).payRef === 'REF-RIGHT',
-    'the atomic settlement predicate accepts the order own authority',
+    }) &&
+      db.getOrderById(D, pendingAuthority.id).payAuthority === 'A-PENDING-OWNER' &&
+      db.getOrderById(D, pendingAuthority.id).payRef === 'REF-RIGHT',
+    'an earlier attempt can settle after retry while authority and ref_id stay separate',
+  );
+  check(
+    db.getOrderPaymentAttempt(D, pendingAuthority.id, 'A-PENDING-OWNER')?.status === 'settled' &&
+      db.getOrderPaymentAttempt(D, pendingAuthority.id, retryAuthority)?.status === 'issued',
+    'settlement marks only the authority that actually paid',
+  );
+  const firstReversalClaim = db.claimOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    refId: 'REF-EXTRA',
+  });
+  const duplicateReversalClaim = db.claimOrderPaymentReversal(D, pendingAuthority.id, retryAuthority, {
+    refId: 'REF-EXTRA',
+  });
+  check(
+    firstReversalClaim.claimed && !duplicateReversalClaim.claimed &&
+      duplicateReversalClaim.attempt?.status === 'reversing' &&
+      db.getOrderById(D, pendingAuthority.id).needsAttention,
+    'only one worker can claim reversal and a crash-safe Admin alert is committed with it',
+  );
+  db.updateOrderPaymentAttempt(D, pendingAuthority.id, retryAuthority, {
+    status: 'reversed',
+    reversedAt: new Date().toISOString(),
+  });
+  check(
+    db.clearOrderPaymentAttentionIfResolved(D, pendingAuthority.id) &&
+      !db.getOrderById(D, pendingAuthority.id).needsAttention,
+    'a completed reversal clears only its resolved payment alert',
   );
   db.deleteOrder(D, pendingAuthority.id);
 
@@ -197,6 +268,7 @@ try {
     items: [line('late', 3)],
   });
   check(db.reserveAndInsertOrder(D, late).ok, 'late-callback fixture is atomically reserved and inserted');
+  db.recordOrderPaymentAttempt(D, late.id, { authority: 'AUTH-LATE-RETRY', provider: 'zarinpal' });
   check(db.expirePendingOrders(D, new Date().toISOString()).length === 1, 'late-callback fixture first expires');
   const lateClaim = db.claimExpiredPayment(D, late.id, {
     provider: 'zarinpal',
@@ -206,8 +278,11 @@ try {
     successNote: 'late success',
     failureNote: 'late failure',
   });
-  check(lateClaim.ok && lateClaim.reserved, 'late verified payment can atomically reclaim available stock');
-  check(db.getOrderById(D, late.id).status === 'paid', 'claimed late payment becomes paid');
+  check(lateClaim.ok && lateClaim.reserved, 'an earlier retry authority can reclaim available stock after expiry');
+  check(
+    db.getOrderById(D, late.id).status === 'paid' && db.getOrderById(D, late.id).payAuthority === 'AUTH-LATE',
+    'claimed late payment becomes paid under the authority that actually settled',
+  );
   check(!db.getOrderById(D, late.id).needsAttention, 'successful late-payment recovery clears its transient attention flag');
   check(db.getProduct(D, 'late').stock === 2, 'late-payment claim reserves its units exactly once');
   const duplicateClaim = db.claimExpiredPayment(D, late.id, {

@@ -81,6 +81,22 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
     CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at);
 
+    /* Every authority ever issued for an order remains bound to that order.
+       orders.pay_authority is only the current/settled pointer; this ledger is
+       the durable ownership boundary used by callbacks after payment retries. */
+    CREATE TABLE IF NOT EXISTS order_payments (
+      authority  TEXT PRIMARY KEY CHECK (authority <> ''),
+      order_id   TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      provider   TEXT NOT NULL DEFAULT 'zarinpal',
+      status     TEXT NOT NULL DEFAULT 'issued',
+      ref_id     TEXT,
+      at         TEXT NOT NULL,
+      verified_at TEXT,
+      reversed_at TEXT,
+      last_error TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_payments_order ON order_payments(order_id, at DESC);
+
     CREATE TABLE IF NOT EXISTS order_items (
       order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       pos      INTEGER NOT NULL DEFAULT 0,
@@ -246,11 +262,36 @@ function migrate(db) {
        );
   `);
 
+  /* Backfill the previously-current authority. Older overwritten retry
+     authorities cannot be reconstructed, but every authority recorded from
+     this migration onward lives in order_payments even when the current
+     pointer changes again. */
+  db.exec(`
+    INSERT OR IGNORE INTO order_payments
+      (authority, order_id, provider, status, ref_id, at, verified_at)
+    SELECT pay_authority, id, provider,
+           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN 'settled' ELSE 'issued' END,
+           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN pay_ref ELSE NULL END,
+           at,
+           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN paid_at ELSE NULL END
+      FROM orders
+     WHERE pay_authority IS NOT NULL AND pay_authority <> '';
+  `);
+  const bindingConflict = db.prepare(
+    `SELECT orders.id, orders.pay_authority
+       FROM orders
+       JOIN order_payments ON order_payments.authority = orders.pay_authority
+      WHERE orders.pay_authority IS NOT NULL
+        AND orders.pay_authority <> ''
+        AND order_payments.order_id <> orders.id
+      LIMIT 1`,
+  ).get();
+  if (bindingConflict) throw new Error(`payment authority ownership conflict: ${bindingConflict.pay_authority}`);
+
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_attention_at ON orders(needs_attention DESC, at DESC)');
-  /* NULL means no online attempt. Every non-empty authority may identify one
-     order only, so even a future route regression cannot bind one gateway
-     payment to several orders. */
+  /* The pointer stays unique as a defence in depth. The order_payments primary
+     key is the authoritative global one-authority/one-order constraint. */
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_pay_authority ON orders(pay_authority) WHERE pay_authority IS NOT NULL AND pay_authority <> ''");
 }
 
@@ -462,6 +503,149 @@ const itemsOf = (db, id) =>
     .prepare('SELECT slug, title, unit, price, qty, sum FROM order_items WHERE order_id = ? ORDER BY pos ASC')
     .all(id);
 
+const paymentAttemptOut = (row) => row && ({
+  authority: row.authority,
+  orderId: row.order_id,
+  provider: row.provider,
+  status: row.status,
+  refId: row.ref_id || null,
+  at: row.at,
+  verifiedAt: row.verified_at || null,
+  reversedAt: row.reversed_at || null,
+  lastError: row.last_error || '',
+});
+
+/** Insert an immutable authority → order binding. INSERT OR IGNORE makes a
+ * repeated write for the same order idempotent; the ownership check turns a
+ * collision with any other order into a transaction failure. */
+const ensurePaymentAttempt = (database, orderId, {
+  authority,
+  provider = 'zarinpal',
+  at = new Date().toISOString(),
+} = {}) => {
+  const value = String(authority || '');
+  if (!value) throw new Error('payment authority is required');
+  const id = String(orderId || '');
+  database.prepare(
+    `INSERT OR IGNORE INTO order_payments
+       (authority, order_id, provider, status, at)
+     VALUES (?, ?, ?, 'issued', ?)`,
+  ).run(value, id, String(provider || 'zarinpal'), String(at));
+  const owner = database.prepare('SELECT * FROM order_payments WHERE authority = ?').get(value);
+  if (!owner || owner.order_id !== id) throw new Error('payment authority already belongs to another order');
+  return paymentAttemptOut(owner);
+};
+
+export function listOrderPaymentAttempts(database, orderId) {
+  return database
+    .prepare('SELECT * FROM order_payments WHERE order_id = ? ORDER BY at ASC, authority ASC')
+    .all(String(orderId || ''))
+    .map(paymentAttemptOut);
+}
+
+export function getOrderPaymentAttempt(database, orderId, authority) {
+  const value = String(authority || '');
+  if (!value) return null;
+  return paymentAttemptOut(database.prepare(
+    'SELECT * FROM order_payments WHERE order_id = ? AND authority = ?',
+  ).get(String(orderId || ''), value));
+}
+
+export function getPaymentAttemptByAuthority(database, authority) {
+  const value = String(authority || '');
+  if (!value) return null;
+  return paymentAttemptOut(database.prepare('SELECT * FROM order_payments WHERE authority = ?').get(value));
+}
+
+/** Persist a newly-issued attempt before its redirect reaches the customer.
+ * It becomes the current pointer only while the order is still pending. Even
+ * if an expiry/callback wins that race, the authority remains mapped forever. */
+export function recordOrderPaymentAttempt(database, orderId, attempt) {
+  return database.transaction(() => {
+    const id = String(orderId || '');
+    const order = database.prepare('SELECT id FROM orders WHERE id = ?').get(id);
+    if (!order) return { ok: false, current: false, attempt: null };
+    const saved = ensurePaymentAttempt(database, id, { ...attempt, at: attempt?.at || new Date().toISOString() });
+    const current = database.prepare(
+      `UPDATE orders SET provider = ?, pay_authority = ?
+       WHERE id = ? AND status = 'pending_payment'`,
+    ).run(saved.provider, saved.authority, id).changes === 1;
+    return { ok: true, current, attempt: saved };
+  })();
+}
+
+export function updateOrderPaymentAttempt(database, orderId, authority, patch = {}) {
+  const map = {
+    status: 'status',
+    refId: 'ref_id',
+    verifiedAt: 'verified_at',
+    reversedAt: 'reversed_at',
+    lastError: 'last_error',
+  };
+  const sets = [];
+  const values = [];
+  for (const [key, column] of Object.entries(map)) {
+    if (!(key in patch)) continue;
+    sets.push(`${column} = ?`);
+    values.push(patch[key]);
+  }
+  if (!sets.length) return false;
+  values.push(String(orderId || ''), String(authority || ''));
+  return database.prepare(
+    `UPDATE order_payments SET ${sets.join(', ')} WHERE order_id = ? AND authority = ?`,
+  ).run(...values).changes === 1;
+}
+
+export function claimOrderPaymentReversal(database, orderId, authority, {
+  refId = null,
+  verifiedAt = new Date().toISOString(),
+} = {}) {
+  const id = String(orderId || '');
+  const value = String(authority || '');
+  if (!value) return { claimed: false, attempt: null };
+  return database.transaction(() => {
+    const claimed = database.prepare(
+      `UPDATE order_payments
+          SET status = 'reversing', ref_id = ?, verified_at = ?, last_error = ''
+        WHERE order_id = ? AND authority = ?
+          AND status IN ('issued', 'verified', 'reversal_failed')`,
+    ).run(refId || null, verifiedAt, id, value).changes === 1;
+    if (claimed) {
+      /* Commit the visible alert with the claim. A worker crash after this
+         point cannot leave the extra charge hidden from Admin. */
+      database.prepare('UPDATE orders SET needs_attention = 1 WHERE id = ?').run(id);
+    }
+    return {
+      claimed,
+      attempt: getOrderPaymentAttempt(database, id, value),
+    };
+  })();
+}
+
+export function clearOrderPaymentAttentionIfResolved(database, orderId) {
+  return database.prepare(
+    `UPDATE orders
+        SET needs_attention = 0
+      WHERE id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM order_payments
+           WHERE order_payments.order_id = orders.id
+             AND order_payments.status IN ('reversing', 'reversal_failed', 'verified')
+        )`,
+  ).run(String(orderId || '')).changes === 1;
+}
+
+export function appendOrderAdminNote(database, orderId, note, { needsAttention = false } = {}) {
+  const value = String(note || '').trim();
+  if (!value) return false;
+  return database.prepare(
+    `UPDATE orders
+        SET admin_note = CASE WHEN admin_note = '' THEN ? ELSE admin_note || '\n' || ? END,
+            needs_attention = CASE WHEN ? THEN 1 ELSE needs_attention END
+      WHERE id = ?`,
+  ).run(value, value, needsAttention ? 1 : 0, String(orderId || '')).changes === 1;
+}
+
 export function listOrders(db) {
   /* Unresolved money movement belongs at the top, not buried by newer routine
      orders. The explicit flag is also returned for badge/detail rendering. */
@@ -479,7 +663,12 @@ export function getOrderById(db, id) {
 export function getOrderByPaymentAuthority(db, authority) {
   const value = String(authority || '');
   if (!value) return null;
-  const r = db.prepare('SELECT * FROM orders WHERE pay_authority = ?').get(value);
+  const r = db.prepare(
+    `SELECT orders.*
+       FROM order_payments
+       JOIN orders ON orders.id = order_payments.order_id
+      WHERE order_payments.authority = ?`,
+  ).get(value);
   return r ? orderOut(r, itemsOf(db, r.id)) : null;
 }
 
@@ -517,6 +706,20 @@ export function insertOrder(db, o) {
       auto_cancelled: bool(o.autoCancelled),
       needs_attention: bool(o.needsAttention),
     });
+    if (o.payAuthority) {
+      ensurePaymentAttempt(db, o.id, {
+        authority: o.payAuthority,
+        provider: o.provider,
+        at: o.at,
+      });
+      if (['paid', 'shipped', 'delivered'].includes(o.status)) {
+        updateOrderPaymentAttempt(db, o.id, o.payAuthority, {
+          status: 'settled',
+          refId: o.payRef || null,
+          verifiedAt: o.paidAt || o.at,
+        });
+      }
+    }
     (o.items || []).forEach((l, i) =>
       insItem.run(o.id, i, l.slug, l.title, l.unit || '', l.price, l.qty, l.sum),
     );
@@ -566,8 +769,21 @@ export function updateOrder(db, id, patch) {
     }
   }
   if (!sets.length) return;
-  vals.push(String(id));
-  db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  const orderId = String(id);
+  vals.push(orderId);
+  const apply = () => {
+    if (patch.payAuthority) {
+      const existing = db.prepare('SELECT provider FROM orders WHERE id = ?').get(orderId);
+      if (!existing) return false;
+      ensurePaymentAttempt(db, orderId, {
+        authority: patch.payAuthority,
+        provider: patch.provider || existing.provider,
+        at: new Date().toISOString(),
+      });
+    }
+    return db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals).changes > 0;
+  };
+  return patch.payAuthority ? db.transaction(apply)() : apply();
 }
 
 /** Settle only the still-pending order that owns this authority. The route also
@@ -581,13 +797,29 @@ export function settlePendingOrder(db, id, authority, {
   adminNote,
 }) {
   if (!authority) return false;
-  const result = db.prepare(
-    `UPDATE orders
-        SET status = 'paid', provider = ?, pay_ref = ?, paid_at = ?,
-            admin_note = ?, auto_cancelled = 0, needs_attention = 0
-      WHERE id = ? AND status = 'pending_payment' AND pay_authority = ?`,
-  ).run(provider, payRef || null, paidAt, adminNote || '', String(id), String(authority));
-  return result.changes === 1;
+  const orderId = String(id);
+  const value = String(authority);
+  return db.transaction(() => {
+    const result = db.prepare(
+      `UPDATE orders
+          SET status = 'paid', provider = ?, pay_authority = ?, pay_ref = ?, paid_at = ?,
+              admin_note = ?, auto_cancelled = 0, needs_attention = 0
+        WHERE id = ? AND status = 'pending_payment'
+          AND EXISTS (
+            SELECT 1 FROM order_payments
+             WHERE order_payments.order_id = orders.id
+               AND order_payments.authority = ?
+          )`,
+    ).run(provider, value, payRef || null, paidAt, adminNote || '', orderId, value);
+    if (result.changes !== 1) return false;
+    updateOrderPaymentAttempt(db, orderId, value, {
+      status: 'settled',
+      refId: payRef || null,
+      verifiedAt: paidAt,
+      lastError: '',
+    });
+    return true;
+  })();
 }
 
 /** Cancel stale unpaid orders and release their stock in one transaction.
@@ -641,10 +873,14 @@ export function claimExpiredPayment(db, id, {
 }) {
   const claim = db.prepare(
     `UPDATE orders
-     SET provider = ?, pay_ref = ?, paid_at = ?, admin_note = ?,
+     SET provider = ?, pay_authority = ?, pay_ref = ?, paid_at = ?, admin_note = ?,
          auto_cancelled = 2, needs_attention = 1
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 1
-       AND pay_authority = ?`,
+       AND EXISTS (
+         SELECT 1 FROM order_payments
+          WHERE order_payments.order_id = orders.id
+            AND order_payments.authority = ?
+       )`,
   );
   const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
   const finishPaid = db.prepare(
@@ -659,15 +895,32 @@ export function claimExpiredPayment(db, id, {
   );
 
   return db.transaction(() => {
-    if (!authority || claim.run(provider, payRef || null, paidAt, failureNote, id, authority).changes !== 1) {
+    const orderId = String(id);
+    const value = String(authority || '');
+    if (!value || claim.run(
+      provider,
+      value,
+      payRef || null,
+      paidAt,
+      failureNote,
+      orderId,
+      value,
+    ).changes !== 1) {
       return { ok: false, error: 'state or authority changed' };
     }
-    const reserved = reserveStock(db, items.all(id));
+    updateOrderPaymentAttempt(db, orderId, value, {
+      status: 'verified',
+      refId: payRef || null,
+      verifiedAt: paidAt,
+      lastError: '',
+    });
+    const reserved = reserveStock(db, items.all(orderId));
     if (reserved.ok) {
-      finishPaid.run(successNote, id);
+      finishPaid.run(successNote, orderId);
+      updateOrderPaymentAttempt(db, orderId, value, { status: 'settled' });
       return { ok: true, reserved: true };
     }
-    noteFailure.run(failureNote, id);
+    noteFailure.run(failureNote, orderId);
     return { ok: true, reserved: false, error: reserved.error };
   })();
 }

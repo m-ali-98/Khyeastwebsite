@@ -121,6 +121,20 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
   const payment = () => normalizePayment(db.getSetting(D, 'shop.payment') || {});
   const smsCfg = () => normalizeSms(db.getSetting(D, 'shop.sms') || {});
 
+  /* Query by order, never by the attacker-supplied authority, then compare
+     every mapped attempt with fixed-length digests. This keeps hit/miss work
+     independent of which authority was supplied while the table primary key
+     enforces global one-authority/one-order ownership. */
+  const mappedPaymentAttempt = (orderId, candidate) => {
+    const attempts = db.listOrderPaymentAttempts(D, orderId);
+    let matched = null;
+    for (const attempt of attempts) {
+      if (paymentAuthorityMatches(candidate, attempt.authority)) matched = attempt;
+    }
+    if (!attempts.length) paymentAuthorityMatches(candidate, '');
+    return matched;
+  };
+
   const limited = (kind, key, res) => {
     const check = rateLimiter.check(kind, key);
     return check.limited ? rateLimitResponse(res, check.retryAfter) : null;
@@ -182,6 +196,72 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
         log({ ...msg, provider: cfg.provider, environment: cfg.environment, ok: false, error: String(e?.message || e) });
         return { ok: false, error: String(e?.message || e) };
       });
+  }
+
+  /** A second authority for an already-paid/cancelled order represents a real
+   * extra charge, not an idempotent callback. Reverse that exact authority and
+   * leave a durable Admin alert when the gateway cannot do so automatically. */
+  async function reverseUnusablePayment(order, authority, refId, reason) {
+    const attempt = db.getOrderPaymentAttempt(D, order.id, authority);
+    if (!attempt) return { ok: false, error: 'payment attempt is not mapped' };
+    if (attempt.status === 'reversed') return { ok: true, alreadyReversed: true };
+
+    /* Only one process may call the external reversal endpoint. A duplicate
+       callback sees `reversing` and waits for that owner instead of issuing a
+       second money-moving request. */
+    const claim = db.claimOrderPaymentReversal(D, order.id, authority, {
+      refId: refId || attempt.refId,
+      verifiedAt: attempt.verifiedAt || new Date().toISOString(),
+    });
+    if (!claim.claimed) {
+      if (claim.attempt?.status === 'reversed') return { ok: true, alreadyReversed: true };
+      if (claim.attempt?.status === 'reversing') return { ok: false, pending: true, error: 'reversal in progress' };
+      db.appendOrderAdminNote(
+        D,
+        order.id,
+        `${reason} وضعیت تلاش پرداخت ${authority} با reverse خودکار سازگار نیست؛ پیگیری لازم است.`,
+        { needsAttention: true },
+      );
+      return { ok: false, error: 'payment attempt cannot be reversed automatically' };
+    }
+
+    /* If the worker dies during the gateway call, this pre-call marker keeps
+       the order visible to Admin instead of leaving an invisible extra charge. */
+    db.appendOrderAdminNote(
+      D,
+      order.id,
+      `${reason} بازگرداندن خودکار تلاش پرداخت ${authority} آغاز شد.`,
+      { needsAttention: true },
+    );
+
+    const reversed = await reversePayment(payment(), authority);
+    if (reversed.ok) {
+      db.updateOrderPaymentAttempt(D, order.id, authority, {
+        status: 'reversed',
+        reversedAt: new Date().toISOString(),
+        lastError: '',
+      });
+      db.appendOrderAdminNote(
+        D,
+        order.id,
+        `${reason} وجهِ تلاش پرداخت اضافه با شناسه ${authority} خودکار بازگردانده شد.`,
+      );
+      if (!order.needsAttention) db.clearOrderPaymentAttentionIfResolved(D, order.id);
+      return { ok: true, reversed: true };
+    }
+
+    const error = String(reversed.message || reversed.error || `gateway code ${reversed.code ?? 'unknown'}`);
+    db.updateOrderPaymentAttempt(D, order.id, authority, {
+      status: 'reversal_failed',
+      lastError: error.slice(0, 300),
+    });
+    db.appendOrderAdminNote(
+      D,
+      order.id,
+      `${reason} بازگرداندن تلاش پرداخت ${authority} ناموفق بود؛ پیگیری فوری لازم است.`,
+      { needsAttention: true },
+    );
+    return { ok: false, error, code: reversed.code };
   }
 
   /* ---------------- public ---------------- */
@@ -357,23 +437,29 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
         pay = { provider: 'offline', authority: null, payUrl: null, gatewayError: true };
       }
     }
-    order.provider = pay.provider;
-    order.payAuthority = pay.authority;
-    /* Persist the authority before its redirect URL reaches the browser. The
-       unique index is a second line of defence against a gateway/client bug
-       trying to attach an existing payment to another order. */
-    const afterGateway = db.getOrderById(D, order.id);
-    if (afterGateway?.status === 'pending_payment') {
+    /* Persist every issued authority before its redirect URL reaches the
+       browser. recordOrderPaymentAttempt keeps old attempts in the ledger and
+       moves only the pending order's current pointer, so a retry can never
+       orphan an earlier callback. */
+    if (pay.authority) {
       try {
-        db.updateOrder(D, order.id, { provider: pay.provider, payAuthority: pay.authority });
+        const recorded = db.recordOrderPaymentAttempt(D, order.id, {
+          provider: pay.provider,
+          authority: pay.authority,
+        });
+        if (!recorded.current) pay = { ...pay, payUrl: null, gatewayError: true };
       } catch (error) {
         console.error('[shop] refused duplicate payment authority:', error.message);
-        db.updateOrder(D, order.id, { provider: 'offline', payAuthority: null });
+        const latest = db.getOrderById(D, order.id);
+        if (latest?.status === 'pending_payment') db.updateOrder(D, order.id, { provider: 'offline' });
         pay = { provider: 'offline', authority: null, payUrl: null, gatewayError: true };
-        order.provider = 'offline';
-        order.payAuthority = null;
       }
-    } else if (afterGateway) {
+    } else {
+      db.updateOrder(D, order.id, { provider: pay.provider });
+    }
+
+    const afterGateway = db.getOrderById(D, order.id);
+    if (afterGateway) {
       order.status = afterGateway.status;
       order.provider = afterGateway.provider;
       order.payAuthority = afterGateway.payAuthority;
@@ -440,7 +526,12 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     const origin = safeOrigin(req, pm.callbackBase);
     try {
       const pay = await createPayment(pm, order, { origin });
-      db.updateOrder(D, order.id, { provider: pay.provider, payAuthority: pay.authority });
+      if (!pay.authority || !pay.payUrl) return res.status(502).json({ error: 'gateway unavailable' });
+      const recorded = db.recordOrderPaymentAttempt(D, order.id, {
+        provider: pay.provider,
+        authority: pay.authority,
+      });
+      if (!recorded.current) return res.status(409).json({ error: 'order already processed' });
       res.json({ ok: true, payment: { provider: pay.provider, payUrl: pay.payUrl } });
     } catch (error) {
       console.error('[shop] payment retry failed:', error.message);
@@ -469,10 +560,11 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     const order = db.getOrderByCode(D, code);
     if (!order) return res.status(404).send('unknown order');
     const callbackAuthority = String(req.query.Authority || req.query.authority || '');
-    /* Equal totals do not bind a payment to an order. Refuse a borrowed or
-       missing authority before making any gateway call; the digest comparison
-       is constant-time even for malformed lengths. */
-    if (!paymentAuthorityMatches(callbackAuthority, order.payAuthority)) {
+    /* Equal totals do not bind a payment to an order. Ownership comes from the
+       database-enforced attempt ledger; the explicit digest comparison stays
+       constant-time even for malformed callback lengths. */
+    const attempt = mappedPaymentAttempt(order.id, callbackAuthority);
+    if (!attempt) {
       console.warn(`[shop] rejected payment authority mismatch for ${order.code}`);
       return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
     }
@@ -481,7 +573,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     let refId = '';
     let paymentNote = '';
     try {
-      const out = await verifyPayment(payment(), provider, req.query, order.total, order.payAuthority);
+      const out = await verifyPayment(payment(), provider, req.query, order.total, attempt.authority);
       ok = out.ok;
       refId = out.refId;
       if (out.amountMismatch) {
@@ -510,84 +602,145 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       console.error('[shop] verify error:', e.message);
     }
     if (ok) {
-      /* Verification awaited the gateway, so the order may have expired or a
-         retry may have replaced its active attempt. Re-read and compare again;
-         the conditional database writes below close the final race. */
-      const current = db.getOrderById(D, order.id);
-      if (!current || !paymentAuthorityMatches(callbackAuthority, current.payAuthority)) {
+      /* Verification awaited the gateway, so expiry, a retry, or another
+         callback may have changed the order. The authority-to-order mapping is
+         immutable; conditional writes decide which verified attempt settles. */
+      let current = db.getOrderById(D, order.id);
+      const currentAttempt = mappedPaymentAttempt(order.id, callbackAuthority);
+      if (!current || !currentAttempt) {
         ok = false;
-      } else if (current.status === 'pending_payment') {
-        const settled = db.settlePendingOrder(D, order.id, callbackAuthority, {
-          provider,
-          payRef: refId || current.payRef,
-          paidAt: new Date().toISOString(),
-          adminNote: [current.adminNote, paymentNote].filter(Boolean).join('\n'),
-        });
-        if (!settled) {
-          const latest = db.getOrderById(D, order.id);
-          ok = Boolean(
-            latest &&
-            paymentAuthorityMatches(callbackAuthority, latest.payAuthority) &&
-            ['paid', 'shipped', 'delivered'].includes(latest.status),
-          );
-        }
-      } else if (current.status === 'cancelled' && current.autoCancelled) {
-        /* The customer completed payment on the expiry boundary. Claim the
-           callback and re-reserve in one database transaction so duplicate
-           callbacks handled by different Passenger workers cannot deduct the
-           same units twice. A failed reservation commits a claimed-refund
-           marker and urgent note before we await the gateway, while keeping the
-           order cancelled so it never pretends to hold inventory. */
-        const lateSuccess = [
-          current.adminNote,
-          'پرداخت پس از انقضا تأیید و موجودی دوباره رزرو شد.',
-          paymentNote,
-        ].filter(Boolean).join('\n');
-        const lateFailure = [
-          current.adminNote,
-          'هشدار فوری: پرداخت پس از انقضا تأیید شد اما موجودی کافی نبود؛ بازگرداندن خودکار وجه در حال انجام است.',
-          paymentNote,
-        ].filter(Boolean).join('\n');
-        const claimed = db.claimExpiredPayment(D, current.id, {
-          provider,
-          authority: callbackAuthority,
-          payRef: refId || current.payRef,
-          paidAt: new Date().toISOString(),
-          successNote: lateSuccess,
-          failureNote: lateFailure,
-        });
-
-        if (!claimed.ok) {
-          /* Another callback worker won the compare-and-set. Its committed
-             state is authoritative; this response must not reserve or refund. */
-          const latest = db.getOrderById(D, current.id);
-          ok = Boolean(
-            latest &&
-            paymentAuthorityMatches(callbackAuthority, latest.payAuthority) &&
-            ['paid', 'shipped', 'delivered'].includes(latest.status),
-          );
-        } else if (!claimed.reserved) {
-          const reversed = await reversePayment(payment(), callbackAuthority);
-          if (reversed.ok) {
+      } else {
+        let resolved = false;
+        /* At most two state transitions are expected (pending → expired or
+           pending → paid); a third pass is a conservative race retry without
+           turning the callback into an unbounded loop. */
+        for (let pass = 0; pass < 3 && !resolved; pass += 1) {
+          if (!current) {
             ok = false;
-            db.updateOrder(D, current.id, {
-              status: 'cancelled',
-              autoCancelled: false,
-              needsAttention: false,
-              adminNote: [lateFailure, 'پرداخت دیرهنگام خودکار بازگردانده شد.'].join('\n'),
-            });
-          } else {
-            db.updateOrder(D, current.id, {
-              /* Inventory could not be reclaimed, so this order must remain
-                 cancelled. Marking it paid would falsely claim it holds stock
-                 and a later manual reversal would credit those units again. */
-              status: 'cancelled',
-              autoCancelled: false,
-              needsAttention: true,
-              adminNote: [lateFailure, 'بازگرداندن خودکار وجه ناموفق بود؛ پیگیری فوری لازم است.'].join('\n'),
-            });
+            resolved = true;
+            break;
           }
+
+          if (current.status === 'pending_payment') {
+            const settled = db.settlePendingOrder(D, order.id, callbackAuthority, {
+              provider,
+              payRef: refId || current.payRef,
+              paidAt: new Date().toISOString(),
+              adminNote: [current.adminNote, paymentNote].filter(Boolean).join('\n'),
+            });
+            if (settled) {
+              ok = true;
+              resolved = true;
+              break;
+            }
+            current = db.getOrderById(D, order.id);
+            continue;
+          }
+
+          if (['paid', 'shipped', 'delivered'].includes(current.status)) {
+            if (paymentAuthorityMatches(callbackAuthority, current.payAuthority)) {
+              /* Same settled attempt: an ordinary idempotent callback. */
+              ok = true;
+            } else {
+              /* A different retry won settlement. This authority is a second
+                 real charge and must be reversed using the authority itself. */
+              await reverseUnusablePayment(
+                current,
+                callbackAuthority,
+                refId,
+                'هشدار: سفارش پیش‌تر با تلاش پرداخت دیگری تسویه شده است.',
+              );
+              ok = false;
+            }
+            resolved = true;
+            break;
+          }
+
+          if (current.status === 'cancelled' && current.autoCancelled) {
+            /* The customer completed payment on the expiry boundary. Claim the
+               callback and re-reserve in one database transaction so duplicate
+               workers cannot deduct the same units twice. */
+            const lateSuccess = [
+              current.adminNote,
+              'پرداخت پس از انقضا تأیید و موجودی دوباره رزرو شد.',
+              paymentNote,
+            ].filter(Boolean).join('\n');
+            const lateFailure = [
+              current.adminNote,
+              'هشدار فوری: پرداخت پس از انقضا تأیید شد اما موجودی کافی نبود؛ بازگرداندن خودکار وجه در حال انجام است.',
+              paymentNote,
+            ].filter(Boolean).join('\n');
+            const claimed = db.claimExpiredPayment(D, current.id, {
+              provider,
+              authority: callbackAuthority,
+              payRef: refId || current.payRef,
+              paidAt: new Date().toISOString(),
+              successNote: lateSuccess,
+              failureNote: lateFailure,
+            });
+
+            if (!claimed.ok) {
+              /* Another worker may have completed the state transition. If it
+                 still holds the transient claim, it alone owns refund work. */
+              current = db.getOrderById(D, current.id);
+              if (current?.status === 'cancelled' && current.autoCancelled) {
+                ok = false;
+                resolved = true;
+              }
+              continue;
+            }
+
+            if (claimed.reserved) {
+              ok = true;
+              resolved = true;
+              break;
+            }
+
+            const reversed = await reversePayment(payment(), callbackAuthority);
+            if (reversed.ok) {
+              db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
+                status: 'reversed',
+                reversedAt: new Date().toISOString(),
+                lastError: '',
+              });
+              db.updateOrder(D, current.id, {
+                status: 'cancelled',
+                autoCancelled: false,
+                needsAttention: false,
+                adminNote: [lateFailure, 'پرداخت دیرهنگام خودکار بازگردانده شد.'].join('\n'),
+              });
+            } else {
+              const reversalError = String(reversed.message || reversed.error || 'automatic reversal failed');
+              db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
+                status: 'reversal_failed',
+                lastError: reversalError.slice(0, 300),
+              });
+              db.updateOrder(D, current.id, {
+                /* Inventory could not be reclaimed, so this order must remain
+                   cancelled and visibly require Admin attention. */
+                status: 'cancelled',
+                autoCancelled: false,
+                needsAttention: true,
+                adminNote: [lateFailure, 'بازگرداندن خودکار وجه ناموفق بود؛ پیگیری فوری لازم است.'].join('\n'),
+              });
+            }
+            ok = false;
+            resolved = true;
+            break;
+          }
+
+          /* A verified payment cannot silently attach to a manually-cancelled
+             or otherwise ineligible order. Reverse it or raise an alert. */
+          await reverseUnusablePayment(
+            current,
+            callbackAuthority,
+            refId,
+            'هشدار: وضعیت سفارش اجازه تسویه این پرداخت را نمی‌دهد.',
+          );
+          ok = false;
+          resolved = true;
         }
+        if (!resolved) ok = false;
       }
     }
     res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=${ok ? 'ok' : 'fail'}`);
@@ -779,10 +932,9 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
    *  customer, this order", not a bare authority string. */
   r.get('/api/shop-admin/payment/unverified', requireAuth, async (_req, res) => {
     const out = await listUnverified(payment());
-    const orders = db.listOrders(D);
     const rows = out.authorities.map((a) => {
       const authority = String(a.authority || a.Authority || a);
-      const order = orders.find((o) => o.payAuthority === authority);
+      const order = db.getOrderByPaymentAuthority(D, authority);
       return {
         authority,
         amount: Number(a.amount ?? 0),
@@ -801,14 +953,18 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
   r.post('/api/shop-admin/payment/unverified/:authority/verify', requireAuth, async (req, res) => {
     const authority = String(req.params.authority || '');
     const order = db.getOrderByPaymentAuthority(D, authority);
-    if (!order) return res.status(404).json({ error: 'سفارشی با این کد پرداخت پیدا نشد.' });
+    const attempt = order ? mappedPaymentAttempt(order.id, authority) : null;
+    if (!order || !attempt) {
+      if (!order) paymentAuthorityMatches(authority, '');
+      return res.status(404).json({ error: 'سفارشی با این کد پرداخت پیدا نشد.' });
+    }
 
     const out = await verifyPayment(
       payment(),
       'zarinpal',
       { Authority: authority, Status: 'OK' },
       order.total,
-      order.payAuthority,
+      attempt.authority,
     );
     if (!out.ok) return res.status(409).json({ error: out.message || out.error || 'تأیید پرداخت ممکن نشد.', code: out.gatewayCode });
 
@@ -824,6 +980,20 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
         if (!latest || !['paid', 'shipped', 'delivered'].includes(latest.status)) {
           return res.status(409).json({ error: 'وضعیت سفارش هنگام تأیید تغییر کرد؛ دوباره بررسی کنید.' });
         }
+        if (!paymentAuthorityMatches(authority, latest.payAuthority)) {
+          const reversed = await reverseUnusablePayment(
+            latest,
+            authority,
+            out.refId,
+            'هشدار: سفارش هم‌زمان با تلاش پرداخت دیگری تسویه شد.',
+          );
+          return res.status(409).json({
+            error: reversed.ok
+              ? 'این پرداخت اضافه بود و مبلغ آن بازگردانده شد.'
+              : 'این پرداخت اضافه است و بازگرداندن خودکار آن نیاز به پیگیری دارد.',
+            reversed: !!reversed.ok,
+          });
+        }
       } else {
         const sms = smsCfg();
         if (sms.onStatus) {
@@ -837,8 +1007,34 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
           });
         }
       }
-    } else if (!['paid', 'shipped', 'delivered'].includes(order.status)) {
-      return res.status(409).json({ error: 'این سفارش در وضعیت قابل تأیید نیست.' });
+    } else if (['paid', 'shipped', 'delivered'].includes(order.status)) {
+      if (!paymentAuthorityMatches(authority, order.payAuthority)) {
+        const reversed = await reverseUnusablePayment(
+          order,
+          authority,
+          out.refId,
+          'هشدار: سفارش پیش‌تر با تلاش پرداخت دیگری تسویه شده است.',
+        );
+        return res.status(409).json({
+          error: reversed.ok
+            ? 'این پرداخت اضافه بود و مبلغ آن بازگردانده شد.'
+            : 'این پرداخت اضافه است و بازگرداندن خودکار آن نیاز به پیگیری دارد.',
+          reversed: !!reversed.ok,
+        });
+      }
+    } else {
+      const reversed = await reverseUnusablePayment(
+        order,
+        authority,
+        out.refId,
+        'هشدار: وضعیت سفارش اجازه تسویه پرداخت بازیابی‌شده را نمی‌دهد.',
+      );
+      return res.status(409).json({
+        error: reversed.ok
+          ? 'سفارش قابل تسویه نبود و مبلغ بازگردانده شد.'
+          : 'سفارش قابل تسویه نیست و بازگرداندن مبلغ نیاز به پیگیری دارد.',
+        reversed: !!reversed.ok,
+      });
     }
     res.json({ ok: true, ref: out.refId, order: db.getOrderById(D, order.id) });
   });
@@ -859,6 +1055,11 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
 
     const out = await reversePayment(payment(), order.payAuthority);
     if (!out.ok) return res.status(409).json({ error: out.message || out.error || 'بازگرداندن مبلغ ممکن نشد.', code: out.code });
+    db.updateOrderPaymentAttempt(D, order.id, order.payAuthority, {
+      status: 'reversed',
+      reversedAt: new Date().toISOString(),
+      lastError: '',
+    });
 
     /* A reversed payment is a cancelled order, and cancelling is what puts
        the stock back — doing one without the other leaves the shop holding
