@@ -125,14 +125,19 @@ export { E2E };
 
 /** Signs a brand-new customer up through the API, in the page's own cookie
  *  jar, so the UI that follows is already authenticated.
- *  `page.request` shares cookies with the browser context, which is what
- *  makes this work without driving three forms. */
+ *  `page.request` shares the resulting customer cookie with the browser
+ *  context, which makes this work without driving three forms. */
 export async function signUpCustomer(page, { phone, password = 'e2e-customer-1404', name = 'مشتری آزمون' } = {}) {
-  await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
+  const adminLogin = await page.request.post('/api/auth/login', { data: { user: E2E.user, pass: E2E.pass } });
+  const adminCookie = (adminLogin.headers()['set-cookie'] || '').match(/__Host-ky_admin=[^;]+/)?.[0];
+  if (!adminCookie) throw new Error('admin did not issue the __Host- session cookie');
 
   await page.request.post('/api/account/otp', { data: { phone, purpose: 'register' } });
 
-  const log = await (await page.request.get('/api/shop-admin/sms')).json();
+  /* APIRequestContext correctly refuses to send a Secure cookie over this
+     test-only http:// origin. Production is HTTPS; the harness forwards the
+     captured host-only cookie explicitly for this native admin probe. */
+  const log = await (await page.request.get('/api/shop-admin/sms', { headers: { Cookie: adminCookie } })).json();
   const row = (log.log || []).find((l) => l.kind === 'otp' && l.phone.endsWith(phone.slice(-4)));
   const code = row?.text.match(/(\d{5})/)?.[1];
   if (!code) throw new Error(`no verification code was sent to ${phone}`);

@@ -55,8 +55,36 @@ try {
     { slug: 'limited', title: 'Limited', price: 1000, stock: 5, active: true },
     { slug: 'late', title: 'Late callback', price: 1000, stock: 5, active: true },
     { slug: 'late-empty', title: 'Late callback without stock', price: 1000, stock: 3, active: true },
+    { slug: 'nested-a', title: 'Nested transaction A', price: 1000, stock: 5, active: true },
+    { slug: 'nested-b', title: 'Nested transaction B', price: 1000, stock: 5, active: true },
     { slug: 'unlimited', title: 'Unlimited', price: 1000, stock: -1, active: true },
   ]);
+
+  /* Force a failure after the first UPDATE while reserveStock runs inside an
+     outer transaction. The node:sqlite fallback must roll the inner writes
+     back to a SAVEPOINT even though reserveStock catches and returns the
+     error; otherwise nested-a would silently commit at 4. */
+  D.exec(`
+    CREATE TRIGGER fail_nested_second_update
+    BEFORE UPDATE OF stock ON products
+    WHEN OLD.slug = 'nested-b' AND NEW.stock < OLD.stock
+    BEGIN
+      SELECT RAISE(ABORT, 'forced nested reservation failure');
+    END;
+  `);
+  let nestedFailure;
+  D.transaction(() => {
+    nestedFailure = db.reserveStock(D, [
+      { slug: 'nested-a', qty: 1 },
+      { slug: 'nested-b', qty: 1 },
+    ]);
+  })();
+  check(!nestedFailure?.ok, 'nested reservation surfaces a forced second-write failure');
+  check(
+    db.getProduct(D, 'nested-a').stock === 5 && db.getProduct(D, 'nested-b').stock === 5,
+    'nested SAVEPOINT rolls back every partial stock deduction',
+  );
+  D.exec('DROP TRIGGER fail_nested_second_update');
 
   const oversell = db.reserveStock(D, [
     { slug: 'limited', qty: 5 },
@@ -114,6 +142,7 @@ try {
   });
   check(lateClaim.ok && lateClaim.reserved, 'late verified payment can atomically reclaim available stock');
   check(db.getOrderById(D, late.id).status === 'paid', 'claimed late payment becomes paid');
+  check(!db.getOrderById(D, late.id).needsAttention, 'successful late-payment recovery clears its transient attention flag');
   check(db.getProduct(D, 'late').stock === 2, 'late-payment claim reserves its units exactly once');
   const duplicateClaim = db.claimExpiredPayment(D, late.id, {
     provider: 'zarinpal', payRef: 'again', paidAt: new Date().toISOString(), successNote: 'again', failureNote: 'again',
@@ -139,9 +168,12 @@ try {
   check(noStockClaim.ok && !noStockClaim.reserved, 'late payment without inventory is claimed for one refund worker');
   check(claimedForRefund.status === 'cancelled' && claimedForRefund.autoCancelled, 'refund-pending claim does not pretend to hold stock');
   check(claimedForRefund.adminNote === 'refund pending', 'refund-pending claim leaves an urgent durable note');
+  check(claimedForRefund.needsAttention, 'unresolved late refund raises a durable attention flag before external refund work');
   check(!db.claimExpiredPayment(D, lateEmpty.id, {
     provider: 'zarinpal', payRef: 'duplicate', paidAt: new Date().toISOString(), successNote: 'duplicate', failureNote: 'duplicate',
   }).ok, 'a second worker cannot claim the same late refund');
+  db.updateOrder(D, lateEmpty.id, { needsAttention: false });
+  check(!db.getOrderById(D, lateEmpty.id).needsAttention, 'an explicit Admin acknowledgement clears the attention flag durably');
 
   const paid = order({ id: crypto.randomUUID(), code: `KY-PAID-${Date.now()}`, status: 'paid', paidAt: new Date().toISOString() });
   check(db.reserveStock(D, paid.items).ok, 'paid fixture reserves stock');

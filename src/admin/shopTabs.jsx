@@ -854,6 +854,7 @@ export function ShopOrdersTab() {
     '--visible-columns': String(columns.visible.size),
     '--grid-min-width': `${236 + columns.visible.size * 118}px`,
   };
+  const attentionCount = orders?.filter((order) => order.needsAttention).length || 0;
 
   return (
     <div className="admin__panel">
@@ -878,6 +879,12 @@ export function ShopOrdersTab() {
       </div>
       <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
       {err && <p className="ord__error" role="alert">{err}</p>}
+      {attentionCount > 0 && (
+        <div className="ord__attention-summary" role="alert">
+          <strong>{fa(attentionCount)} سفارش نیازمند رسیدگی فوری است</strong>
+          <span>بازگرداندن خودکار وجه کامل نشده است؛ سفارش نشان‌دار را بررسی و پس از حل موضوع، هشدار آن را تأیید کنید.</span>
+        </div>
+      )}
       {orders === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
       {orders?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز سفارشی ثبت نشده است.</p>}
 
@@ -906,7 +913,7 @@ export function ShopOrdersTab() {
               const validDate = !Number.isNaN(at.getTime());
               return (
                 <article
-                  className={`ord__item ${expanded ? 'is-open' : ''} ${o.status === 'pending_payment' ? 'is-attention' : ''}`}
+                  className={`ord__item ${expanded ? 'is-open' : ''} ${o.status === 'pending_payment' ? 'is-attention' : ''} ${o.needsAttention ? 'is-needs-attention' : ''}`}
                   key={o.id}
                 >
                   <div className="ord__row ord__grid">
@@ -918,6 +925,7 @@ export function ShopOrdersTab() {
                       aria-controls={expanded ? detailId : undefined}
                     >
                       <b dir="ltr">{o.code}</b>
+                      {o.needsAttention && <span className="ord__attention-badge">نیازمند رسیدگی</span>}
                     </button>
 
                     {columns.visible.has('customer') && (
@@ -961,6 +969,25 @@ export function ShopOrdersTab() {
 
                   {expanded && (
                     <div className="ord__detail" id={detailId} role="region" aria-label={`جزئیات سفارش ${o.code}`}>
+                      {o.needsAttention && (
+                        <div className="ord__attention-alert" role="alert">
+                          <div>
+                            <strong>بازگرداندن وجه این سفارش هنوز نیازمند پیگیری است</strong>
+                            <p>وضعیت را از درگاه بررسی کنید و فقط پس از بازگشت وجه یا حل دستی موضوع، این هشدار را پاک کنید.</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn--outline btn--sm"
+                            onClick={() =>
+                              window.confirm('تأیید می‌کنید موضوع بازگرداندن وجه این سفارش کاملاً رسیدگی شده است؟') &&
+                              patch(o.id, { needsAttention: false })
+                            }
+                          >
+                            <Icons.check size={15} />
+                            رسیدگی شد؛ پاک‌کردن هشدار
+                          </button>
+                        </div>
+                      )}
                       <p className="ord__detail-title">اقلام سفارش</p>
                       <div className="ord__items">
                         {(o.items || []).map((it) => (
@@ -1000,7 +1027,7 @@ export function ShopOrdersTab() {
                           <button type="button" className="btn btn--outline btn--sm" onClick={() => gateway(o.id, 'inquire')}>
                             استعلام وضعیت از درگاه
                           </button>
-                          {o.status === 'paid' && (
+                          {(o.status === 'paid' || o.needsAttention) && (
                             <button
                               type="button"
                               className="btn btn--outline btn--sm ord__delete"

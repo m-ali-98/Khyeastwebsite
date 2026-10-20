@@ -538,12 +538,17 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
             db.updateOrder(D, current.id, {
               status: 'cancelled',
               autoCancelled: false,
+              needsAttention: false,
               adminNote: [lateFailure, 'پرداخت دیرهنگام خودکار بازگردانده شد.'].join('\n'),
             });
           } else {
             db.updateOrder(D, current.id, {
-              status: 'paid',
+              /* Inventory could not be reclaimed, so this order must remain
+                 cancelled. Marking it paid would falsely claim it holds stock
+                 and a later manual reversal would credit those units again. */
+              status: 'cancelled',
               autoCancelled: false,
+              needsAttention: true,
               adminNote: [lateFailure, 'بازگرداندن خودکار وجه ناموفق بود؛ پیگیری فوری لازم است.'].join('\n'),
             });
           }
@@ -624,6 +629,10 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     if (!order) return res.status(404).json({ error: 'not found' });
     const b = req.body || {};
     const patch = {};
+    const changesAttention = Object.hasOwn(b, 'needsAttention');
+    if (changesAttention && typeof b.needsAttention !== 'boolean') {
+      return res.status(400).json({ error: 'invalid attention state' });
+    }
     if ('status' in b && ORDER_STATUS.includes(b.status)) {
       /* The invariant: an order holds its reserved stock for as long as it is
          not cancelled. Only the transition ACROSS that line may move stock, and
@@ -658,6 +667,9 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       if (b.status === 'paid' && !order.paidAt) patch.paidAt = new Date().toISOString();
     }
     if ('adminNote' in b) patch.adminNote = String(b.adminNote || '').slice(0, 1000);
+    /* Acknowledgement is intentionally explicit: changing status or editing a
+       note must never make unresolved refund work disappear by accident. */
+    if (changesAttention) patch.needsAttention = b.needsAttention;
     db.updateOrder(D, order.id, patch);
     res.json({ ok: true });
   });
@@ -796,10 +808,13 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     /* A reversed payment is a cancelled order, and cancelling is what puts
        the stock back — doing one without the other leaves the shop holding
        reserved stock for an order nobody paid for. */
-    if (order.status !== 'cancelled') {
-      db.restoreStock(D, order.items);
-      db.updateOrder(D, order.id, { status: 'cancelled', autoCancelled: false, adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال بازگردانده شد.`.trim() });
-    }
+    if (order.status !== 'cancelled') db.restoreStock(D, order.items);
+    db.updateOrder(D, order.id, {
+      status: 'cancelled',
+      autoCancelled: false,
+      needsAttention: false,
+      adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال بازگردانده شد.`.trim(),
+    });
     res.json({ ok: true, order: db.getOrderById(D, order.id) });
   });
 
@@ -825,11 +840,12 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
        a refund can legitimately be for something with no order behind it. */
     const code = String(req.body?.orderCode || '').trim();
     const order = code ? db.getOrderByCode(D, code) : null;
-    if (order && order.status !== 'cancelled') {
-      db.restoreStock(D, order.items);
+    if (order) {
+      if (order.status !== 'cancelled') db.restoreStock(D, order.items);
       db.updateOrder(D, order.id, {
         status: 'cancelled',
         autoCancelled: false,
+        needsAttention: false,
         adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال برگشت داده شد.`.trim(),
       });
     }

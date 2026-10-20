@@ -32,23 +32,32 @@ function wrapNodeSqlite(DatabaseSync, file) {
     };
   };
 
-  let depth = 0; // support nested transaction() calls safely
+  let depth = 0;
+  let savepointSequence = 0;
+  /* Match better-sqlite3's nested transaction semantics. A nested operation
+     gets a real SAVEPOINT, so a helper that catches its own exception cannot
+     accidentally leave half of its writes inside the caller's outer commit. */
   const transaction = (fn) =>
     function (...args) {
-      if (depth > 0) return fn.apply(this, args);
-      depth++;
-      raw.exec('BEGIN');
+      const outermost = depth === 0;
+      const savepoint = `khyeast_nested_${++savepointSequence}`;
+      raw.exec(outermost ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+      depth += 1;
       try {
         const out = fn.apply(this, args);
-        raw.exec('COMMIT');
+        raw.exec(outermost ? 'COMMIT' : `RELEASE SAVEPOINT ${savepoint}`);
         return out;
-      } catch (e) {
+      } catch (error) {
         try {
-          raw.exec('ROLLBACK');
+          if (outermost) raw.exec('ROLLBACK');
+          else {
+            raw.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+            raw.exec(`RELEASE SAVEPOINT ${savepoint}`);
+          }
         } catch {}
-        throw e;
+        throw error;
       } finally {
-        depth--;
+        depth -= 1;
       }
     };
 

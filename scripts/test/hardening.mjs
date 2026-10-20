@@ -202,9 +202,10 @@ try {
   const loginBody = await login.json();
   const adminCookie = login.headers.get('set-cookie') || '';
   const adminCookiePair = adminCookie.split(';')[0];
-  check(/\bky_admin=/.test(adminCookie) && /HttpOnly/i.test(adminCookie), 'admin session is issued as an HttpOnly cookie');
+  check(/^__Host-ky_admin=/.test(adminCookie) && /HttpOnly/i.test(adminCookie), 'admin session uses an HttpOnly __Host- cookie');
   check(/SameSite=Strict/i.test(adminCookie), 'admin session cookie is SameSite=Strict');
-  check(/;\s*Secure/i.test(adminCookie), 'trusted HTTPS proxy makes the admin cookie Secure');
+  check(/;\s*Secure/i.test(adminCookie) && /;\s*Path=\//i.test(adminCookie), '__Host- admin cookie is always Secure with Path=/');
+  check(!/;\s*Domain=/i.test(adminCookie), '__Host- admin cookie cannot be scoped to a parent domain');
   check(!Object.hasOwn(loginBody, 'token'), 'admin credential is never returned to JavaScript in login JSON');
 
   const csrf = await fetch(`${BASE}/api/admin/security`, {
@@ -223,6 +224,60 @@ try {
   const security = await diagnostic.json();
   check(diagnostic.ok && security.proxy?.clientIp === '203.0.113.42', 'trusted local proxy resolves the real visitor IP', JSON.stringify(security.proxy));
   check(security.proxy?.status === 'resolved', 'admin proxy diagnostics report a resolved forwarded address');
+
+  /* Bypass every browser editor and send hostile rich text straight to the
+     authenticated JSON endpoint. Persistence itself must canonicalise posts,
+     translated post overrides and shop product descriptions. */
+  const originalContent = await (await fetch(`${BASE}/api/content`)).json();
+  const hostileContent = structuredClone(originalContent);
+  const postSlug = hostileContent.posts[0].slug;
+  hostileContent.posts[0].body = '<p onclick="steal()">متن <strong>مجاز</strong><script>alert(1)</script></p>';
+  hostileContent.shop.products[0].description = '<img src="javascript:alert(1)" onerror="steal()"><p><em>توضیح مجاز</em></p>';
+  hostileContent.i18n = {
+    ...(hostileContent.i18n || {}),
+    en: {
+      ...(hostileContent.i18n?.en || {}),
+      posts: {
+        ...(hostileContent.i18n?.en?.posts || {}),
+        [postSlug]: { ...(hostileContent.i18n?.en?.posts?.[postSlug] || {}), body: '<style>body{display:none}</style><p onmouseover="x()">Safe translation</p>' },
+      },
+    },
+  };
+  const hostileWrite = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { Cookie: adminCookiePair, Origin: BASE, 'Content-Type': 'application/json' },
+    body: JSON.stringify(hostileContent),
+  });
+  check(hostileWrite.ok, 'direct authenticated content write is accepted for server sanitizing', `got ${hostileWrite.status}`);
+  const storedContent = await (await fetch(`${BASE}/api/content`)).json();
+  const storedHtml = [
+    storedContent.posts[0].body,
+    storedContent.shop.products[0].description,
+    storedContent.i18n.en.posts[postSlug].body,
+  ].join('\n');
+  check(!/(?:<script|<style|onerror|onclick|onmouseover|javascript:)/i.test(storedHtml), 'server removes active HTML before persistence', storedHtml.slice(0, 160));
+  check(/<strong>مجاز<\/strong>/.test(storedHtml) && /<em>توضیح مجاز<\/em>/.test(storedHtml) && /Safe translation/.test(storedHtml), 'server sanitizer preserves allowed rich-text formatting');
+
+  /* The dedicated shop endpoint bypasses writeContent, so prove the SQLite
+     product boundary independently applies the same policy. */
+  const shopAdmin = await (await fetch(`${BASE}/api/shop-admin/products`, { headers: { Cookie: adminCookiePair } })).json();
+  shopAdmin.products[0].description = '<p><strong>DB safe</strong><iframe src="https://evil.example"></iframe></p>';
+  const directProductWrite = await fetch(`${BASE}/api/shop-admin/products`, {
+    method: 'PUT',
+    headers: { Cookie: adminCookiePair, Origin: BASE, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ products: shopAdmin.products }),
+  });
+  const directProducts = await directProductWrite.json();
+  check(
+    directProductWrite.ok && /<strong>DB safe<\/strong>/.test(directProducts.products[0].description) && !/<iframe/i.test(directProducts.products[0].description),
+    'shop product database boundary sanitizes direct Admin API writes',
+  );
+
+  await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { Cookie: adminCookiePair, Origin: BASE, 'Content-Type': 'application/json' },
+    body: JSON.stringify(originalContent),
+  });
 } catch (e) {
   check(false, 'hardening harness', String(e.message).slice(0, 120));
 } finally {

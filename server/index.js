@@ -36,6 +36,7 @@ import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
+import { sanitizeContentPayload } from './sanitize.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -181,7 +182,11 @@ const readContent = () => {
  *  edit is applied only if the live value still matches what the admin saw.
  *  A genuinely new product keeps the initial stock carried by this payload. */
 const writeContent = (next) => {
-  const { shop, ...rest } = next;
+  /* The panel sanitizes for immediate preview, but only this server-side pass
+     protects direct API callers and future clients. Store only canonical safe
+     HTML in both content.json and the shop database. */
+  const sanitized = sanitizeContentPayload(next);
+  const { shop, ...rest } = sanitized;
   if (shop && typeof shop === 'object') {
     if (Array.isArray(shop.products)) store.replaceProducts(db, shop.products, { preserveStock: true });
     if (shop.display && typeof shop.display === 'object')
@@ -265,29 +270,24 @@ const verify = (token) => {
     return null;
   }
 };
-const ADMIN_COOKIE = 'ky_admin';
+/* __Host- forces supporting browsers to require Secure + Path=/ and forbids a
+   Domain attribute. A compromised sibling subdomain can therefore neither set
+   nor shadow the Admin credential. */
+const ADMIN_COOKIE = '__Host-ky_admin';
+const LEGACY_ADMIN_COOKIE = 'ky_admin';
 const bearer = (req) => {
   const header = req.get('authorization') || '';
   return header.startsWith('Bearer ') ? header.slice(7) : null;
 };
-const adminCookie = (token, req) => {
-  /* req.secure is proxy-aware because trust proxy is configured below. Never
-     inspect X-Forwarded-Proto directly: an untrusted direct client can forge
-     that header. */
-  const secure = req.secure;
-  const parts = [
-    `${ADMIN_COOKIE}=${token}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Strict',
-    `Max-Age=${Math.floor(TOKEN_TTL / 1000)}`,
-  ];
-  if (secure) parts.push('Secure');
-  return parts.join('; ');
-};
-const clearAdminCookie = (req) => {
-  return `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${req.secure ? '; Secure' : ''}`;
-};
+const adminCookie = (token) => [
+  `${ADMIN_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${Math.floor(TOKEN_TTL / 1000)}`,
+  /* Expire the pre-hardening cookie during migration. */
+  `${LEGACY_ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0`,
+];
+const clearAdminCookie = () => [
+  `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0`,
+  `${LEGACY_ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0`,
+];
 const ownOrigin = (req) => {
   if (process.env.PUBLIC_ORIGIN) return String(process.env.PUBLIC_ORIGIN).replace(/\/+$/, '');
   return `${req.secure ? 'https' : 'http'}://${req.get('host')}`;
@@ -549,7 +549,7 @@ app.post('/api/auth/login', (req, res) => {
   rateLimiter.clear('adminLogin', ip); // successful login clears the counter
   const exp = Date.now() + TOKEN_TTL;
   const token = sign({ user, exp, sid: sessionStart(exp) });
-  res.setHeader('Set-Cookie', adminCookie(token, req));
+  res.setHeader('Set-Cookie', adminCookie(token));
   /* The credential exists only in Set-Cookie. Returning it in JSON would make
      the supposedly HttpOnly session readable to page JavaScript at login. */
   res.json({ ok: true });
@@ -570,7 +570,7 @@ app.get('/api/auth/me', (req, res) => {
    expiring the browser cookie alone would only hide its copied value. */
 app.post('/api/auth/logout', requireAuth, (req, res) => {
   sessionEnd(req.session.sid);
-  res.setHeader('Set-Cookie', clearAdminCookie(req));
+  res.setHeader('Set-Cookie', clearAdminCookie());
   res.json({ ok: true });
 });
 
@@ -578,7 +578,7 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
    including the caller's, so the admin can lock everyone out and log back in. */
 app.post('/api/auth/logout-all', requireAuth, (req, res) => {
   sessionEndAll();
-  res.setHeader('Set-Cookie', clearAdminCookie(req));
+  res.setHeader('Set-Cookie', clearAdminCookie());
   res.json({ ok: true });
 });
 

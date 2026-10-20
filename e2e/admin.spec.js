@@ -38,8 +38,10 @@ test('the login screen rejects a wrong password and accepts the right one', asyn
   await expect(page.locator('.admin__side')).toBeVisible();
 
   expect(await page.evaluate(() => localStorage.getItem('ky_admin_token'))).toBeNull();
-  const session = (await page.context().cookies()).find((cookie) => cookie.name === 'ky_admin');
+  const session = (await page.context().cookies()).find((cookie) => cookie.name === '__Host-ky_admin');
   expect(session?.httpOnly).toBe(true);
+  expect(session?.secure).toBe(true);
+  expect(session?.path).toBe('/');
   expect(session?.sameSite).toBe('Strict');
 });
 
@@ -385,8 +387,15 @@ test('the admin can publish one to four third-party trust seals in the footer', 
     await expect.poll(() => seal.locator('img').evaluate((image) => image.naturalWidth)).toBe(1);
   } finally {
     if (original) {
-      const restored = await page.request.put(new URL('/api/content', page.url()).href, { data: original });
-      expect(restored.ok(), 'trust-seal fixture cleanup failed').toBe(true);
+      const restored = await page.evaluate(async (content) => {
+        const response = await fetch('/api/content', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(content),
+        });
+        return response.ok;
+      }, original);
+      expect(restored, 'trust-seal fixture cleanup failed').toBe(true);
     }
   }
 });
@@ -445,8 +454,15 @@ test('the shop showcase can publish multiple independently linked images', async
     await expect(showcase).toHaveAttribute('data-autoplay', 'false');
   } finally {
     if (original) {
-      const restored = await page.request.put(new URL('/api/content', page.url()).href, { data: original });
-      expect(restored.ok(), 'showcase fixture cleanup failed').toBe(true);
+      const restored = await page.evaluate(async (content) => {
+        const response = await fetch('/api/content', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(content),
+        });
+        return response.ok;
+      }, original);
+      expect(restored, 'showcase fixture cleanup failed').toBe(true);
     }
   }
 });
@@ -489,6 +505,40 @@ test('an order placed on the site is visible in the orders tab and its status ca
   expect(await orderHeader.evaluate((node) => getComputedStyle(node).position)).toBe('sticky');
   const select = row.getByRole('combobox', { name: `وضعیت سفارش ${code}` });
   await expect(select).toBeVisible();
+
+  /* A failed/refund-pending order must not hide in an internal note. Exercise
+     the durable flag through the API, then prove the list badge, prominent
+     detail warning and explicit acknowledgement control all work. */
+  const orderSnapshot = await page.evaluate(async () => {
+    const response = await fetch('/api/shop-admin');
+    return { ok: response.ok, body: await response.json() };
+  });
+  expect(orderSnapshot.ok).toBe(true);
+  const targetOrder = orderSnapshot.body.orders.find((order) => order.code === code);
+  expect(targetOrder?.id).toBeTruthy();
+  const flagged = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/shop-admin/orders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ needsAttention: true }),
+    });
+    return response.ok;
+  }, targetOrder.id);
+  expect(flagged).toBe(true);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await adminTab(page, 'سفارش‌ها').first().click();
+  row = page.locator('.ord__item', { hasText: code }).first();
+  await expect(row.locator('.ord__attention-badge')).toHaveText('نیازمند رسیدگی');
+  await row.getByRole('button', { name: `نمایش جزئیات سفارش ${code}` }).click();
+  await expect(row.locator('.ord__attention-alert')).toContainText('بازگرداندن وجه این سفارش هنوز نیازمند پیگیری است');
+  page.once('dialog', (dialog) => dialog.accept());
+  const acknowledged = page.waitForResponse((response) =>
+    response.url().includes(`/api/shop-admin/orders/${targetOrder.id}`) && response.request().method() === 'PATCH',
+  );
+  await row.getByRole('button', { name: /رسیدگی شد؛ پاک‌کردن هشدار/ }).click();
+  expect((await acknowledged).ok()).toBe(true);
+  await expect(row.locator('.ord__attention-badge')).toHaveCount(0);
+  await expect(row.locator('.ord__attention-alert')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'تنظیم ستون‌های سفارش‌ها' }).click();
   await page.locator('#order-columns label', { hasText: 'تاریخ' }).getByRole('checkbox').uncheck();

@@ -18,6 +18,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { SHOP_SEED } from './seed.js';
+import { sanitizeRichText } from './sanitize.js';
 
 /* ------------------------------------------------------------------ open */
 export async function openDB(file) {
@@ -72,7 +73,8 @@ function migrate(db) {
       admin_note TEXT NOT NULL DEFAULT '',
       at         TEXT NOT NULL,
       paid_at    TEXT,
-      auto_cancelled INTEGER NOT NULL DEFAULT 0
+      auto_cancelled INTEGER NOT NULL DEFAULT 0,
+      needs_attention INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_orders_at ON orders(at DESC);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -216,7 +218,11 @@ function migrate(db) {
   if (!orderCols.includes('auto_cancelled')) {
     db.exec('ALTER TABLE orders ADD COLUMN auto_cancelled INTEGER NOT NULL DEFAULT 0');
   }
+  if (!orderCols.includes('needs_attention')) {
+    db.exec('ALTER TABLE orders ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0');
+  }
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_attention_at ON orders(needs_attention DESC, at DESC)');
 }
 
 /* ------------------------------------------------------- small utilities */
@@ -291,7 +297,7 @@ const productIn = (p, pos) => ({
   featured: bool(p.featured),
   comments_locked: bool(p.commentsLocked),
   short: String(p.short || ''),
-  description: String(p.description || ''),
+  description: sanitizeRichText(p.description || ''),
   specs: JSON.stringify(Array.isArray(p.specs) ? p.specs : []),
 });
 
@@ -416,6 +422,7 @@ const orderOut = (r, items) => ({
   paidAt: r.paid_at,
   customerId: r.customer_id || null,
   autoCancelled: Boolean(r.auto_cancelled),
+  needsAttention: Boolean(r.needs_attention),
 });
 
 const itemsOf = (db, id) =>
@@ -424,7 +431,9 @@ const itemsOf = (db, id) =>
     .all(id);
 
 export function listOrders(db) {
-  const rows = db.prepare('SELECT * FROM orders ORDER BY at DESC').all();
+  /* Unresolved money movement belongs at the top, not buried by newer routine
+     orders. The explicit flag is also returned for badge/detail rendering. */
+  const rows = db.prepare('SELECT * FROM orders ORDER BY needs_attention DESC, at DESC').all();
   return rows.map((r) => orderOut(r, itemsOf(db, r.id)));
 }
 export function getOrderByCode(db, code) {
@@ -439,9 +448,11 @@ export function getOrderById(db, id) {
 export function insertOrder(db, o) {
   const ins = db.prepare(`
     INSERT INTO orders (id, code, token, customer, subtotal, shipping, total, currency, status,
-                        provider, pay_ref, admin_note, at, paid_at, customer_id, auto_cancelled)
+                        provider, pay_ref, admin_note, at, paid_at, customer_id, auto_cancelled,
+                        needs_attention)
     VALUES (@id, @code, @token, @customer, @subtotal, @shipping, @total, @currency, @status,
-            @provider, @pay_ref, @admin_note, @at, @paid_at, @customer_id, @auto_cancelled)
+            @provider, @pay_ref, @admin_note, @at, @paid_at, @customer_id, @auto_cancelled,
+            @needs_attention)
   `);
   const insItem = db.prepare(`
     INSERT INTO order_items (order_id, pos, slug, title, unit, price, qty, sum)
@@ -465,6 +476,7 @@ export function insertOrder(db, o) {
       paid_at: o.paidAt || null,
       customer_id: o.customerId || null,
       auto_cancelled: bool(o.autoCancelled),
+      needs_attention: bool(o.needsAttention),
     });
     (o.items || []).forEach((l, i) =>
       insItem.run(o.id, i, l.slug, l.title, l.unit || '', l.price, l.qty, l.sum),
@@ -503,13 +515,14 @@ export function updateOrder(db, id, patch) {
     adminNote: 'admin_note',
     paidAt: 'paid_at',
     autoCancelled: 'auto_cancelled',
+    needsAttention: 'needs_attention',
   };
   const sets = [];
   const vals = [];
   for (const [k, col] of Object.entries(map)) {
     if (k in patch) {
       sets.push(`${col} = ?`);
-      vals.push(k === 'autoCancelled' ? bool(patch[k]) : patch[k]);
+      vals.push(k === 'autoCancelled' || k === 'needsAttention' ? bool(patch[k]) : patch[k]);
     }
   }
   if (!sets.length) return;
@@ -567,16 +580,20 @@ export function claimExpiredPayment(db, id, {
 }) {
   const claim = db.prepare(
     `UPDATE orders
-     SET provider = ?, pay_ref = ?, paid_at = ?, admin_note = ?, auto_cancelled = 2
+     SET provider = ?, pay_ref = ?, paid_at = ?, admin_note = ?,
+         auto_cancelled = 2, needs_attention = 1
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 1`,
   );
   const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
   const finishPaid = db.prepare(
-    `UPDATE orders SET status = 'paid', admin_note = ?, auto_cancelled = 0
+    `UPDATE orders
+     SET status = 'paid', admin_note = ?, auto_cancelled = 0, needs_attention = 0
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
   );
   const noteFailure = db.prepare(
-    `UPDATE orders SET admin_note = ? WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
+    `UPDATE orders
+     SET admin_note = ?, needs_attention = 1
+     WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
   );
 
   return db.transaction(() => {

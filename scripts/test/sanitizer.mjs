@@ -1,12 +1,8 @@
 import { parseHTML, DOMParser as LD } from 'linkedom';
+import { sanitizeHtmlWithParser } from '../../shared/sanitizeHtml.js';
 const { window } = parseHTML('<!doctype html><html><body></body></html>');
-globalThis.DOMParser = LD; globalThis.document = window.document;
-const { sanitizeHtml } = await import('../src/content/sanitize.jsx').catch(async()=>{
-  const src = (await import('node:fs')).readFileSync(new URL('../../src/content/sanitize.jsx', import.meta.url),'utf8');
-  const js = src.replace(/export function renderHighlight[\s\S]*$/, '');
-  const mod = await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
-  return mod;
-});
+globalThis.document = window.document;
+const sanitizeHtml = (html) => sanitizeHtmlWithParser(html, LD);
 const CASES = [
   ['script tag',              '<script>alert(1)</script>hello'],
   ['img onerror',             '<img src="/a.png" onerror="alert(1)">'],

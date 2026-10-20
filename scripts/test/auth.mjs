@@ -76,7 +76,7 @@ const login = async () => {
   });
   await r.json();
   const cookie = r.headers.get('set-cookie') || '';
-  return cookie.match(/(?:^|;\s*)ky_admin=([^;]+)/)?.[1] || '';
+  return cookie.match(/(?:^|;\s*)__Host-ky_admin=([^;]+)/)?.[1] || '';
 };
 
 /* Status of an authenticated probe carrying `token`. */
