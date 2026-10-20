@@ -69,6 +69,7 @@ function migrate(db) {
       currency   TEXT NOT NULL DEFAULT 'IRR',
       status     TEXT NOT NULL DEFAULT 'pending_payment',
       provider   TEXT NOT NULL DEFAULT 'offline',
+      pay_authority TEXT,
       pay_ref    TEXT,
       admin_note TEXT NOT NULL DEFAULT '',
       at         TEXT NOT NULL,
@@ -221,8 +222,36 @@ function migrate(db) {
   if (!orderCols.includes('needs_attention')) {
     db.exec('ALTER TABLE orders ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0');
   }
+  if (!orderCols.includes('pay_authority')) {
+    db.exec('ALTER TABLE orders ADD COLUMN pay_authority TEXT');
+  }
+
+  /* Before pay_authority existed, pay_ref changed meaning mid-payment: it held
+     the authority while pending, then was overwritten with ref_id after
+     settlement. Preserve authorities we can identify without guessing. Paid
+     legacy rows whose authority was already destroyed cannot be reconstructed;
+     all new attempts retain both values independently. */
+  db.exec(`
+    UPDATE orders
+       SET pay_authority = pay_ref,
+           pay_ref = NULL
+     WHERE pay_authority IS NULL
+       AND provider = 'zarinpal'
+       AND pay_ref IS NOT NULL
+       AND pay_ref <> ''
+       AND (
+         status = 'pending_payment'
+         OR (status = 'cancelled' AND auto_cancelled <> 0)
+         OR (length(pay_ref) = 36 AND pay_ref GLOB 'A*')
+       );
+  `);
+
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_attention_at ON orders(needs_attention DESC, at DESC)');
+  /* NULL means no online attempt. Every non-empty authority may identify one
+     order only, so even a future route regression cannot bind one gateway
+     payment to several orders. */
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_pay_authority ON orders(pay_authority) WHERE pay_authority IS NOT NULL AND pay_authority <> ''");
 }
 
 /* ------------------------------------------------------- small utilities */
@@ -416,7 +445,10 @@ const orderOut = (r, items) => ({
   currency: r.currency,
   status: r.status,
   provider: r.provider,
-  payRef: r.pay_ref,
+  payAuthority: r.pay_authority || null,
+  /* payRef is the gateway's post-settlement ref_id. The authority is kept in
+     payAuthority for verification, inquiry and reversal. */
+  payRef: r.pay_ref || null,
   adminNote: r.admin_note,
   at: r.at,
   paidAt: r.paid_at,
@@ -444,15 +476,21 @@ export function getOrderById(db, id) {
   const r = db.prepare('SELECT * FROM orders WHERE id = ?').get(String(id));
   return r ? orderOut(r, itemsOf(db, r.id)) : null;
 }
+export function getOrderByPaymentAuthority(db, authority) {
+  const value = String(authority || '');
+  if (!value) return null;
+  const r = db.prepare('SELECT * FROM orders WHERE pay_authority = ?').get(value);
+  return r ? orderOut(r, itemsOf(db, r.id)) : null;
+}
 
 export function insertOrder(db, o) {
   const ins = db.prepare(`
     INSERT INTO orders (id, code, token, customer, subtotal, shipping, total, currency, status,
-                        provider, pay_ref, admin_note, at, paid_at, customer_id, auto_cancelled,
-                        needs_attention)
+                        provider, pay_authority, pay_ref, admin_note, at, paid_at, customer_id,
+                        auto_cancelled, needs_attention)
     VALUES (@id, @code, @token, @customer, @subtotal, @shipping, @total, @currency, @status,
-            @provider, @pay_ref, @admin_note, @at, @paid_at, @customer_id, @auto_cancelled,
-            @needs_attention)
+            @provider, @pay_authority, @pay_ref, @admin_note, @at, @paid_at, @customer_id,
+            @auto_cancelled, @needs_attention)
   `);
   const insItem = db.prepare(`
     INSERT INTO order_items (order_id, pos, slug, title, unit, price, qty, sum)
@@ -470,6 +508,7 @@ export function insertOrder(db, o) {
       currency: o.currency || 'IRR',
       status: o.status || 'pending_payment',
       provider: o.provider || 'offline',
+      pay_authority: o.payAuthority || null,
       pay_ref: o.payRef || null,
       admin_note: o.adminNote || '',
       at: o.at,
@@ -511,6 +550,7 @@ export function updateOrder(db, id, patch) {
   const map = {
     status: 'status',
     provider: 'provider',
+    payAuthority: 'pay_authority',
     payRef: 'pay_ref',
     adminNote: 'admin_note',
     paidAt: 'paid_at',
@@ -528,6 +568,26 @@ export function updateOrder(db, id, patch) {
   if (!sets.length) return;
   vals.push(String(id));
   db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+/** Settle only the still-pending order that owns this authority. The route also
+ *  performs a constant-time comparison before contacting the gateway; this
+ *  SQL predicate closes the retry/callback race while verification is in
+ *  flight. */
+export function settlePendingOrder(db, id, authority, {
+  provider,
+  payRef,
+  paidAt,
+  adminNote,
+}) {
+  if (!authority) return false;
+  const result = db.prepare(
+    `UPDATE orders
+        SET status = 'paid', provider = ?, pay_ref = ?, paid_at = ?,
+            admin_note = ?, auto_cancelled = 0, needs_attention = 0
+      WHERE id = ? AND status = 'pending_payment' AND pay_authority = ?`,
+  ).run(provider, payRef || null, paidAt, adminNote || '', String(id), String(authority));
+  return result.changes === 1;
 }
 
 /** Cancel stale unpaid orders and release their stock in one transaction.
@@ -573,6 +633,7 @@ export function expirePendingOrders(db, cutoffIso, atIso = new Date().toISOStrin
  *  hold inventory. */
 export function claimExpiredPayment(db, id, {
   provider,
+  authority,
   payRef,
   paidAt,
   successNote,
@@ -582,7 +643,8 @@ export function claimExpiredPayment(db, id, {
     `UPDATE orders
      SET provider = ?, pay_ref = ?, paid_at = ?, admin_note = ?,
          auto_cancelled = 2, needs_attention = 1
-     WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 1`,
+     WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 1
+       AND pay_authority = ?`,
   );
   const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
   const finishPaid = db.prepare(
@@ -597,8 +659,8 @@ export function claimExpiredPayment(db, id, {
   );
 
   return db.transaction(() => {
-    if (claim.run(provider, payRef, paidAt, failureNote, id).changes !== 1) {
-      return { ok: false, error: 'state changed' };
+    if (!authority || claim.run(provider, payRef || null, paidAt, failureNote, id, authority).changes !== 1) {
+      return { ok: false, error: 'state or authority changed' };
     }
     const reserved = reserveStock(db, items.all(id));
     if (reserved.ok) {

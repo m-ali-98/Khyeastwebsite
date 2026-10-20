@@ -48,6 +48,13 @@ const G = await import(pathToFileURL(path.join(ROOT, 'shared/iranGeo.js')).href)
   check(A.verifyPassword('x', 'md5$1$2$3$4$5') === false, 'an unknown scheme is refused');
   check(A.verifyPassword('x', null) === false, 'a null hash fails closed');
 
+  /* Login misses must still execute a real scrypt comparison. A syntactically
+     valid dummy hash prevents phone existence from being a 1 ms vs 50 ms
+     timing oracle. */
+  check(A.DUMMY_PASSWORD_HASH.startsWith('scrypt$'), 'the login miss path has a real scrypt dummy hash');
+  check(A.verifyLoginPassword('wrong', null) === false, 'a missing customer runs the dummy comparison and fails');
+  check(A.verifyLoginPassword('wrong', hash) === false, 'a real customer with a wrong password follows the same helper');
+
   /* Two accounts with the same password must not share a hash, or one
      cracked password cracks every account that chose it. */
   const a = A.hashPassword('samepassword');

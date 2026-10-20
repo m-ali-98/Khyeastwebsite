@@ -22,6 +22,7 @@ import { rateLimitResponse } from './rateLimits.js';
 import {
   hashPassword,
   verifyPassword,
+  verifyLoginPassword,
   passwordProblems,
   generateOtp,
   hashOtp,
@@ -155,32 +156,41 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     const purpose = ['register', 'reset'].includes(req.body?.purpose) ? req.body.purpose : 'register';
     if (!phone) return res.status(400).json({ error: 'شماره موبایل معتبر نیست.' });
 
-    if (blocked('otpIp', ip(req), res)) return;
-    if (blocked('otpPhone', phone, res)) return;
-
-    /* A code already sent moments ago is still valid — resending would cost
-       another message and confuse the customer about which code is live. */
+    /* Check the shared resend state before the longer-lived limiter. Besides
+       avoiding a second message, this makes request two indistinguishable even
+       when one phone has older legitimate rate-limit history. Once the row
+       expires, the ordinary per-IP and per-phone limits still apply. */
     const existing = db.getOtp(D, phone, purpose);
     if (existing && Date.now() - new Date(existing.at).getTime() < OTP_RESEND_MS) {
       const wait = Math.ceil((OTP_RESEND_MS - (Date.now() - new Date(existing.at).getTime())) / 1000);
       return res.status(429).json({ error: `کد قبلی هنوز معتبر است؛ ${wait} ثانیه دیگر دوباره تلاش کنید.`, retryAfter: wait });
     }
 
+    if (blocked('otpIp', ip(req), res)) return;
+    if (blocked('otpPhone', phone, res)) return;
+
     const exists = Boolean(db.getCustomerByPhone(D, phone));
-    /* The response is identical either way — see the header comment. The
-       *message* differs only in what we bother to send. */
+    /* The response AND resend state are identical either way. Previously only
+       a number eligible for this flow received an OTP row, so a second quick
+       request returned 429 for one class of number and 200 for the other — a
+       reliable account-enumeration oracle. An ineligible number gets a random
+       256-bit placeholder hash of the same shape; no five-digit code can
+       practically match it, but it enforces the same resend window. */
     const shouldSend = purpose === 'register' ? !exists : exists;
+    const code = shouldSend ? generateOtp() : null;
+    db.putOtp(D, {
+      phone,
+      purpose,
+      codeHash: shouldSend ? hashOtp(code, phone, PEPPER) : crypto.randomBytes(32).toString('hex'),
+      expiresAt: new Date(Date.now() + OTP_TTL_MS).toISOString(),
+    });
 
     if (shouldSend) {
-      const code = generateOtp();
-      db.putOtp(D, {
-        phone,
-        purpose,
-        codeHash: hashOtp(code, phone, PEPPER),
-        expiresAt: new Date(Date.now() + OTP_TTL_MS).toISOString(),
-      });
       const cfg = smsSettings();
-      await dispatchSms({
+      /* Do not make response latency reveal whether an SMS provider call was
+         needed. dispatchSms owns its error handling and durable log, so it can
+         run in the background just like order-status messages. */
+      void dispatchSms({
         kind: 'otp',
         to: phone,
         ref: purpose,
@@ -291,10 +301,20 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
       return res.status(401).json({ error: 'شماره موبایل یا رمز عبور درست نیست.' });
     };
 
-    if (!phone) return deny();
+    if (!phone) {
+      /* Invalid syntax is already distinguishable by the caller; still do the
+         same expensive work so this path cannot become a cheap hash-flooding
+         variant of the account-existence oracle. */
+      verifyLoginPassword(String(req.body?.password || ''), null);
+      return deny();
+    }
     const row = db.getCustomerByPhone(D, phone);
-    if (!row || row.blocked) return deny();
-    if (!verifyPassword(String(req.body?.password || ''), row.pass_hash)) return deny();
+    /* Never short-circuit before scrypt. A miss uses the process-local dummy
+       hash; a blocked account verifies its real hash and is denied afterwards.
+       Registered and unregistered phones therefore take the same expensive
+       path and return the same message. */
+    const passwordOk = verifyLoginPassword(String(req.body?.password || ''), row?.pass_hash);
+    if (!row || row.blocked || !passwordOk) return deny();
 
     rateLimiter.clear('customerLogin', phoneKey);
     const loggedIn = db.updateCustomer(D, row.id, { lastLoginAt: new Date().toISOString() });

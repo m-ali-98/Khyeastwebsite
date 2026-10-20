@@ -1007,7 +1007,8 @@ export function ShopOrdersTab() {
                       </p>
                       <p className="ord__payment">
                         درگاه: {o.provider === 'zarinpal' ? 'زرین‌پال' : '—'}
-                        {o.payRef ? ` · شناسه پرداخت: ${String(o.payRef).slice(0, 30)}` : ''}
+                        {o.payAuthority ? ` · اتوریتی: ${String(o.payAuthority).slice(0, 40)}` : ''}
+                        {o.payRef ? ` · شناسه پیگیری: ${String(o.payRef).slice(0, 30)}` : ''}
                         {o.paidAt ? ` · پرداخت: ${new Date(o.paidAt).toLocaleString('fa-IR')}` : ''}
                       </p>
                       <div className="admin__row ord__detail-actions">
@@ -1020,9 +1021,9 @@ export function ShopOrdersTab() {
                         </button>
                       </div>
 
-                      {/* Gateway actions, only where they can do something: an
-                          order with no payment reference has nothing to ask about. */}
-                      {o.payRef && o.provider === 'zarinpal' && (
+                      {/* Gateway inquiry and reversal both require the original
+                          authority, not the post-settlement ref_id. */}
+                      {o.payAuthority && o.provider === 'zarinpal' && (
                         <div className="admin__row ord__gateway">
                           <button type="button" className="btn btn--outline btn--sm" onClick={() => gateway(o.id, 'inquire')}>
                             استعلام وضعیت از درگاه

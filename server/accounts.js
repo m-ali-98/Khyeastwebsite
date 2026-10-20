@@ -56,6 +56,18 @@ export function verifyPassword(password, stored) {
   }
 }
 
+/* A missing account must cost the same scrypt work as a wrong password for a
+   real account. Generate one valid, process-local hash at startup and use it
+   on every miss; the random password is never accepted by any route. */
+export const DUMMY_PASSWORD_HASH = hashPassword(crypto.randomBytes(32).toString('base64url'));
+
+/** Always perform one full password verification, whether or not a customer
+ * row exists. Keeping this decision in a pure helper makes it hard for a
+ * future login refactor to accidentally restore the phone-enumeration oracle. */
+export function verifyLoginPassword(password, storedHash) {
+  return verifyPassword(password, storedHash || DUMMY_PASSWORD_HASH);
+}
+
 /** Why a password was refused, in Persian, as a list.
  *
  *  Length is the rule that actually matters; composition rules mostly push

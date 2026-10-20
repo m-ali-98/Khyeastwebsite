@@ -85,10 +85,18 @@ const json = async (res) => ({ status: res.status, body: await res.json().catch(
 let adminCookie = '';
 /* The customer's inbox, as the admin sees it. */
 const lastSms = async (phoneEnding) => {
-  const { body } = await json(await call('GET', '/api/shop-admin/sms', undefined, { cookie: adminCookie }));
-  const rows = body.log || [];
-  const row = phoneEnding ? rows.find((l) => l.phone.endsWith(phoneEnding)) : rows[0];
-  return row || null;
+  /* OTP delivery is intentionally detached from the HTTP response so provider
+     latency cannot reveal whether the number was eligible for this flow. Poll
+     the durable admin log the way an inbox client waits for delivery. */
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const { body } = await json(await call('GET', '/api/shop-admin/sms', undefined, { cookie: adminCookie }));
+    const rows = body.log || [];
+    const row = phoneEnding ? rows.find((l) => l.phone.endsWith(phoneEnding)) : rows[0];
+    if (row) return row;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return null;
 };
 const codeFor = async (phoneEnding) => {
   const row = await lastSms(phoneEnding);
@@ -177,14 +185,25 @@ try {
   check(forged.body.customer === null, 'a forged cookie is not a session');
 
   /* ----------------------------------------------------------- 3. login */
+  const knownStarted = performance.now();
   const badPass = await json(await call('POST', '/api/account/login', { phone: PHONE, password: 'wrong-password' }));
+  const knownWrongMs = performance.now() - knownStarted;
   check(badPass.status === 401, 'a wrong password is refused');
 
+  const unknownStarted = performance.now();
   const unknown = await json(await call('POST', '/api/account/login', { phone: '09129999999', password: 'wrong-password' }));
+  const unknownWrongMs = performance.now() - unknownStarted;
   check(unknown.status === 401, 'an unknown number is refused');
-  /* Enumeration: the two failures must be indistinguishable, or this
-     endpoint becomes a "which of these numbers shop here" oracle. */
+  /* Enumeration: the two failures must be indistinguishable in both content
+     and computational cost. The old miss path skipped scrypt entirely and was
+     roughly 1–2 ms versus about 50 ms for a real account. Keep generous CI
+     tolerance while requiring the miss to perform substantial hash work. */
   check(unknown.body.error === badPass.body.error, 'a wrong password and an unknown number give the same answer');
+  check(
+    unknownWrongMs >= 8 && unknownWrongMs >= knownWrongMs * 0.25,
+    'an unknown phone performs dummy password hashing instead of returning immediately',
+    `known=${knownWrongMs.toFixed(1)}ms unknown=${unknownWrongMs.toFixed(1)}ms`,
+  );
 
   const ok = await json(await call('POST', '/api/account/login', { phone: '۰۹۱۲۰۰۰۰۰۰۱', password: PASS }));
   check(ok.status === 200, 'logging in with Persian digits works', String(ok.status));
@@ -321,6 +340,17 @@ try {
     regKnown.status === regUnknown.status && JSON.stringify(regKnown.body) === JSON.stringify(regUnknown.body),
     'the code endpoint answers the same for a known and an unknown number',
     `${regKnown.status} ${JSON.stringify(regKnown.body)} vs ${regUnknown.status} ${JSON.stringify(regUnknown.body)}`
+  );
+  /* The old leak appeared only on request two: eligible numbers had an OTP
+     row and got 429, while ineligible numbers had no row and got another 200.
+     Placeholder rows must make the resend state indistinguishable too. */
+  const regKnownAgain = await json(await call('POST', '/api/account/otp', { phone: PHONE, purpose: 'register' }));
+  const regUnknownAgain = await json(await call('POST', '/api/account/otp', { phone: '09127777777', purpose: 'register' }));
+  check(
+    regKnownAgain.status === 429 && regUnknownAgain.status === 429 &&
+      JSON.stringify(regKnownAgain.body) === JSON.stringify(regUnknownAgain.body),
+    'a second quick OTP request cannot reveal whether the phone is registered',
+    `${regKnownAgain.status} ${JSON.stringify(regKnownAgain.body)} vs ${regUnknownAgain.status} ${JSON.stringify(regUnknownAgain.body)}`,
   );
   /* ...and no code was actually sent to the already-registered number. */
   const sentToKnown = await lastSms('0001');

@@ -34,6 +34,7 @@
    integration that can only be reached over the internet is one that never
    gets tested, and this is the money path.
    ========================================================================== */
+import crypto from 'node:crypto';
 import { normalizePhone, toLocalPhone } from './sms.js';
 
 /* ---------- ZarinPal (official SDK) ---------- */
@@ -111,13 +112,34 @@ async function zarinpalCreate(cfg, order, callbackUrl, deps) {
   if (Number(data.code) !== 100 || !data.authority) {
     throw new Error(`zarinpal request failed: ${data.code ?? '?'} ${data.message || ''}`.trim());
   }
-  return { ref: String(data.authority), payUrl: z.payments.getRedirectUrl(data.authority) };
+  return { authority: String(data.authority), payUrl: z.payments.getRedirectUrl(data.authority) };
 }
 
-async function zarinpalVerify(cfg, params, expectedRial, deps) {
+/* An authority identifies one gateway payment attempt. It is not interchangeable
+   with an order code or with ZarinPal's post-settlement ref_id. Hashing both
+   values before timingSafeEqual keeps the comparison constant-time even when a
+   malformed callback supplies a value of a different length. Empty values can
+   never be a match. */
+export function paymentAuthorityMatches(candidate, expected) {
+  const left = String(candidate ?? '');
+  const right = String(expected ?? '');
+  const digest = (value) => crypto.createHash('sha256').update(value).digest();
+  const equal = crypto.timingSafeEqual(digest(left), digest(right));
+  return left.length > 0 && right.length > 0 && equal;
+}
+
+async function zarinpalVerify(cfg, params, expectedRial, expectedAuthority, deps) {
   if (String(params.Status || params.status || '').toUpperCase() !== 'OK') return { ok: false };
   const authority = String(params.Authority || params.authority || '');
   const expected = Math.round(Number(expectedRial) || 0);
+
+  /* Amount equality is not an ownership check: several orders can cost the
+     same amount. Refuse the callback before contacting ZarinPal unless this
+     exact authority is the one persisted for this exact order. Code 101 may
+     then remain an idempotent success, but only for its original order. */
+  if (!paymentAuthorityMatches(authority, expectedAuthority)) {
+    return { ok: false, authorityMismatch: true, message: 'payment authority does not belong to this order' };
+  }
 
   const z = await zarinpalClient(cfg, deps);
   /* The amount sent here comes from OUR database, never from the callback
@@ -132,7 +154,7 @@ async function zarinpalVerify(cfg, params, expectedRial, deps) {
      or the callback arrived twice. Treating that as a failure would flip a
      genuinely paid order to failed, so it settles, idempotently. */
   if (code !== 100 && code !== 101) {
-    return { ok: false, ref: authority, gatewayCode: code, message: String(data.message || '') };
+    return { ok: false, authority, gatewayCode: code, message: String(data.message || '') };
   }
 
   /* ZarinPal's verify response does not echo the amount, which is why the
@@ -143,7 +165,7 @@ async function zarinpalVerify(cfg, params, expectedRial, deps) {
   if (data.amount !== undefined && data.amount !== null) {
     const paid = parseAmount(data.amount);
     if (!Number.isFinite(paid) || paid !== expected) {
-      return { ok: false, ref: authority, amountMismatch: { paid, expected } };
+      return { ok: false, authority, amountMismatch: { paid, expected } };
     }
   }
 
@@ -153,7 +175,11 @@ async function zarinpalVerify(cfg, params, expectedRial, deps) {
      callback alone. */
   return {
     ok: true,
-    ref: String(data.ref_id ?? authority),
+    authority,
+    /* Keep the settlement reference separate. In particular, never fall back
+       to authority here: inquiry and reversal require the authority, while the
+       customer-facing receipt uses ref_id. Conflating them broke both jobs. */
+    refId: data.ref_id === undefined || data.ref_id === null ? '' : String(data.ref_id),
     alreadyVerified: code === 101,
     cardPan: data.card_pan || '',
     fee: Number(data.fee ?? 0) || 0,
@@ -489,16 +515,16 @@ export async function calculateFee(payment, rial, deps) {
   }
 }
 
-/* returns { provider, ref, payUrl } — payUrl is null for offline */
+/* returns { provider, authority, payUrl } — payUrl is null for offline */
 export async function createPayment(payment, order, { origin, deps } = {}) {
   const total = Number(order?.total);
   if (!Number.isSafeInteger(total) || total <= 0) throw new Error('payment amount must be greater than zero');
   const cfg = normalizePayment(payment);
   const base = cfg.callbackBase || origin;
-  if (cfg.provider !== 'zarinpal') return { provider: 'offline', ref: null, payUrl: null };
+  if (cfg.provider !== 'zarinpal') return { provider: 'offline', authority: null, payUrl: null };
   /* A merchant id the SDK would reject is the same situation as no merchant
      id at all: record the order, do not break checkout. */
-  if (!isZarinpalMerchant(cfg.zarinpalMerchant)) return { provider: 'offline', ref: null, payUrl: null };
+  if (!isZarinpalMerchant(cfg.zarinpalMerchant)) return { provider: 'offline', authority: null, payUrl: null };
   const out = await zarinpalCreate(cfg, order, `${base}/api/shop-pay/zarinpal/callback?code=${order.code}`, deps);
   return { provider: 'zarinpal', ...out };
 }
@@ -506,9 +532,12 @@ export async function createPayment(payment, order, { origin, deps } = {}) {
 /** Confirm a gateway callback.
  *  @param expectedRial the order total, in RIAL. Required: a callback that
  *  settled for a different amount than the order costs must NOT be accepted.
+ *  @param expectedAuthority the authority persisted when this order's payment
+ *  was created. Required: an equal-priced order must not claim another
+ *  order's already-verified payment.
  */
-export async function verifyPayment(payment, provider, params, expectedRial, deps) {
+export async function verifyPayment(payment, provider, params, expectedRial, expectedAuthority, deps) {
   const cfg = normalizePayment(payment);
-  if (provider === 'zarinpal') return zarinpalVerify(cfg, params, expectedRial, deps);
-  return { ok: false, ref: '' };
+  if (provider === 'zarinpal') return zarinpalVerify(cfg, params, expectedRial, expectedAuthority, deps);
+  return { ok: false, authority: '' };
 }

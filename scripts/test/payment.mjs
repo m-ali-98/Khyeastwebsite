@@ -89,6 +89,7 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     'zarinpal',
     { Authority: AUTHORITY, Status: 'OK' },
     EXPECTED_RIAL,
+    AUTHORITY,
     { zarinpal: z },
   );
   check(Boolean(res.ok) === shouldSettle, `zarinpal: ${name}`, `ok=${res.ok} expected ${shouldSettle}`);
@@ -98,7 +99,7 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
    be in rial — that is what makes a tampered callback harmless. */
 {
   const z = fakeZarinpal(() => ({ data: { code: 100, ref_id: 'R1' } }));
-  await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, { zarinpal: z });
+  await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, AUTHORITY, { zarinpal: z });
   check(fakeZarinpal.lastVerify.amount === EXPECTED_RIAL, 'zarinpal: verify is sent the order total in RIAL', String(fakeZarinpal.lastVerify.amount));
   check(fakeZarinpal.lastVerify.authority === AUTHORITY, 'zarinpal: verify is sent the callback authority');
 }
@@ -107,7 +108,7 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
 {
   const code = async (c) => {
     const z = fakeZarinpal(() => ({ data: { code: c, ref_id: 'R9' } }));
-    return verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, { zarinpal: z });
+    return verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, AUTHORITY, { zarinpal: z });
   };
   check((await code(100)).ok === true, 'zarinpal: code 100 settles');
 
@@ -115,7 +116,9 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
      nowhere else afterwards. */
   {
     const z = fakeZarinpal(() => ({ data: { code: 100, ref_id: 'R1', card_pan: '6219********9007', fee: 4500, fee_type: 'Merchant' } }));
-    const out = await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, { zarinpal: z });
+    const out = await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'OK' }, EXPECTED_RIAL, AUTHORITY, { zarinpal: z });
+    check(out.authority === AUTHORITY, 'zarinpal: the original authority remains available after settlement');
+    check(out.refId === 'R1', 'zarinpal: ref_id is returned separately from authority', out.refId);
     check(out.cardPan === '6219********9007', 'zarinpal: the masked card is kept', out.cardPan);
     check(out.fee === 4500, 'zarinpal: the gateway fee is kept', String(out.fee));
     check(out.feeType === 'Merchant', 'zarinpal: and who paid it');
@@ -130,6 +133,42 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
   }
 }
 
+/* Critical regression: three equal-total orders must not be able to spend one
+   authority three times. The gateway returns 100 for the first verification
+   and would return its documented 101 for every later call, exactly like a
+   previously verified real payment. Mismatched orders are rejected before the
+   client is called; a repeat for the original order remains idempotent. */
+{
+  const orderAuthorities = [AUTHORITY, `A${'1'.repeat(35)}`, `A${'2'.repeat(35)}`];
+  let gatewayCalls = 0;
+  const z = fakeZarinpal(() => ({
+    data: { code: gatewayCalls++ === 0 ? 100 : 101, ref_id: 'ONLY-ONE-PAYMENT' },
+  }));
+  const verifyFor = (storedAuthority) =>
+    verifyPayment(
+      { provider: 'zarinpal', zarinpalMerchant: MERCHANT },
+      'zarinpal',
+      { Authority: AUTHORITY, Status: 'OK' },
+      EXPECTED_RIAL,
+      storedAuthority,
+      { zarinpal: z },
+    );
+
+  const first = await verifyFor(orderAuthorities[0]);
+  const stolenSecond = await verifyFor(orderAuthorities[1]);
+  const stolenThird = await verifyFor(orderAuthorities[2]);
+  const repeatOriginal = await verifyFor(orderAuthorities[0]);
+
+  check(first.ok === true, 'authority binding: the original equal-total order settles');
+  check(
+    stolenSecond.ok === false && stolenSecond.authorityMismatch === true &&
+      stolenThird.ok === false && stolenThird.authorityMismatch === true,
+    'authority binding: the same authority cannot settle two other equal-total orders',
+  );
+  check(gatewayCalls === 2, 'authority binding: mismatches never reach the gateway', String(gatewayCalls));
+  check(repeatOriginal.ok === true && repeatOriginal.alreadyVerified, 'authority binding: code 101 stays idempotent for the original order');
+}
+
 /* A cancelled payment never reaches the gateway at all. */
 {
   let called = false;
@@ -137,7 +176,7 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     called = true;
     return { data: { code: 100 } };
   });
-  const res = await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'NOK' }, EXPECTED_RIAL, { zarinpal: z });
+  const res = await verifyPayment({ provider: 'zarinpal', zarinpalMerchant: MERCHANT }, 'zarinpal', { Authority: AUTHORITY, Status: 'NOK' }, EXPECTED_RIAL, AUTHORITY, { zarinpal: z });
   check(res.ok === false, 'zarinpal: Status=NOK does not settle');
   check(called === false, 'zarinpal: and a cancelled payment is not even sent for verification');
 }
@@ -168,6 +207,7 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
   check(fakeZarinpal.lastCreate.amount === EXPECTED_RIAL, 'zarinpal: the request carries the order total in RIAL, not toman', String(fakeZarinpal.lastCreate.amount));
   check(fakeZarinpal.lastCreate.currency === 'IRR', 'zarinpal: the currency is stated explicitly');
   check(out.payUrl.includes(AUTHORITY), 'zarinpal: the pay URL carries the authority', out.payUrl);
+  check(out.authority === AUTHORITY, 'zarinpal: creation returns authority under an unambiguous field');
   check(out.provider === 'zarinpal', 'zarinpal: the provider is reported');
   check(fakeZarinpal.lastCreate.callback_url.startsWith('https://example.com/api/shop-pay/zarinpal/callback'), 'zarinpal: the callback returns to our own origin');
 

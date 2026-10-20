@@ -38,6 +38,7 @@ const order = (over = {}) => ({
   currency: 'IRR',
   status: 'pending_payment',
   provider: 'offline',
+  payAuthority: null,
   payRef: null,
   adminNote: '',
   at: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
@@ -59,6 +60,68 @@ try {
     { slug: 'nested-b', title: 'Nested transaction B', price: 1000, stock: 5, active: true },
     { slug: 'unlimited', title: 'Unlimited', price: 1000, stock: -1, active: true },
   ]);
+
+  /* Authority and ref_id have different jobs and columns. Updating the receipt
+     reference must preserve the authority, and the unique index must reject a
+     second order that tries to claim the same gateway payment. */
+  const authorityOwner = order({
+    id: crypto.randomUUID(),
+    code: `KY-AUTH-${Date.now()}`,
+    status: 'paid',
+    provider: 'zarinpal',
+    payAuthority: 'A-ONE-PAYMENT-ONE-ORDER',
+    payRef: 'REF-ORIGINAL',
+    paidAt: new Date().toISOString(),
+    items: [],
+  });
+  db.insertOrder(D, authorityOwner);
+  let storedPayment = db.getOrderById(D, authorityOwner.id);
+  check(
+    storedPayment.payAuthority === 'A-ONE-PAYMENT-ONE-ORDER' && storedPayment.payRef === 'REF-ORIGINAL',
+    'authority and ref_id are persisted separately',
+  );
+  db.updateOrder(D, authorityOwner.id, { payRef: 'REF-SETTLED' });
+  storedPayment = db.getOrderById(D, authorityOwner.id);
+  check(
+    storedPayment.payAuthority === 'A-ONE-PAYMENT-ONE-ORDER' && storedPayment.payRef === 'REF-SETTLED',
+    'settlement reference cannot overwrite the payment authority',
+  );
+  let duplicateAuthorityRejected = false;
+  try {
+    db.insertOrder(D, order({
+      id: crypto.randomUUID(),
+      code: `KY-AUTH-COPY-${Date.now()}`,
+      provider: 'zarinpal',
+      payAuthority: 'A-ONE-PAYMENT-ONE-ORDER',
+      items: [],
+    }));
+  } catch {
+    duplicateAuthorityRejected = true;
+  }
+  check(duplicateAuthorityRejected, 'the database unique index rejects one authority on two orders');
+  db.deleteOrder(D, authorityOwner.id);
+
+  const pendingAuthority = order({
+    id: crypto.randomUUID(),
+    code: `KY-AUTH-PENDING-${Date.now()}`,
+    provider: 'zarinpal',
+    payAuthority: 'A-PENDING-OWNER',
+    items: [],
+  });
+  db.insertOrder(D, pendingAuthority);
+  check(
+    !db.settlePendingOrder(D, pendingAuthority.id, 'A-STOLEN-FROM-ANOTHER-ORDER', {
+      provider: 'zarinpal', payRef: 'REF-WRONG', paidAt: new Date().toISOString(), adminNote: '',
+    }) && db.getOrderById(D, pendingAuthority.id).status === 'pending_payment',
+    'the atomic settlement predicate rejects a different authority',
+  );
+  check(
+    db.settlePendingOrder(D, pendingAuthority.id, 'A-PENDING-OWNER', {
+      provider: 'zarinpal', payRef: 'REF-RIGHT', paidAt: new Date().toISOString(), adminNote: '',
+    }) && db.getOrderById(D, pendingAuthority.id).payRef === 'REF-RIGHT',
+    'the atomic settlement predicate accepts the order own authority',
+  );
+  db.deleteOrder(D, pendingAuthority.id);
 
   /* Force a failure after the first UPDATE while reserveStock runs inside an
      outer transaction. The node:sqlite fallback must roll the inner writes
@@ -129,12 +192,15 @@ try {
   const late = order({
     id: crypto.randomUUID(),
     code: `KY-LATE-${Date.now()}`,
+    provider: 'zarinpal',
+    payAuthority: 'AUTH-LATE',
     items: [line('late', 3)],
   });
   check(db.reserveAndInsertOrder(D, late).ok, 'late-callback fixture is atomically reserved and inserted');
   check(db.expirePendingOrders(D, new Date().toISOString()).length === 1, 'late-callback fixture first expires');
   const lateClaim = db.claimExpiredPayment(D, late.id, {
     provider: 'zarinpal',
+    authority: 'AUTH-LATE',
     payRef: 'verified-ref',
     paidAt: new Date().toISOString(),
     successNote: 'late success',
@@ -145,13 +211,15 @@ try {
   check(!db.getOrderById(D, late.id).needsAttention, 'successful late-payment recovery clears its transient attention flag');
   check(db.getProduct(D, 'late').stock === 2, 'late-payment claim reserves its units exactly once');
   const duplicateClaim = db.claimExpiredPayment(D, late.id, {
-    provider: 'zarinpal', payRef: 'again', paidAt: new Date().toISOString(), successNote: 'again', failureNote: 'again',
+    provider: 'zarinpal', authority: 'AUTH-LATE', payRef: 'again', paidAt: new Date().toISOString(), successNote: 'again', failureNote: 'again',
   });
   check(!duplicateClaim.ok && db.getProduct(D, 'late').stock === 2, 'duplicate callback cannot reserve late-payment stock twice');
 
   const lateEmpty = order({
     id: crypto.randomUUID(),
     code: `KY-LATE-EMPTY-${Date.now()}`,
+    provider: 'zarinpal',
+    payAuthority: 'AUTH-LATE-EMPTY',
     items: [line('late-empty', 3)],
   });
   check(db.reserveAndInsertOrder(D, lateEmpty).ok, 'no-stock late callback fixture starts with a valid hold');
@@ -159,6 +227,7 @@ try {
   db.updateProductStock(D, 'late-empty', 2, 3); // units sold after the hold expired
   const noStockClaim = db.claimExpiredPayment(D, lateEmpty.id, {
     provider: 'zarinpal',
+    authority: 'AUTH-LATE-EMPTY',
     payRef: 'late-no-stock',
     paidAt: new Date().toISOString(),
     successNote: 'unexpected success',
@@ -170,7 +239,7 @@ try {
   check(claimedForRefund.adminNote === 'refund pending', 'refund-pending claim leaves an urgent durable note');
   check(claimedForRefund.needsAttention, 'unresolved late refund raises a durable attention flag before external refund work');
   check(!db.claimExpiredPayment(D, lateEmpty.id, {
-    provider: 'zarinpal', payRef: 'duplicate', paidAt: new Date().toISOString(), successNote: 'duplicate', failureNote: 'duplicate',
+    provider: 'zarinpal', authority: 'AUTH-LATE-EMPTY', payRef: 'duplicate', paidAt: new Date().toISOString(), successNote: 'duplicate', failureNote: 'duplicate',
   }).ok, 'a second worker cannot claim the same late refund');
   db.updateOrder(D, lateEmpty.id, { needsAttention: false });
   check(!db.getOrderById(D, lateEmpty.id).needsAttention, 'an explicit Admin acknowledgement clears the attention flag durably');
