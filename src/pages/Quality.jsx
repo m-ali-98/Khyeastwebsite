@@ -9,11 +9,11 @@ export default function Quality() {
 
   return (
     <>
-      <PageHero title={t('quality.hero.title')} sub={t('quality.hero.sub')} image={m('quality.hero.img')} />
+      <PageHero className="quality-hero" title={t('quality.hero.title')} sub={t('quality.hero.sub')} image={m('quality.hero.img')} />
 
-      <section className="section section--airy">
+      <section className="section section--airy quality-lab">
         <div className="container">
-          <div className="split">
+          <div className="split quality-lab__layout">
             <Reveal x={40} y={0}>
               <div className="split__media">
                 <span className="badge-float">{t('quality.lab.badge')}</span>
@@ -40,7 +40,7 @@ export default function Quality() {
         </div>
       </section>
 
-      <section className="section section--soft">
+      <section className="section section--soft quality-certs">
         <div className="container">
           <SectionHead overline={t('quality.certs.overline')} title={hl(t('quality.certs.title'))} align="start" />
           <div className="certs-grid">
@@ -64,7 +64,7 @@ export default function Quality() {
         </div>
       </section>
 
-      <section className="section">
+      <section className="section quality-process">
         <div className="container">
           <SectionHead overline={t('quality.steps.overline')} title={hl(t('quality.steps.title'))} />
           <div className="steps">
@@ -72,7 +72,7 @@ export default function Quality() {
               const Ic = Icons[s.icon] || Icons.flask;
               return (
                 <Reveal key={s.title} delay={i * 0.14} className="step">
-                  <div className="step__num" style={{ fontSize: 0 }}>
+                  <div className="step__num step__num--icon">
                     <Ic size={34} />
                   </div>
                   <h3>{s.title}</h3>
@@ -84,7 +84,7 @@ export default function Quality() {
         </div>
       </section>
 
-      <section className="section section--soft section--compact">
+      <section className="section section--soft section--compact quality-awards">
         <div className="container">
           <Reveal>
             <div className="cta-band">

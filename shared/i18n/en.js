@@ -91,6 +91,8 @@ export const TEXTS = {
   'about.story.badge': '30+ years of experience',
   'about.mission.overline': 'Mission and vision',
   'about.mission.title': 'Our commitment to quality, innovation and [[sustainable growth]]',
+  'about.mission.missionLabel': 'Our mission',
+  'about.mission.visionLabel': 'Our vision',
   'about.mission.mission':
     'To produce high-quality, sustainable biotechnology products for the food and baking industries in Iran and worldwide, combining modern European technology with Iranian technical expertise — advancing public health, supporting domestic production and expanding non-oil exports.',
   'about.mission.vision':

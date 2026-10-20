@@ -103,6 +103,90 @@ test('the 404 page uses localized CMS copy and keeps its recovery actions clear 
   }
 });
 
+test('the cleaned inner pages keep their primary layout inside narrow screens @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  const cases = [
+    ['/about', '.about-story__layout'],
+    ['/products', '.products-filter'],
+    ['/export', '.export-story__panel'],
+    ['/quality', '.quality-lab__layout'],
+    ['/blog', '.featured-post'],
+    ['/contact', '.contact-layout'],
+    ['/products/dezmaye-gold-80', '.catalog-detail__layout'],
+    ['/shop/dezmaye-gold-80', '.shop-product-page .sp-detail'],
+    ['/blog/reduce-bread-production-costs', '.article-body'],
+  ];
+
+  for (const [url, selector] of cases) {
+    await gotoReady(page, url);
+    await expect(page.locator(selector)).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, `${url} overflows the viewport`).toBeLessThanOrEqual(1);
+  }
+});
+
+test('every catalogue and shop product uses the cleaned detail shell @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  const listings = [
+    ['/products', '.product-card__media', '.catalog-detail__layout'],
+    ['/shop', '.shop-card__img a', '.shop-product-page .sp-detail'],
+  ];
+
+  for (const [listing, linkSelector, detailSelector] of listings) {
+    await gotoReady(page, listing);
+    const paths = await page.locator(linkSelector).evaluateAll((links) =>
+      [...new Set(links.map((link) => new URL(link.href).pathname))],
+    );
+    expect(paths.length, `${listing} has no product links`).toBeGreaterThan(0);
+
+    for (const path of paths) {
+      const response = await gotoReady(page, path);
+      expect(response?.status(), path).toBe(200);
+      await expect(page.locator(detailSelector)).toBeVisible();
+      await expect(page.locator(`${detailSelector} h1`)).toBeVisible();
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow, `${path} overflows the viewport`).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
+test('every published article uses the cleaned editorial layout @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await gotoReady(page, '/blog');
+  const paths = await page.locator('.featured-post, .post-card').evaluateAll((links) =>
+    [...new Set(links.map((link) => new URL(link.href || link.querySelector('a').href).pathname))],
+  );
+  expect(paths.length).toBeGreaterThan(0);
+
+  for (const path of paths) {
+    const response = await gotoReady(page, path);
+    expect(response?.status(), path).toBe(200);
+    await expect(page.locator('.article-hero h1')).toBeVisible();
+    await expect(page.locator('.article-body')).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, `${path} overflows the viewport`).toBeLessThanOrEqual(1);
+  }
+});
+
+test('about mission labels are localized rather than embedded Persian @mobile', async ({ page }) => {
+  const cases = [
+    ['/about', ['ماموریت ما', 'چشم‌انداز ما']],
+    ['/en/about', ['Our mission', 'Our vision']],
+    ['/ar/about', ['رسالتنا', 'رؤيتنا']],
+  ];
+
+  for (const [url, labels] of cases) {
+    await gotoReady(page, url);
+    await expect(page.locator('.about-mission .principle-card h3')).toHaveText(labels);
+  }
+});
+
 test('the header, footer and logo render on every locale @mobile', async ({ page }) => {
   for (const base of ['/', '/en', '/ar']) {
     await gotoReady(page, base);

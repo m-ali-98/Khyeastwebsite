@@ -13,10 +13,10 @@ function OfficeCard({ office, index }) {
       <div>
         <h2>{office.title}</h2>
         <p>{office.address}</p>
-        <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        <p className="contact-card__links">
           {(office.phones || []).map((ph) => (
             <a key={ph.tel} href={`tel:${ph.tel}`}>
-              <Icons.phone size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginInlineEnd: 5 }} />
+              <Icons.phone size={14} />
               {ph.fa}
             </a>
           ))}
@@ -111,12 +111,12 @@ function ContactForm() {
               <div className="field">
                 <label htmlFor="name">{t('contact.form.name')}</label>
                 <input id="name" value={form.name} onChange={set('name')} />
-                {errors.name && <small style={{ color: 'var(--crimson-ink)' }}>{errors.name}</small>}
+                {errors.name && <small className="field__error">{errors.name}</small>}
               </div>
               <div className="field">
                 <label htmlFor="phone">{t('contact.form.phone')}</label>
                 <input id="phone" value={form.phone} onChange={set('phone')} inputMode="tel" />
-                {errors.phone && <small style={{ color: 'var(--crimson-ink)' }}>{errors.phone}</small>}
+                {errors.phone && <small className="field__error">{errors.phone}</small>}
               </div>
               <div className="field">
                 <label htmlFor="email">{t('contact.form.email')}</label>
@@ -126,7 +126,7 @@ function ContactForm() {
                   value={form.email}
                   onChange={set('email')}
                   dir="ltr"
-                  style={{ textAlign: 'left' }}
+                  className="field__ltr"
                 />
               </div>
               <div className="field">
@@ -140,14 +140,14 @@ function ContactForm() {
               <div className="field field--full">
                 <label htmlFor="message">{t('contact.form.message')}</label>
                 <textarea id="message" value={form.message} onChange={set('message')} />
-                {errors.message && <small style={{ color: 'var(--crimson-ink)' }}>{errors.message}</small>}
+                {errors.message && <small className="field__error">{errors.message}</small>}
               </div>
-              <div className="field--full">
+              <div className="field--full form-card__submit">
                 <mo.button type="submit" className="btn btn--primary" whileTap={{ scale: 0.97 }} disabled={sending}>
                   {t('contact.form.submit')}
                   <Icons.send size={18} />
                 </mo.button>
-                {errors.submit && <small style={{ color: 'var(--crimson-ink)', marginInlineStart: 14 }}>{errors.submit}</small>}
+                {errors.submit && <small className="field__error" role="alert">{errors.submit}</small>}
               </div>
             </div>
           </mo.form>
@@ -164,43 +164,45 @@ export default function Contact() {
 
   return (
     <>
-      <PageHero title={t('contact.hero.title')} sub={t('contact.hero.sub')} image={m('contact.hero.img')} />
+      <PageHero className="contact-hero" title={t('contact.hero.title')} sub={t('contact.hero.sub')} image={m('contact.hero.img')} />
 
-      <section className="section section--airy">
-        <div className="container section-stack">
-          <div className="contact-grid">
-            {offices.map((o, i) => (
-              <OfficeCard key={o.id} office={o} index={i} />
-            ))}
-            <Reveal delay={0.3} className="card contact-card">
-              <div className="contact-card__icon">
-                <Icons.whatsapp size={26} />
-              </div>
-              <div>
-                <h2>{t('contact.quick.title')}</h2>
-                <p>{t('contact.quick.text')}</p>
-                <p style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <a href={`mailto:${t('global.email')}`}>
-                    <Icons.mail size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginInlineEnd: 5 }} />
-                    {t('global.email')}
-                  </a>
-                  {socials.map((s) => {
-                    const Ic = socialIcon(s.id);
-                    return (
-                      <a key={s.id} href={s.href} target="_blank" rel="noreferrer">
-                        <Ic size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginInlineEnd: 5 }} />
-                        {s.label}
-                      </a>
-                    );
-                  })}
-                </p>
-              </div>
+      <section className="section section--airy contact-main">
+        <div className="container">
+          <div className="contact-layout">
+            <div className="contact-directory">
+              {offices.map((o, i) => (
+                <OfficeCard key={o.id} office={o} index={i} />
+              ))}
+              <Reveal delay={0.2} className="card contact-card contact-card--quick">
+                <div className="contact-card__icon">
+                  <Icons.whatsapp size={26} />
+                </div>
+                <div>
+                  <h2>{t('contact.quick.title')}</h2>
+                  <p>{t('contact.quick.text')}</p>
+                  <p className="contact-card__links contact-card__links--social">
+                    <a href={`mailto:${t('global.email')}`}>
+                      <Icons.mail size={14} />
+                      {t('global.email')}
+                    </a>
+                    {socials.map((s) => {
+                      const Ic = socialIcon(s.id);
+                      return (
+                        <a key={s.id} href={s.href} target="_blank" rel="noreferrer">
+                          <Ic size={14} />
+                          {s.label}
+                        </a>
+                      );
+                    })}
+                  </p>
+                </div>
+              </Reveal>
+            </div>
+
+            <Reveal delay={0.1} className="contact-form-wrap">
+              <ContactForm />
             </Reveal>
           </div>
-
-          <Reveal delay={0.1}>
-            <ContactForm />
-          </Reveal>
         </div>
       </section>
     </>

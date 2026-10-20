@@ -19,13 +19,14 @@ export default function PostDetail() {
 
   return (
     <>
-      <header className="page-hero">
+      <header className="page-hero article-hero">
         <div className="page-hero__img">
           <img {...imgProps(post.image, SIZES.full)} alt="" loading="eager" fetchPriority="high" />
         </div>
         <div className="container">
           <mo.nav
             className="breadcrumb"
+            aria-label={t('nav.breadcrumb.home')}
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
@@ -37,7 +38,7 @@ export default function PostDetail() {
             <span>{post.category}</span>
           </mo.nav>
           <mo.h1
-            style={{ maxWidth: 900 }}
+            className="article-hero__title"
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
@@ -45,20 +46,20 @@ export default function PostDetail() {
             {post.title}
           </mo.h1>
           <mo.div
-            style={{ display: 'flex', gap: 22, color: 'rgba(255,255,255,.75)', fontSize: 14, flexWrap: 'wrap' }}
+            className="article-hero__meta"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.24 }}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <span>
               <Icons.clock size={16} />
               {post.readTime} {t('blog.readMinutes')}
             </span>
-            <time dateTime={post.publishedAt || undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <time dateTime={post.publishedAt || undefined}>
               <Icons.doc size={16} />
               {post.date}
             </time>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <span>
               <Icons.users size={16} />
               {t('blog.meta.author')}
             </span>
@@ -66,13 +67,13 @@ export default function PostDetail() {
         </div>
       </header>
 
-      <section className="section">
-        <div className="container">
+      <section className="section article-main">
+        <div className="container article-main__inner">
           <Reveal className="gallery-img post-hero-image">
-            <img {...imgProps(post.image, SIZES.full)} alt={post.title} style={{ height: 400 }} loading="lazy" />
+            <img {...imgProps(post.image, SIZES.full)} alt={post.title} loading="lazy" />
           </Reveal>
 
-          <article className="post-body">
+          <article className="post-body article-body">
             <div dangerouslySetInnerHTML={{ __html: safeBody }} />
 
             <Reveal>
@@ -81,12 +82,12 @@ export default function PostDetail() {
                   <Icons.flask size={18} />
                   {t('blog.callout.title')}
                 </strong>
-                <p style={{ margin: '8px 0 0' }}>{t('blog.callout.text')}</p>
+                <p>{t('blog.callout.text')}</p>
               </div>
             </Reveal>
 
             <Reveal>
-              <Link to="/blog" className="link-arrow">
+              <Link to="/blog" className="link-arrow article-body__back">
                 {t('blog.back')}
                 <Icons.arrow size={17} />
               </Link>
@@ -96,7 +97,7 @@ export default function PostDetail() {
       </section>
 
       {related.length > 0 && (
-        <section className="section section--soft">
+        <section className="section section--soft article-related">
           <div className="container">
             <SectionHead title={hl(t('blog.related'))} align="start" />
             <div className="posts-grid">

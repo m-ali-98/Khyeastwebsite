@@ -85,7 +85,7 @@ function Comments({ product }) {
   const open = display.commentsEnabled !== false && !product.commentsLocked;
 
   return (
-    <section className="section section--continuation">
+    <section className="section section--soft shop-product-comments">
       <div className="container">
         <Reveal className="shop-comments__head">
           <h2>{hl(t('shop.comments.title'))}</h2>
@@ -94,7 +94,7 @@ function Comments({ product }) {
 
         <div className="shop-comments__grid">
           <div>
-            {list.length === 0 && <p style={{ color: 'var(--muted)', fontWeight: 700 }}>{t('shop.comments.empty')}</p>}
+            {list.length === 0 && <p className="shop-comments__empty">{t('shop.comments.empty')}</p>}
             <AnimatePresence>
               {list.map((c, i) => (
                 <Reveal className="comment" key={c.id} y={20} delay={i * 0.06}>
@@ -170,7 +170,7 @@ export default function ShopProduct() {
 
   if (!p || !p.active) {
     return (
-      <section className="section">
+      <section className="section section--nav-offset shop-product-page">
         <div className="container">
           <Reveal className="cart-empty">
             <span className="ico">
@@ -189,8 +189,15 @@ export default function ShopProduct() {
 
   return (
     <>
-      <section className="section">
+      <section className="section section--nav-offset shop-product-page">
         <div className="container">
+          <Reveal as="nav" className="breadcrumb shop-product-page__breadcrumb" aria-label={t('nav.breadcrumb.home')}>
+            <Link to="/">{t('nav.breadcrumb.home')}</Link>
+            <span className="sep">/</span>
+            <Link to="/shop">{t('nav.shop')}</Link>
+            <span className="sep">/</span>
+            <span>{p.title}</span>
+          </Reveal>
           <Reveal className="sp-detail">
             <div className="sp-gallery">
               <mo.img
@@ -249,12 +256,12 @@ export default function ShopProduct() {
                   </mo.button>
                 </div>
                 {catalogItem && (
-                  <p style={{ marginTop: 16 }}>
-                    <Link to={`/products/${catalogItem.slug}`} className="btn btn--ghost btn--sm">
+                  <div className="sp-buy__catalog-link">
+                    <Link to={`/products/${catalogItem.slug}`} className="btn btn--soft btn--sm">
                       <Icons.doc size={16} />
                       {t('shop.detail.catalog')}
                     </Link>
-                  </p>
+                  </div>
                 )}
               </div>
 
@@ -279,7 +286,7 @@ export default function ShopProduct() {
         </div>
       </section>
 
-      <section className="section section--continuation">
+      <section className="section section--soft shop-product-info">
         <div className="container">
           <div className="sp-info">
             {p.specs?.length > 0 && (
@@ -312,7 +319,7 @@ export default function ShopProduct() {
       </section>
 
       {relatedFinal.length > 0 && (
-        <section className="section section--continuation">
+        <section className="section shop-product-related">
           <div className="container">
             <Reveal className="shop-comments__head">
               <h2>{hl(t('shop.detail.related'))}</h2>

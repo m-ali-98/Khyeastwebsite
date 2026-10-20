@@ -353,7 +353,7 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
 /* ------------------------------------------------------------------ */
 /*  Inner-page hero                                                    */
 /* ------------------------------------------------------------------ */
-export function PageHero({ title, sub, image, crumb }) {
+export function PageHero({ title, sub, image, crumb, className = '' }) {
   const { t } = useContent();
   /* `||`, not `??`: a caller passing t('some.missing.key') gets an empty
      string, not undefined, and an empty string here renders a link with no
@@ -362,7 +362,7 @@ export function PageHero({ title, sub, image, crumb }) {
      home label instead of producing an unusable link. */
   crumb = crumb || t('nav.breadcrumb.home');
   return (
-    <header className="page-hero">
+    <header className={`page-hero ${className}`.trim()}>
       {image && (
         <div className="page-hero__img">
           <img {...imgProps(image, SIZES.full)} alt="" loading="eager" fetchPriority="high" />

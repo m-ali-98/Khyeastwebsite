@@ -48,6 +48,7 @@ export function PostCard({ post, index = 0 }) {
         <time className="post-card__date" dateTime={post.publishedAt || undefined}>{post.date}</time>
       </Link>
       <div className="post-card__body">
+        <span className="post-card__category">{post.category}</span>
         <h2>
           <Link to={`/blog/${post.slug}`}>{post.title}</Link>
         </h2>

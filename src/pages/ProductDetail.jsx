@@ -34,9 +34,9 @@ export default function ProductDetail() {
 
   return (
     <>
-      <section className="section section--nav-offset">
+      <section className="section section--nav-offset catalog-detail">
         <div className="container">
-          <Reveal className="breadcrumb">
+          <Reveal as="nav" className="breadcrumb catalog-detail__breadcrumb" aria-label={t('nav.breadcrumb.home')}>
             <Link to="/">{t('nav.breadcrumb.home')}</Link>
             <span className="sep">/</span>
             <Link to="/products">{t('nav.products')}</Link>
@@ -44,34 +44,29 @@ export default function ProductDetail() {
             <span>{product.title}</span>
           </Reveal>
 
-          <div className="split detail-layout">
-            <Reveal x={40} y={0}>
-              <div
-                className="gallery-img gallery-img--square"
-                style={{ background: 'radial-gradient(90% 90% at 50% 35%, #fff 30%, var(--bg-softer))' }}
-              >
+          <div className="split detail-layout catalog-detail__layout">
+            <Reveal className="catalog-detail__media" x={40} y={0}>
+              <div className="gallery-img gallery-img--square catalog-detail__gallery">
                 {/* Square to match the 1:1 source: the old fixed 440px height
                     with `cover` cropped the top and bottom off the packaging. */}
                 <img {...imgProps(product.image, SIZES.detail)} alt={product.title} width={720} height={720} loading="eager" fetchPriority="high" />
               </div>
             </Reveal>
 
-            <Reveal x={-40} y={0} delay={0.1}>
+            <Reveal className="catalog-detail__copy" x={-40} y={0} delay={0.1}>
               <span className="overline">
                 {brand?.fa} · {brand?.en}
               </span>
-              <h1 className="section-title" style={{ fontSize: 'clamp(26px, 3.4vw, 40px)' }}>
-                {product.title}
-              </h1>
-              <p style={{ color: 'var(--muted)', fontSize: 16 }}>{product.short}</p>
+              <h1 className="section-title catalog-detail__title">{product.title}</h1>
+              <p className="catalog-detail__lead">{product.short}</p>
 
-              <div className="chip-row">
+              <div className="chip-row catalog-detail__chips">
                 <span className="filter-chip is-active">{product.weight}</span>
                 <span className="filter-chip is-active">{product.pack}</span>
                 <span className="filter-chip">{t('product.chipShelf')}</span>
               </div>
 
-              <div className="card data-card detail-spec">
+              <div className="card data-card detail-spec catalog-detail__spec">
                 <table className="spec-table">
                   <tbody>
                     {(product.specs || []).map(([k, v]) => (
@@ -84,7 +79,7 @@ export default function ProductDetail() {
                 </table>
               </div>
 
-              <div className="button-row">
+              <div className="button-row catalog-detail__actions">
                 <a className="btn btn--primary" href={l('sales.tel')}>
                   <Icons.phone size={18} />
                   {t('product.btnOrder')}
@@ -102,11 +97,7 @@ export default function ProductDetail() {
                   <Icons.whatsapp size={18} />
                   {t('product.btnWhatsapp')}
                 </a>
-                <Link
-                  className="btn btn--ghost"
-                  style={{ background: 'var(--bg-soft)', color: 'var(--crimson-700)', border: 'none' }}
-                  to="/contact"
-                >
+                <Link className="btn btn--soft" to="/contact">
                   {t('product.btnSample')}
                 </Link>
               </div>
@@ -115,10 +106,10 @@ export default function ProductDetail() {
         </div>
       </section>
 
-      <section className="section section--soft section--compact">
+      <section className="section section--soft section--compact catalog-detail-tabs">
         <div className="container container--narrow">
           <Reveal>
-            <div className="tabs">
+            <div className="tabs catalog-detail-tabs__nav">
               {TABS.map((tb) => (
                 <button key={tb.id} className={`tab ${tab === tb.id ? 'is-active' : ''}`} onClick={() => setTab(tb.id)}>
                   {tb.label}
@@ -134,12 +125,12 @@ export default function ProductDetail() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-              className="card data-card data-card--panel"
+              className="card data-card data-card--panel catalog-detail-tabs__panel"
             >
               {tab === 'usage' && (
                 <>
-                  <h2 style={{ marginTop: 0, fontSize: '1.17em', fontWeight: 700 }}>{t('product.usageTitle')}</h2>
-                  <ol style={{ color: 'var(--ink-2)', lineHeight: 2.3, paddingInlineStart: 22, margin: 0 }}>
+                  <h2>{t('product.usageTitle')}</h2>
+                  <ol className="catalog-detail-tabs__list">
                     {(product.usage || []).map((u) => (
                       <li key={u}>{u}</li>
                     ))}
@@ -159,7 +150,7 @@ export default function ProductDetail() {
                 </table>
               )}
               {tab === 'storage' && (
-                <ul style={{ color: 'var(--ink-2)', lineHeight: 2.3, paddingInlineStart: 22, margin: 0 }}>
+                <ul className="catalog-detail-tabs__list">
                   {(product.storage || []).map((u) => (
                     <li key={u}>{u}</li>
                   ))}
@@ -170,7 +161,7 @@ export default function ProductDetail() {
         </div>
       </section>
 
-      <section className="section">
+      <section className="section catalog-related">
         <div className="container">
           <SectionHead title={hl(t('product.related'))} align="start" />
           <div className="products-grid">

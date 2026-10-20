@@ -6,14 +6,14 @@ import { imgProps, SIZES } from '../lib/img';
 function Mission() {
   const { t } = useContent();
   const cards = [
-    { icon: 'star', title: 'ماموریت ما', text: t('about.mission.mission') },
-    { icon: 'globe', title: 'چشم‌انداز ما', text: t('about.mission.vision') },
+    { icon: 'star', title: t('about.mission.missionLabel'), text: t('about.mission.mission') },
+    { icon: 'globe', title: t('about.mission.visionLabel'), text: t('about.mission.vision') },
   ];
   return (
-    <section className="section section--continuation">
+    <section className="section section--continuation about-mission">
       <div className="container">
         <SectionHead overline={t('about.mission.overline')} title={hl(t('about.mission.title'))} />
-        <div className="contact-grid">
+        <div className="contact-grid about-mission__grid">
           {cards.map((c, i) => {
             const Ic = Icons[c.icon];
             return (
@@ -43,11 +43,11 @@ export default function About() {
 
   return (
     <>
-      <PageHero title={t('about.hero.title')} sub={t('about.hero.sub')} image={m('about.hero.img')} />
+      <PageHero className="about-hero" title={t('about.hero.title')} sub={t('about.hero.sub')} image={m('about.hero.img')} />
 
-      <section className="section section--airy">
+      <section className="section section--airy about-story">
         <div className="container">
-          <div className="split">
+          <div className="split about-story__layout">
             <Reveal className="section-copy" x={40} y={0}>
               <span className="overline">{t('about.story.overline')}</span>
               <h2 className="section-title">{hl(t('about.story.title'))}</h2>
@@ -80,22 +80,24 @@ export default function About() {
 
       <Mission />
 
-      <section className="section section--soft">
+      <section className="section section--soft about-timeline">
         <div className="container">
           <SectionHead overline={t('about.timeline.overline')} title={hl(t('about.timeline.title'))} />
           <div className="timeline">
             {timeline.map((item, i) => (
               <Reveal key={item.year} delay={0.05 * i} className="tl-item">
-                <span className="tl-year">{item.year}</span>
-                <h3>{item.title}</h3>
-                <p>{item.text}</p>
+                <div className="tl-item__card">
+                  <span className="tl-year">{item.year}</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                </div>
               </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="section stats-band">
+      <section className="section stats-band about-stats">
         <div className="container">
           <div className="stats-grid">
             {stats.map((s, i) => (
@@ -110,7 +112,7 @@ export default function About() {
         </div>
       </section>
 
-      <section className="section">
+      <section className="section about-team">
         <div className="container">
           <SectionHead
             overline={t('about.managers.overline')}
@@ -118,7 +120,7 @@ export default function About() {
             sub={t('about.managers.sub')}
             align="start"
           />
-          <div className="certs-grid">
+          <div className="certs-grid about-team__grid">
             {managers.map((mg, i) => (
               <Reveal key={mg.name} delay={i * 0.1} className="card person-card">
                 <div className="person-card__icon">
@@ -132,9 +134,9 @@ export default function About() {
         </div>
       </section>
 
-      <section className="section section--soft section--airy">
+      <section className="section section--soft section--airy about-factory">
         <div className="container">
-          <div className="split">
+          <div className="split about-factory__layout">
             <Reveal x={40} y={0}>
               <div className="split__media">
                 <span className="badge-float">{t('about.factory.badge')}</span>

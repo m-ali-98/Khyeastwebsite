@@ -5,6 +5,7 @@ import '@fontsource-variable/vazirmatn';
 import './styles/fonts.scss';
 import './styles/global.scss';
 import './styles/shop.scss';
+import './styles/inner-pages.scss';
 import App from './App';
 import { ContentProvider } from './content/ContentContext';
 import { ShopProvider } from './shop/ShopContext';

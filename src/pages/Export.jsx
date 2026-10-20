@@ -19,19 +19,23 @@ export default function Export() {
 
   return (
     <>
-      <PageHero title={t('export.hero.title')} sub={t('export.hero.sub')} image={m('export.hero.img')} />
+      <PageHero className="export-hero" title={t('export.hero.title')} sub={t('export.hero.sub')} image={m('export.hero.img')} />
 
-      <section ref={ref} className="section section--flush media-band">
-        <mo.img className="parallax-img" {...imgProps(m('export.banner.img'), SIZES.full)} alt={t('export.hero.title')} style={{ y, scale: 1.15 }} loading="lazy" decoding="async" />
-        <div className="media-band__overlay">
-          <Reveal>
-            <h2 className="media-band__title">{t('export.banner.title')}</h2>
-            <p className="media-band__text">{t('export.banner.text')}</p>
-          </Reveal>
+      <section ref={ref} className="section section--compact export-story">
+        <div className="container">
+          <div className="media-band export-story__panel">
+            <mo.img className="parallax-img" {...imgProps(m('export.banner.img'), SIZES.full)} alt={t('export.hero.title')} style={{ y, scale: 1.15 }} loading="lazy" decoding="async" />
+            <div className="media-band__overlay">
+              <Reveal>
+                <h2 className="media-band__title">{t('export.banner.title')}</h2>
+                <p className="media-band__text">{t('export.banner.text')}</p>
+              </Reveal>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="section">
+      <section className="section section--soft export-regions">
         <div className="container">
           <SectionHead overline={t('export.regions.overline')} title={hl(t('export.regions.title'))} align="start" />
           <div className="features-grid">
@@ -51,7 +55,7 @@ export default function Export() {
         </div>
       </section>
 
-      <section className="section stats-band">
+      <section className="section stats-band export-stats">
         <div className="container">
           <div className="stats-grid">
             {stats.map((s, i) => (
@@ -66,7 +70,7 @@ export default function Export() {
         </div>
       </section>
 
-      <section className="section">
+      <section className="section export-process">
         <div className="container">
           <SectionHead overline={t('export.steps.overline')} title={hl(t('export.steps.title'))} />
           <div className="steps">

@@ -19,18 +19,25 @@ export default function Products() {
 
   return (
     <>
-      <PageHero title={t('products.hero.title')} sub={t('products.hero.sub')} image={m('products.hero.img')} />
+      <PageHero className="products-hero" title={t('products.hero.title')} sub={t('products.hero.sub')} image={m('products.hero.img')} />
 
-      <section className="section">
+      <section className="section products-index">
         <div className="container">
-          <Reveal className="filter-bar">
-            <button className={`filter-chip ${active === 'all' ? 'is-active' : ''}`} onClick={() => setFilter('all')}>
+          <Reveal className="filter-bar products-filter" role="group" aria-label={t('products.hero.title')}>
+            <button
+              type="button"
+              className={`filter-chip ${active === 'all' ? 'is-active' : ''}`}
+              aria-pressed={active === 'all'}
+              onClick={() => setFilter('all')}
+            >
               {t('products.filter.all')}
             </button>
             {brands.map((b) => (
               <button
                 key={b.id}
+                type="button"
                 className={`filter-chip ${active === b.id ? 'is-active' : ''}`}
+                aria-pressed={active === b.id}
                 onClick={() => setFilter(b.id)}
               >
                 {b.fa} ({b.en})
@@ -52,7 +59,7 @@ export default function Products() {
             </AnimatePresence>
           </mo.div>
 
-          <Reveal className="section-break">
+          <Reveal className="section-break products-index__cta">
             <div className="cta-band">
               <div>
                 <h2>{t('products.catalog.title')}</h2>

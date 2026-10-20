@@ -10,9 +10,9 @@ export default function Blog() {
 
   return (
     <>
-      <PageHero title={t('blog.hero.title')} sub={t('blog.hero.sub')} image={m('blog.hero.img')} />
+      <PageHero className="blog-hero" title={t('blog.hero.title')} sub={t('blog.hero.sub')} image={m('blog.hero.img')} />
 
-      <section className="section">
+      <section className="section blog-index">
         <div className="container section-stack">
           {featuredPost && (
             <Reveal>
