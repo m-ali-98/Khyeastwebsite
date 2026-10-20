@@ -577,6 +577,10 @@ input, select, textarea { font-family: inherit; }
 }
 .nav__logo-text small {
   display: block;
+  /* The corporate subtitle is Latin in every locale. Isolating its direction
+     keeps the closing full stop after “CO” inside RTL Persian/Arabic chrome. */
+  direction: ltr;
+  unicode-bidi: isolate;
   font-size: 10.5px;
   letter-spacing: 0.22em;
   color: rgba(255, 255, 255, 0.75);
@@ -2316,10 +2320,64 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .footer__trust { flex-direction: column; gap: 18px; margin-top: 36px; padding-top: 24px; }
   .footer__trust-list { justify-content: flex-start; }
   .footer__trust-link { width: 90px; height: 90px; padding: 7px; }
+  /* A phone header should protect content space without shrinking its touch
+     targets. The utility strip and bar lose 16px together, while the three
+     Persian commerce controls retain their approved 42px geometry. */
+  :root { --nav-h: 68px; }
+  .nav__topbar {
+    height: 34px;
+    font-size: 12.5px;
+  }
+  .nav__topbar-inner {
+    height: 34px;
+    justify-content: center;
+  }
   .nav__topbar-socials,
   .nav__topbar .nav__topbar-email { display: none; }
-  .nav__topbar-inner { justify-content: center; }
   .nav__topbar-tools { gap: 0; }
+  .nav__topbar-phone {
+    min-height: 34px;
+    padding-inline: 8px;
+  }
+
+  .nav__bar {
+    gap: 12px;
+    transition-duration: 0.2s;
+  }
+  .nav__bar .nav__logo {
+    min-width: 0;
+    gap: 10px;
+  }
+  .nav__bar .nav__logo-text {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .nav__bar .nav__logo-text strong,
+  .nav__bar .nav__logo-text small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nav__bar .nav__logo-text strong { font-size: 15.5px; }
+  .nav__bar .nav__logo-text small {
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+  }
+  /* Persian carries cart + account + menu controls. Its English subtitle is
+     the expendable line; keeping the local company name gives the mark enough
+     room to breathe without weakening the English/Arabic corporate headers. */
+  [data-locale='fa'] .nav__bar .nav__logo-text small { display: none; }
+
+  /* Opaque mobile surfaces avoid continuously re-blurring a full-width strip
+     during scroll, and the small top-state controls do not need their own GPU
+     blur layer either. */
+  .nav.is-scrolled:not(.is-menu-open) .nav__bar {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+  .nav__icon,
+  .nav__burger { backdrop-filter: none; }
+
   .mobile-menu { padding-inline: 20px; }
   .hero__inner { padding-bottom: 140px; }
   .split__media .img-float {
@@ -2337,12 +2395,14 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .fact-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 350px) {
-  /* Keep the official mark, but drop the long wordmark before it collides with
-     the three equally-sized header controls on very narrow screens. */
-  .nav__bar .nav__logo-text { display: none; }
-  .nav__bar { gap: 10px; }
+@media (max-width: 380px) {
+  /* The Persian storefront has three header controls. Below this width the
+     official mark alone is clearer than squeezing or wrapping its wordmark;
+     English and Arabic only have the menu control and keep their full name. */
+  [data-locale='fa'] .nav__bar .nav__logo-text { display: none; }
+}
 
+@media (max-width: 350px) {
   /* Highlighted phrases stay together where they fit. On the narrowest
      English viewport, however, a multi-word phrase must be allowed to wrap. */
   .section-title em { white-space: normal; }

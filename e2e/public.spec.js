@@ -87,18 +87,92 @@ test('html lang and dir follow the locale @mobile', async ({ page }) => {
   }
 });
 
+test('the mobile header stays compact without wrapping or overlapping its locale wordmarks @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 844 });
+  await gotoReady(page, '/');
+  const header = page.locator('nav.nav');
+
+  /* Persian carries three controls. On a 375px phone the mark-only treatment
+     is intentional; retaining a wrapped company name made the header almost
+     as tall as the hero copy beneath it. */
+  await expect(header.locator('.nav__logo-text')).toBeHidden();
+  const compact = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const targets = [...document.querySelectorAll('.nav__icon, .nav__burger')]
+      .filter((node) => node.getClientRects().length)
+      .map((node) => node.getBoundingClientRect());
+    return {
+      nav: rect('.nav').height,
+      topbar: rect('.nav__topbar').height,
+      bar: rect('.nav__bar').height,
+      minTarget: Math.min(...targets.flatMap(({ width, height }) => [width, height])),
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  expect(compact).toMatchObject({ nav: 102, topbar: 34, bar: 68, overflow: 0 });
+  expect(compact.minTarget).toBeGreaterThanOrEqual(42);
+
+  /* Once there is room, show the Persian company name as one clean line and
+     discard only the redundant Latin subtitle. */
+  await page.setViewportSize({ width: 390, height: 844 });
+  const faName = header.locator('.nav__logo-text strong');
+  await expect(faName).toBeVisible();
+  await expect(header.locator('.nav__logo-text small')).toBeHidden();
+  const faLine = await faName.evaluate((node) => ({
+    height: node.getBoundingClientRect().height,
+    lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+  }));
+  expect(faLine.height).toBeLessThanOrEqual(faLine.lineHeight + 0.5);
+
+  /* English and Arabic have one control, so hiding their full identity at the
+     old generic breakpoint wasted space. Both wordmarks must fit even at 320. */
+  await page.setViewportSize({ width: 320, height: 844 });
+  for (const route of ['/en', '/ar']) {
+    await gotoReady(page, route);
+    await expect(header.locator('.nav__logo-text')).toBeVisible();
+    await expect(header.locator('.nav__logo-text small')).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const logo = document.querySelector('.nav__logo').getBoundingClientRect();
+      const actions = document.querySelector('.nav__actions').getBoundingClientRect();
+      const subtitle = document.querySelector('.nav__logo-text small');
+      const subRect = subtitle.getBoundingClientRect();
+      return {
+        separated: logo.right <= actions.left || actions.right <= logo.left,
+        subtitleHeight: subRect.height,
+        subtitleLineHeight: parseFloat(getComputedStyle(subtitle).lineHeight),
+        subtitleDirection: getComputedStyle(subtitle).direction,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+    expect(geometry.separated).toBe(true);
+    expect(geometry.subtitleHeight).toBeLessThanOrEqual(geometry.subtitleLineHeight + 0.5);
+    expect(geometry.subtitleDirection).toBe('ltr');
+    expect(geometry.overflow).toBe(0);
+  }
+});
+
 test('the shop header is transparent over its showcase and solid only after scrolling @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await gotoReady(page, '/shop');
   await expect(page.getByTestId('shop-showcase')).toBeVisible();
 
   const nav = page.locator('nav.nav');
+  const bar = page.locator('.nav__bar');
+  const backgroundAlpha = () => bar.evaluate((node) => {
+    const values = getComputedStyle(node).backgroundColor.match(/[\d.]+/g)?.map(Number) || [];
+    return values.length === 4 ? values[3] : 1;
+  });
   await expect(nav).not.toHaveClass(/is-scrolled/);
+  expect(await backgroundAlpha()).toBe(0);
 
   await page.evaluate(() => window.scrollTo(0, 90));
   await expect(nav).toHaveClass(/is-scrolled/);
+  await expect.poll(backgroundAlpha).toBeGreaterThanOrEqual(0.95);
+  await expect(bar).toHaveCSS('backdrop-filter', 'none');
 
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(nav).not.toHaveClass(/is-scrolled/);
+  await expect.poll(backgroundAlpha).toBe(0);
 });
 
 test('the mobile menu opens immediately above the shop showcase @mobile', async ({ page }) => {
@@ -117,6 +191,25 @@ test('the mobile menu opens immediately above the shop showcase @mobile', async 
   await expect(page.locator('body')).not.toHaveClass(/is-mobile-menu-open/);
   await expect(page.locator('main')).toBeVisible();
   await expect(nav).not.toHaveClass(/is-scrolled/);
+
+  /* Opening from the compact scrolled state must keep the inverse menu paint.
+     A later mobile “solid header” rule once won the cascade here, producing
+     white menu labels over a white bar even though the top-state menu worked. */
+  await page.evaluate(() => window.scrollTo({ top: 120, behavior: 'instant' }));
+  await expect(nav).toHaveClass(/is-scrolled/);
+  const scrollBeforeOpen = await page.evaluate(() => window.scrollY);
+  await page.getByRole('button', { name: 'منوی سایت' }).click();
+  await expect(page.locator('#mobile-navigation')).toBeVisible();
+  await expect(nav).toHaveClass(/is-menu-open/);
+  await expect(nav.locator('.nav__bar')).toHaveCSS('background-color', 'rgba(16, 10, 12, 0.96)');
+  await expect(nav.locator('.nav__logo-text strong')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  expect(await page.locator('#mobile-navigation').evaluate((node) => getComputedStyle(node).paddingTop)).toBe('84px');
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeOpen);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#mobile-navigation')).toHaveCount(0);
+  await expect(nav).toHaveClass(/is-scrolled/);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeOpen);
 });
 
 test('shop search, sale and brand filters compose without hiding their controls @mobile', async ({ page }) => {
