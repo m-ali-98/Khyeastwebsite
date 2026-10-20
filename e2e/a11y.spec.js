@@ -98,7 +98,21 @@ const describe = (v) =>
    collect violations), which is exactly how the invisible white navbar on the
    hero-less pages went unnoticed. public.spec.js measures that case
    directly; this still covers everything below the header. */
-const PAGES = ['/', '/about', '/products', '/products/dezmaye-gold-80', '/blog', '/contact', '/shop', '/shop/dezmaye-gold-80', '/shop/cart', '/shop/login', '/en', '/ar'];
+const PAGES = [
+  '/',
+  '/about',
+  '/products',
+  '/products/dezmaye-gold-80',
+  '/blog',
+  '/contact',
+  '/shop',
+  '/shop/dezmaye-gold-80',
+  '/shop/cart',
+  '/shop/login',
+  '/en',
+  '/ar',
+  '/nonexistent-page',
+];
 
 for (const url of PAGES) {
   for (const theme of ['light', 'dark']) {

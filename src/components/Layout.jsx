@@ -296,14 +296,6 @@ function Navbar() {
               <LangSwitch block />
               <ThemeToggle />
             </mo.div>
-            <mo.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.12, duration: 0.18 }}
-              className="m-slogan"
-            >
-              {t('global.slogan')}
-            </mo.div>
           </mo.nav>
         )}
       </AnimatePresence>

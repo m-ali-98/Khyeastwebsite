@@ -45,9 +45,9 @@ import {
 /* ------------------------------------------------------------ throttles */
 
 /* Per-phone and per-IP buckets are supplied by the shared limiter. The phone
-   axis protects one person's inbox; the much more generous IP axis only
-   bounds bulk abuse because carrier-grade NAT can put a whole neighbourhood
-   behind one public address. Both can be inspected or disabled from Admin. */
+   axis protects one person's inbox; the broader IP axis accounts for
+   carrier-grade NAT while still bounding bulk abuse. Both can be inspected
+   or disabled from Admin. */
 
 /* ---------------------------------------------------------------- router */
 

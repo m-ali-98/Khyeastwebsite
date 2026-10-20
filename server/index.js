@@ -491,8 +491,8 @@ app.get('/api/content', (_req, res) => {
 });
 
 /* The contact form is public and unauthenticated, so without a limit anyone
-   can flood the inbox. The shared limiter defaults to a generous 30 valid
-   messages per visitor / 10 minutes and can be tuned or disabled in Admin. */
+   can flood the inbox. The restored default allows five valid messages per
+   visitor / 10 minutes and can still be tuned or disabled in Admin. */
 app.post('/api/messages', (req, res) => {
   const ip = req.ip || 'unknown';
   const limit = rateLimiter.check('message', ip);

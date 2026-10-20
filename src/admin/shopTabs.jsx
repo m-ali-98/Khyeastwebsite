@@ -705,7 +705,7 @@ export function AdminSecurityTab() {
             <div className="security-admin__card-head">
               <div>
                 <h2 id="rate-limits-title">محدودیت درخواست‌ها</h2>
-                <p>سقف‌ها برای IPهای مشترک شبکه موبایل سخاوتمندانه‌اند؛ فقط درخواست معتبر یا ناموفقِ قابل‌سوءاستفاده شمرده می‌شود.</p>
+                <p>سقف‌های پیش‌فرض محافظه‌کارانه‌اند؛ فقط درخواست معتبر یا تلاش ناموفقِ قابل‌سوءاستفاده شمرده می‌شود.</p>
               </div>
               <label className="security-admin__switch">
                 <input

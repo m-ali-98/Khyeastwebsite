@@ -12,29 +12,31 @@
 
 const SETTING_KEY = 'security.rateLimits';
 
-const envMax = (name, fallback) => {
-  const value = Number(process.env[name]);
+const envMax = (environment, name, fallback) => {
+  const value = Number(environment[name]);
   return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
 };
 
-/* IP ceilings are deliberately generous. Iranian mobile networks and office
-   gateways put many real people behind one public address; per-phone OTP caps
-   remain tighter because they protect both SMS spend and a person's inbox. */
-export const rateLimitDefaults = () => ({
+/* Conservative ceilings keep public write/authentication endpoints resistant
+   to bursts. IP buckets remain broader than per-phone buckets to account for
+   carrier-grade NAT, and Admin can tune or temporarily disable the policy. */
+export const rateLimitDefaults = (environment = process.env) => ({
   /* Evaluate environment values when the database/limiter is created, not at
-     module import time. index.js deliberately loads server/.env after imports. */
-  enabled: !/^(0|false|off)$/i.test(String(process.env.RATE_LIMITS_ENABLED ?? 'true')),
+     module import time. index.js deliberately loads server/.env after imports.
+     Accepting an explicit environment also keeps the fallback policy directly
+     testable without inheriting a developer machine's overrides. */
+  enabled: !/^(0|false|off)$/i.test(String(environment.RATE_LIMITS_ENABLED ?? 'true')),
   rules: {
-    message: { max: envMax('RL_MAX_MESSAGE', 30), windowMs: 10 * 60 * 1000 },
-    comment: { max: envMax('RL_MAX_COMMENT', 30), windowMs: 10 * 60 * 1000 },
-    order: { max: envMax('RL_MAX_ORDER', 60), windowMs: 10 * 60 * 1000 },
-    paymentRetry: { max: envMax('RL_MAX_PAYMENT_RETRY', 20), windowMs: 10 * 60 * 1000 },
-    adminLogin: { max: envMax('RL_MAX_ADMIN_LOGIN', 30), windowMs: 15 * 60 * 1000 },
-    otpPhone: { max: envMax('RL_MAX_OTP_PHONE', 5), windowMs: 60 * 60 * 1000 },
-    otpIp: { max: envMax('RL_MAX_OTP_IP', 120), windowMs: 60 * 60 * 1000 },
-    customerLogin: { max: envMax('RL_MAX_CUSTOMER_LOGIN', 30), windowMs: 15 * 60 * 1000 },
-    customerLoginIp: { max: envMax('RL_MAX_CUSTOMER_LOGIN_IP', 120), windowMs: 15 * 60 * 1000 },
-    register: { max: envMax('RL_MAX_REGISTER', 120), windowMs: 60 * 60 * 1000 },
+    message: { max: envMax(environment, 'RL_MAX_MESSAGE', 5), windowMs: 10 * 60 * 1000 },
+    comment: { max: envMax(environment, 'RL_MAX_COMMENT', 5), windowMs: 10 * 60 * 1000 },
+    order: { max: envMax(environment, 'RL_MAX_ORDER', 12), windowMs: 10 * 60 * 1000 },
+    paymentRetry: { max: envMax(environment, 'RL_MAX_PAYMENT_RETRY', 5), windowMs: 10 * 60 * 1000 },
+    adminLogin: { max: envMax(environment, 'RL_MAX_ADMIN_LOGIN', 8), windowMs: 15 * 60 * 1000 },
+    otpPhone: { max: envMax(environment, 'RL_MAX_OTP_PHONE', 5), windowMs: 60 * 60 * 1000 },
+    otpIp: { max: envMax(environment, 'RL_MAX_OTP_IP', 30), windowMs: 60 * 60 * 1000 },
+    customerLogin: { max: envMax(environment, 'RL_MAX_CUSTOMER_LOGIN', 10), windowMs: 15 * 60 * 1000 },
+    customerLoginIp: { max: envMax(environment, 'RL_MAX_CUSTOMER_LOGIN_IP', 30), windowMs: 15 * 60 * 1000 },
+    register: { max: envMax(environment, 'RL_MAX_REGISTER', 40), windowMs: 60 * 60 * 1000 },
   },
 });
 

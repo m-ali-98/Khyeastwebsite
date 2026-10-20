@@ -66,6 +66,43 @@ test.describe('public routes', () => {
   }
 });
 
+test('the 404 page uses localized CMS copy and keeps its recovery actions clear @mobile', async ({ page }) => {
+  const cases = [
+    {
+      url: '/missing-fa',
+      code: '۴۰۴',
+      eyebrow: 'مسیر پیدا نشد',
+      title: 'صفحه موردنظر پیدا نشد',
+      products: 'مشاهده محصولات',
+    },
+    {
+      url: '/en/missing-en',
+      code: '404',
+      eyebrow: 'Page not found',
+      title: 'We could not find that page',
+      products: 'Browse products',
+    },
+    {
+      url: '/ar/missing-ar',
+      code: '٤٠٤',
+      eyebrow: 'الصفحة غير موجودة',
+      title: 'تعذر العثور على هذه الصفحة',
+      products: 'تصفح المنتجات',
+    },
+  ];
+
+  for (const { url, code, eyebrow, title, products } of cases) {
+    const response = await gotoReady(page, url);
+    expect(response?.status()).toBe(404);
+    await expect(page.locator('.nf__card')).toBeVisible();
+    await expect(page.locator('.nf__code')).toHaveText(code);
+    await expect(page.locator('.nf__eyebrow')).toHaveText(eyebrow);
+    await expect(page.locator('.nf h1')).toHaveText(title);
+    await expect(page.locator('.nf__actions a')).toHaveCount(2);
+    await expect(page.locator('.nf__actions a').last()).toHaveText(products);
+  }
+});
+
 test('the header, footer and logo render on every locale @mobile', async ({ page }) => {
   for (const base of ['/', '/en', '/ar']) {
     await gotoReady(page, base);
@@ -227,6 +264,8 @@ test('the mobile menu opens immediately above the shop showcase @mobile', async 
   const nav = page.locator('nav.nav');
   await page.getByRole('button', { name: 'منوی سایت' }).click();
   await expect(page.locator('#mobile-navigation')).toBeVisible();
+  await expect(page.locator('#mobile-navigation .m-slogan')).toHaveCount(0);
+  await expect(page.locator('#mobile-navigation')).not.toContainText('از مغز گندم؛ تا اولین برش نان');
   await expect(page.locator('body')).toHaveClass(/is-mobile-menu-open/);
   await expect(page.locator('main')).toBeHidden();
   await expect(page.locator('#mobile-navigation').getByRole('link', { name: /فروشگاه/ })).toHaveClass(/active/);

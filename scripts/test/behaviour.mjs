@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { rateLimitDefaults } from '../../server/rateLimits.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -51,8 +52,8 @@ const start = async () => {
       UPLOAD_DIR: path.join(DATA_DIR, 'uploads'),
       DB_FILE: DB,
       NODE_ENV: 'development',
-      /* Keep buckets small so this regression harness reaches 429 quickly;
-         production defaults are intentionally far more generous. */
+      /* Reach selected 429 paths quickly while leaving enough order slots for
+         the many independent lifecycle fixtures in this one-process suite. */
       RL_MAX_MESSAGE: '5',
       RL_MAX_COMMENT: '5',
       RL_MAX_ORDER: '20',
@@ -96,6 +97,27 @@ const CUSTOMER = {
 };
 
 try {
+  const publishedLimits = Object.fromEntries(
+    Object.entries(rateLimitDefaults({}).rules).map(([kind, rule]) => [kind, rule.max]),
+  );
+  const conservativeLimits = {
+    message: 5,
+    comment: 5,
+    order: 12,
+    paymentRetry: 5,
+    adminLogin: 8,
+    otpPhone: 5,
+    otpIp: 30,
+    customerLogin: 10,
+    customerLoginIp: 30,
+    register: 40,
+  };
+  check(
+    JSON.stringify(publishedLimits) === JSON.stringify(conservativeLimits),
+    'published rate-limit defaults remain at the restored conservative ceilings',
+    JSON.stringify(publishedLimits),
+  );
+
   await start();
 
   const login = await jpost('/api/auth/login', { user: 'admin', pass: 'khyeast-1404' });
