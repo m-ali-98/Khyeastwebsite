@@ -166,10 +166,6 @@ export const TEXTS = {
   'quality.certs.title': 'The seals of approval that [[sign our story]]',
   'quality.steps.overline': 'Quality monitoring cycle',
   'quality.steps.title': 'Four checkpoints, [[zero compromise]]',
-  'quality.awards.title': 'Commendations and awards',
-  'quality.awards.text':
-    'Our market focus and commitment to creating customer value have earned numerous commendations from government organisations and ministries, including provincial Exemplary Exporter awards and recognition from the Export Development Bank of Iran.',
-  'quality.awards.btn': 'Request quality documentation',
 
   /* ---------- blog ---------- */
   'blog.hero.title': 'Insights and news from Khuzestan Yeast',

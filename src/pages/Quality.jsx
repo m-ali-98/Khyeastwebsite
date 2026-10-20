@@ -84,24 +84,6 @@ export default function Quality() {
         </div>
       </section>
 
-      <section className="section section--soft section--compact quality-awards">
-        <div className="container">
-          <Reveal>
-            <div className="cta-band">
-              <div>
-                <h2>{t('quality.awards.title')}</h2>
-                <p>{t('quality.awards.text')}</p>
-              </div>
-              <div className="cta-band__actions">
-                <a className="btn btn--light" href={`mailto:${t('global.email')}`}>
-                  <Icons.doc size={18} />
-                  {t('quality.awards.btn')}
-                </a>
-              </div>
-            </div>
-          </Reveal>
-        </div>
-      </section>
       <CTABand />
     </>
   );
