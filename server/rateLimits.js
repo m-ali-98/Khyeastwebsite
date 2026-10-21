@@ -8,7 +8,8 @@
    Hits and in-flight password reservations live in SQLite. Passenger workers
    therefore enforce one site-wide ceiling, and a restart cannot be used to
    reset an active abuse window. Rows expire after at most 24 hours and bucket
-   identifiers are SHA-256 hashes rather than raw IPs, phones, or authorities.
+   identifiers are secret-keyed HMAC-SHA-256 values rather than reversible
+   hashes of low-entropy IPs, phones, or authorities.
    ========================================================================== */
 import crypto from 'node:crypto';
 
@@ -78,16 +79,24 @@ export function normalizeRateLimitSettings(input = {}) {
   return { enabled, rules };
 }
 
-const bucketHash = (kind, key) => crypto
-  .createHash('sha256')
-  .update(`${kind}\u0000${String(key || 'unknown')}`)
-  .digest('hex');
-
 const retryAfterFor = (usage, rule, now) => usage.oldestCompleted == null
   ? 1
   : Math.max(1, Math.ceil((rule.windowMs - (now - usage.oldestCompleted)) / 1000));
 
-export function createRateLimiter({ database, store }) {
+export function createRateLimiter({ database, store, hashSecret }) {
+  const secret = String(hashSecret || '');
+  if (!secret) throw new Error('rate limiter hashSecret is required');
+  /* ADMIN_SECRET is also used elsewhere, so domain-separate this HMAC. Even a
+     database snapshot cannot dictionary-attack the small IPv4/phone keyspace
+     without the server-side secret. All workers must receive the same value. */
+  const bucketHash = (kind, key) => crypto
+    .createHmac('sha256', secret)
+    .update('khyeast-rate-limit-bucket:v1\u0000')
+    .update(String(kind))
+    .update('\u0000')
+    .update(String(key || 'unknown'))
+    .digest('hex');
+
   let settings = normalizeRateLimitSettings(store.getSetting(database, SETTING_KEY, {}));
   let fingerprint = JSON.stringify(settings);
 
@@ -105,7 +114,11 @@ export function createRateLimiter({ database, store }) {
 
   const api = {
     settings: () => JSON.parse(JSON.stringify(refreshSettings())),
-    scope: () => ({ backend: 'sqlite', sharedAcrossWorkers: true }),
+    scope: () => ({
+      backend: 'sqlite',
+      sharedAcrossWorkers: true,
+      bucketKeying: 'hmac-sha256-v1',
+    }),
 
     update(next) {
       settings = normalizeRateLimitSettings(next);

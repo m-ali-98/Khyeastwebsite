@@ -154,7 +154,7 @@ if (!seedReport.skipped) {
   );
 }
 
-const rateLimiter = createRateLimiter({ database: db, store });
+const rateLimiter = createRateLimiter({ database: db, store, hashSecret: SECRET });
 
 /* content.json no longer stores the shop section — the DB does. */
 try {

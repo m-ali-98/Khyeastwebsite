@@ -132,8 +132,17 @@ try {
   const reservationDbA = await dbStore.openDB(reservationDbPath);
   dbStore.setSetting(reservationDbA, 'security.rateLimits', reservationSettings);
   const reservationDbB = await dbStore.openDB(reservationDbPath);
-  const limiterA = createRateLimiter({ database: reservationDbA, store: dbStore });
-  const limiterB = createRateLimiter({ database: reservationDbB, store: dbStore });
+  const limiterHashSecret = 'shared-rate-limit-test-secret-0123456789abcdef';
+  const limiterA = createRateLimiter({
+    database: reservationDbA,
+    store: dbStore,
+    hashSecret: limiterHashSecret,
+  });
+  const limiterB = createRateLimiter({
+    database: reservationDbB,
+    store: dbStore,
+    hashSecret: limiterHashSecret,
+  });
   const reservedA = limiterA.reserve('customerLogin', 'phone');
   const reservedB = limiterB.reserve('customerLogin', 'phone');
   check(
@@ -154,6 +163,41 @@ try {
   check(
     limiterA.check('customerLogin', 'completed-phone').limited,
     'completed rate-limit hits are visible to every process, not multiplied per worker',
+  );
+  const storedBucket = reservationDbA.prepare(
+    "SELECT bucket_hash, bucket_version FROM rate_limit_hits WHERE kind = 'customerLogin' LIMIT 1",
+  ).get();
+  const expectedHmac = crypto
+    .createHmac('sha256', limiterHashSecret)
+    .update('khyeast-rate-limit-bucket:v1\u0000')
+    .update('customerLogin')
+    .update('\u0000')
+    .update('completed-phone')
+    .digest('hex');
+  const reversibleHash = crypto
+    .createHash('sha256')
+    .update('customerLogin\u0000completed-phone')
+    .digest('hex');
+  check(
+    storedBucket?.bucket_hash === expectedHmac &&
+      storedBucket.bucket_hash !== reversibleHash &&
+      Number(storedBucket.bucket_version) === 2,
+    'rate-limit identifiers use the shared server secret instead of a reversible plain hash',
+    JSON.stringify(storedBucket),
+  );
+
+  let saturatedReadOnly = false;
+  reservationDbA.exec('BEGIN IMMEDIATE');
+  try {
+    saturatedReadOnly = limiterB.reserve('customerLogin', 'completed-phone').limited;
+  } catch {
+    saturatedReadOnly = false;
+  } finally {
+    reservationDbA.exec('ROLLBACK');
+  }
+  check(
+    saturatedReadOnly,
+    'an already-limited request stays read-only while another SQLite writer holds the lock',
   );
   limiterA.clearAll();
   reservationDbB.close();

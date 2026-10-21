@@ -40,13 +40,14 @@ function migrate(db) {
 
     /* Short-lived abuse counters are shared through SQLite so several
        Passenger workers enforce one real ceiling instead of multiplying it by
-       the process count. Bucket keys are hashed before they reach this table. */
+       the process count. Bucket keys are secret-keyed before reaching here. */
     CREATE TABLE IF NOT EXISTS rate_limit_hits (
-      id          TEXT PRIMARY KEY,
-      kind        TEXT NOT NULL,
-      bucket_hash TEXT NOT NULL,
-      at          INTEGER NOT NULL,
-      pending     INTEGER NOT NULL DEFAULT 0
+      id             TEXT PRIMARY KEY,
+      kind           TEXT NOT NULL,
+      bucket_hash    TEXT NOT NULL,
+      bucket_version INTEGER NOT NULL DEFAULT 2,
+      at             INTEGER NOT NULL,
+      pending        INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_rate_limit_bucket
       ON rate_limit_hits(kind, bucket_hash, at);
@@ -241,6 +242,16 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_addresses_customer ON addresses(customer_id);
   `);
 
+  /* Version 1 rows used an unkeyed SHA-256 of a low-entropy identifier. Purge
+     them once while adding the marker: they are both privacy-weaker and cannot
+     match the HMAC-v2 buckets used by this release. A fresh database already
+     has bucket_version=2 and therefore keeps active limits across restarts. */
+  const rateLimitCols = db.prepare('PRAGMA table_info(rate_limit_hits)').all().map((c) => c.name);
+  if (!rateLimitCols.includes('bucket_version')) {
+    db.exec('ALTER TABLE rate_limit_hits ADD COLUMN bucket_version INTEGER NOT NULL DEFAULT 1');
+    db.exec('DELETE FROM rate_limit_hits');
+  }
+
   /* orders.customer_id is added separately: the table predates accounts and
      ALTER TABLE ... ADD COLUMN throws if it is already there. */
   const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
@@ -348,7 +359,7 @@ const rateLimitUsage = (db, kind, bucketHash, cutoff) => {
     `SELECT COUNT(*) AS count,
             MIN(CASE WHEN pending = 0 THEN at END) AS oldest_completed
        FROM rate_limit_hits
-      WHERE kind = ? AND bucket_hash = ? AND at >= ?`,
+      WHERE kind = ? AND bucket_hash = ? AND bucket_version = 2 AND at >= ?`,
   ).get(String(kind), String(bucketHash), Number(cutoff));
   return {
     count: Number(row?.count || 0),
@@ -363,15 +374,17 @@ export function getRateLimitUsage(db, { kind, bucketHash, cutoff }) {
 export function recordRateLimitHit(db, { kind, bucketHash, at = Date.now() }) {
   const id = crypto.randomUUID();
   db.prepare(
-    `INSERT INTO rate_limit_hits(id, kind, bucket_hash, at, pending)
-     VALUES (?, ?, ?, ?, 0)`,
+    `INSERT INTO rate_limit_hits(id, kind, bucket_hash, bucket_version, at, pending)
+     VALUES (?, ?, ?, 2, ?, 0)`,
   ).run(id, String(kind), String(bucketHash), Number(at));
   return id;
 }
 
-/** Atomically count and reserve one slot. The initial DELETE is a write even
- * when no stale row exists, so concurrent SQLite workers serialize before
- * they inspect the count rather than all passing a read-only pre-check. */
+/** Atomically count and reserve one slot. A saturated bucket takes a read-only
+ * fast path, so flood traffic does not queue for SQLite's single writer merely
+ * to be refused. A request that appears admissible then enters a write
+ * transaction, prunes, and re-checks under the lock before inserting; workers
+ * therefore cannot over-admit from the optimistic read. */
 export function reserveRateLimitHit(db, {
   kind,
   bucketHash,
@@ -379,6 +392,9 @@ export function reserveRateLimitHit(db, {
   max,
   at = Date.now(),
 }) {
+  const initialUsage = rateLimitUsage(db, kind, bucketHash, cutoff);
+  if (initialUsage.count >= Number(max)) return { limited: true, ...initialUsage };
+
   return db.transaction(() => {
     db.prepare(
       'DELETE FROM rate_limit_hits WHERE kind = ? AND bucket_hash = ? AND at < ?',
@@ -387,8 +403,8 @@ export function reserveRateLimitHit(db, {
     if (usage.count >= Number(max)) return { limited: true, ...usage };
     const id = crypto.randomUUID();
     db.prepare(
-      `INSERT INTO rate_limit_hits(id, kind, bucket_hash, at, pending)
-       VALUES (?, ?, ?, ?, 1)`,
+      `INSERT INTO rate_limit_hits(id, kind, bucket_hash, bucket_version, at, pending)
+       VALUES (?, ?, ?, 2, ?, 1)`,
     ).run(id, String(kind), String(bucketHash), Number(at));
     return { limited: false, id, ...usage, count: usage.count + 1 };
   })();

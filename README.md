@@ -173,6 +173,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 > `TRUST_PROXY=true` فقط وقتی قابل‌قبول است که دسترسی مستقیم به Node کاملاً مسدود باشد. در حالت عادی از مقدار امن پیش‌فرض استفاده کنید و IP و «پروتکل مؤثر» را در تب «امنیت و محدودیت‌ها» بررسی کنید. پراکسی باید `X-Forwarded-Proto: https` را بفرستد. اگر cPanel/Apache این هدر را حذف کند، fallback فقط زمانی HTTPS را نتیجه می‌گیرد که `PUBLIC_ORIGIN` با `https://` تنظیم شده، Host با آن یا `TRUSTED_HOSTS` مطابق باشد و اتصال Node از پراکسی مورد اعتماد برسد.
 
+> **الزام پورت ۸۰:** fallback نمی‌تواند یک درخواست HTTP واقعی را که پراکسی بدون هیچ هدر پروتکلی عبور داده از HTTPS تشخیص دهد. VirtualHost پورت ۸۰ باید پیش از رسیدن درخواست به Node با ۳۰۱/۳۰۸ به HTTPS redirect کند. اگر به هر دلیل `:80` نیز proxy می‌شود، باید صریحاً `X-Forwarded-Proto: http` بفرستد؛ در این حالت Node ورود Admin را با 426 رد می‌کند. حذف هدر روی vhost پورت ۸۰ مجاز نیست.
+
 ## مسیرهای عمومی
 
 | فارسی | انگلیسی | عربی |
@@ -211,7 +213,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - حالت WAL، foreign key، busy timeout و تراکنش استفاده می‌شود.
 - fallback مبتنی بر `node:sqlite` برای تراکنش‌های تو‌در‌تو از savepoint واقعی استفاده می‌کند.
 - جدول `order_payments` همه authorityهای صادرشده را نگه می‌دارد؛ کلید اصلی authority اتصال آن به بیش از یک سفارش را در سطح دیتابیس ناممکن می‌کند.
-- جدول `rate_limit_hits` شمارنده‌های کوتاه‌عمر و reservationهای در حال اجرا را بین همه workerهای Passenger مشترک می‌کند؛ کلید bucket به‌صورت SHA-256 ذخیره می‌شود.
+- جدول `rate_limit_hits` شمارنده‌های کوتاه‌عمر و reservationهای در حال اجرا را بین همه workerهای Passenger مشترک می‌کند؛ شناسه bucket با `ADMIN_SECRET` و HMAC-SHA-256 کلیدگذاری می‌شود تا IP یا موبایل کم‌دامنه از روی snapshot دیتابیس قابل brute-force نباشد.
 - `orders.pay_authority` فقط اشاره‌گر تلاش جاری یا تلاش تسویه‌شده است و تاریخچه پرداخت را جایگزین نمی‌کند.
 - فایل‌های قدیمی `shop.json` و `messages.json` در صورت وجود یک‌بار وارد SQLite می‌شوند.
 
@@ -265,7 +267,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - ابطال واقعی نشست Admin هنگام logout و امکان logout-all
 - کنترل Origin برای تغییرات احراز‌شده با کوکی
 - مقایسه ثابت‌زمان برای tokenها و authority پرداخت
-- محدودیت نرخ SQLite-مشترک بین همه processها برای تماس، دیدگاه، سفارش، retry و callback پرداخت، ورود، OTP و ثبت‌نام
+- محدودیت نرخ SQLite-مشترک بین همه processها برای تماس، دیدگاه، سفارش، retry و callback پرداخت، ورود، OTP و ثبت‌نام؛ bucketها با HMAC سروری ذخیره می‌شوند و بدون `ADMIN_SECRET` قابل dictionary lookup نیستند
 - تنظیم صحیح `trust proxy` برای جلوگیری از جعل `X-Forwarded-For` و تشخیص امن پروتکل پشت پراکسی
 - پاک‌سازی سمت سرور برای محتوای غنی با allowlist برچسب و بازسازی lowercase ویژگی‌ها از صفر
 - حذف کامل commentهای HTML، رد URLهای protocol-relative/backslash-confused و سقف صریح حجم، تعداد node و عمق با پیمایش غیرrecursive
@@ -276,7 +278,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - حذف stack trace و مسیر فایل از پاسخ خطا
 - عدم نمایش credentialهای پرداخت و پیامک در API
 
-غیرفعال‌کردن محدودیت نرخ از پنل برای عیب‌یابی ممکن است، اما در تولید باید کوتاه‌مدت و آگاهانه باشد.
+غیرفعال‌کردن محدودیت نرخ از پنل برای عیب‌یابی ممکن است، اما در تولید باید کوتاه‌مدت و آگاهانه باشد. bucket اشباع‌شده با مسیر read-only رد می‌شود و برای هر پاسخ 429 قفل write نمی‌گیرد؛ بااین‌حال پذیرش درخواست تازه ناگزیر یک تراکنش کوتاه SQLite دارد. در برابر flood حجمی، latency و `SQLITE_BUSY` را مانیتور و محدودیت لبه‌ی Apache/CDN/WAF را خط دفاع اول قرار دهید.
 
 ## SEO، دسترس‌پذیری و کارایی
 

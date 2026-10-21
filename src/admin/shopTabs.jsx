@@ -723,8 +723,9 @@ export function AdminSecurityTab() {
             <p className="security-admin__help">
               پراکسی باید <code>X-Forwarded-Proto: https</code> را ارسال کند. اگر میزبان این هدر را حذف کند،
               سرور فقط وقتی HTTPS را از <code>PUBLIC_ORIGIN</code> نتیجه می‌گیرد که اتصال Node از پراکسی مورد اعتماد آمده
-              و Host نیز با origin یا <code>TRUSTED_HOSTS</code> تطبیق داشته باشد. پذیرش همه پراکسی‌ها
-              (<code>TRUST_PROXY=true</code>) توصیه نمی‌شود.
+              و Host نیز با origin یا <code>TRUSTED_HOSTS</code> تطبیق داشته باشد. VirtualHost پورت ۸۰ باید به HTTPS
+              redirect کند؛ اگر به Node proxy می‌شود، ارسال صریح <code>X-Forwarded-Proto: http</code> الزامی است.
+              پذیرش همه پراکسی‌ها (<code>TRUST_PROXY=true</code>) توصیه نمی‌شود.
             </p>
           </section>
 
