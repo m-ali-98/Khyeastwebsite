@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
-import { Field, UploadButton, PairListEditor, RichEditor } from './editors';
+import { Field, UploadButton, PairListEditor, ProductImagesEditor, RichEditor } from './editors';
 import { formatMoney } from '../shop/ShopContext';
+import { productImageList, syncProductImages } from '../../shared/productImages.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const slugify = (s) =>
@@ -295,6 +296,7 @@ export function ShopProductsTab() {
   const [draftOriginalSlug, setDraftOriginalSlug] = useState(null);
   const [busy, setBusy] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [galleryBusy, setGalleryBusy] = useState(false);
   const [note, setNote] = useState(null);
 
   /* Stock moves on its own: every customer order and every order-status change
@@ -317,13 +319,16 @@ export function ShopProductsTab() {
 
   const startNew = () => {
     setDraftOriginalSlug(null);
+    setGalleryBusy(false);
+    const image = '/assets/products/dezmaye-gold.webp';
     setDraft({
       slug: `shop-${Date.now()}`,
       title: '',
       brand: brands[0]?.id,
       productSlug: '',
       unit: '',
-      image: '/assets/products/dezmaye-gold.webp',
+      image,
+      images: [image],
       price: 0,
       oldPrice: null,
       stock: 10,
@@ -337,9 +342,13 @@ export function ShopProductsTab() {
   };
 
   const saveDraft = async () => {
+    if (galleryBusy) return window.alert('تا پایان بارگذاری تصاویر صبر کنید.');
     const sanitizedDescription = sanitizeHtmlResult(draft.description || '');
     if (!sanitizedDescription.ok) return window.alert(richTextRejectionMessage(sanitizedDescription));
-    const clean = {
+    const enteredImages = Array.isArray(draft.images)
+      ? draft.images.filter((image) => typeof image === 'string' && image.trim())
+      : [];
+    const clean = syncProductImages({
       ...draft,
       slug: slugify(draft.slug),
       price: Math.max(0, Math.round(num(draft.price))),
@@ -347,7 +356,10 @@ export function ShopProductsTab() {
       stock: Math.round(num(draft.stock, -1)),
       description: sanitizedDescription.html,
       specs: (draft.specs || []).filter(([k, v]) => k || v),
-    };
+    });
+    if (!clean.images.length) return window.alert('حداقل یک تصویر معتبر برای محصول انتخاب کنید.');
+    if (clean.images.length !== enteredImages.length)
+      return window.alert('یکی از نشانی‌های تصویر نامعتبر یا تکراری است؛ آن را اصلاح یا حذف کنید.');
     /* slugify() no longer invents a slug, so the blank case is caught here
        instead of silently becoming shop-1712… */
     if (!clean.slug) return window.alert('شناسه (slug) نمی‌تواند خالی باشد.');
@@ -440,15 +452,11 @@ export function ShopProductsTab() {
           <Field label="موجودی انبار (عدد؛ برای نامحدود: ۱-)" type="number" dir="ltr" value={draft.stock} onChange={(v) => setDraft({ ...draft, stock: v })} />
           <Field label="شناسه یکتا (slug)" value={draft.slug} dir="ltr" onChange={(v) => setDraft({ ...draft, slug: slugify(v) || v })} />
         </div>
-        <div className="admin__row" style={{ marginTop: 14 }}>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>تصویر محصول:</span>
-          {draft.image && <img src={draft.image} alt="" style={{ width: 84, height: 60, objectFit: 'cover', borderRadius: 8 }} />}
-          <UploadButton accept="image/*" label="بارگذاری تصویر جدید" onUploaded={(url) => setDraft({ ...draft, image: url })} />
-          <input
-            value={draft.image}
-            dir="ltr"
-            onChange={(e) => setDraft({ ...draft, image: e.target.value })}
-            style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5 }}
+        <div style={{ marginTop: 14 }}>
+          <ProductImagesEditor
+            images={Array.isArray(draft.images) ? draft.images : productImageList(draft)}
+            onChange={(images) => setDraft({ ...draft, images, image: images[0] || '' })}
+            onBusyChange={setGalleryBusy}
           />
         </div>
         <div className="admin__row" style={{ marginTop: 12, gap: 22, flexWrap: 'wrap' }}>
@@ -479,12 +487,12 @@ export function ShopProductsTab() {
         <h2 style={{ margin: '22px 0 10px', fontSize: '1.05rem' }}>جدول مشخصات</h2>
         <PairListEditor items={draft.specs} onChange={(v) => setDraft({ ...draft, specs: v })} />
         <div className="admin__row" style={{ marginTop: 24 }}>
-          <button className="btn btn--primary" onClick={saveDraft} disabled={savingDraft}>
-            {savingDraft ? 'در حال ذخیره…' : 'ذخیره محصول'}
+          <button className="btn btn--primary" onClick={saveDraft} disabled={savingDraft || galleryBusy}>
+            {galleryBusy ? 'در حال بارگذاری تصاویر…' : savingDraft ? 'در حال ذخیره…' : 'ذخیره محصول'}
           </button>
           <button
             className="btn btn--outline"
-            disabled={savingDraft}
+            disabled={savingDraft || galleryBusy}
             onClick={() => {
               setDraft(null);
               setDraftOriginalSlug(null);
@@ -544,7 +552,8 @@ export function ShopProductsTab() {
                 title="ویرایش"
                 onClick={() => {
                   setDraftOriginalSlug(p.slug);
-                  setDraft(clone(p));
+                  setGalleryBusy(false);
+                  setDraft({ ...clone(p), images: productImageList(p) });
                 }}
               >
                 <Icons.edit size={16} />

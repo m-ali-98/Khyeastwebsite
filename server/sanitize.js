@@ -14,6 +14,7 @@ import {
   MAX_HTML_DEPTH,
   MAX_HTML_NODES,
 } from '../shared/sanitizeHtml.js';
+import { syncProductImages } from '../shared/productImages.js';
 
 const faNumber = (value) => new Intl.NumberFormat('fa-IR').format(value);
 const fieldName = (field) => String(field || 'محتوای غنی').slice(0, 180);
@@ -79,12 +80,37 @@ const sanitizePostOverrides = (posts, prefix) => {
   );
 };
 
+const sanitizeProductList = (products) => (
+  Array.isArray(products)
+    ? products.map((product) => (
+        product && typeof product === 'object' && !Array.isArray(product)
+          ? syncProductImages(product)
+          : product
+      ))
+    : products
+);
+
+/* Product media is structural, like the slug: translations inherit it from
+   the Persian/base entity. Strip direct-API attempts to create a locale-only
+   gallery so changing language can never swap or lose product photography. */
+const sanitizeProductOverrides = (products) => {
+  if (!products || typeof products !== 'object' || Array.isArray(products)) return products;
+  return Object.fromEntries(
+    Object.entries(products).map(([slug, product]) => {
+      if (!product || typeof product !== 'object' || Array.isArray(product)) return [slug, product];
+      const { image: _image, images: _images, ...translatedFields } = product;
+      return [slug, translatedFields];
+    }),
+  );
+};
+
 /** Return a sanitized copy of every content field rendered as HTML. */
 export function sanitizeContentPayload(input) {
   const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const next = { ...source };
 
   if (Array.isArray(source.posts)) next.posts = sanitizePosts(source.posts);
+  if (Array.isArray(source.products)) next.products = sanitizeProductList(source.products);
 
   if (source.i18n && typeof source.i18n === 'object' && !Array.isArray(source.i18n)) {
     next.i18n = Object.fromEntries(
@@ -92,6 +118,7 @@ export function sanitizeContentPayload(input) {
         if (!data || typeof data !== 'object' || Array.isArray(data)) return [locale, data];
         return [locale, {
           ...data,
+          products: sanitizeProductOverrides(data.products),
           posts: sanitizePostOverrides(data.posts, `i18n.${String(locale).slice(0, 20)}.posts`),
         }];
       }),
@@ -103,14 +130,14 @@ export function sanitizeContentPayload(input) {
       ...source.shop,
       products: Array.isArray(source.shop.products)
         ? source.shop.products.map((product, index) => (
-            product && typeof product === 'object'
-              ? {
+            product && typeof product === 'object' && !Array.isArray(product)
+              ? syncProductImages({
                   ...product,
                   description: sanitizeRichText(
                     product.description || '',
                     `shop.products[${index}]${product.slug ? ` (${String(product.slug).slice(0, 80)})` : ''}.description`,
                   ),
-                }
+                })
               : product
           ))
         : source.shop.products,

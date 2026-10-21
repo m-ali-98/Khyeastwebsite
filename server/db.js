@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { SHOP_SEED } from './seed.js';
 import { sanitizeRichText } from './sanitize.js';
+import { normalizeProductImages } from '../shared/productImages.js';
 
 /* ------------------------------------------------------------------ open */
 export async function openDB(file) {
@@ -61,6 +62,7 @@ function migrate(db) {
       product_slug   TEXT NOT NULL DEFAULT '',
       unit           TEXT NOT NULL DEFAULT '',
       image          TEXT NOT NULL DEFAULT '',
+      images         TEXT NOT NULL DEFAULT '[]',
       price          INTEGER NOT NULL DEFAULT 0,
       old_price      INTEGER,
       stock          INTEGER NOT NULL DEFAULT -1,
@@ -252,6 +254,13 @@ function migrate(db) {
     db.exec('DELETE FROM rate_limit_hits');
   }
 
+  /* Gallery data is additive. Legacy product rows keep their original image
+     column; read mapping derives a one-photo gallery until the next save. */
+  const productCols = db.prepare('PRAGMA table_info(products)').all().map((column) => column.name);
+  if (!productCols.includes('images')) {
+    db.exec("ALTER TABLE products ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
+  }
+
   /* orders.customer_id is added separately: the table predates accounts and
      ALTER TABLE ... ADD COLUMN throws if it is already there. */
   const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
@@ -435,23 +444,27 @@ export function pruneRateLimitHits(db, cutoff) {
 }
 
 /* ============================================================== products */
-const productOut = (r) => ({
-  slug: r.slug,
-  title: r.title,
-  brand: r.brand,
-  productSlug: r.product_slug,
-  unit: r.unit,
-  image: r.image,
-  price: r.price,
-  oldPrice: r.old_price == null ? null : r.old_price,
-  stock: r.stock,
-  active: !!r.active,
-  featured: !!r.featured,
-  commentsLocked: !!r.comments_locked,
-  short: r.short,
-  description: r.description,
-  specs: J(r.specs, []),
-});
+const productOut = (r) => {
+  const images = normalizeProductImages(J(r.images, []), r.image);
+  return {
+    slug: r.slug,
+    title: r.title,
+    brand: r.brand,
+    productSlug: r.product_slug,
+    unit: r.unit,
+    image: images[0] || '',
+    images,
+    price: r.price,
+    oldPrice: r.old_price == null ? null : r.old_price,
+    stock: r.stock,
+    active: !!r.active,
+    featured: !!r.featured,
+    commentsLocked: !!r.comments_locked,
+    short: r.short,
+    description: r.description,
+    specs: J(r.specs, []),
+  };
+};
 
 export function listProducts(db) {
   return db.prepare('SELECT * FROM products ORDER BY pos ASC').all().map(productOut);
@@ -463,33 +476,37 @@ export function getProduct(db, slug) {
 
 const insertProduct = (db) =>
   db.prepare(`
-    INSERT INTO products (slug, pos, title, brand, product_slug, unit, image, price, old_price, stock,
+    INSERT INTO products (slug, pos, title, brand, product_slug, unit, image, images, price, old_price, stock,
                           active, featured, comments_locked, short, description, specs)
-    VALUES (@slug, @pos, @title, @brand, @product_slug, @unit, @image, @price, @old_price, @stock,
+    VALUES (@slug, @pos, @title, @brand, @product_slug, @unit, @image, @images, @price, @old_price, @stock,
             @active, @featured, @comments_locked, @short, @description, @specs)
   `);
 
-const productIn = (p, pos) => ({
-  slug: String(p.slug || '').trim(),
-  pos,
-  title: String(p.title || ''),
-  brand: String(p.brand || ''),
-  product_slug: String(p.productSlug || ''),
-  unit: String(p.unit || ''),
-  image: String(p.image || ''),
-  price: Math.max(0, Math.round(Number(p.price) || 0)),
-  old_price: p.oldPrice == null || p.oldPrice === '' ? null : Math.max(0, Math.round(Number(p.oldPrice) || 0)),
-  stock: Number.isFinite(Number(p.stock)) ? Math.round(Number(p.stock)) : -1,
-  active: bool(p.active !== false),
-  featured: bool(p.featured),
-  comments_locked: bool(p.commentsLocked),
-  short: String(p.short || ''),
-  description: sanitizeRichText(
-    p.description || '',
-    `shop product ${String(p.slug || '').trim() || `#${pos + 1}`} description`,
-  ),
-  specs: JSON.stringify(Array.isArray(p.specs) ? p.specs : []),
-});
+const productIn = (p, pos) => {
+  const images = normalizeProductImages(p.images, p.image);
+  return {
+    slug: String(p.slug || '').trim(),
+    pos,
+    title: String(p.title || ''),
+    brand: String(p.brand || ''),
+    product_slug: String(p.productSlug || ''),
+    unit: String(p.unit || ''),
+    image: images[0] || '',
+    images: JSON.stringify(images),
+    price: Math.max(0, Math.round(Number(p.price) || 0)),
+    old_price: p.oldPrice == null || p.oldPrice === '' ? null : Math.max(0, Math.round(Number(p.oldPrice) || 0)),
+    stock: Number.isFinite(Number(p.stock)) ? Math.round(Number(p.stock)) : -1,
+    active: bool(p.active !== false),
+    featured: bool(p.featured),
+    comments_locked: bool(p.commentsLocked),
+    short: String(p.short || ''),
+    description: sanitizeRichText(
+      p.description || '',
+      `shop product ${String(p.slug || '').trim() || `#${pos + 1}`} description`,
+    ),
+    specs: JSON.stringify(Array.isArray(p.specs) ? p.specs : []),
+  };
+};
 
 /** Replace the whole product list (admin saves the full array).
  *

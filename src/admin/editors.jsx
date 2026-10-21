@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   Maximize2,
   Minimize2,
@@ -13,6 +15,10 @@ import {
 import { Icons } from '../components/ui';
 import { api } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
+import {
+  cleanProductImageUrl,
+  MAX_PRODUCT_IMAGES,
+} from '../../shared/productImages.js';
 
 /* ---------------- simple field ---------------- */
 export function Field({ label, value, onChange, type = 'text', dir, textarea, rows = 3, options }) {
@@ -95,6 +101,243 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
       {err && <small style={{ color: 'var(--crimson-ink)' }}>{err}</small>}
       {!err && note && <small style={{ color: 'var(--muted)' }}>{note}</small>}
     </>
+  );
+}
+
+/* ---------------- ordered product gallery ---------------- */
+export function ProductImagesEditor({ images = [], onChange, onBusyChange, max = MAX_PRODUCT_IMAGES }) {
+  const picker = useRef(null);
+  const mounted = useRef(true);
+  const urlId = useId();
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const items = Array.isArray(images) ? images.slice(0, max) : [];
+
+  useEffect(() => {
+    /* React Strict Mode mounts, cleans up, and mounts effects again in
+       development. Reset the flag in setup so that rehearsal cannot make a
+       live editor ignore every completed upload. */
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      onBusyChange?.(false);
+    };
+  }, []);
+
+  const commit = (next) => onChange(next.slice(0, max));
+  const clearNotice = () => {
+    setMessage('');
+    setError('');
+  };
+
+  const addUrl = () => {
+    clearNotice();
+    const clean = cleanProductImageUrl(url);
+    if (!clean) {
+      setError('نشانی تصویر معتبر نیست. از مسیر داخلی سایت یا نشانی http/https استفاده کنید.');
+      return;
+    }
+    if (items.includes(clean)) {
+      setError('این تصویر از قبل در گالری است.');
+      return;
+    }
+    if (items.length >= max) {
+      setError(`حداکثر ${max.toLocaleString('fa-IR')} تصویر مجاز است.`);
+      return;
+    }
+    commit([...items, clean]);
+    setUrl('');
+    setMessage('تصویر به انتهای گالری افزوده شد.');
+  };
+
+  const uploadMany = async (fileList) => {
+    const selected = Array.from(fileList || []);
+    if (!selected.length) return;
+    clearNotice();
+
+    const slots = Math.max(0, max - items.length);
+    if (!slots) {
+      setError(`گالری به سقف ${max.toLocaleString('fa-IR')} تصویر رسیده است.`);
+      if (picker.current) picker.current.value = '';
+      return;
+    }
+
+    const files = selected.slice(0, slots);
+    setBusy(true);
+    onBusyChange?.(true);
+    let next = [...items];
+    let uploaded = 0;
+    let failed = 0;
+    try {
+      /* The upload endpoint intentionally accepts one file per request so each
+         photo passes through the existing validation and responsive optimiser. */
+      for (const file of files) {
+        try {
+          const result = await uploadAdminAsset(file);
+          const image = cleanProductImageUrl(result.url);
+          if (image && !next.includes(image)) {
+            next.push(image);
+            uploaded += 1;
+          }
+        } catch {
+          failed += 1;
+        }
+      }
+      if (mounted.current) {
+        if (uploaded) commit(next);
+        if (uploaded) setMessage(`${uploaded.toLocaleString('fa-IR')} تصویر بارگذاری شد.`);
+        if (selected.length > files.length) {
+          setError(`${(selected.length - files.length).toLocaleString('fa-IR')} فایل به‌دلیل سقف گالری بارگذاری نشد.`);
+        } else if (failed) {
+          setError(`بارگذاری ${failed.toLocaleString('fa-IR')} تصویر ممکن نشد.`);
+        }
+      }
+    } finally {
+      if (mounted.current) {
+        setBusy(false);
+        onBusyChange?.(false);
+        if (picker.current) picker.current.value = '';
+      }
+    }
+  };
+
+  const replace = (index, value) => commit(items.map((item, itemIndex) => (itemIndex === index ? value : item)));
+  const remove = (index) => {
+    clearNotice();
+    commit(items.filter((_, itemIndex) => itemIndex !== index));
+  };
+  const move = (from, to) => {
+    if (to < 0 || to >= items.length || from === to) return;
+    clearNotice();
+    const next = [...items];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    commit(next);
+  };
+  const makePrimary = (index) => move(index, 0);
+
+  return (
+    <section className="admin-product-gallery" aria-labelledby={`${urlId}-title`} aria-busy={busy}>
+      <div className="admin-product-gallery__head">
+        <div>
+          <h3 id={`${urlId}-title`}>تصاویر محصول</h3>
+          <p>تصویر اول، عکس اصلی کارت‌ها و نتایج جست‌وجو است. ترتیب این فهرست در صفحه محصول نمایش داده می‌شود.</p>
+        </div>
+        <span className="admin-product-gallery__count">
+          {items.length.toLocaleString('fa-IR')} / {max.toLocaleString('fa-IR')}
+        </span>
+      </div>
+
+      <div className="admin-product-gallery__add">
+        <input
+          ref={picker}
+          className="admin-product-gallery__picker"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+          aria-label="انتخاب چند تصویر برای بارگذاری"
+          tabIndex={-1}
+          multiple
+          onChange={(event) => uploadMany(event.target.files)}
+        />
+        <button
+          type="button"
+          className="btn btn--outline"
+          onClick={() => picker.current?.click()}
+          disabled={busy || items.length >= max}
+        >
+          <Icons.upload size={16} />
+          {busy ? 'در حال بارگذاری تصاویر…' : 'انتخاب و بارگذاری چند تصویر'}
+        </button>
+
+        <div className="admin-product-gallery__url">
+          <label htmlFor={urlId}>یا نشانی تصویر</label>
+          <div>
+            <input
+              id={urlId}
+              dir="ltr"
+              inputMode="url"
+              placeholder="/uploads/images/product.webp"
+              value={url}
+              disabled={busy || items.length >= max}
+              onChange={(event) => setUrl(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                addUrl();
+              }}
+            />
+            <button type="button" className="btn btn--outline btn--sm" onClick={addUrl} disabled={busy || items.length >= max || !url.trim()}>
+              افزودن
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-product-gallery__status" aria-live="polite">
+        {error ? <span className="is-error">{error}</span> : message ? <span>{message}</span> : null}
+      </div>
+
+      {items.length ? (
+        <ol className="admin-product-gallery__list">
+          {items.map((item, index) => {
+            const preview = cleanProductImageUrl(item);
+            return (
+              <li className="admin-product-gallery__item" key={index}>
+                <div className="admin-product-gallery__preview">
+                  {preview ? <img src={preview} alt="" /> : <Icons.image size={26} aria-hidden="true" />}
+                  {index === 0 && <span>تصویر اصلی</span>}
+                </div>
+                <label>
+                  <span>نشانی تصویر {(index + 1).toLocaleString('fa-IR')}</span>
+                  <input dir="ltr" value={item ?? ''} disabled={busy} onChange={(event) => replace(index, event.target.value)} />
+                </label>
+                <div className="admin-product-gallery__item-actions">
+                  {index > 0 && (
+                    <button type="button" className="admin-product-gallery__primary" onClick={() => makePrimary(index)} disabled={busy}>
+                      انتخاب به‌عنوان اصلی
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="admin__iconbtn"
+                    title="انتقال به قبل"
+                    aria-label={`انتقال تصویر ${index + 1} به قبل`}
+                    onClick={() => move(index, index - 1)}
+                    disabled={busy || index === 0}
+                  >
+                    <ArrowUp size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="admin__iconbtn"
+                    title="انتقال به بعد"
+                    aria-label={`انتقال تصویر ${index + 1} به بعد`}
+                    onClick={() => move(index, index + 1)}
+                    disabled={busy || index === items.length - 1}
+                  >
+                    <ArrowDown size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="admin__iconbtn danger"
+                    title="حذف تصویر"
+                    aria-label={`حذف تصویر ${index + 1}`}
+                    onClick={() => remove(index)}
+                    disabled={busy}
+                  >
+                    <Icons.trash size={15} />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p className="admin-product-gallery__empty">هنوز تصویری انتخاب نشده است.</p>
+      )}
+    </section>
   );
 }
 

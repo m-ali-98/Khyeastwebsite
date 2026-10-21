@@ -6,7 +6,7 @@ import { ProductCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { useLocale } from '../i18n/LocaleContext';
 import NotFound from './NotFound';
-import { imgProps, SIZES } from '../lib/img';
+import ProductGallery from '../components/ProductGallery';
 
 export default function ProductDetail() {
   const { slug } = useParams();
@@ -46,11 +46,14 @@ export default function ProductDetail() {
 
           <div className="split detail-layout catalog-detail__layout">
             <Reveal className="catalog-detail__media" x={40} y={0}>
-              <div className="gallery-img gallery-img--square catalog-detail__gallery">
-                {/* Square to match the 1:1 source: the old fixed 440px height
-                    with `cover` cropped the top and bottom off the packaging. */}
-                <img {...imgProps(product.image, SIZES.detail)} alt={product.title} width={720} height={720} loading="eager" fetchPriority="high" />
-              </div>
+              <ProductGallery
+                images={product.images}
+                primary={product.image}
+                title={product.title}
+                stageClassName="gallery-img gallery-img--square catalog-detail__gallery"
+                sizes="(max-width: 920px) 100vw, 46vw"
+                eager
+              />
             </Reveal>
 
             <Reveal className="catalog-detail__copy" x={-40} y={0} delay={0.1}>

@@ -6,7 +6,7 @@ import { useContent } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
 import { useShop } from '../shop/ShopContext';
 import { ShopCard, QtyStepper } from '../shop/parts';
-import { imgProps, SIZES } from '../lib/img';
+import ProductGallery from '../components/ProductGallery';
 
 function CommentForm({ slug, onDone }) {
   const { t } = useContent();
@@ -199,17 +199,14 @@ export default function ShopProduct() {
             <span>{p.title}</span>
           </Reveal>
           <Reveal className="sp-detail">
-            <div className="sp-gallery">
-              <mo.img
-                key={p.slug}
-                {...imgProps(p.image, SIZES.detail)}
-                alt={p.title}
-                fetchPriority="high"
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-              />
-            </div>
+            <ProductGallery
+              images={p.images}
+              primary={p.image}
+              title={p.title}
+              className="sp-gallery"
+              sizes="(max-width: 900px) 100vw, 44vw"
+              eager
+            />
 
             <div className="sp-buy">
               {brand && <span className="sp-buy__brand">{brand.fa} · {brand.en}</span>}

@@ -180,6 +180,18 @@ test('creating a catalogue product publishes it to the public site', async ({ pa
   await field(page, 'شناسه یکتا (slug)').fill(PRODUCT_SLUG);
   await field(page, 'توضیح کوتاه').fill('این محصول توسط آزمون خودکار ساخته شده است.');
 
+  /* One multi-select uses the existing per-photo optimiser for every file. */
+  const galleryEditor = page.locator('.admin-product-gallery');
+  await galleryEditor.locator('input[type="file"][multiple]').setInputFiles([
+    'public/assets/brand/favicon-32.png',
+    'public/assets/brand/favicon-64.png',
+  ]);
+  await expect(galleryEditor).toContainText('۲ تصویر بارگذاری شد.');
+  await expect(galleryEditor.locator('.admin-product-gallery__item')).toHaveCount(3);
+  const chosenPrimary = await galleryEditor.locator('.admin-product-gallery__item').last().locator('img').getAttribute('src');
+  await galleryEditor.getByRole('button', { name: 'انتخاب به‌عنوان اصلی' }).last().click();
+  await expect(galleryEditor.locator('.admin-product-gallery__item').first().locator('img')).toHaveAttribute('src', chosenPrimary);
+
   await page.getByRole('button', { name: 'ذخیره محصول' }).click();
 
   /* Back on the list, and the new row is there. */
@@ -187,9 +199,17 @@ test('creating a catalogue product publishes it to the public site', async ({ pa
 
   /* The real proof: it reached the server and shows on the site. */
   await gotoReady(page, '/products');
-  await expect(page.locator('.product-card', { hasText: 'محصول آزمایشی خودکار' })).toBeVisible();
+  const publicCard = page.locator('.product-card', { hasText: 'محصول آزمایشی خودکار' });
+  await expect(publicCard).toBeVisible();
+  await expect(publicCard.locator('img')).toHaveAttribute('src', chosenPrimary);
   await gotoReady(page, `/products/${PRODUCT_SLUG}`);
   await expect(page.locator('main')).toContainText('محصول آزمایشی خودکار');
+  const publicGallery = page.locator('.product-gallery');
+  await expect(publicGallery.locator('.product-gallery__thumb')).toHaveCount(3);
+  await expect(publicGallery.locator('.product-gallery__main')).toHaveAttribute('src', chosenPrimary);
+  const otherImage = await publicGallery.locator('.product-gallery__thumb').last().locator('img').getAttribute('src');
+  await publicGallery.locator('.product-gallery__thumb').last().click();
+  await expect(publicGallery.locator('.product-gallery__main')).toHaveAttribute('src', otherImage);
 });
 
 test('editing that product updates the public page', async ({ page }) => {
@@ -427,6 +447,49 @@ test('the shop full-description field uses the same approachable rich editor', a
   await expect(editor.getByRole('button', { name: 'افزودن تصویر' })).toBeVisible();
   await expect(editor.getByRole('button', { name: 'افزودن ویدیو' })).toBeVisible();
   await page.getByRole('button', { name: 'انصراف' }).last().click();
+});
+
+test('shop galleries persist, select a primary picture, and render publicly', async ({ page }) => {
+  await loginAdmin(page);
+  await adminTab(page, 'فروشگاه — محصولات').first().click();
+  const firstRow = page.locator('.admin__item').first();
+  await firstRow.locator('[title="ویرایش"]').click();
+
+  const slug = await field(page, 'شناسه یکتا (slug)').inputValue();
+  const title = await field(page, 'عنوان محصول').inputValue();
+  const galleryEditor = page.locator('.admin-product-gallery');
+  const originalPrimary = await galleryEditor.locator('.admin-product-gallery__item').first().locator('img').getAttribute('src');
+  const addedImage = originalPrimary?.includes('shetab')
+    ? '/assets/products/xpower.webp'
+    : '/assets/products/shetab.webp';
+
+  await galleryEditor.getByLabel('یا نشانی تصویر').fill(addedImage);
+  await galleryEditor.getByRole('button', { name: 'افزودن' }).click();
+  await expect(galleryEditor.locator('.admin-product-gallery__item')).toHaveCount(2);
+  await galleryEditor.getByRole('button', { name: 'انتخاب به‌عنوان اصلی' }).click();
+  await expect(galleryEditor.locator('.admin-product-gallery__item').first().locator('img')).toHaveAttribute('src', addedImage);
+  await page.getByRole('button', { name: 'ذخیره محصول', exact: true }).click();
+  await expect(page.locator('.admin__item', { hasText: title })).toBeVisible();
+
+  await gotoReady(page, '/shop');
+  const shopCard = page.locator(`.shop-card a[href="/shop/${slug}"]`);
+  await expect(shopCard.locator('img')).toHaveAttribute('src', addedImage);
+  await gotoReady(page, `/shop/${slug}`);
+  const publicGallery = page.locator('.product-gallery');
+  await expect(publicGallery.locator('.product-gallery__thumb')).toHaveCount(2);
+  await expect(publicGallery.locator('.product-gallery__main')).toHaveAttribute('src', addedImage);
+  await publicGallery.getByRole('button', { name: /تصویر بعدی/ }).click();
+  await expect(publicGallery.locator('.product-gallery__main')).toHaveAttribute('src', originalPrimary);
+
+  /* Leave shared E2E data at its seeded visual state for later specs. */
+  await loginAdmin(page);
+  await adminTab(page, 'فروشگاه — محصولات').first().click();
+  await page.locator('.admin__item', { hasText: title }).locator('[title="ویرایش"]').click();
+  const restoreEditor = page.locator('.admin-product-gallery');
+  await restoreEditor.getByRole('button', { name: 'حذف تصویر 1' }).click();
+  await expect(restoreEditor.locator('.admin-product-gallery__item')).toHaveCount(1);
+  await expect(restoreEditor.locator('.admin-product-gallery__item img')).toHaveAttribute('src', originalPrimary);
+  await page.getByRole('button', { name: 'ذخیره محصول', exact: true }).click();
 });
 
 test('the rich editor stays usable on a narrow screen @mobile', async ({ page }, testInfo) => {

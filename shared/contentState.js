@@ -8,6 +8,8 @@
    record.
    ========================================================================== */
 
+import { syncProductImages } from './productImages.js';
+
 const ENTITY_ARRAYS = ['products', 'posts', 'brands'];
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const clone = (value) =>
@@ -28,6 +30,7 @@ export function mergeContentState(base, remote) {
   for (const key of ENTITY_ARRAYS) {
     if (Array.isArray(out[key])) out[key] = out[key].filter(isPlainObject);
   }
+  if (Array.isArray(out.products)) out.products = out.products.map(syncProductImages);
   if (isPlainObject(out.shop)) {
     out.shop.display = isPlainObject(out.shop.display)
       ? { ...clone(base.shop?.display || {}), ...out.shop.display }
@@ -39,8 +42,8 @@ export function mergeContentState(base, remote) {
       ? showcase
       : clone(base.shop?.display?.showcase || []);
     out.shop.products = Array.isArray(out.shop.products)
-      ? out.shop.products.filter(isPlainObject)
-      : clone(base.shop?.products || []);
+      ? out.shop.products.filter(isPlainObject).map(syncProductImages)
+      : clone(base.shop?.products || []).filter(isPlainObject).map(syncProductImages);
   } else {
     out.shop = clone(base.shop || { display: {}, products: [] });
   }

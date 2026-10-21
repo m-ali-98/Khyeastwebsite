@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
-import { Field, UploadButton, StringListEditor, PairListEditor, RichEditor } from './editors';
+import { Field, UploadButton, StringListEditor, PairListEditor, ProductImagesEditor, RichEditor } from './editors';
 import { getPack, LOCALES } from '../../shared/i18n/index.js';
+import { productImageList, syncProductImages } from '../../shared/productImages.js';
 import {
   MAX_TRUST_SEALS,
   safeHttpsUrl,
@@ -100,17 +101,21 @@ const checkSlug = (list, slug, orig, what) => {
 export function ProductsTab() {
   const { state, save, brands } = useContent();
   const [draft, setDraft] = useState(null);
+  const [galleryBusy, setGalleryBusy] = useState(false);
 
   const commit = (next) => save({ ...state, products: next });
 
-  const startNew = () =>
+  const startNew = () => {
+    setGalleryBusy(false);
+    const image = '/assets/products/dezmaye-gold.webp';
     setDraft({
       slug: `product-${Date.now()}`,
       brand: brands[0]?.id,
       title: '',
       weight: '',
       pack: '',
-      image: '/assets/products/dezmaye-gold.webp',
+      image,
+      images: [image],
       featured: false,
       short: '',
       specs: [['وزن خالص', '']],
@@ -118,10 +123,18 @@ export function ProductsTab() {
       analysis: [['', '']],
       storage: [''],
     });
+  };
 
   const saveDraft = () => {
+    if (galleryBusy) return window.alert('تا پایان بارگذاری تصاویر صبر کنید.');
     const { _orig, ...rest } = draft;
-    const clean = { ...rest, body: undefined };
+    const enteredImages = Array.isArray(rest.images)
+      ? rest.images.filter((image) => typeof image === 'string' && image.trim())
+      : [];
+    const clean = syncProductImages({ ...rest, body: undefined });
+    if (!clean.images.length) return window.alert('حداقل یک تصویر معتبر برای محصول انتخاب کنید.');
+    if (clean.images.length !== enteredImages.length)
+      return window.alert('یکی از نشانی‌های تصویر نامعتبر یا تکراری است؛ آن را اصلاح یا حذف کنید.');
     clean.specs = (clean.specs || []).filter(([k, v]) => k || v);
     clean.usage = (clean.usage || []).filter((u) => u);
     clean.analysis = (clean.analysis || []).filter(([k, v]) => k || v);
@@ -181,15 +194,11 @@ export function ProductsTab() {
         <div style={{ marginTop: 12 }}>
           <Field label="شناسه یکتا (slug)" value={draft.slug} dir="ltr" onChange={(v) => setDraft({ ...draft, slug: slugify(v) || v })} />
         </div>
-        <div className="admin__row" style={{ marginTop: 14 }}>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>تصویر محصول:</span>
-          {draft.image && <img src={draft.image} alt="" style={{ width: 84, height: 60, objectFit: 'cover', borderRadius: 8 }} />}
-          <UploadButton accept="image/*" label="بارگذاری تصویر جدید" onUploaded={(url) => setDraft({ ...draft, image: url })} />
-          <input
-            value={draft.image}
-            dir="ltr"
-            onChange={(e) => setDraft({ ...draft, image: e.target.value })}
-            style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5 }}
+        <div style={{ marginTop: 14 }}>
+          <ProductImagesEditor
+            images={Array.isArray(draft.images) ? draft.images : productImageList(draft)}
+            onChange={(images) => setDraft({ ...draft, images, image: images[0] || '' })}
+            onBusyChange={setGalleryBusy}
           />
         </div>
         <label className="admin__row" style={{ marginTop: 12 }}>
@@ -212,10 +221,10 @@ export function ProductsTab() {
         <h3 style={{ margin: '22px 0 10px' }}>شرایط نگهداری</h3>
         <StringListEditor items={draft.storage} onChange={(v) => setDraft({ ...draft, storage: v })} />
         <div className="admin__row" style={{ marginTop: 24 }}>
-          <button className="btn btn--primary" onClick={saveDraft}>
-            ذخیره محصول
+          <button className="btn btn--primary" onClick={saveDraft} disabled={galleryBusy}>
+            {galleryBusy ? 'در حال بارگذاری تصاویر…' : 'ذخیره محصول'}
           </button>
-          <button className="btn btn--outline" onClick={() => setDraft(null)}>
+          <button className="btn btn--outline" onClick={() => setDraft(null)} disabled={galleryBusy}>
             انصراف
           </button>
         </div>
@@ -246,7 +255,14 @@ export function ProductsTab() {
             </div>
             <div className="admin__actions">
               <TransStatus bucket="products" slug={p.slug} state={state} />
-              <button className="admin__iconbtn" title="ویرایش" onClick={() => setDraft({ ...clone(p), _orig: p.slug })}>
+              <button
+                className="admin__iconbtn"
+                title="ویرایش"
+                onClick={() => {
+                  setGalleryBusy(false);
+                  setDraft({ ...clone(p), images: productImageList(p), _orig: p.slug });
+                }}
+              >
                 <Icons.edit size={16} />
               </button>
               <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>

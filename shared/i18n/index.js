@@ -143,6 +143,17 @@ function overlayEntities(base, keyName, ...overs) {
   });
 }
 
+const withoutProductMedia = (overrides) => {
+  if (!isObj(overrides)) return overrides;
+  return Object.fromEntries(
+    Object.entries(overrides).map(([slug, value]) => {
+      if (!isObj(value)) return [slug, value];
+      const { image: _image, images: _images, ...translated } = value;
+      return [slug, translated];
+    }),
+  );
+};
+
 /* ------------------------------------------------------------------- main */
 
 /**
@@ -166,7 +177,12 @@ export function localizeState(state, locale) {
     texts: overlayMap(state.texts, p.texts, a.texts),
     collections: overlayCollections(state.collections, p.collections, a.collections),
     brands: overlayEntities(state.brands, 'id', p.brands, a.brands),
-    products: overlayEntities(state.products, 'slug', p.products, a.products),
+    products: overlayEntities(
+      state.products,
+      'slug',
+      withoutProductMedia(p.products),
+      withoutProductMedia(a.products),
+    ),
     posts: overlayEntities(state.posts, 'slug', p.posts, a.posts),
   };
 }

@@ -292,6 +292,19 @@ for (const [file, label, timeout] of [
   }
 }
 
+console.log('\nProduct images — legacy media, ordered galleries and SQLite persistence');
+{
+  const { stdout, crashed, err } = await suite('product-images.mjs', 40000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'product-images', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} gallery compatibility and persistence checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
 console.log('\nInventory — duplicate carts and abandoned payments cannot oversell');
 {
   const { stdout, crashed, err } = await suite('inventory.mjs', 40000);
