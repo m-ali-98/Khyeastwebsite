@@ -16,6 +16,7 @@
    Run directly:  node scripts/test/hardening.mjs
    ========================================================================== */
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -39,6 +40,35 @@ const check = (ok, name, detail = '') => {
     console.log(`LEAK ${name}${detail ? ' — ' + detail : ''}`);
   }
 };
+
+/* fetch/Undici deliberately owns the Host header, so proxy-host tests use the
+   core HTTP client to reproduce the bytes Apache sends to Node. */
+const rawHttp = ({ port, path: requestPath, method = 'GET', headers = {}, body = '' }) =>
+  new Promise((resolve, reject) => {
+    const request = http.request({
+      host: '127.0.0.1',
+      port,
+      path: requestPath,
+      method,
+      headers: {
+        ...headers,
+        ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}),
+      },
+    }, (response) => {
+      let text = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { text += chunk; });
+      response.on('end', () => resolve({
+        status: response.statusCode || 0,
+        headers: response.headers,
+        text,
+        json: () => JSON.parse(text || '{}'),
+      }));
+    });
+    request.on('error', reject);
+    if (body) request.write(body);
+    request.end();
+  });
 
 let server;
 let productionServer;
@@ -371,9 +401,77 @@ try {
   check(
     insecureProductionLogin.status === 426 && insecureProductionBody.code === 'https-required' &&
       !insecureProductionLogin.headers.get('set-cookie'),
-    'production HTTP login clearly requires HTTPS and never emits a credential',
+    'production HTTP login with an untrusted Host requires HTTPS and emits no credential',
     JSON.stringify(insecureProductionBody),
   );
+
+  const explicitHttpLogin = await rawHttp({
+    port: productionPort,
+    path: '/api/auth/login',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Host: 'secure.example.test',
+      'X-Forwarded-Proto': 'http',
+    },
+    body: JSON.stringify({ user: 'cookie-admin', pass: 'production-cookie-password' }),
+  });
+  check(
+    explicitHttpLogin.status === 426 && !explicitHttpLogin.headers['set-cookie'],
+    'a matching Host never overrides an explicit X-Forwarded-Proto: http',
+    explicitHttpLogin.text,
+  );
+  const malformedHostLogin = await rawHttp({
+    port: productionPort,
+    path: '/api/auth/login',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Host: 'secure.example.test?spoofed' },
+    body: JSON.stringify({ user: 'cookie-admin', pass: 'production-cookie-password' }),
+  });
+  check(
+    malformedHostLogin.status === 426 && !malformedHostLogin.headers['set-cookie'],
+    'URL syntax in Host cannot be normalised into a trusted HTTPS authority',
+    malformedHostLogin.text,
+  );
+
+  /* Some cPanel/Apache stacks preserve Host but omit X-Forwarded-Proto. The
+     loopback peer is trusted and Host matches the HTTPS PUBLIC_ORIGIN, so this
+     guarded fallback must avoid a day-one Admin lockout without accepting an
+     arbitrary direct HTTP Host. */
+  const inferredLoginBody = JSON.stringify({ user: 'cookie-admin', pass: 'production-cookie-password' });
+  const inferredProductionLogin = await rawHttp({
+    port: productionPort,
+    path: '/api/auth/login',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Host: 'secure.example.test' },
+    body: inferredLoginBody,
+  });
+  const inferredSetCookies = inferredProductionLogin.headers['set-cookie'] || [];
+  const inferredProductionCookie = inferredSetCookies.join(', ');
+  const inferredCookiePair = String(inferredSetCookies[0] || '').split(';')[0];
+  check(
+    inferredProductionLogin.status === 200 && /^__Host-ky_admin=/.test(inferredProductionCookie) &&
+      /;\s*Secure/i.test(inferredProductionCookie) &&
+      /max-age=31536000/i.test(String(inferredProductionLogin.headers['strict-transport-security'] || '')),
+    'trusted proxy + matching HTTPS PUBLIC_ORIGIN works without X-Forwarded-Proto',
+    inferredProductionCookie,
+  );
+  const inferredSecurity = await rawHttp({
+    port: productionPort,
+    path: '/api/admin/security',
+    headers: { Host: 'secure.example.test', Cookie: inferredCookiePair },
+  });
+  const inferredSecurityBody = inferredSecurity.json();
+  check(
+    inferredSecurity.status === 200 && inferredSecurityBody.proxy?.protocol === 'https' &&
+      inferredSecurityBody.proxy?.protocolSource === 'public-origin-trusted-proxy' &&
+      inferredSecurityBody.proxy?.forwardedProto === '' &&
+      inferredSecurityBody.proxy?.hostTrusted === true &&
+      inferredSecurityBody.rateLimitScope?.sharedAcrossWorkers === true,
+    'Security diagnostics expose inferred protocol, source, Host trust, and shared limiter scope',
+    JSON.stringify(inferredSecurityBody.proxy),
+  );
+
   const secureProductionLogin = await fetch(`${productionBase}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Forwarded-Proto': 'https' },

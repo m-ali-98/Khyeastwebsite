@@ -76,22 +76,25 @@ test('security settings show the effective IP and can disable all rate limits', 
   await adminTab(page, 'امنیت و محدودیت‌ها').click();
 
   const panel = page.getByTestId('admin-security');
-  await expect(panel.getByRole('heading', { name: 'تشخیص IP و پراکسی' })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: 'تشخیص IP، پروتکل و پراکسی' })).toBeVisible();
   await expect(panel).toContainText('req.ip');
+  await expect(panel).toContainText('X-Forwarded-Proto');
+  await expect(panel).toContainText('پروتکل مؤثر');
+  await expect(panel).toContainText('بین همه workerهای Passenger مشترک‌اند');
   await expect(panel).toContainText('loopback');
 
   const toggle = panel.getByRole('checkbox');
   const originallyEnabled = await toggle.isChecked();
   if (originallyEnabled) await toggle.uncheck();
   await panel.getByRole('button', { name: 'ذخیره تنظیمات امنیتی' }).click();
-  await expect(panel.getByRole('status')).toContainText('ذخیره شد');
+  await expect(panel.getByText('تنظیمات محدودیت درخواست‌ها ذخیره شد.')).toBeVisible();
   await expect(toggle).not.toBeChecked();
 
   /* Do not leave the shared E2E server unprotected for later specs. */
   if (originallyEnabled) {
     await toggle.check();
     await panel.getByRole('button', { name: 'ذخیره تنظیمات امنیتی' }).click();
-    await expect(panel.getByRole('status')).toContainText('ذخیره شد');
+    await expect(panel.getByText('تنظیمات محدودیت درخواست‌ها ذخیره شد.')).toBeVisible();
     await expect(toggle).toBeChecked();
   }
 });
@@ -573,6 +576,21 @@ test('an order placed on the site is visible in the orders tab and its status ca
      the customer list uses the same sticky, configurable grid system. */
   await again.getByRole('button', { name: `نمایش جزئیات سفارش ${code}` }).click();
   await expect(again.locator('.ord__detail')).toContainText('اقلام سفارش');
+
+  const archived = page.waitForResponse((response) =>
+    response.url().includes('/api/shop-admin/orders/') && response.request().method() === 'PATCH',
+  );
+  await again.getByRole('button', { name: 'بایگانی سفارش' }).click();
+  expect((await archived).ok()).toBe(true);
+  await expect(page.locator('.ord__item', { hasText: code })).toHaveCount(0);
+  await page.getByRole('button', { name: /بایگانی/ }).click();
+  let archivedRow = page.locator('.ord__item', { hasText: code }).first();
+  await expect(archivedRow).toBeVisible();
+  await archivedRow.getByRole('button', { name: `نمایش جزئیات سفارش ${code}` }).click();
+  await archivedRow.getByRole('button', { name: 'بازگرداندن به سفارش‌های جاری' }).click();
+  await expect(page.locator('.ord__item', { hasText: code })).toHaveCount(0);
+  await page.getByRole('button', { name: 'سفارش‌های جاری' }).click();
+  await expect(page.locator('.ord__item', { hasText: code }).first()).toBeVisible();
 
   await adminTab(page, 'مشتریان').first().click();
   const customerHeader = page.locator('.admin-data-grid--customers .admin-data-grid__header');

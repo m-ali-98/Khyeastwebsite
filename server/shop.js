@@ -337,6 +337,8 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     if (!product || !product.active) return res.status(404).json({ error: 'product not found' });
     const d = display();
     if (!d.commentsEnabled || product.commentsLocked) return res.status(403).json({ error: 'comments closed' });
+    const attempt = rateLimiter.reserve('comment', req.ip);
+    if (attempt.limited) return rateLimitResponse(res, attempt.retryAfter);
     const item = {
       id: `c-${rand(6)}`,
       slug: product.slug,
@@ -347,8 +349,13 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       reply: null,
       replyAt: null,
     };
-    db.insertComment(D, item);
-    rateLimiter.record('comment', req.ip);
+    try {
+      db.insertComment(D, item);
+      attempt.finish(true);
+    } catch (error) {
+      attempt.finish(false);
+      throw error;
+    }
     res.json({ ok: true, id: item.id, pending: !item.approved });
   });
 
@@ -464,16 +471,23 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       autoCancelled: false,
     };
 
-    /* Hold stock and create its sweepable order in the same SQLite commit. If
-       Node dies before/during the gateway request, there is no invisible stock
-       leak: the reservation either never happened or the expiry worker can see
-       and release it. */
-    const placed = db.reserveAndInsertOrder(D, order);
+    /* Hold one shared limiter slot while stock and the sweepable order are
+       committed. This final reservation closes the race after the cheap early
+       check without charging malformed carts or failed stock reservations. */
+    const orderAttempt = rateLimiter.reserve('order', req.ip);
+    if (orderAttempt.limited) return rateLimitResponse(res, orderAttempt.retryAfter);
+    let placed;
+    try {
+      placed = db.reserveAndInsertOrder(D, order);
+      orderAttempt.finish(placed.ok);
+    } catch (error) {
+      orderAttempt.finish(false);
+      throw error;
+    }
     if (!placed.ok) {
       const status = placed.error === 'insufficient stock' ? 409 : 400;
       return res.status(status).json({ error: placed.error });
     }
-    rateLimiter.record('order', req.ip);
 
     /* payment */
     const pm = payment();
@@ -557,22 +571,48 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     if (ipLimit.limited || orderLimit.limited)
       return rateLimitResponse(res, Math.max(ipLimit.retryAfter, orderLimit.retryAfter));
 
-    const order = db.getOrderByCode(D, req.params.code);
-    /* Invalid probes consume the IP bucket. A valid call consumes both just
-       before it can cost a gateway request. */
+    /* Reserve the IP bucket before looking up the private token. Invalid probes
+       are counted too, and concurrent Passenger workers cannot each admit a
+       full batch between a separate check and record. */
+    const ipAttempt = rateLimiter.reserve('paymentRetry', ipKey);
+    if (ipAttempt.limited) return rateLimitResponse(res, ipAttempt.retryAfter);
+    let order;
+    try {
+      order = db.getOrderByCode(D, req.params.code);
+    } catch (error) {
+      ipAttempt.finish(false);
+      throw error;
+    }
     if (!order) {
-      rateLimiter.record('paymentRetry', ipKey);
+      ipAttempt.finish(true);
       return res.status(404).json({ error: 'not found' });
     }
     if (!secretEqual(req.body?.token, order.token)) {
-      rateLimiter.record('paymentRetry', ipKey);
+      ipAttempt.finish(true);
       return res.status(403).json({ error: 'invalid token' });
     }
-    if (order.status !== 'pending_payment') return res.status(409).json({ error: 'order already processed' });
+    if (order.status !== 'pending_payment') {
+      ipAttempt.finish(false);
+      return res.status(409).json({ error: 'order already processed' });
+    }
     const pm = payment();
-    if (pm.provider === 'offline') return res.status(409).json({ error: 'online payment disabled' });
-    rateLimiter.record('paymentRetry', ipKey);
-    rateLimiter.record('paymentRetry', orderKey);
+    if (pm.provider === 'offline') {
+      ipAttempt.finish(false);
+      return res.status(409).json({ error: 'online payment disabled' });
+    }
+    let orderAttempt;
+    try {
+      orderAttempt = rateLimiter.reserve('paymentRetry', orderKey);
+    } catch (error) {
+      ipAttempt.finish(false);
+      throw error;
+    }
+    if (orderAttempt.limited) {
+      ipAttempt.finish(false);
+      return rateLimitResponse(res, orderAttempt.retryAfter);
+    }
+    ipAttempt.finish(true);
+    orderAttempt.finish(true);
     const origin = safeOrigin(req, pm.callbackBase);
     try {
       const pay = await createPayment(pm, order, { origin });
@@ -619,16 +659,31 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
     }
 
+    /* Refreshing the browser after this exact attempt already settled is a
+       local idempotent read: no gateway call and no limiter budget are needed.
+       This keeps a paid customer on the success page even after many refreshes. */
+    if (
+      attempt.status === 'settled' &&
+      ['paid', 'shipped', 'delivered'].includes(order.status) &&
+      paymentAuthorityMatches(callbackAuthority, order.payAuthority)
+    ) {
+      return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=ok`);
+    }
+    if (attempt.status === 'reversed') {
+      return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
+    }
+
     /* Do not let a callback URL become an unbounded gateway-verification
        proxy. Scope the bucket to the successfully mapped immutable authority:
        random probes cannot consume a real payment's allowance, while normal
-       browser/gateway retries retain a bounded dedicated budget. */
+       browser/gateway retries retain a bounded dedicated budget. reserve() is
+       SQLite-backed, so this count is atomic across Passenger workers. */
     const callbackLimitKey = `${order.id}:${attempt.authority}`;
-    const callbackLimit = rateLimiter.check('paymentCallback', callbackLimitKey);
+    const callbackLimit = rateLimiter.reserve('paymentCallback', callbackLimitKey);
     if (callbackLimit.limited) {
       return rateLimitResponse(res, callbackLimit.retryAfter, 'payment callback rate limited');
     }
-    rateLimiter.record('paymentCallback', callbackLimitKey);
+    callbackLimit.finish(true);
 
     let ok = false;
     let refId = '';
@@ -898,6 +953,19 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     if (changesAttention && typeof b.needsAttention !== 'boolean') {
       return res.status(400).json({ error: 'invalid attention state' });
     }
+    if (Object.hasOwn(b, 'archived')) {
+      if (typeof b.archived !== 'boolean') {
+        return res.status(400).json({ error: 'invalid archive state' });
+      }
+      if (b.archived && (order.needsAttention || b.needsAttention === true)) {
+        return res.status(409).json({
+          error: 'unresolved payment attention',
+          code: 'attention-order-cannot-be-archived',
+          detail: 'تا زمانی که هشدار مالی سفارش حل نشده است، سفارش قابل بایگانی نیست.',
+        });
+      }
+      patch.archived = b.archived;
+    }
     if ('status' in b && ORDER_STATUS.includes(b.status)) {
       /* The invariant: an order holds its reserved stock for as long as it is
          not cancelled. Only the transition ACROSS that line may move stock, and
@@ -925,6 +993,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
       }
 
       patch.status = b.status;
+      if (b.status !== order.status) patch.archived = false;
       /* A real admin transition supersedes an automatic timeout marker. Merely
          saving a note while the select still says cancelled must not erase why
          the timeout happened (late gateway callbacks rely on that fact). */
@@ -935,7 +1004,14 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
     /* Acknowledgement is intentionally explicit: changing status or editing a
        note must never make unresolved refund work disappear by accident. */
     if (changesAttention) patch.needsAttention = b.needsAttention;
-    db.updateOrder(D, order.id, patch);
+    const updated = db.updateOrder(D, order.id, patch);
+    if (patch.archived === true && !updated) {
+      return res.status(409).json({
+        error: 'unresolved payment attention',
+        code: 'attention-order-cannot-be-archived',
+        detail: 'هشدار مالی هم‌زمان فعال شد؛ سفارش بایگانی نشد.',
+      });
+    }
     res.json({ ok: true });
   });
 

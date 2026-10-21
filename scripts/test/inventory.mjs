@@ -150,6 +150,19 @@ try {
       db.listOrderPaymentAttempts(D, pendingAuthority.id).length === 2,
     'an issued payment link also protects its order because it may be paid later',
   );
+  db.updateOrder(D, pendingAuthority.id, { archived: true });
+  check(
+    db.getOrderById(D, pendingAuthority.id)?.archived &&
+      db.listOrderPaymentAttempts(D, pendingAuthority.id).length === 2,
+    'a protected order can be hidden through reversible archive state without losing payment evidence',
+  );
+  db.updateOrder(D, pendingAuthority.id, { archived: true, needsAttention: true });
+  const visibleAttention = db.getOrderById(D, pendingAuthority.id);
+  check(
+    visibleAttention?.needsAttention && !visibleAttention.archived,
+    'the data layer cannot persist a financial-attention order inside the archive',
+  );
+  db.updateOrder(D, pendingAuthority.id, { archived: true, needsAttention: false });
   let historicalAuthorityRejected = false;
   try {
     db.insertOrder(D, order({
@@ -177,8 +190,9 @@ try {
       provider: 'zarinpal', payRef: 'REF-RIGHT', paidAt: new Date().toISOString(), adminNote: '',
     }) &&
       db.getOrderById(D, pendingAuthority.id).payAuthority === 'A-PENDING-OWNER' &&
-      db.getOrderById(D, pendingAuthority.id).payRef === 'REF-RIGHT',
-    'an earlier attempt can settle after retry while authority and ref_id stay separate',
+      db.getOrderById(D, pendingAuthority.id).payRef === 'REF-RIGHT' &&
+      !db.getOrderById(D, pendingAuthority.id).archived,
+    'an earlier attempt can settle after retry, reappear from archive, and keep authority/ref_id separate',
   );
   check(
     db.getOrderPaymentAttempt(D, pendingAuthority.id, 'A-PENDING-OWNER')?.status === 'settled' &&

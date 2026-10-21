@@ -61,7 +61,15 @@ import {
  * @param selfOrigin   (req) => the site's own origin, for the CSRF check
  * @param requireAdmin the admin session guard, for the customers tab
  */
-export function createAccountRouter({ database, dispatchSms, smsSettings, selfOrigin, requireAdmin, rateLimiter }) {
+export function createAccountRouter({
+  database,
+  dispatchSms,
+  smsSettings,
+  selfOrigin,
+  requireAdmin,
+  rateLimiter,
+  isSecureRequest = (req) => req.secure === true,
+}) {
   const D = database;
   const r = express.Router();
   const PEPPER = process.env.ADMIN_SECRET || 'khyeast-content-secret-dev';
@@ -121,10 +129,9 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
       expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
       ua: req.get('user-agent') || '',
     });
-    /* Express derives req.secure from X-Forwarded-Proto only when the actual
-       peer matches the configured trust-proxy policy. */
-    const secure = req.secure;
-    res.setHeader('Set-Cookie', sessionCookie(token, { secure }));
+    /* This includes direct TLS, trusted X-Forwarded-Proto, and the guarded
+       PUBLIC_ORIGIN fallback used by proxies that omit the protocol header. */
+    res.setHeader('Set-Cookie', sessionCookie(token, { secure: isSecureRequest(req) }));
   };
 
   const profileOf = (row) => ({
@@ -169,21 +176,42 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
     if (blocked('otpIp', ip(req), res)) return;
     if (blocked('otpPhone', phone, res)) return;
 
-    const exists = Boolean(db.getCustomerByPhone(D, phone));
+    const requestIp = ip(req);
+    const ipAttempt = rateLimiter.reserve('otpIp', requestIp);
+    if (ipAttempt.limited) {
+      return rateLimitResponse(res, ipAttempt.retryAfter, 'تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.');
+    }
+    const phoneAttempt = rateLimiter.reserve('otpPhone', phone);
+    if (phoneAttempt.limited) {
+      ipAttempt.finish(false);
+      return rateLimitResponse(res, phoneAttempt.retryAfter, 'تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.');
+    }
+
     /* The response AND resend state are identical either way. Previously only
        a number eligible for this flow received an OTP row, so a second quick
        request returned 429 for one class of number and 200 for the other — a
        reliable account-enumeration oracle. An ineligible number gets a random
        256-bit placeholder hash of the same shape; no five-digit code can
        practically match it, but it enforces the same resend window. */
-    const shouldSend = purpose === 'register' ? !exists : exists;
-    const code = shouldSend ? generateOtp() : null;
-    db.putOtp(D, {
-      phone,
-      purpose,
-      codeHash: shouldSend ? hashOtp(code, phone, PEPPER) : crypto.randomBytes(32).toString('hex'),
-      expiresAt: new Date(Date.now() + OTP_TTL_MS).toISOString(),
-    });
+    let shouldSend;
+    let code;
+    try {
+      const exists = Boolean(db.getCustomerByPhone(D, phone));
+      shouldSend = purpose === 'register' ? !exists : exists;
+      code = shouldSend ? generateOtp() : null;
+      db.putOtp(D, {
+        phone,
+        purpose,
+        codeHash: shouldSend ? hashOtp(code, phone, PEPPER) : crypto.randomBytes(32).toString('hex'),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS).toISOString(),
+      });
+      ipAttempt.finish(true);
+      phoneAttempt.finish(true);
+    } catch (error) {
+      ipAttempt.finish(false);
+      phoneAttempt.finish(false);
+      throw error;
+    }
 
     if (shouldSend) {
       const cfg = smsSettings();
@@ -203,8 +231,6 @@ export function createAccountRouter({ database, dispatchSms, smsSettings, selfOr
       });
     }
 
-    rateLimiter.record('otpIp', ip(req));
-    rateLimiter.record('otpPhone', phone);
     res.json({ ok: true, sent: true, resendAfter: Math.ceil(OTP_RESEND_MS / 1000) });
   });
 

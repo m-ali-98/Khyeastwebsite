@@ -92,6 +92,20 @@ const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS || DEV_PASS;
 const SECRET = process.env.ADMIN_SECRET || DEV_SECRET;
 const IS_PROD = process.env.NODE_ENV === 'production';
+const PUBLIC_ORIGIN_URL = (() => {
+  const value = String(process.env.PUBLIC_ORIGIN || '').trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return (
+      ['http:', 'https:'].includes(parsed.protocol) &&
+      !parsed.username && !parsed.password && parsed.pathname === '/' &&
+      !parsed.search && !parsed.hash
+    ) ? parsed : null;
+  } catch {
+    return null;
+  }
+})();
 
 if (IS_PROD) {
   const problems = [];
@@ -99,6 +113,9 @@ if (IS_PROD) {
   if (SECRET === DEV_SECRET) problems.push('ADMIN_SECRET is still the published default');
   if (ADMIN_PASS.length < 12) problems.push('ADMIN_PASS is shorter than 12 characters');
   if (SECRET.length < 32) problems.push('ADMIN_SECRET is shorter than 32 characters');
+  if (process.env.PUBLIC_ORIGIN && !PUBLIC_ORIGIN_URL) {
+    problems.push('PUBLIC_ORIGIN is not a valid http:// or https:// origin');
+  }
   if (!process.env.PUBLIC_ORIGIN && !process.env.TRUSTED_HOSTS) {
     problems.push(
       'neither PUBLIC_ORIGIN nor TRUSTED_HOSTS is set — payment callback URLs ' +
@@ -281,7 +298,102 @@ const bearer = (req) => {
   const header = req.get('authorization') || '';
   return header.startsWith('Bearer ') ? header.slice(7) : null;
 };
-const secureRequest = (req) => req.secure === true || req.protocol === 'https';
+const authorityOf = (raw, defaultPort = '443') => {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return null;
+  /* Host is an authority, not a URL. Reject delimiters, whitespace and URL
+     syntax instead of letting WHATWG normalisation turn a malformed header
+     into a trusted hostname. Bracketed IPv6 remains valid. */
+  if (!/^(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/i.test(value)) return null;
+  try {
+    const parsed = new URL(`http://${value}`);
+    if (
+      parsed.username || parsed.password || parsed.pathname !== '/' ||
+      parsed.search || parsed.hash
+    ) return null;
+    return {
+      host: value,
+      hostname: parsed.hostname.replace(/\.$/, ''),
+      port: parsed.port || defaultPort,
+    };
+  } catch {
+    return null;
+  }
+};
+const trustedHttpsAuthorities = (() => {
+  const entries = [];
+  if (PUBLIC_ORIGIN_URL?.protocol === 'https:') {
+    entries.push({
+      hostname: PUBLIC_ORIGIN_URL.hostname.toLowerCase().replace(/\.$/, ''),
+      port: PUBLIC_ORIGIN_URL.port || '443',
+    });
+  }
+  for (const raw of String(process.env.TRUSTED_HOSTS || '').split(',')) {
+    const parsed = authorityOf(raw);
+    if (parsed) entries.push(parsed);
+  }
+  return entries;
+})();
+const trustedProxyPeer = (req) => {
+  const trust = req.app?.get?.('trust proxy fn');
+  return typeof trust === 'function' && Boolean(trust(req.socket?.remoteAddress, 0));
+};
+const trustedHttpsHost = (req, peerTrusted) => {
+  if (!peerTrusted || !trustedHttpsAuthorities.length) return { matched: false, host: '' };
+  /* The fallback contract deliberately requires the actual request Host. Do
+     not broaden it to X-Forwarded-Host: that header has no consistent append
+     semantics across proxy chains and is unnecessary when Apache preserves
+     the public Host as required by the deployment documentation. */
+  const parsed = authorityOf(req.get('host'));
+  const matched = Boolean(parsed && trustedHttpsAuthorities.some(
+    (allowed) => allowed.hostname === parsed.hostname && allowed.port === parsed.port,
+  ));
+  return {
+    matched,
+    host: matched ? parsed.host : String(req.get('host') || ''),
+  };
+};
+
+/** Determine the browser-facing protocol. Express handles ordinary TLS and a
+ * trusted X-Forwarded-Proto header. Some cPanel/Passenger stacks preserve the
+ * public Host but omit that header; in production only, an HTTPS PUBLIC_ORIGIN
+ * may fill that gap when both the socket peer and Host are trusted. */
+const transportSecurity = (req) => {
+  const directTls = Boolean(req.socket?.encrypted);
+  const expressSecure = req.secure === true || req.protocol === 'https';
+  const peerTrusted = trustedProxyPeer(req);
+  const host = trustedHttpsHost(req, peerTrusted);
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').trim();
+  const publicOriginFallback = Boolean(
+    IS_PROD &&
+    PUBLIC_ORIGIN_URL?.protocol === 'https:' &&
+    !expressSecure &&
+    !forwardedProto &&
+    peerTrusted &&
+    host.matched
+  );
+  const secure = expressSecure || publicOriginFallback;
+  return {
+    secure,
+    protocol: secure ? 'https' : 'http',
+    source: directTls
+      ? 'direct-tls'
+      : expressSecure
+        ? 'forwarded-proto'
+        : publicOriginFallback
+          ? 'public-origin-trusted-proxy'
+          : 'plain-http',
+    expressProtocol: String(req.protocol || 'http'),
+    forwardedProto: forwardedProto.slice(0, 120),
+    forwardedHost: String(req.get('x-forwarded-host') || '').slice(0, 300),
+    requestHost: String(req.get('host') || '').slice(0, 300),
+    matchedHost: host.host,
+    hostTrusted: host.matched,
+    peerTrusted,
+    publicOrigin: PUBLIC_ORIGIN_URL?.origin || '',
+  };
+};
+const secureRequest = (req) => transportSecurity(req).secure;
 const adminCookieMode = (req) => {
   const secure = secureRequest(req);
   if (secure || process.env.NODE_ENV === 'production') {
@@ -313,8 +425,8 @@ const clearAdminCookie = (req) => {
   ];
 };
 const ownOrigin = (req) => {
-  if (process.env.PUBLIC_ORIGIN) return String(process.env.PUBLIC_ORIGIN).replace(/\/+$/, '');
-  return `${req.secure ? 'https' : 'http'}://${req.get('host')}`;
+  if (PUBLIC_ORIGIN_URL) return PUBLIC_ORIGIN_URL.origin;
+  return `${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`;
 };
 const requireAuth = (req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -488,7 +600,7 @@ app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   /* HSTS only over TLS, and only in production — sending it from a plain-HTTP
      dev server would pin developers to https://localhost. */
-  if (IS_PROD && req.secure) {
+  if (IS_PROD && secureRequest(req)) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
   next();
@@ -527,10 +639,12 @@ app.post('/api/messages', (req, res) => {
     return rateLimitResponse(res, limit.retryAfter, 'too many messages, please try again later');
   const { name, phone, email, subject, message } = req.body || {};
   if (!name || !phone || !message) return res.status(400).json({ error: 'fields required' });
-  /* Count the attempt only once it is known to be a real submission. Charging
-     the quota before validation meant a visitor who mistyped their phone five
-     times was locked out for ten minutes without ever sending a message. */
-  rateLimiter.record('message', ip);
+  /* Reserve atomically only once this is a real submission. The early check is
+     a cheap fast path, while reserve closes the cross-worker check/record race. */
+  const attempt = rateLimiter.reserve('message', ip);
+  if (attempt.limited) {
+    return rateLimitResponse(res, attempt.retryAfter, 'too many messages, please try again later');
+  }
   const item = {
     id: crypto.randomUUID(),
     name: String(name).slice(0, 200),
@@ -541,7 +655,13 @@ app.post('/api/messages', (req, res) => {
     at: new Date().toISOString(),
     read: false,
   };
-  store.insertMessage(db, item);
+  try {
+    store.insertMessage(db, item);
+    attempt.finish(true);
+  } catch (error) {
+    attempt.finish(false);
+    throw error;
+  }
   res.json({ ok: true, id: item.id });
 });
 
@@ -564,9 +684,9 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const ip = req.ip || 'unknown';
-  const limit = rateLimiter.check('adminLogin', ip);
-  if (limit.limited)
-    return rateLimitResponse(res, limit.retryAfter, 'too many attempts, try again later');
+  const attempt = rateLimiter.reserve('adminLogin', ip);
+  if (attempt.limited)
+    return rateLimitResponse(res, attempt.retryAfter, 'too many attempts, try again later');
 
   const { user, pass } = req.body || {};
   /* Compare in constant time so response latency cannot reveal how much of
@@ -577,11 +697,12 @@ app.post('/api/auth/login', (req, res) => {
     return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
   };
   if (!eq(user, ADMIN_USER) || !eq(pass, ADMIN_PASS)) {
-    rateLimiter.record('adminLogin', ip);
+    attempt.finish(true);
     return res.status(401).json({ error: 'invalid credentials' });
   }
 
-  rateLimiter.clear('adminLogin', ip); // successful login clears the counter
+  attempt.finish(false);
+  rateLimiter.clear('adminLogin', ip); // successful login clears completed failures
   const exp = Date.now() + TOKEN_TTL;
   const token = sign({ user, exp, sid: sessionStart(exp) });
   res.setHeader('Set-Cookie', adminCookie(req, token));
@@ -634,8 +755,10 @@ const securitySnapshot = (req) => {
   const socketIp = String(req.socket?.remoteAddress || 'unknown');
   const forwardedSeen = Boolean(forwardedFor);
   const proxyResolved = forwardedSeen && Array.isArray(req.ips) && req.ips.length > 0;
+  const transport = transportSecurity(req);
   return {
     rateLimits: rateLimiter.settings(),
+    rateLimitScope: rateLimiter.scope(),
     proxy: {
       setting: trustProxyDescription(),
       configuredBy: process.env.TRUST_PROXY === undefined ? 'safe-default' : 'environment',
@@ -644,6 +767,15 @@ const securitySnapshot = (req) => {
       socketIp,
       forwardedFor,
       status: !forwardedSeen ? 'direct' : proxyResolved ? 'resolved' : 'forwarded-header-not-trusted',
+      protocol: transport.protocol,
+      protocolSource: transport.source,
+      expressProtocol: transport.expressProtocol,
+      forwardedProto: transport.forwardedProto,
+      forwardedHost: transport.forwardedHost,
+      requestHost: transport.requestHost,
+      publicOrigin: transport.publicOrigin,
+      hostTrusted: transport.hostTrusted,
+      peerTrusted: transport.peerTrusted,
     },
   };
 };
@@ -847,10 +979,11 @@ const accountRouter = createAccountRouter({
   smsSettings: shopRouter.smsSettings,
   requireAdmin: requireAuth,
   rateLimiter,
+  isSecureRequest: secureRequest,
   /* Same rule as the payment callbacks: PUBLIC_ORIGIN wins, and a Host
      header from the client is never trusted to describe us. */
   selfOrigin: (req) =>
-    process.env.PUBLIC_ORIGIN || `${req.secure ? 'https' : 'http'}://${req.get('host')}`,
+    PUBLIC_ORIGIN_URL?.origin || `${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`,
 });
 shopRouter.useCustomer(accountRouter.currentCustomer);
 app.use(accountRouter);
@@ -861,7 +994,7 @@ if (fs.existsSync(DIST)) {
   const seoTemplate = fs.existsSync(templatePath)
     ? fs.readFileSync(templatePath, 'utf8')
     : fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
-  const configuredOrigin = process.env.PUBLIC_ORIGIN ? normalizeOrigin(process.env.PUBLIC_ORIGIN) : '';
+  const configuredOrigin = PUBLIC_ORIGIN_URL?.origin || '';
   const trustedHosts = String(process.env.TRUSTED_HOSTS || '')
     .split(',')
     .map((host) => host.trim().toLowerCase())
@@ -872,7 +1005,7 @@ if (fs.existsSync(DIST)) {
   const canonicalProductionOrigin = configuredOrigin || (IS_PROD && trustedHosts[0] ? normalizeOrigin(`https://${trustedHosts[0]}`) : '');
   const requestOrigin = (req) => {
     if (canonicalProductionOrigin) return canonicalProductionOrigin;
-    return normalizeOrigin(`${req.secure ? 'https' : 'http'}://${req.get('host')}`);
+    return normalizeOrigin(`${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`);
   };
   const seoState = () => {
     try {
@@ -887,7 +1020,7 @@ if (fs.existsSync(DIST)) {
      independent, but before robots, sitemap and static files. */
   app.use((req, res, next) => {
     if (!IS_PROD || !canonicalProductionOrigin) return next();
-    const incoming = normalizeOrigin(`${req.secure ? 'https' : 'http'}://${req.get('host')}`);
+    const incoming = normalizeOrigin(`${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`);
     if (incoming === canonicalProductionOrigin) return next();
     return res.redirect(301, `${canonicalProductionOrigin}${req.originalUrl}`);
   });

@@ -128,28 +128,36 @@ try {
     enabled: true,
     rules: { customerLogin: { max: 2, windowMs: 60_000 } },
   };
-  const reservationLimiter = createRateLimiter({
-    database: {},
-    store: {
-      getSetting: () => reservationSettings,
-      setSetting: () => {},
-    },
-  });
-  const reservedA = reservationLimiter.reserve('customerLogin', 'phone');
-  const reservedB = reservationLimiter.reserve('customerLogin', 'phone');
+  const reservationDbPath = path.join(DATA_DIR, 'shared-rate-limits.db');
+  const reservationDbA = await dbStore.openDB(reservationDbPath);
+  dbStore.setSetting(reservationDbA, 'security.rateLimits', reservationSettings);
+  const reservationDbB = await dbStore.openDB(reservationDbPath);
+  const limiterA = createRateLimiter({ database: reservationDbA, store: dbStore });
+  const limiterB = createRateLimiter({ database: reservationDbB, store: dbStore });
+  const reservedA = limiterA.reserve('customerLogin', 'phone');
+  const reservedB = limiterB.reserve('customerLogin', 'phone');
   check(
-    !reservedA.limited && !reservedB.limited && reservationLimiter.reserve('customerLogin', 'phone').limited,
-    'in-flight password checks consume rate-limit capacity before async scrypt finishes',
+    !reservedA.limited && !reservedB.limited && limiterA.reserve('customerLogin', 'phone').limited,
+    'in-flight password checks share one SQLite ceiling across Passenger workers',
   );
   reservedA.finish(false);
-  reservationLimiter.clear('customerLogin', 'phone');
-  const reservedC = reservationLimiter.reserve('customerLogin', 'phone');
+  limiterA.clear('customerLogin', 'phone');
+  const reservedC = limiterA.reserve('customerLogin', 'phone');
   check(
-    !reservedC.limited && reservationLimiter.reserve('customerLogin', 'phone').limited,
-    'clearing completed failures cannot erase another password check that is still in flight',
+    !reservedC.limited && limiterB.reserve('customerLogin', 'phone').limited,
+    'clearing completed failures cannot erase another worker’s in-flight password check',
   );
   reservedB.finish(false);
   reservedC.finish(false);
+  limiterA.record('customerLogin', 'completed-phone');
+  limiterB.record('customerLogin', 'completed-phone');
+  check(
+    limiterA.check('customerLogin', 'completed-phone').limited,
+    'completed rate-limit hits are visible to every process, not multiplied per worker',
+  );
+  limiterA.clearAll();
+  reservationDbB.close();
+  reservationDbA.close();
 
   await start();
 
@@ -250,6 +258,21 @@ try {
     'Admin cannot delete even an issued authority that may still be paid later',
     JSON.stringify(issuedAttemptDeleteBody),
   );
+  const archiveIssued = await fetch(`${BASE}/api/shop-admin/orders/${callbackOrderId}`, {
+    method: 'PATCH',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ archived: true }),
+  });
+  const archivedOrders = await (await fetch(`${BASE}/api/shop-admin`, { headers: auth })).json();
+  check(
+    archiveIssued.ok && archivedOrders.orders.find((order) => order.id === callbackOrderId)?.archived,
+    'an undeletable payment order can be reversibly archived without removing its mapping',
+  );
+  await fetch(`${BASE}/api/shop-admin/orders/${callbackOrderId}`, {
+    method: 'PATCH',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ archived: false }),
+  });
 
   const wrongCallbackUrl = mappedCallbackUrl.replace(/Authority=[^&]+/, `Authority=A${'f'.repeat(35)}`);
   const wrongCallbackStatuses = [];
@@ -286,6 +309,19 @@ try {
     publicReversalOrder.order && !Object.hasOwn(publicReversalOrder.order, 'paymentAttempts'),
     'public order tracking never exposes payment-attempt history',
   );
+  const settledRefreshUrl =
+    `/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(reversalFixture.code)}` +
+    `&Authority=${encodeURIComponent(reversalFixture.main)}&Status=OK`;
+  const settledRefreshes = [];
+  for (let refresh = 0; refresh < 15; refresh += 1) {
+    const response = await fetch(BASE + settledRefreshUrl, { redirect: 'manual' });
+    settledRefreshes.push({ status: response.status, location: response.headers.get('location') || '' });
+  }
+  check(
+    settledRefreshes.every(({ status, location }) => status === 302 && /[?&]pay=ok/.test(location)),
+    'refreshing an already-settled callback stays idempotent and never spends callback quota',
+    JSON.stringify(settledRefreshes.slice(-2)),
+  );
   const protectedDelete = await fetch(`${BASE}/api/shop-admin/orders/${reversalFixture.id}`, {
     method: 'DELETE',
     headers: auth,
@@ -311,6 +347,16 @@ try {
       failedAttempt.reversalStartedAt === null && failedAttempt.lastError,
     'the per-attempt Admin action reclaims a stale lease and leaves a visible terminal failure',
     JSON.stringify({ response: attemptReverseBody, attempt: failedAttempt }),
+  );
+  const hideAttentionOrder = await fetch(`${BASE}/api/shop-admin/orders/${reversalFixture.id}`, {
+    method: 'PATCH',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ archived: true }),
+  });
+  check(
+    hideAttentionOrder.status === 409,
+    'an unresolved payment alert cannot be hidden in the archive',
+    String(hideAttentionOrder.status),
   );
 
   /* The rate-limit checks below place many orders. They use their own product

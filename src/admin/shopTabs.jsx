@@ -666,17 +666,25 @@ export function AdminSecurityTab() {
   const proxy = snapshot?.proxy || {};
   const rateLimits = snapshot?.rateLimits;
   const proxyStatus = {
-    direct: 'درخواست مستقیم است؛ هدر پراکسی دیده نشد.',
+    direct: 'درخواست مستقیم است؛ هدر پراکسی IP دیده نشد.',
     resolved: 'IP واقعی بازدیدکننده از زنجیره پراکسی استخراج شد.',
     'forwarded-header-not-trusted': 'هدر پراکسی رسیده اما IP مؤثر هنوز IP اتصال Node است؛ TRUST_PROXY را روی سرور بررسی کنید.',
   }[proxy.status] || 'وضعیت پراکسی نامشخص است.';
+  const protocolSource = {
+    'direct-tls': 'TLS مستقیم Node',
+    'forwarded-proto': 'X-Forwarded-Proto معتبر',
+    'public-origin-trusted-proxy': 'PUBLIC_ORIGIN و Host روی پراکسی معتبر',
+    'plain-http': 'HTTP بدون اثبات HTTPS',
+  }[proxy.protocolSource] || 'نامشخص';
+  const sharedLimits = snapshot?.rateLimitScope?.sharedAcrossWorkers;
+  const protocolNeedsAttention = String(proxy.publicOrigin || '').startsWith('https://') && proxy.protocol !== 'https';
 
   return (
     <div className="admin__panel security-admin" data-testid="admin-security">
       <div className="admin__head">
         <div>
           <h1>امنیت و محدودیت درخواست‌ها</h1>
-          <p>مشاهده IP مؤثر پشت Apache/Passenger و تنظیم سقف‌های ضدسوءاستفاده</p>
+          <p>مشاهده IP و پروتکل مؤثر پشت Apache/Passenger و تنظیم سقف‌های ضدسوءاستفاده</p>
         </div>
         <button type="button" className="btn btn--outline" onClick={load} disabled={busy}>
           <Icons.refresh size={16} />
@@ -692,23 +700,31 @@ export function AdminSecurityTab() {
           <section className="security-admin__card" aria-labelledby="proxy-diagnostics-title">
             <div className="security-admin__card-head">
               <div>
-                <h2 id="proxy-diagnostics-title">تشخیص IP و پراکسی</h2>
+                <h2 id="proxy-diagnostics-title">تشخیص IP، پروتکل و پراکسی</h2>
                 <p>{proxyStatus}</p>
               </div>
               <span className={`security-admin__state is-${proxy.status || 'unknown'}`}>
                 {proxy.status === 'resolved' ? 'پراکسی درست' : proxy.status === 'direct' ? 'اتصال مستقیم' : 'نیازمند بررسی'}
               </span>
             </div>
+            <p className={`security-admin__notice ${protocolNeedsAttention ? 'is-bad' : ''}`} role="status">
+              پروتکل مؤثر: <b dir="ltr">{proxy.protocol || '—'}</b> — {protocolSource}
+            </p>
             <dl className="security-admin__diagnostics">
               <div><dt>IP مؤثر (req.ip)</dt><dd dir="ltr">{proxy.clientIp || '—'}</dd></div>
               <div><dt>IP اتصال Node</dt><dd dir="ltr">{proxy.socketIp || '—'}</dd></div>
+              <div><dt>پروتکل Express</dt><dd dir="ltr">{proxy.expressProtocol || '—'}</dd></div>
+              <div><dt>X-Forwarded-Proto</dt><dd dir="ltr">{proxy.forwardedProto || '—'}</dd></div>
+              <div><dt>Host درخواست</dt><dd dir="ltr">{proxy.requestHost || '—'}</dd></div>
+              <div><dt>PUBLIC_ORIGIN</dt><dd dir="ltr">{proxy.publicOrigin || '—'}</dd></div>
               <div><dt>X-Forwarded-For</dt><dd dir="ltr">{proxy.forwardedFor || '—'}</dd></div>
               <div><dt>trust proxy</dt><dd dir="ltr">{proxy.setting || '—'}</dd></div>
             </dl>
             <p className="security-admin__help">
-              مقدار پیش‌فرض فقط پراکسی‌های loopback/private را می‌پذیرد و برای Apache یا Passenger معمول است.
-              اگر توپولوژی میزبان متفاوت است، متغیر محیطی <code>TRUST_PROXY</code> را تنظیم و Node را راه‌اندازی دوباره کنید؛
-              پذیرش همه پراکسی‌ها (<code>true</code>) توصیه نمی‌شود.
+              پراکسی باید <code>X-Forwarded-Proto: https</code> را ارسال کند. اگر میزبان این هدر را حذف کند،
+              سرور فقط وقتی HTTPS را از <code>PUBLIC_ORIGIN</code> نتیجه می‌گیرد که اتصال Node از پراکسی مورد اعتماد آمده
+              و Host نیز با origin یا <code>TRUSTED_HOSTS</code> تطبیق داشته باشد. پذیرش همه پراکسی‌ها
+              (<code>TRUST_PROXY=true</code>) توصیه نمی‌شود.
             </p>
           </section>
 
@@ -716,7 +732,10 @@ export function AdminSecurityTab() {
             <div className="security-admin__card-head">
               <div>
                 <h2 id="rate-limits-title">محدودیت درخواست‌ها</h2>
-                <p>سقف‌های پیش‌فرض محافظه‌کارانه‌اند؛ فقط درخواست معتبر یا تلاش ناموفقِ قابل‌سوءاستفاده شمرده می‌شود.</p>
+                <p>
+                  سقف‌ها محافظه‌کارانه و {sharedLimits ? 'از طریق SQLite بین همه workerهای Passenger مشترک‌اند' : 'برای این فرایند اعمال می‌شوند'}؛
+                  فقط درخواست معتبر یا تلاش ناموفقِ قابل‌سوءاستفاده شمرده می‌شود.
+                </p>
               </div>
               <label className="security-admin__switch">
                 <input
@@ -778,6 +797,7 @@ export function ShopOrdersTab() {
   const [gw, setGw] = useState({}); // per-order gateway result
   const [savingStatus, setSavingStatus] = useState({});
   const [feedback, setFeedback] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const columns = useColumnVisibility('khyeast.admin.columns.orders.v1', ORDER_LIST_COLUMNS);
 
   const load = async () => {
@@ -890,6 +910,8 @@ export function ShopOrdersTab() {
     '--grid-min-width': `${236 + columns.visible.size * 118}px`,
   };
   const attentionCount = orders?.filter((order) => order.needsAttention).length || 0;
+  const archivedCount = orders?.filter((order) => order.archived).length || 0;
+  const visibleOrders = orders?.filter((order) => Boolean(order.archived) === showArchived) || [];
 
   return (
     <div className="admin__panel">
@@ -906,6 +928,18 @@ export function ShopOrdersTab() {
             columns={ORDER_LIST_COLUMNS}
             visibility={columns}
           />
+          <button
+            className={`btn btn--outline ${showArchived ? 'is-active' : ''}`}
+            type="button"
+            aria-pressed={showArchived}
+            onClick={() => {
+              setOpen(null);
+              setShowArchived((current) => !current);
+            }}
+          >
+            <Icons.box size={16} />
+            {showArchived ? 'سفارش‌های جاری' : `بایگانی (${fa(archivedCount)})`}
+          </button>
           <button className="btn btn--outline" type="button" onClick={load}>
             <Icons.refresh size={16} />
             به‌روزرسانی
@@ -922,8 +956,13 @@ export function ShopOrdersTab() {
       )}
       {orders === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
       {orders?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز سفارشی ثبت نشده است.</p>}
+      {orders !== null && orders.length > 0 && visibleOrders.length === 0 && (
+        <p style={{ color: 'var(--muted)' }}>
+          {showArchived ? 'هنوز سفارشی بایگانی نشده است.' : 'همه سفارش‌ها بایگانی شده‌اند.'}
+        </p>
+      )}
 
-      {orders?.length > 0 && (
+      {visibleOrders.length > 0 && (
         <div
           className="admin-data-grid admin-data-grid--orders"
           style={gridStyle}
@@ -941,7 +980,7 @@ export function ShopOrdersTab() {
           </div>
 
           <div className="ord__list">
-            {orders.map((o) => {
+            {visibleOrders.map((o) => {
               const expanded = open === o.id;
               const detailId = `order-detail-${String(o.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
               const at = new Date(o.at);
@@ -1096,13 +1135,25 @@ export function ShopOrdersTab() {
                       <div className="admin__row ord__detail-actions">
                         <button
                           type="button"
-                          className="btn btn--outline btn--sm ord__delete"
-                          disabled={hasProtectedPayment}
-                          title={hasProtectedPayment ? 'سفارش دارای تلاش پرداخت آنلاین است و برای نگاشت callback و سوابق مالی باید نگهداری شود.' : undefined}
-                          onClick={() => window.confirm('این سفارش حذف شود؟') && patch(o.id, null, 'DELETE')}
+                          className="btn btn--outline btn--sm"
+                          disabled={!o.archived && o.needsAttention}
+                          title={!o.archived && o.needsAttention ? 'ابتدا هشدار مالی این سفارش را رسیدگی کنید.' : undefined}
+                          onClick={() => patch(o.id, { archived: !o.archived })}
                         >
-                          {hasProtectedPayment ? 'حذف غیرفعال — تلاش پرداخت' : 'حذف سفارش'}
+                          <Icons.box size={15} />
+                          {o.archived ? 'بازگرداندن به سفارش‌های جاری' : 'بایگانی سفارش'}
                         </button>
+                        {!o.archived && (
+                          <button
+                            type="button"
+                            className="btn btn--outline btn--sm ord__delete"
+                            disabled={hasProtectedPayment}
+                            title={hasProtectedPayment ? 'سفارش دارای تلاش پرداخت آنلاین است و برای نگاشت callback و سوابق مالی باید نگهداری شود.' : undefined}
+                            onClick={() => window.confirm('این سفارش حذف شود؟') && patch(o.id, null, 'DELETE')}
+                          >
+                            {hasProtectedPayment ? 'حذف غیرفعال — تلاش پرداخت' : 'حذف سفارش'}
+                          </button>
+                        )}
                       </div>
 
                       {/* Gateway inquiry and reversal both require the original

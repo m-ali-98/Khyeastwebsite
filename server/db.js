@@ -38,6 +38,20 @@ function migrate(db) {
       value TEXT NOT NULL
     );
 
+    /* Short-lived abuse counters are shared through SQLite so several
+       Passenger workers enforce one real ceiling instead of multiplying it by
+       the process count. Bucket keys are hashed before they reach this table. */
+    CREATE TABLE IF NOT EXISTS rate_limit_hits (
+      id          TEXT PRIMARY KEY,
+      kind        TEXT NOT NULL,
+      bucket_hash TEXT NOT NULL,
+      at          INTEGER NOT NULL,
+      pending     INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_rate_limit_bucket
+      ON rate_limit_hits(kind, bucket_hash, at);
+    CREATE INDEX IF NOT EXISTS idx_rate_limit_at ON rate_limit_hits(at);
+
     CREATE TABLE IF NOT EXISTS products (
       slug           TEXT PRIMARY KEY,
       pos            INTEGER NOT NULL DEFAULT 0,
@@ -75,7 +89,8 @@ function migrate(db) {
       at         TEXT NOT NULL,
       paid_at    TEXT,
       auto_cancelled INTEGER NOT NULL DEFAULT 0,
-      needs_attention INTEGER NOT NULL DEFAULT 0
+      needs_attention INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_orders_at ON orders(at DESC);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -242,6 +257,9 @@ function migrate(db) {
   if (!orderCols.includes('pay_authority')) {
     db.exec('ALTER TABLE orders ADD COLUMN pay_authority TEXT');
   }
+  if (!orderCols.includes('archived')) {
+    db.exec('ALTER TABLE orders ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+  }
 
   const paymentCols = db.prepare('PRAGMA table_info(order_payments)').all().map((column) => column.name);
   if (!paymentCols.includes('reversal_started_at')) {
@@ -296,6 +314,7 @@ function migrate(db) {
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_attention_at ON orders(needs_attention DESC, at DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_archived_at ON orders(archived, at DESC)');
   /* The pointer stays unique as a defence in depth. The order_payments primary
      key is the authoritative global one-authority/one-order constraint. */
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_pay_authority ON orders(pay_authority) WHERE pay_authority IS NOT NULL AND pay_authority <> ''");
@@ -321,6 +340,82 @@ export function setSetting(db, key, value) {
     key,
     JSON.stringify(value),
   );
+}
+
+/* ====================================================== shared rate limits */
+const rateLimitUsage = (db, kind, bucketHash, cutoff) => {
+  const row = db.prepare(
+    `SELECT COUNT(*) AS count,
+            MIN(CASE WHEN pending = 0 THEN at END) AS oldest_completed
+       FROM rate_limit_hits
+      WHERE kind = ? AND bucket_hash = ? AND at >= ?`,
+  ).get(String(kind), String(bucketHash), Number(cutoff));
+  return {
+    count: Number(row?.count || 0),
+    oldestCompleted: row?.oldest_completed == null ? null : Number(row.oldest_completed),
+  };
+};
+
+export function getRateLimitUsage(db, { kind, bucketHash, cutoff }) {
+  return rateLimitUsage(db, kind, bucketHash, cutoff);
+}
+
+export function recordRateLimitHit(db, { kind, bucketHash, at = Date.now() }) {
+  const id = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO rate_limit_hits(id, kind, bucket_hash, at, pending)
+     VALUES (?, ?, ?, ?, 0)`,
+  ).run(id, String(kind), String(bucketHash), Number(at));
+  return id;
+}
+
+/** Atomically count and reserve one slot. The initial DELETE is a write even
+ * when no stale row exists, so concurrent SQLite workers serialize before
+ * they inspect the count rather than all passing a read-only pre-check. */
+export function reserveRateLimitHit(db, {
+  kind,
+  bucketHash,
+  cutoff,
+  max,
+  at = Date.now(),
+}) {
+  return db.transaction(() => {
+    db.prepare(
+      'DELETE FROM rate_limit_hits WHERE kind = ? AND bucket_hash = ? AND at < ?',
+    ).run(String(kind), String(bucketHash), Number(cutoff));
+    const usage = rateLimitUsage(db, kind, bucketHash, cutoff);
+    if (usage.count >= Number(max)) return { limited: true, ...usage };
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO rate_limit_hits(id, kind, bucket_hash, at, pending)
+       VALUES (?, ?, ?, ?, 1)`,
+    ).run(id, String(kind), String(bucketHash), Number(at));
+    return { limited: false, id, ...usage, count: usage.count + 1 };
+  })();
+}
+
+export function finishRateLimitReservation(db, id, { record = false } = {}) {
+  if (!id) return false;
+  const result = record
+    ? db.prepare('UPDATE rate_limit_hits SET pending = 0 WHERE id = ? AND pending = 1').run(String(id))
+    : db.prepare('DELETE FROM rate_limit_hits WHERE id = ? AND pending = 1').run(String(id));
+  return result.changes === 1;
+}
+
+/** A successful login clears completed failures but must not erase password
+ * checks that another worker still has in flight. */
+export function clearRateLimitBucket(db, { kind, bucketHash }) {
+  return db.prepare(
+    'DELETE FROM rate_limit_hits WHERE kind = ? AND bucket_hash = ? AND pending = 0',
+  ).run(String(kind), String(bucketHash)).changes;
+}
+
+export function clearRateLimitHits(db) {
+  return db.prepare('DELETE FROM rate_limit_hits').run().changes;
+}
+
+export function pruneRateLimitHits(db, cutoff) {
+  return db.prepare('DELETE FROM rate_limit_hits WHERE at < ?').run(Number(cutoff)).changes;
 }
 
 /* ============================================================== products */
@@ -505,6 +600,7 @@ const orderOut = (r, items) => ({
   customerId: r.customer_id || null,
   autoCancelled: Boolean(r.auto_cancelled),
   needsAttention: Boolean(r.needs_attention),
+  archived: Boolean(r.archived),
 });
 
 const itemsOf = (db, id) =>
@@ -655,7 +751,7 @@ export function claimOrderPaymentReversal(database, orderId, authority, {
       /* Commit the visible alert with the claim. A worker crash after this
          point cannot leave the extra charge hidden from Admin, and a later
          worker may reclaim it after PAYMENT_REVERSAL_CLAIM_TTL_MS. */
-      database.prepare('UPDATE orders SET needs_attention = 1 WHERE id = ?').run(id);
+      database.prepare('UPDATE orders SET needs_attention = 1, archived = 0 WHERE id = ?').run(id);
     }
     return {
       claimed,
@@ -722,15 +818,24 @@ export function appendOrderAdminNote(database, orderId, note, { needsAttention =
   return database.prepare(
     `UPDATE orders
         SET admin_note = CASE WHEN admin_note = '' THEN ? ELSE admin_note || '\n' || ? END,
-            needs_attention = CASE WHEN ? THEN 1 ELSE needs_attention END
+            needs_attention = CASE WHEN ? THEN 1 ELSE needs_attention END,
+            archived = CASE WHEN ? THEN 0 ELSE archived END
       WHERE id = ?`,
-  ).run(value, value, needsAttention ? 1 : 0, String(orderId || '')).changes === 1;
+  ).run(
+    value,
+    value,
+    needsAttention ? 1 : 0,
+    needsAttention ? 1 : 0,
+    String(orderId || ''),
+  ).changes === 1;
 }
 
 export function listOrders(db) {
   /* Unresolved money movement belongs at the top, not buried by newer routine
      orders. The explicit flag is also returned for badge/detail rendering. */
-  const rows = db.prepare('SELECT * FROM orders ORDER BY needs_attention DESC, at DESC').all();
+  const rows = db.prepare(
+    'SELECT * FROM orders ORDER BY archived ASC, needs_attention DESC, at DESC',
+  ).all();
   return rows.map((r) => orderOut(r, itemsOf(db, r.id)));
 }
 export function getOrderByCode(db, code) {
@@ -757,10 +862,10 @@ export function insertOrder(db, o) {
   const ins = db.prepare(`
     INSERT INTO orders (id, code, token, customer, subtotal, shipping, total, currency, status,
                         provider, pay_authority, pay_ref, admin_note, at, paid_at, customer_id,
-                        auto_cancelled, needs_attention)
+                        auto_cancelled, needs_attention, archived)
     VALUES (@id, @code, @token, @customer, @subtotal, @shipping, @total, @currency, @status,
             @provider, @pay_authority, @pay_ref, @admin_note, @at, @paid_at, @customer_id,
-            @auto_cancelled, @needs_attention)
+            @auto_cancelled, @needs_attention, @archived)
   `);
   const insItem = db.prepare(`
     INSERT INTO order_items (order_id, pos, slug, title, unit, price, qty, sum)
@@ -786,6 +891,7 @@ export function insertOrder(db, o) {
       customer_id: o.customerId || null,
       auto_cancelled: bool(o.autoCancelled),
       needs_attention: bool(o.needsAttention),
+      archived: bool(o.archived),
     });
     if (o.payAuthority) {
       ensurePaymentAttempt(db, o.id, {
@@ -831,6 +937,12 @@ export function reserveAndInsertOrder(db, order) {
 }
 
 export function updateOrder(db, id, patch) {
+  /* Financial attention is always visible. Enforce this in the data layer as
+     well as the HTTP route so a future caller cannot persist the contradictory
+     state needs_attention=1 + archived=1. */
+  const effectivePatch = patch.needsAttention === true
+    ? { ...patch, archived: false }
+    : patch;
   const map = {
     status: 'status',
     provider: 'provider',
@@ -840,31 +952,39 @@ export function updateOrder(db, id, patch) {
     paidAt: 'paid_at',
     autoCancelled: 'auto_cancelled',
     needsAttention: 'needs_attention',
+    archived: 'archived',
   };
   const sets = [];
   const vals = [];
   for (const [k, col] of Object.entries(map)) {
-    if (k in patch) {
+    if (k in effectivePatch) {
       sets.push(`${col} = ?`);
-      vals.push(k === 'autoCancelled' || k === 'needsAttention' ? bool(patch[k]) : patch[k]);
+      vals.push(
+        ['autoCancelled', 'needsAttention', 'archived'].includes(k)
+          ? bool(effectivePatch[k])
+          : effectivePatch[k],
+      );
     }
   }
   if (!sets.length) return;
   const orderId = String(id);
   vals.push(orderId);
   const apply = () => {
-    if (patch.payAuthority) {
+    if (effectivePatch.payAuthority) {
       const existing = db.prepare('SELECT provider FROM orders WHERE id = ?').get(orderId);
       if (!existing) return false;
       ensurePaymentAttempt(db, orderId, {
-        authority: patch.payAuthority,
-        provider: patch.provider || existing.provider,
+        authority: effectivePatch.payAuthority,
+        provider: effectivePatch.provider || existing.provider,
         at: new Date().toISOString(),
       });
     }
-    return db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals).changes > 0;
+    const archiveGuard = effectivePatch.archived === true ? ' AND needs_attention = 0' : '';
+    return db.prepare(
+      `UPDATE orders SET ${sets.join(', ')} WHERE id = ?${archiveGuard}`,
+    ).run(...vals).changes > 0;
   };
-  return patch.payAuthority ? db.transaction(apply)() : apply();
+  return effectivePatch.payAuthority ? db.transaction(apply)() : apply();
 }
 
 /** Settle only the still-pending order that owns this authority. The route also
@@ -884,7 +1004,7 @@ export function settlePendingOrder(db, id, authority, {
     const result = db.prepare(
       `UPDATE orders
           SET status = 'paid', provider = ?, pay_authority = ?, pay_ref = ?, paid_at = ?,
-              admin_note = ?, auto_cancelled = 0, needs_attention = 0
+              admin_note = ?, auto_cancelled = 0, needs_attention = 0, archived = 0
         WHERE id = ? AND status = 'pending_payment'
           AND EXISTS (
             SELECT 1 FROM order_payments
@@ -955,7 +1075,7 @@ export function claimExpiredPayment(db, id, {
   const claim = db.prepare(
     `UPDATE orders
      SET provider = ?, pay_authority = ?, pay_ref = ?, paid_at = ?, admin_note = ?,
-         auto_cancelled = 2, needs_attention = 1
+         auto_cancelled = 2, needs_attention = 1, archived = 0
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 1
        AND EXISTS (
          SELECT 1 FROM order_payments
@@ -966,12 +1086,12 @@ export function claimExpiredPayment(db, id, {
   const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
   const finishPaid = db.prepare(
     `UPDATE orders
-     SET status = 'paid', admin_note = ?, auto_cancelled = 0, needs_attention = 0
+     SET status = 'paid', admin_note = ?, auto_cancelled = 0, needs_attention = 0, archived = 0
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
   );
   const noteFailure = db.prepare(
     `UPDATE orders
-     SET admin_note = ?, needs_attention = 1
+     SET admin_note = ?, needs_attention = 1, archived = 0
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
   );
 

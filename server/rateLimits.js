@@ -5,12 +5,15 @@
    "all limits", rather than disabling the contact form while an unrelated
    hard-coded limiter still blocks checkout or login.
 
-   Counters intentionally stay in memory. They are short-lived abuse signals,
-   not business records; persisting them would turn a server restart into a
-   surprising lockout and add a database write to every public request.
+   Hits and in-flight password reservations live in SQLite. Passenger workers
+   therefore enforce one site-wide ceiling, and a restart cannot be used to
+   reset an active abuse window. Rows expire after at most 24 hours and bucket
+   identifiers are SHA-256 hashes rather than raw IPs, phones, or authorities.
    ========================================================================== */
+import crypto from 'node:crypto';
 
 const SETTING_KEY = 'security.rateLimits';
+const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const envMax = (environment, name, fallback) => {
   const value = Number(environment[name]);
@@ -65,7 +68,7 @@ export function normalizeRateLimitSettings(input = {}) {
       /* The panel currently keeps the published windows, but normalising the
          value here makes the API forward-compatible and prevents a malformed
          payload from creating a zero-duration or multi-year bucket. */
-      windowMs: clamp(supplied.windowMs, 60_000, 24 * 60 * 60 * 1000, fallback.windowMs),
+      windowMs: clamp(supplied.windowMs, 60_000, MAX_WINDOW_MS, fallback.windowMs),
     };
   }
 
@@ -75,54 +78,42 @@ export function normalizeRateLimitSettings(input = {}) {
   return { enabled, rules };
 }
 
+const bucketHash = (kind, key) => crypto
+  .createHash('sha256')
+  .update(`${kind}\u0000${String(key || 'unknown')}`)
+  .digest('hex');
+
+const retryAfterFor = (usage, rule, now) => usage.oldestCompleted == null
+  ? 1
+  : Math.max(1, Math.ceil((rule.windowMs - (now - usage.oldestCompleted)) / 1000));
+
 export function createRateLimiter({ database, store }) {
   let settings = normalizeRateLimitSettings(store.getSetting(database, SETTING_KEY, {}));
   let fingerprint = JSON.stringify(settings);
-  const hits = new Map();
-  /* Async password work can overlap. Reservations count in-flight attempts so
-     a burst cannot slip every scrypt job past check() before the first failure
-     is recorded; callers decide on completion whether the attempt should
-     become a normal hit. */
-  const reservations = new Map();
 
-  /* Passenger may run several Node workers against the same SQLite file. Read
-     the tiny settings row at each limited request so an Admin change (most
-     importantly the global off switch) reaches every worker, not only the one
-     that happened to serve the PUT. Counters remain local abuse signals. */
+  /* The settings row is shared too. Reading it on each operation makes the
+     Admin off switch and policy edits visible to every Passenger worker. */
   const refreshSettings = () => {
     const next = normalizeRateLimitSettings(store.getSetting(database, SETTING_KEY, {}));
     const nextFingerprint = JSON.stringify(next);
     if (nextFingerprint !== fingerprint) {
       settings = next;
       fingerprint = nextFingerprint;
-      hits.clear();
-      reservations.clear();
     }
     return settings;
   };
 
-  const bucketId = (kind, key) => `${kind}\u0000${String(key || 'unknown')}`;
-  const recent = (kind, key, now = Date.now()) => {
-    const rule = settings.rules[kind];
-    if (!rule) return [];
-    const id = bucketId(kind, key);
-    const kept = (hits.get(id) || []).filter((time) => now - time < rule.windowMs);
-    if (kept.length) hits.set(id, kept);
-    else hits.delete(id);
-    return kept;
-  };
-
   const api = {
     settings: () => JSON.parse(JSON.stringify(refreshSettings())),
+    scope: () => ({ backend: 'sqlite', sharedAcrossWorkers: true }),
 
     update(next) {
       settings = normalizeRateLimitSettings(next);
       fingerprint = JSON.stringify(settings);
       store.setSetting(database, SETTING_KEY, settings);
-      /* A policy change starts clean and, when disabled, takes effect
-         immediately. Other Passenger workers clear on their next check. */
-      hits.clear();
-      reservations.clear();
+      /* A policy change starts clean. Clearing the shared table means every
+         worker observes the same reset, including when limits are disabled. */
+      store.clearRateLimitHits(database);
       return JSON.parse(fingerprint);
     },
 
@@ -131,33 +122,37 @@ export function createRateLimiter({ database, store }) {
       const rule = settings.rules[kind];
       if (!settings.enabled || !rule) return { limited: false, retryAfter: 0 };
       const now = Date.now();
-      const times = recent(kind, key, now);
-      if (times.length < rule.max) return { limited: false, retryAfter: 0 };
-      return {
-        limited: true,
-        retryAfter: Math.max(1, Math.ceil((rule.windowMs - (now - times[0])) / 1000)),
-      };
+      const usage = store.getRateLimitUsage(database, {
+        kind,
+        bucketHash: bucketHash(kind, key),
+        cutoff: now - rule.windowMs,
+      });
+      if (usage.count < rule.max) return { limited: false, retryAfter: 0 };
+      return { limited: true, retryAfter: retryAfterFor(usage, rule, now) };
     },
 
+    /** Atomically reserve capacity before async/expensive work. The reservation
+     * itself is shared, so two workers cannot each admit a full scrypt burst. */
     reserve(kind, key) {
       refreshSettings();
       const rule = settings.rules[kind];
       const noop = () => {};
       if (!settings.enabled || !rule) return { limited: false, retryAfter: 0, finish: noop };
       const now = Date.now();
-      const id = bucketId(kind, key);
-      const times = recent(kind, key, now);
-      const pending = reservations.get(id) || 0;
-      if (times.length + pending >= rule.max) {
+      const reservation = store.reserveRateLimitHit(database, {
+        kind,
+        bucketHash: bucketHash(kind, key),
+        cutoff: now - rule.windowMs,
+        max: rule.max,
+        at: now,
+      });
+      if (reservation.limited) {
         return {
           limited: true,
-          retryAfter: times.length
-            ? Math.max(1, Math.ceil((rule.windowMs - (now - times[0])) / 1000))
-            : 1,
+          retryAfter: retryAfterFor(reservation, rule, now),
           finish: noop,
         };
       }
-      reservations.set(id, pending + 1);
       let active = true;
       return {
         limited: false,
@@ -165,47 +160,42 @@ export function createRateLimiter({ database, store }) {
         finish(record = false) {
           if (!active) return;
           active = false;
-          const remaining = Math.max(0, (reservations.get(id) || 0) - 1);
-          if (remaining) reservations.set(id, remaining);
-          else reservations.delete(id);
-          if (record) api.record(kind, key);
+          const current = refreshSettings();
+          const keep = Boolean(record && current.enabled && current.rules[kind]);
+          store.finishRateLimitReservation(database, reservation.id, { record: keep });
         },
       };
     },
 
+    /** Count one completed attempt. Callers use this only after validation, so
+     * malformed probes do not spend a real visitor's allowance. */
     record(kind, key) {
       refreshSettings();
       const rule = settings.rules[kind];
       if (!settings.enabled || !rule) return;
-      const id = bucketId(kind, key);
-      hits.set(id, [...recent(kind, key), Date.now()]);
+      store.recordRateLimitHit(database, {
+        kind,
+        bucketHash: bucketHash(kind, key),
+        at: Date.now(),
+      });
     },
 
     clear(kind, key) {
-      /* Clear completed failures after a successful login, but keep other
-         requests' live reservations. Dropping them here would briefly reopen
-         the bucket while concurrent scrypt work is still consuming workers. */
-      hits.delete(bucketId(kind, key));
+      store.clearRateLimitBucket(database, {
+        kind,
+        bucketHash: bucketHash(kind, key),
+      });
     },
 
     clearAll() {
-      hits.clear();
-      reservations.clear();
+      store.clearRateLimitHits(database);
     },
   };
 
-  /* One bounded sweep for every rule. check()/record() also prune their own
-     bucket, so this is only memory housekeeping for addresses that disappear. */
+  /* All normal windows are at most 24 hours. Each worker may run this cheap
+     cleanup, but SQLite serialises it and the indexed DELETE remains bounded. */
   setInterval(() => {
-    const now = Date.now();
-    for (const id of [...hits.keys()]) {
-      const split = id.indexOf('\u0000');
-      if (split < 0) {
-        hits.delete(id);
-        continue;
-      }
-      recent(id.slice(0, split), id.slice(split + 1), now);
-    }
+    store.pruneRateLimitHits(database, Date.now() - MAX_WINDOW_MS);
   }, 10 * 60 * 1000).unref?.();
 
   return api;
