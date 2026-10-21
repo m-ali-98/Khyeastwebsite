@@ -358,13 +358,20 @@ export function PostsTab() {
           <UploadButton accept="image/*" label="بارگذاری تصویر" onUploaded={(url) => setDraft({ ...draft, image: url })} />
           <input
             value={draft.image}
+            aria-label="نشانی تصویر شاخص"
             dir="ltr"
             onChange={(e) => setDraft({ ...draft, image: e.target.value })}
             style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5 }}
           />
         </div>
-        <h3 style={{ margin: '22px 0 10px' }}>متن مقاله (با امکان پیوند، تصویر و ویدیو)</h3>
-        <RichEditor value={draft.body} onChange={(v) => setDraft({ ...draft, body: v })} />
+        <h2 style={{ margin: '22px 0 6px', fontSize: '1.05rem' }}>متن مقاله</h2>
+        <p className="admin__hint">متن را مانند صفحه نهایی قالب‌بندی کنید؛ پیوند، تصویر، ویدیو، زیرنویس و پیش‌نمایش در دسترس است.</p>
+        <RichEditor
+          value={draft.body}
+          onChange={(v) => setDraft({ ...draft, body: v })}
+          placeholder="متن مقاله را بنویسید یا محتوای پاک‌سازی‌شده را اینجا بچسبانید…"
+          label="ویرایشگر متن مقاله"
+        />
         <div className="admin__row" style={{ marginTop: 24 }}>
           <button className="btn btn--primary" onClick={saveDraft}>
             ذخیره مقاله

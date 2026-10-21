@@ -160,6 +160,39 @@ test('a11y the admin tabs added with the shop', async ({ page }) => {
   }
 });
 
+test('a11y the rich editor and its accessible link workflow', async ({ page }) => {
+  await loginAdmin(page);
+  await page.locator('.admin__side button', { hasText: 'وبلاگ' }).click();
+  await page.getByRole('button', { name: /مقاله جدید/ }).first().click();
+
+  const editor = page.getByRole('region', { name: 'ویرایشگر متن مقاله' });
+  let results = await audit(page);
+  expect(results.violations.length, `\n  editor:\n  ${describe(results)}\n`).toBe(0);
+
+  await editor.getByRole('button', { name: /افزودن یا ویرایش پیوند/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'افزودن پیوند' });
+  await expect(dialog.getByLabel('متن پیوند')).toBeFocused();
+  results = await audit(page);
+  expect(results.violations.length, `\n  link dialog:\n  ${describe(results)}\n`).toBe(0);
+
+  /* The modal loops keyboard focus rather than letting it escape into the
+     form behind the dimmed backdrop. */
+  await dialog.getByRole('button', { name: 'افزودن پیوند' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: 'بستن پنجره' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(editor.getByRole('textbox')).toBeFocused();
+
+  await editor.getByRole('button', { name: 'افزودن تصویر' }).click();
+  const mediaDialog = page.getByRole('dialog', { name: 'افزودن تصویر' });
+  await expect(mediaDialog.getByLabel('نشانی تصویر')).toBeFocused();
+  results = await audit(page);
+  expect(results.violations.length, `\n  media dialog:\n  ${describe(results)}\n`).toBe(0);
+  await mediaDialog.getByRole('button', { name: 'انصراف' }).click();
+  await expect(editor.getByRole('textbox')).toBeFocused();
+});
+
 test('a11y /admin login', async ({ page }) => {
   await page.goto('/admin', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.admin__login-card')).toBeVisible();

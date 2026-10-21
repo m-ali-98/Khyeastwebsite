@@ -468,9 +468,15 @@ export function ShopProductsTab() {
         <div style={{ marginTop: 14 }}>
           <Field label="توضیح کوتاه (روی کارت محصول)" textarea value={draft.short} onChange={(v) => setDraft({ ...draft, short: v })} />
         </div>
-        <h3 style={{ margin: '22px 0 10px' }}>توضیحات کامل (با امکان پیوند، عکس و ویدیو)</h3>
-        <RichEditor value={draft.description} onChange={(v) => setDraft({ ...draft, description: v })} />
-        <h3 style={{ margin: '22px 0 10px' }}>جدول مشخصات</h3>
+        <h3 style={{ margin: '22px 0 6px' }}>توضیحات کامل (با امکان پیوند، عکس و ویدیو)</h3>
+        <p className="admin__hint">جزئیات محصول را خوانا بنویسید و در صورت نیاز پیوند، رسانه و زیرنویس اضافه کنید.</p>
+        <RichEditor
+          value={draft.description}
+          onChange={(v) => setDraft({ ...draft, description: v })}
+          placeholder="توضیحات کامل محصول را بنویسید…"
+          label="ویرایشگر توضیحات کامل محصول"
+        />
+        <h2 style={{ margin: '22px 0 10px', fontSize: '1.05rem' }}>جدول مشخصات</h2>
         <PairListEditor items={draft.specs} onChange={(v) => setDraft({ ...draft, specs: v })} />
         <div className="admin__row" style={{ marginTop: 24 }}>
           <button className="btn btn--primary" onClick={saveDraft} disabled={savingDraft}>

@@ -364,21 +364,27 @@ export function PostsTransTab() {
 
         <div className="admin__tf-group">
           <div className="admin__row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ margin: 0 }}>متن مقاله</h3>
+            <h2 style={{ margin: 0, fontSize: '1.05rem' }}>متن مقاله</h2>
             <button type="button" className="btn btn--outline btn--sm" onClick={() => setShowFa((v) => !v)}>
               <Icons.doc size={15} />
               {showFa ? 'بستن متن فارسی' : 'نمایش متن فارسی'}
             </button>
           </div>
           <p className="admin__hint">
-            همان ویرایشگر نسخه فارسی: سرتیتر، فهرست، پیوند، تصویر و ویدیو. برای ترجمه می‌توانید متن فارسی را
-            کنار دست خود باز کنید.
+            همان ویرایشگر کامل نسخه فارسی با قالب‌بندی، پیوند، رسانه، زیرنویس و پیش‌نمایش. برای ترجمه می‌توانید
+            متن فارسی را کنار دست خود باز کنید.
           </p>
           {showFa && (
             <div className="admin__fa-body" dir="rtl" dangerouslySetInnerHTML={{ __html: sanitizeHtml(editing.body) }} />
           )}
           <div dir={locale === 'ar' ? 'rtl' : 'ltr'}>
-            <RichEditor key={`${editing.slug}-${locale}`} value={draft.body} onChange={(v) => setDraft({ ...draft, body: v })} />
+            <RichEditor
+              key={`${editing.slug}-${locale}`}
+              value={draft.body}
+              onChange={(v) => setDraft({ ...draft, body: v })}
+              placeholder={locale === 'ar' ? 'اكتب نص المقال هنا…' : 'Write the article here…'}
+              label={`ویرایشگر متن مقاله ${locale === 'ar' ? 'عربی' : 'انگلیسی'}`}
+            />
           </div>
         </div>
 

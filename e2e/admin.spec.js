@@ -119,6 +119,13 @@ test('switching the panel to English swaps in the translation editors', async ({
   await expect(palette.getByRole('option', { name: /سفارش‌ها/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
 
+  await adminTab(page, 'وبلاگ').click();
+  await page.getByRole('button', { name: 'ویرایش ترجمه' }).first().click();
+  const translatedEditor = page.getByRole('region', { name: 'ویرایشگر متن مقاله انگلیسی' });
+  await expect(translatedEditor).toBeVisible();
+  await expect(translatedEditor.getByRole('textbox')).toHaveCSS('direction', 'ltr');
+  await page.getByRole('button', { name: 'بازگشت به فهرست' }).last().click();
+
   await page.locator('.admin__langbtns button', { hasText: /FA|فارسی/i }).first().click();
   await expect(adminTab(page, 'سفارش‌ها')).toBeVisible();
 });
@@ -248,6 +255,211 @@ test('deleting the product asks for confirmation and removes it everywhere', asy
   await expect(page.locator('.product-card', { hasText: 'محصول آزمایشی' })).toHaveCount(0);
 });
 
+test('the article editor formats safe rich content without exposing code controls', async ({ page }) => {
+  await loginAdmin(page);
+  await adminTab(page, 'وبلاگ').first().click();
+  await page.getByRole('button', { name: /مقاله جدید/ }).first().click();
+
+  const editor = page.getByRole('region', { name: 'ویرایشگر متن مقاله' });
+  const area = editor.getByRole('textbox', { name: 'ویرایشگر متن مقاله' });
+  const selectAllEditorText = () => area.evaluate((element) => {
+    element.focus();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await expect(editor).toBeVisible();
+  await expect(area).toHaveAttribute('data-placeholder', /متن مقاله/);
+  await expect(editor.getByRole('button', { name: /واگرد/ })).toBeVisible();
+  await expect(editor.getByRole('button', { name: /از نو/ })).toBeVisible();
+  await expect(editor.getByRole('button', { name: /زیرخط/ })).toBeVisible();
+  await expect(editor.getByRole('button', { name: /پاک‌کردن قالب‌بندی/ })).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'نقل‌قول' })).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'فهرست نقطه‌ای' })).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'فهرست شماره‌ای' })).toBeVisible();
+  await expect(editor.getByRole('button', { name: /افزودن تصویر/ })).toBeVisible();
+  await expect(editor.getByRole('button', { name: /پیش‌نمایش امن/ })).toBeVisible();
+  await expect(editor.getByRole('button', { name: /کد|HTML/i })).toHaveCount(0);
+
+  await area.fill('متن پیوند آزمایشی');
+  await expect(editor.locator('.rte__stats')).toContainText('۳ واژه');
+
+  await selectAllEditorText();
+  await editor.getByRole('button', { name: /درشت/ }).click();
+  await expect(area.locator('b,strong')).toHaveText('متن پیوند آزمایشی');
+  await selectAllEditorText();
+  await editor.getByRole('button', { name: /کج/ }).click();
+  await selectAllEditorText();
+  await editor.getByRole('button', { name: /زیرخط/ }).click();
+  await expect(area.locator('i,em')).toHaveCount(1);
+  await expect(area.locator('u')).toHaveCount(1);
+  await selectAllEditorText();
+  await editor.getByRole('button', { name: /پاک‌کردن قالب‌بندی/ }).click();
+  await expect(area.locator('b,strong,i,em,u,span[style]')).toHaveCount(0);
+
+  await selectAllEditorText();
+  const quoteButton = editor.getByRole('button', { name: 'نقل‌قول' });
+  await quoteButton.click();
+  await expect(area.locator('blockquote')).toHaveText('متن پیوند آزمایشی');
+  await expect(quoteButton).toHaveAttribute('aria-pressed', 'true');
+  await quoteButton.click();
+  await expect(area.locator('blockquote')).toHaveCount(0);
+
+  await selectAllEditorText();
+  await editor.getByLabel('نوع پاراگراف').selectOption('h2');
+  await expect(area.locator('h2')).toContainText('متن پیوند آزمایشی');
+
+  await area.locator('h2').evaluate((heading) => {
+    const range = document.createRange();
+    range.selectNodeContents(heading);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await page.keyboard.press('Control+K');
+  const linkDialog = page.getByRole('dialog', { name: 'افزودن پیوند' });
+  await expect(page.locator('.admin-command')).toHaveCount(0);
+  await expect(linkDialog.getByLabel('متن پیوند')).toHaveValue('متن پیوند آزمایشی');
+  await linkDialog.getByLabel('نشانی پیوند').fill('/blog');
+  await linkDialog.getByLabel(/عنوان راهنما/).fill('رفتن به وبلاگ');
+  await linkDialog.getByRole('button', { name: 'افزودن پیوند' }).click();
+  await expect(area.locator('a[href="/blog"]')).toHaveText('متن پیوند آزمایشی');
+  await expect(area.locator('a')).toHaveAttribute('title', 'رفتن به وبلاگ');
+
+  await area.locator('a').evaluate((link) => {
+    const range = document.createRange();
+    range.selectNodeContents(link);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await editor.getByRole('button', { name: /افزودن یا ویرایش پیوند/ }).click();
+  const editLinkDialog = page.getByRole('dialog', { name: 'ویرایش پیوند' });
+  await editLinkDialog.getByLabel('نشانی پیوند').fill('/products');
+  await editLinkDialog.getByRole('button', { name: 'ذخیره تغییرات' }).click();
+  await expect(area.locator('a')).toHaveAttribute('href', '/products');
+
+  await area.locator('a').evaluate((link) => {
+    const range = document.createRange();
+    range.selectNodeContents(link);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await editor.getByRole('button', { name: 'حذف پیوند' }).click();
+  await expect(area.locator('a')).toHaveCount(0);
+  await editor.getByRole('button', { name: /واگرد/ }).click();
+  await expect(area.locator('a')).toHaveAttribute('href', '/products');
+  await editor.getByRole('button', { name: /از نو/ }).click();
+  await expect(area.locator('a')).toHaveCount(0);
+  await editor.getByRole('button', { name: /واگرد/ }).click();
+  await expect(area.locator('a')).toHaveAttribute('href', '/products');
+
+  await editor.getByRole('button', { name: 'افزودن تصویر' }).click();
+  const imageDialog = page.getByRole('dialog', { name: 'افزودن تصویر' });
+  await imageDialog.getByLabel('نشانی تصویر').fill('/assets/img/bread-slicing-480.webp');
+  await imageDialog.getByLabel('متن جایگزین تصویر').fill('برش‌های نان تازه');
+  await imageDialog.getByLabel(/زیرنویس/).fill('نمونه زیرنویس تصویر');
+  await imageDialog.getByRole('button', { name: 'افزودن به متن' }).click();
+  await expect(area.locator('figure img')).toHaveAttribute('alt', 'برش‌های نان تازه');
+  await expect(area.locator('figcaption')).toHaveText('نمونه زیرنویس تصویر');
+
+  await area.locator('figure img').dblclick();
+  const editImageDialog = page.getByRole('dialog', { name: 'ویرایش تصویر' });
+  await expect(editImageDialog.getByLabel('متن جایگزین تصویر')).toHaveValue('برش‌های نان تازه');
+  await editImageDialog.getByLabel(/زیرنویس/).fill('زیرنویس ویرایش‌شده');
+  await editImageDialog.getByRole('button', { name: 'ذخیره تغییرات' }).click();
+  await expect(area.locator('figcaption')).toHaveText('زیرنویس ویرایش‌شده');
+
+  /* Uploading is asynchronous; the original caret must still be used after
+     the server returns the optimized asset URL. */
+  await editor.getByRole('button', { name: 'افزودن تصویر' }).click();
+  const uploadDialog = page.getByRole('dialog', { name: 'افزودن تصویر' });
+  await uploadDialog.locator('input[type="file"]').setInputFiles('public/assets/brand/favicon-32.png');
+  await expect(uploadDialog.getByLabel('نشانی تصویر')).toHaveValue(/\/uploads\//);
+  await uploadDialog.getByLabel('متن جایگزین تصویر').fill('نشان بارگذاری‌شده');
+  await uploadDialog.getByRole('button', { name: 'افزودن به متن' }).click();
+  await expect(area.locator('img[alt="نشان بارگذاری‌شده"]')).toHaveAttribute('src', /\/uploads\//);
+
+  await area.evaluate((element) => {
+    element.focus();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const data = new DataTransfer();
+    data.setData('text/html', '<p style="color:red" onclick="alert(1)">متن پاک <u>زیرخط</u><script>alert(1)</script></p>');
+    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+  });
+  expect(await area.locator('script,[onclick],[style]').evaluateAll((nodes) => nodes.map((node) => node.outerHTML))).toEqual([]);
+  await expect(area.locator('u')).toHaveText('زیرخط');
+  await expect(editor).toContainText('قالب‌بندی ناسازگار هنگام چسباندن پاک شد.');
+
+  await editor.getByRole('button', { name: 'پیش‌نمایش امن' }).click();
+  await expect(editor.locator('.rte__preview')).toBeVisible();
+  await expect(editor.locator('.rte__preview figure img[alt="برش‌های نان تازه"]')).toBeVisible();
+  await expect(area).toBeHidden();
+  await editor.getByRole('button', { name: 'بازگشت به ویرایش' }).click();
+
+  await editor.getByRole('button', { name: 'ویرایش تمام‌صفحه' }).click();
+  await expect(editor).toHaveClass(/is-fullscreen/);
+  await page.keyboard.press('Escape');
+  await expect(editor).not.toHaveClass(/is-fullscreen/);
+
+  await page.getByRole('button', { name: 'انصراف' }).last().click();
+});
+
+test('the shop full-description field uses the same approachable rich editor', async ({ page }) => {
+  await loginAdmin(page);
+  await adminTab(page, 'فروشگاه — محصولات').first().click();
+  await page.locator('.admin__item').first().locator('[title="ویرایش"]').click();
+
+  await expect(page.getByRole('heading', { name: 'توضیحات کامل (با امکان پیوند، عکس و ویدیو)' })).toBeVisible();
+  const editor = page.getByRole('region', { name: 'ویرایشگر توضیحات کامل محصول' });
+  await expect(editor.getByRole('textbox', { name: 'ویرایشگر توضیحات کامل محصول' })).toHaveAttribute('data-placeholder', /توضیحات کامل محصول/);
+  await expect(editor.getByRole('button', { name: /افزودن یا ویرایش پیوند/ })).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'افزودن تصویر' })).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'افزودن ویدیو' })).toBeVisible();
+  await page.getByRole('button', { name: 'انصراف' }).last().click();
+});
+
+test('the rich editor stays usable on a narrow screen @mobile', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'narrow-screen layout check');
+  await loginAdmin(page);
+  await adminTab(page, 'وبلاگ').first().click();
+  await page.getByRole('button', { name: /مقاله جدید/ }).first().click();
+
+  const editor = page.getByRole('region', { name: 'ویرایشگر متن مقاله' });
+  await editor.scrollIntoViewIfNeeded();
+  const editorBox = await editor.boundingBox();
+  expect(editorBox).toBeTruthy();
+  expect(editorBox.x).toBeGreaterThanOrEqual(0);
+  expect(editorBox.x + editorBox.width).toBeLessThanOrEqual((page.viewportSize()?.width || 412) + 1);
+  const overflow = await editor.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  await editor.getByRole('button', { name: /افزودن یا ویرایش پیوند/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'افزودن پیوند' });
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox).toBeTruthy();
+  expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox.width).toBeLessThanOrEqual(page.viewportSize()?.width || 412);
+  await dialog.getByRole('button', { name: 'انصراف' }).click();
+
+  await editor.getByRole('button', { name: 'ویرایش تمام‌صفحه' }).click();
+  await expect(editor).toHaveCSS('position', 'fixed');
+  const fullscreenBox = await editor.boundingBox();
+  expect(fullscreenBox).toBeTruthy();
+  expect(fullscreenBox.width).toBeGreaterThanOrEqual((page.viewportSize()?.width || 412) - 1);
+  await page.keyboard.press('Escape');
+});
+
 test('a blog post can be written, published and read on the site', async ({ page }) => {
   await loginAdmin(page);
   await adminTab(page, 'وبلاگ').first().click();
@@ -260,8 +472,15 @@ test('a blog post can be written, published and read on the site', async ({ page
 
   /* The rich editor is a contenteditable, not an input. */
   const body = page.locator('.admin__panel [contenteditable="true"]').first();
-  await body.click();
-  await body.fill('متن آزمایشی مقاله با یک پیوند و چند جمله برای آنکه صفحه خالی نباشد.');
+  await body.evaluate((editor) => {
+    editor.innerHTML = [
+      '<h2>عنوان بخش آزمایشی</h2>',
+      '<p>متن آزمایشی مقاله با یک <a href="/products" title="محصولات">پیوند</a> و چند جمله برای آنکه صفحه خالی نباشد.</p>',
+      '<blockquote>نکته آزمایشی برای خوانندگان مقاله</blockquote>',
+      '<figure><img src="/assets/img/bread-slicing-480.webp" alt="برش نان تازه"><figcaption>زیرنویس آزمایشی تصویر</figcaption></figure>',
+    ].join('');
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  });
 
   await page.getByRole('button', { name: 'ذخیره مقاله' }).click();
   await expect(page.locator('.admin__item', { hasText: 'مقاله آزمایشی خودکار' })).toBeVisible();
@@ -269,7 +488,13 @@ test('a blog post can be written, published and read on the site', async ({ page
   await gotoReady(page, '/blog');
   await expect(page.locator('main')).toContainText('مقاله آزمایشی خودکار');
   await gotoReady(page, `/blog/${POST_SLUG}`);
-  await expect(page.locator('main')).toContainText('متن آزمایشی مقاله');
+  const publishedBody = page.locator('.post-body');
+  await expect(publishedBody).toContainText('متن آزمایشی مقاله');
+  await expect(publishedBody.getByRole('heading', { name: 'عنوان بخش آزمایشی' })).toBeVisible();
+  await expect(publishedBody.locator('blockquote')).toHaveText('نکته آزمایشی برای خوانندگان مقاله');
+  await expect(publishedBody.locator('a[href="/products"]')).toHaveAttribute('title', 'محصولات');
+  await expect(publishedBody.locator('figure img')).toHaveAttribute('alt', 'برش نان تازه');
+  await expect(publishedBody.locator('figcaption')).toHaveText('زیرنویس آزمایشی تصویر');
 
   /* clean up */
   await loginAdmin(page);
