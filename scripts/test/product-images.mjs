@@ -7,9 +7,13 @@ import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import { mergeContentState } from '../../shared/contentState.js';
 import { localizeState } from '../../shared/i18n/index.js';
 import {
+  cleanProductImageUrl,
+  isAllowedProductImageUrl,
   MAX_PRODUCT_IMAGES,
+  normalizeProductImageOrigins,
   normalizeProductImages,
   productImageList,
+  productImagesProblem,
   syncProductImages,
 } from '../../shared/productImages.js';
 import { sanitizeContentPayload } from '../../server/sanitize.js';
@@ -38,6 +42,38 @@ check(
   JSON.stringify(normalizeProductImages(['javascript:alert(1)', '//evil.test/x', '/ok.webp', '/ok.webp'])) ===
     JSON.stringify(['/ok.webp']),
   'unsafe and duplicate product image URLs are rejected',
+);
+check(
+  !cleanProductImageUrl('http://cdn.example/photo.webp') &&
+    !cleanProductImageUrl('https://user:pass@cdn.example/photo.webp') &&
+    !cleanProductImageUrl('/uploads\\evil.webp') &&
+    !cleanProductImageUrl('/uploads/images/a.webp\nignored') &&
+    !cleanProductImageUrl('\n/uploads/images/a.webp'),
+  'HTTP, credentials, backslashes and control characters are rejected',
+);
+check(
+  isAllowedProductImageUrl('/uploads/images/photo.webp', []) &&
+    isAllowedProductImageUrl('https://cdn.example/photo.webp', ['https://cdn.example']) &&
+    !isAllowedProductImageUrl('https://other.example/photo.webp', ['https://cdn.example']) &&
+    !isAllowedProductImageUrl('https://sub.cdn.example/photo.webp', ['https://cdn.example']),
+  'gallery authorization is exact-origin while safe root paths remain allowed',
+);
+check(
+  JSON.stringify(normalizeProductImageOrigins([
+    'https://cdn.example',
+    'https://cdn.example/',
+    'http://cdn.example',
+    'https://cdn.example/path',
+    'nonsense',
+  ])) === JSON.stringify(['https://cdn.example']),
+  'only canonical HTTPS origins can expand the gallery allowlist',
+);
+check(
+  productImagesProblem({ images: ['https://cdn.example/a.webp'] }, ['https://cdn.example']) === null &&
+    productImagesProblem({ images: ['https://other.example/a.webp'] }, ['https://cdn.example'])?.code === 'untrusted_origin' &&
+    productImagesProblem({ images: ['http://cdn.example/a.webp'] }, ['https://cdn.example'])?.code === 'invalid_url' &&
+    productImagesProblem({ images: ['/safe.webp', '/safe.webp'] }, [])?.code === 'duplicate',
+  'save-time validation distinguishes trusted, untrusted, mixed-content and duplicate media',
 );
 check(
   normalizeProductImages(Array.from({ length: MAX_PRODUCT_IMAGES + 4 }, (_, index) => `/image-${index}.webp`)).length === MAX_PRODUCT_IMAGES,

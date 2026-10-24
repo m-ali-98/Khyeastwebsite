@@ -17,6 +17,7 @@ import { api } from '../content/ContentContext';
 import { sanitizeHtml } from '../content/sanitize';
 import {
   cleanProductImageUrl,
+  isAllowedProductImageUrl,
   MAX_PRODUCT_IMAGES,
 } from '../../shared/productImages.js';
 
@@ -105,7 +106,7 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
 }
 
 /* ---------------- ordered product gallery ---------------- */
-export function ProductImagesEditor({ images = [], onChange, onBusyChange, max = MAX_PRODUCT_IMAGES }) {
+export function ProductImagesEditor({ images = [], onChange, onBusyChange, trustedOrigins = [], max = MAX_PRODUCT_IMAGES }) {
   const picker = useRef(null);
   const mounted = useRef(true);
   const urlId = useId();
@@ -136,7 +137,11 @@ export function ProductImagesEditor({ images = [], onChange, onBusyChange, max =
     clearNotice();
     const clean = cleanProductImageUrl(url);
     if (!clean) {
-      setError('نشانی تصویر معتبر نیست. از مسیر داخلی سایت یا نشانی http/https استفاده کنید.');
+      setError('نشانی معتبر نیست. فقط مسیر داخلی امن یا نشانی کامل HTTPS بدون اطلاعات ورود مجاز است.');
+      return;
+    }
+    if (!isAllowedProductImageUrl(clean, trustedOrigins)) {
+      setError('مبدأ این تصویر در سیاست امنیتی سایت مجاز نیست؛ تصویر را بارگذاری کنید یا از مبدأ HTTPS مورد اعتماد استفاده کنید.');
       return;
     }
     if (items.includes(clean)) {

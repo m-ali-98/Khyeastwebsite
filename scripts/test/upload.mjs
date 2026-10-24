@@ -114,11 +114,90 @@ const photo = (w, h, fmt = 'jpeg') => {
 };
 
 const onDisk = (url) => path.join(UPLOADS, url.replace(/^\/uploads\//, ''));
+let keptImageUrl = '';
+let keptVideoUrl = '';
 
 try {
   await start();
   const token = await login();
   check(Boolean(token), 'logged in');
+
+  /* ---- content saves enforce the same origins as document CSP ---------- */
+  {
+    const originalResponse = await fetch(`${BASE}/api/content`);
+    const original = await originalResponse.json();
+    const put = async (payload) => {
+      const response = await fetch(`${BASE}/api/content`, {
+        method: 'PUT',
+        headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+        body: JSON.stringify(payload),
+      });
+      return { status: response.status, body: await response.json().catch(() => ({})) };
+    };
+    const withImage = (image, seals = original.collections?.trustSeals || []) => {
+      const payload = structuredClone(original);
+      payload.collections = { ...payload.collections, trustSeals: seals };
+      payload.products[0] = { ...payload.products[0], image, images: [image] };
+      return payload;
+    };
+
+    const untrusted = await put(withImage('https://untrusted.example/product.webp'));
+    check(
+      untrusted.status === 400 && untrusted.body.code === 'untrusted_origin' && /products\[0\]/.test(untrusted.body.field || ''),
+      'the server rejects a gallery origin outside img-src with a useful field',
+      `${untrusted.status} ${JSON.stringify(untrusted.body)}`,
+    );
+
+    const putShopImage = async (image) => {
+      const products = structuredClone(original.shop.products);
+      products[0] = { ...products[0], image, images: [image] };
+      const response = await fetch(`${BASE}/api/shop-admin/products`, {
+        method: 'PUT',
+        headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+        body: JSON.stringify({ products }),
+      });
+      return { status: response.status, body: await response.json().catch(() => ({})) };
+    };
+    const untrustedDirectShop = await putShopImage('https://untrusted.example/shop.webp');
+    check(
+      untrustedDirectShop.status === 400 && untrustedDirectShop.body.code === 'untrusted_origin',
+      'the direct shop-products endpoint cannot bypass the gallery origin policy',
+      `${untrustedDirectShop.status} ${JSON.stringify(untrustedDirectShop.body)}`,
+    );
+
+    const malformedResults = [];
+    for (const image of [
+      'http://cdn.example/product.webp',
+      'https://user:pass@cdn.example/product.webp',
+      '/uploads\\images\\product.webp',
+      '/uploads/images/product.webp\nignored',
+    ]) {
+      malformedResults.push(await put(withImage(image)));
+    }
+    check(
+      malformedResults.every((result) => result.status === 400 && result.body.code === 'invalid_url'),
+      'HTTP, credentials, backslashes and control characters get explicit 400 responses',
+      JSON.stringify(malformedResults),
+    );
+
+    const trustedSeal = [{
+      id: 'test-cdn',
+      label: 'Test CDN',
+      href: 'https://cdn.example/verify',
+      image: 'https://cdn.example/seal.png',
+      imageId: '',
+      active: true,
+    }];
+    const trusted = await put(withImage('https://cdn.example/product.webp', trustedSeal));
+    check(trusted.status === 200, 'an HTTPS gallery origin already trusted by CSP can be saved', `${trusted.status} ${JSON.stringify(trusted.body)}`);
+    const trustedDirectShop = await putShopImage('https://cdn.example/shop.webp');
+    check(trustedDirectShop.status === 200, 'the direct shop-products endpoint accepts the same configured HTTPS origin', `${trustedDirectShop.status} ${JSON.stringify(trustedDirectShop.body)}`);
+    const cspResponse = await fetch(`${BASE}/products`);
+    check((cspResponse.headers.get('content-security-policy') || '').includes('https://cdn.example'), 'the saved gallery allowlist and document CSP use the same trusted origin');
+
+    const restored = await put(original);
+    check(restored.status === 200, 'content is restored after gallery-policy checks', String(restored.status));
+  }
 
   /* ---- a large photo is shrunk, and the whole ladder is on disk -------- */
   {
@@ -172,6 +251,7 @@ try {
     const { status, body } = await send(token, src, 'small.png', 'image/png');
     check(status === 200, 'a small image uploads', String(status));
 
+    keptImageUrl = body.url;
     const file = onDisk(body.url);
     check(fs.existsSync(file), 'it is on disk', body.url);
     const full = widthFromName(body.url);
@@ -196,6 +276,7 @@ try {
     check(status === 200, 'a video uploads', String(status));
     check(body.url?.endsWith('.mp4'), 'a video keeps its container', body.url);
     check(body.optimised === false, 'a video is not run through the image pipeline');
+    keptVideoUrl = body.url;
     const stored = fs.readFileSync(onDisk(body.url));
     check(stored.equals(mp4), 'a video is stored byte for byte');
   }
@@ -214,10 +295,103 @@ try {
     check(anon.status === 401, 'an anonymous upload is still refused', String(anon.status));
   }
 
+  /* ---- unused-file preview is conservative and authenticated ----------- */
+  {
+    const anonymousScan = await fetch(`${BASE}/api/uploads/unused`);
+    check(anonymousScan.status === 401, 'an anonymous unused-file scan is refused', String(anonymousScan.status));
+    const anonymousDelete = await fetch(`${BASE}/api/uploads/unused`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ urls: [keptVideoUrl] }),
+    });
+    check(anonymousDelete.status === 401, 'an anonymous cleanup is refused', String(anonymousDelete.status));
+
+    const scan = async () => {
+      const response = await fetch(`${BASE}/api/uploads/unused`, { headers: { Cookie: token } });
+      return { status: response.status, body: await response.json().catch(() => ({})) };
+    };
+    const fresh = await scan();
+    check(fresh.status === 200 && fresh.body.totalCount === 0, 'fresh unsaved uploads stay inside the cleanup grace period', JSON.stringify(fresh.body));
+
+    const ageFamily = (url) => {
+      const file = onDisk(url);
+      const dir = path.dirname(file);
+      const name = path.basename(file);
+      const master = name.match(/^(.+)-w\d+\.webp$/);
+      const names = master
+        ? fs.readdirSync(dir).filter((candidate) => candidate === name || (candidate.startsWith(`${master[1]}-`) && candidate.endsWith('.webp')))
+        : [name];
+      const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      for (const candidate of names) fs.utimesSync(path.join(dir, candidate), old, old);
+    };
+    ageFamily(keptImageUrl);
+    ageFamily(keptVideoUrl);
+
+    /* A product gallery reference keeps its photo (and any responsive set),
+       while an old video with no reference becomes a candidate. */
+    const contentFile = path.join(TMP, 'content.json');
+    const content = JSON.parse(fs.readFileSync(contentFile, 'utf8'));
+    content.products[0] = {
+      ...content.products[0],
+      image: keptImageUrl,
+      images: [keptImageUrl],
+    };
+    fs.writeFileSync(contentFile, JSON.stringify(content, null, 2));
+
+    const orphanUrl = '/uploads/images/cleanup-w1600.webp';
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    for (const [name, bytes] of [['cleanup-w1600.webp', 37], ['cleanup-480.webp', 11], ['cleanup-768.webp', 19]]) {
+      const file = path.join(UPLOADS, 'images', name);
+      fs.writeFileSync(file, Buffer.alloc(bytes, 3));
+      fs.utimesSync(file, old, old);
+    }
+
+    const preview = await scan();
+    const candidateUrls = preview.body.items?.map((item) => item.url) || [];
+    check(preview.status === 200 && candidateUrls.includes(keptVideoUrl) && candidateUrls.includes(orphanUrl), 'old unreferenced image sets and videos appear in the preview', candidateUrls.join(' '));
+    const orphan = preview.body.items?.find((item) => item.url === orphanUrl);
+    check(orphan?.fileCount === 3 && orphan?.bytes === 67, 'the preview totals an optimized image family', JSON.stringify(orphan));
+
+    const stillUsed = await fetch(`${BASE}/api/upload`, {
+      method: 'DELETE',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ url: keptImageUrl }),
+    });
+    check(stillUsed.status === 409 && fs.existsSync(onDisk(keptImageUrl)), 'the legacy delete endpoint cannot remove referenced media', String(stillUsed.status));
+
+    /* Simulate content becoming referenced after the preview. The cleanup
+       endpoint has to rescan at confirmation time and skip it. */
+    content.posts[0] = {
+      ...content.posts[0],
+      body: `${content.posts[0]?.body || ''}<img src="${orphanUrl}">`,
+    };
+    fs.writeFileSync(contentFile, JSON.stringify(content, null, 2));
+    const raced = await fetch(`${BASE}/api/uploads/unused`, {
+      method: 'DELETE',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ urls: [orphanUrl] }),
+    });
+    const racedBody = await raced.json().catch(() => ({}));
+    check(raced.status === 200 && racedBody.removed?.length === 0 && racedBody.skipped?.includes(orphanUrl), 'cleanup rescans and preserves a newly referenced file', JSON.stringify(racedBody));
+    check(fs.existsSync(path.join(UPLOADS, 'images', 'cleanup-480.webp')), 'a skipped optimized set remains complete');
+
+    content.posts[0].body = String(content.posts[0].body).replace(`<img src="${orphanUrl}">`, '');
+    fs.writeFileSync(contentFile, JSON.stringify(content, null, 2));
+    const cleanup = await fetch(`${BASE}/api/uploads/unused`, {
+      method: 'DELETE',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ urls: [orphanUrl, keptVideoUrl] }),
+    });
+    const cleanupBody = await cleanup.json().catch(() => ({}));
+    check(cleanup.status === 200 && cleanupBody.removed?.length === 2 && cleanupBody.bytes > 67, 'confirmed cleanup removes only the selected current orphans', JSON.stringify(cleanupBody));
+    check(!fs.existsSync(onDisk(keptVideoUrl)), 'the selected unused video is gone');
+    check(!fs.readdirSync(path.join(UPLOADS, 'images')).some((name) => name.startsWith('cleanup-')), 'every selected optimized variant is gone');
+  }
+
   /* ---- nothing stray was left behind ----------------------------------- */
   {
     const imgs = fs.existsSync(path.join(UPLOADS, 'images')) ? fs.readdirSync(path.join(UPLOADS, 'images')) : [];
-    check(imgs.length === 1, 'only the files we kept are on disk', imgs.join(' '));
+    check(imgs.length === 1, 'only the referenced image we kept is on disk', imgs.join(' '));
   }
 } catch (e) {
   check(false, 'harness', String(e?.message || e));

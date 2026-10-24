@@ -490,6 +490,88 @@
   }
 }
 
+/* Explicit orphan review: references are removed in their editors, while
+   physical files are only deleted here after a server-side rescan. */
+.admin-unused {
+  margin-top: 32px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg);
+
+  &__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  &__head h2 { margin: 0 0 5px; font-size: 18px; }
+  &__head p { max-width: 720px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.9; }
+  &__guard {
+    margin-top: 16px;
+    padding: 11px 13px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    line-height: 1.9;
+  }
+  &__message { margin: 13px 0 0; color: var(--admin-ok); font-size: 13px; font-weight: 700; }
+  &__message.is-error { color: var(--crimson-ink); }
+  &__summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+  &__summary strong { color: var(--ink); }
+  &__summary label { display: inline-flex; align-items: center; gap: 7px; margin-inline-start: auto; cursor: pointer; }
+  &__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+  &__item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto 58px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 9px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    cursor: pointer;
+  }
+  &__preview {
+    width: 58px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 8px;
+    background: var(--bg-soft);
+    color: var(--muted);
+  }
+  &__preview img { width: 100%; height: 100%; object-fit: cover; }
+  &__meta { min-width: 0; }
+  &__meta b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; text-align: left; }
+  &__meta small { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; }
+  &__empty, &__more { margin: 16px 0 0; color: var(--muted); font-size: 13px; }
+  &__delete { margin-top: 16px; color: var(--crimson-ink); }
+}
+
+@media (max-width: 760px) {
+  .admin-unused {
+    padding: 16px;
+    &__list { grid-template-columns: minmax(0, 1fr); }
+    &__summary label { width: 100%; margin-inline-start: 0; }
+  }
+}
+
 /* rich editor */
 .rte {
   position: relative;

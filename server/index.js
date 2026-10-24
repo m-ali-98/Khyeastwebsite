@@ -31,7 +31,14 @@ import {
 import { createShopRouter, shopProductProblems } from './shop.js';
 import { createAccountRouter } from './accountRoutes.js';
 import { optimizeImage, optimiserAvailable } from './images.js';
-import { UPLOAD_LADDER } from '../shared/uploadSizes.js';
+import {
+  deleteUnusedUploads,
+  deleteUploadSet,
+  isUploadReferenced,
+  listUnusedUploads,
+  parseUploadUrl,
+} from './uploadCleanup.js';
+import { productImagesProblem, productImagesProblemMessage } from '../shared/productImages.js';
 import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
@@ -827,6 +834,34 @@ app.put('/api/content', requireAuth, (req, res) => {
     if (trustError) return res.status(400).json({ error: trustError });
   }
 
+  /* Product photos have to be renderable under the exact img-src policy this
+     payload will publish. Validate before normalization so a malformed or
+     untrusted entry cannot be silently discarded while the save appears to
+     succeed. An active trust seal is the only content-controlled way to add an
+     external HTTPS image origin to CSP, so both rules share this origin set. */
+  const trustedImageOrigins = trustSealImageOrigins(next.collections?.trustSeals);
+  for (const [bucket, list] of [
+    ['products', next.products],
+    ['shop.products', next.shop?.products],
+  ]) {
+    if (!Array.isArray(list)) continue;
+    for (let index = 0; index < list.length; index += 1) {
+      const product = list[index];
+      const problem = productImagesProblem(product, trustedImageOrigins);
+      if (!problem) continue;
+      const usesGallery = Array.isArray(product?.images) && product.images.length > 0;
+      const imageField = problem.index >= 0
+        ? (usesGallery ? `.images[${problem.index}]` : '.image')
+        : '';
+      return res.status(400).json({
+        error: 'invalid product gallery',
+        code: problem.code,
+        field: `${bucket}[${index}]${imageField}`,
+        detail: productImagesProblemMessage(problem),
+      });
+    }
+  }
+
   /* never let a payload without translations wipe the stored ones */
   if (!next.i18n || typeof next.i18n !== 'object') next.i18n = readContent().i18n || {};
   try {
@@ -860,6 +895,19 @@ app.delete('/api/messages/:id', requireAuth, (req, res) => {
 });
 
 /* ---------------- admin: uploads ---------------- */
+app.get('/api/uploads/unused', requireAuth, (_req, res) => {
+  res.json(listUnusedUploads(UPLOAD_DIR, readContent()));
+});
+
+app.delete('/api/uploads/unused', requireAuth, (req, res) => {
+  if (!Array.isArray(req.body?.urls)) return res.status(400).json({ error: 'urls must be an array' });
+  /* The content tree is read again here rather than trusting the preview. If a
+     file became referenced while the confirmation dialog was open, it is no
+     longer a candidate and will be reported as skipped. */
+  const result = deleteUnusedUploads(UPLOAD_DIR, readContent(), req.body.urls);
+  res.json({ ok: true, ...result });
+});
+
 app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no file' });
   const ext = path.extname(req.file.originalname).toLowerCase();
@@ -920,35 +968,18 @@ app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => 
 
 app.delete('/api/upload', requireAuth, (req, res) => {
   const url = String(req.body?.url || '');
-  const m = url.match(/^\/uploads\/(images|videos)\/([\w.-]+)$/);
-  if (!m) return res.status(400).json({ error: 'invalid url' });
-  const dir = path.join(UPLOAD_DIR, m[1]);
-
-  /* Unlinking can fail on a file that is in use — Windows refuses while any
-     handle is open, and a virus scanner or a backup agent can hold one for a
-     moment. That must not turn removing a picture into a 500: the admin has
-     already stopped referencing it, and a file we could not delete is litter,
-     not an error. Report which ones survived instead. */
-  const stuck = [];
-  const remove = (f) => {
-    if (!fs.existsSync(f)) return;
-    try {
-      fs.unlinkSync(f);
-    } catch {
-      stuck.push(path.basename(f));
-    }
-  };
-
-  remove(path.join(dir, m[2]));
-
-  /* An optimised image is a set, not a file. Deleting only the master would
-     leave its smaller copies behind for good — nothing else references them,
-     so no later pass could ever find them. */
-  const opt = m[2].match(/^(.+)-w\d+\.webp$/);
-  if (opt) {
-    for (const w of UPLOAD_LADDER) remove(path.join(dir, `${opt[1]}-${w}.webp`));
+  /* This lower-level endpoint remains for existing integrations, but it may no
+     longer delete a file used by another product or page. Gallery removal in
+     the Admin intentionally removes only the reference; the unused-files
+     cleanup is the normal deletion path. */
+  if (!parseUploadUrl(url)) return res.status(400).json({ error: 'invalid url' });
+  if (isUploadReferenced(url, readContent())) {
+    return res.status(409).json({ error: 'upload is still referenced' });
   }
-  res.json({ ok: true, stuck });
+  /* The reference check and deletion are synchronous, so no request in this
+     process can save content in between. */
+  const deleted = deleteUploadSet(UPLOAD_DIR, url);
+  res.json({ ok: true, stuck: deleted.stuck, removed: deleted.removed, bytes: deleted.bytes });
 });
 
 /* Defence in depth for anything already on disk (including files uploaded
@@ -967,7 +998,12 @@ app.use(
 );
 
 /* ---------------- online shop + customer accounts ---------------- */
-const shopRouter = createShopRouter({ database: db, requireAuth, rateLimiter });
+const shopRouter = createShopRouter({
+  database: db,
+  requireAuth,
+  rateLimiter,
+  trustedImageOrigins: () => trustSealImageOrigins(readContent().collections?.trustSeals),
+});
 app.use(shopRouter);
 
 /* The account router borrows the shop's SMS sender so the daily cap and the

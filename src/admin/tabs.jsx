@@ -4,11 +4,12 @@ import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
 import { Field, UploadButton, StringListEditor, PairListEditor, ProductImagesEditor, RichEditor } from './editors';
 import { getPack, LOCALES } from '../../shared/i18n/index.js';
-import { productImageList, syncProductImages } from '../../shared/productImages.js';
+import { productImageList, productImagesProblem, syncProductImages } from '../../shared/productImages.js';
 import {
   MAX_TRUST_SEALS,
   safeHttpsUrl,
   safeTrustImageUrl,
+  trustSealImageOrigins,
   validateTrustSeals,
 } from '../../shared/trustSeals.js';
 
@@ -97,11 +98,27 @@ const checkSlug = (list, slug, orig, what) => {
   return '';
 };
 
+const productGalleryProblemFa = (problem) => {
+  if (!problem) return '';
+  const number = Number.isInteger(problem.index) && problem.index >= 0
+    ? `تصویر ${(problem.index + 1).toLocaleString('fa-IR')}: `
+    : '';
+  if (problem.code === 'required') return 'حداقل یک تصویر معتبر برای محصول انتخاب کنید.';
+  if (problem.code === 'too_many') return 'تعداد تصاویر محصول بیشتر از سقف مجاز است.';
+  if (problem.code === 'untrusted_origin') return `${number}مبدأ HTTPS آن در سیاست امنیتی تصاویر سایت مورد اعتماد نیست.`;
+  if (problem.code === 'duplicate') return `${number}این تصویر در گالری تکراری است.`;
+  return `${number}نشانی معتبر نیست؛ فقط مسیر داخلی امن یا نشانی HTTPS مورد اعتماد مجاز است.`;
+};
+
 /* ================= products ================= */
 export function ProductsTab() {
   const { state, save, brands } = useContent();
   const [draft, setDraft] = useState(null);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  const trustedImageOrigins = useMemo(
+    () => trustSealImageOrigins(state.collections?.trustSeals),
+    [state.collections?.trustSeals],
+  );
 
   const commit = (next) => save({ ...state, products: next });
 
@@ -128,6 +145,8 @@ export function ProductsTab() {
   const saveDraft = () => {
     if (galleryBusy) return window.alert('تا پایان بارگذاری تصاویر صبر کنید.');
     const { _orig, ...rest } = draft;
+    const galleryProblem = productImagesProblem(rest, trustedImageOrigins);
+    if (galleryProblem) return window.alert(productGalleryProblemFa(galleryProblem));
     const enteredImages = Array.isArray(rest.images)
       ? rest.images.filter((image) => typeof image === 'string' && image.trim())
       : [];
@@ -199,6 +218,7 @@ export function ProductsTab() {
             images={Array.isArray(draft.images) ? draft.images : productImageList(draft)}
             onChange={(images) => setDraft({ ...draft, images, image: images[0] || '' })}
             onBusyChange={setGalleryBusy}
+            trustedOrigins={trustedImageOrigins}
           />
         </div>
         <label className="admin__row" style={{ marginTop: 12 }}>
@@ -515,6 +535,151 @@ export function TextsTab() {
 }
 
 /* ================= media ================= */
+const formatUploadBytes = (value) => {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${bytes.toLocaleString('fa-IR')} بایت`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} کیلوبایت`;
+  return `${(bytes / (1024 ** 2)).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} مگابایت`;
+};
+
+function UnusedUploads() {
+  const [report, setReport] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  const scan = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const next = await api('/api/uploads/unused', { auth: true });
+      setReport(next);
+      setSelected(next.items.map((item) => item.url));
+    } catch (error) {
+      setMessage({ bad: true, text: error.message || 'بررسی فایل‌ها ممکن نشد.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeSelected = async () => {
+    if (!selected.length) return;
+    const candidates = report.items.filter((item) => selected.includes(item.url));
+    const bytes = candidates.reduce((sum, item) => sum + item.bytes, 0);
+    if (!window.confirm(
+      `${selected.length.toLocaleString('fa-IR')} مورد (${formatUploadBytes(bytes)}) پس از بررسی دوباره حذف شود؟ این کار قابل بازگشت نیست.`,
+    )) return;
+
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api('/api/uploads/unused', {
+        method: 'DELETE',
+        auth: true,
+        body: { urls: selected },
+      });
+      const next = await api('/api/uploads/unused', { auth: true });
+      setReport(next);
+      setSelected(next.items.map((item) => item.url));
+      const protectedCount = result.skipped?.length || 0;
+      setMessage({
+        bad: Boolean(result.stuck?.length),
+        text: result.stuck?.length
+          ? `${result.removed.length.toLocaleString('fa-IR')} مورد حذف شد؛ ${result.stuck.length.toLocaleString('fa-IR')} فایل فعلاً قفل بود.`
+          : protectedCount
+            ? `${result.removed.length.toLocaleString('fa-IR')} مورد حذف شد؛ ${protectedCount.toLocaleString('fa-IR')} مورد چون تازه یا در حال استفاده بود، حفظ شد.`
+            : `${result.removed.length.toLocaleString('fa-IR')} مورد و ${formatUploadBytes(result.bytes)} پاک شد.`,
+      });
+    } catch (error) {
+      setMessage({ bad: true, text: error.message || 'پاک‌سازی فایل‌ها ممکن نشد.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = (url) => setSelected((current) => (
+    current.includes(url) ? current.filter((item) => item !== url) : [...current, url]
+  ));
+  const allSelected = Boolean(report?.items.length) && selected.length === report.items.length;
+
+  return (
+    <section className="admin-unused" data-testid="unused-uploads">
+      <div className="admin-unused__head">
+        <div>
+          <h2>فایل‌های استفاده‌نشده</h2>
+          <p>همه ارجاع‌های ذخیره‌شده، از جمله گالری محصولات، متن‌های غنی، ویدیوها و نسخه‌های بهینه تصویر بررسی می‌شوند.</p>
+        </div>
+        <button type="button" className="btn btn--outline" onClick={scan} disabled={busy}>
+          <Icons.refresh size={16} />
+          {busy ? 'در حال بررسی…' : report ? 'بررسی دوباره' : 'بررسی فایل‌ها'}
+        </button>
+      </div>
+
+      <div className="admin-unused__guard">
+        فایل‌های بارگذاری‌شده در {Number(report?.graceHours || 24).toLocaleString('fa-IR')} ساعت اخیر نمایش داده یا حذف نمی‌شوند تا پیش‌نویس‌های در حال ویرایش ایمن بمانند. پیش از حذف نیز سرور دوباره همه ارجاع‌ها را بررسی می‌کند.
+      </div>
+
+      {message && <p className={`admin-unused__message${message.bad ? ' is-error' : ''}`} role="status">{message.text}</p>}
+
+      {report && (
+        <>
+          <div className="admin-unused__summary">
+            <strong>{report.totalCount.toLocaleString('fa-IR')} مورد</strong>
+            <span>{formatUploadBytes(report.totalBytes)}</span>
+            {report.items.length > 0 && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={(event) => setSelected(event.target.checked ? report.items.map((item) => item.url) : [])}
+                />
+                انتخاب همه موارد نمایش‌داده‌شده
+              </label>
+            )}
+          </div>
+
+          {report.items.length ? (
+            <div className="admin-unused__list">
+              {report.items.map((item) => (
+                <label className="admin-unused__item" key={item.url}>
+                  <input type="checkbox" checked={selected.includes(item.url)} onChange={() => toggle(item.url)} />
+                  <span className="admin-unused__preview">
+                    {item.type === 'image'
+                      ? <img src={item.url} alt="" />
+                      : <Icons.video size={24} aria-hidden="true" />}
+                  </span>
+                  <span className="admin-unused__meta">
+                    <b dir="ltr">{item.name}</b>
+                    <small>
+                      {formatUploadBytes(item.bytes)}
+                      {item.fileCount > 1 ? ` · ${item.fileCount.toLocaleString('fa-IR')} فایل در مجموعه بهینه` : ''}
+                    </small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="admin-unused__empty">فایل قدیمیِ بدون استفاده‌ای پیدا نشد.</p>
+          )}
+
+          {report.truncated && <p className="admin-unused__more">برای ایمنی، فقط هزار مورد اول نمایش داده شده است؛ پس از پاک‌سازی دوباره بررسی کنید.</p>}
+          {report.items.length > 0 && (
+            <button
+              type="button"
+              className="btn btn--outline admin-unused__delete"
+              onClick={removeSelected}
+              disabled={busy || !selected.length}
+            >
+              <Icons.trash size={16} />
+              حذف موارد انتخاب‌شده
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function MediaTab() {
   const { state, save } = useContent();
   const set = (k, v) => save({ ...state, media: { ...state.media, [k]: v } });
@@ -543,6 +708,7 @@ export function MediaTab() {
           </div>
         ))}
       </div>
+      <UnusedUploads />
     </div>
   );
 }

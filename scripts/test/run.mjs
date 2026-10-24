@@ -258,7 +258,11 @@ console.log('\nSEO — every public route must be crawlable, canonical and safe'
 }
 
 console.log('\nUpload optimisation — a photo may be shrunk, but never lost or broken');
-for (const [file, label, timeout] of [['images.mjs', 'upload optimisation checks', 60000], ['upload.mjs', 'upload round-trip checks', 90000]]) {
+for (const [file, label, timeout] of [
+  ['images.mjs', 'upload optimisation checks', 60000],
+  ['upload-cleanup.mjs', 'unused-file reference and safety checks', 30000],
+  ['upload.mjs', 'upload round-trip checks', 90000],
+]) {
   const name = file.replace('.mjs', '');
   const { stdout, crashed, err } = await suite(file, timeout);
   const line = stdout.trim().split('\n').pop() || '';

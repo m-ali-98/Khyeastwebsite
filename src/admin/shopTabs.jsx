@@ -4,7 +4,8 @@ import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
 import { Field, UploadButton, PairListEditor, ProductImagesEditor, RichEditor } from './editors';
 import { formatMoney } from '../shop/ShopContext';
-import { productImageList, syncProductImages } from '../../shared/productImages.js';
+import { productImageList, productImagesProblem, syncProductImages } from '../../shared/productImages.js';
+import { trustSealImageOrigins } from '../../shared/trustSeals.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const slugify = (s) =>
@@ -16,6 +17,18 @@ const slugify = (s) =>
 const num = (v, fallback = 0) => {
   const n = Number(String(v).replace(/[^\d.-]/g, ''));
   return Number.isFinite(n) ? n : fallback;
+};
+
+const productGalleryProblemFa = (problem) => {
+  if (!problem) return '';
+  const number = Number.isInteger(problem.index) && problem.index >= 0
+    ? `تصویر ${(problem.index + 1).toLocaleString('fa-IR')}: `
+    : '';
+  if (problem.code === 'required') return 'حداقل یک تصویر معتبر برای محصول انتخاب کنید.';
+  if (problem.code === 'too_many') return 'تعداد تصاویر محصول بیشتر از سقف مجاز است.';
+  if (problem.code === 'untrusted_origin') return `${number}مبدأ HTTPS آن در سیاست امنیتی تصاویر سایت مورد اعتماد نیست.`;
+  if (problem.code === 'duplicate') return `${number}این تصویر در گالری تکراری است.`;
+  return `${number}نشانی معتبر نیست؛ فقط مسیر داخلی امن یا نشانی HTTPS مورد اعتماد مجاز است.`;
 };
 
 const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancelled'];
@@ -298,6 +311,10 @@ export function ShopProductsTab() {
   const [savingDraft, setSavingDraft] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [note, setNote] = useState(null);
+  const trustedImageOrigins = useMemo(
+    () => trustSealImageOrigins(state.collections?.trustSeals),
+    [state.collections?.trustSeals],
+  );
 
   /* Stock moves on its own: every customer order and every order-status change
      in the orders tab changes it. This page loads once, so the numbers below
@@ -343,6 +360,8 @@ export function ShopProductsTab() {
 
   const saveDraft = async () => {
     if (galleryBusy) return window.alert('تا پایان بارگذاری تصاویر صبر کنید.');
+    const galleryProblem = productImagesProblem(draft, trustedImageOrigins);
+    if (galleryProblem) return window.alert(productGalleryProblemFa(galleryProblem));
     const sanitizedDescription = sanitizeHtmlResult(draft.description || '');
     if (!sanitizedDescription.ok) return window.alert(richTextRejectionMessage(sanitizedDescription));
     const enteredImages = Array.isArray(draft.images)
@@ -457,6 +476,7 @@ export function ShopProductsTab() {
             images={Array.isArray(draft.images) ? draft.images : productImageList(draft)}
             onChange={(images) => setDraft({ ...draft, images, image: images[0] || '' })}
             onBusyChange={setGalleryBusy}
+            trustedOrigins={trustedImageOrigins}
           />
         </div>
         <div className="admin__row" style={{ marginTop: 12, gap: 22, flexWrap: 'wrap' }}>

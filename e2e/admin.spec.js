@@ -9,6 +9,8 @@
    All writes land in .e2e-data/ (see e2e/prepare-data.js), never in
    server/data/.
    ========================================================================== */
+import fs from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { loginAdmin, adminTab, watchConsole, gotoReady, routeSettled, one, E2E, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
 
@@ -490,6 +492,62 @@ test('shop galleries persist, select a primary picture, and render publicly', as
   await expect(restoreEditor.locator('.admin-product-gallery__item')).toHaveCount(1);
   await expect(restoreEditor.locator('.admin-product-gallery__item img')).toHaveAttribute('src', originalPrimary);
   await page.getByRole('button', { name: 'ذخیره محصول', exact: true }).click();
+});
+
+test('product editors refuse gallery URLs that the image CSP cannot render', async ({ page }) => {
+  await loginAdmin(page);
+  await adminTab(page, 'محصولات').first().click();
+  await page.locator('.admin__item').first().locator('[title="ویرایش"]').click();
+
+  const gallery = page.locator('.admin-product-gallery');
+  const addInput = gallery.getByLabel('یا نشانی تصویر');
+  const count = await gallery.locator('.admin-product-gallery__item').count();
+
+  await addInput.fill('https://untrusted.example/product.webp');
+  await gallery.getByRole('button', { name: 'افزودن' }).click();
+  await expect(gallery.locator('.admin-product-gallery__status')).toContainText('مبدأ این تصویر');
+  await expect(gallery.locator('.admin-product-gallery__item')).toHaveCount(count);
+
+  await addInput.fill('http://cdn.example/product.webp');
+  await gallery.getByRole('button', { name: 'افزودن' }).click();
+  await expect(gallery.locator('.admin-product-gallery__status')).toContainText('فقط مسیر داخلی امن');
+
+  /* Directly editing an existing row bypasses the add button, so the save
+     guard must apply the same rule before the request reaches the server. */
+  await gallery.locator('.admin-product-gallery__item input[dir="ltr"]').first().fill('https://untrusted.example/bypass.webp');
+  const dialogPromise = page.waitForEvent('dialog');
+  const clickPromise = page.getByRole('button', { name: 'ذخیره محصول', exact: true }).click();
+  const dialog = await dialogPromise;
+  expect(dialog.message()).toContain('مبدأ HTTPS');
+  await dialog.dismiss();
+  await clickPromise;
+  await page.getByRole('button', { name: 'انصراف' }).last().click();
+});
+
+test('unused uploads are previewed with size and deleted only after confirmation', async ({ page }) => {
+  const uploadDir = path.join(E2E.dataDir, 'uploads', 'images');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  const name = `e2e-unused-${STAMP}.png`;
+  const file = path.join(uploadDir, name);
+  /* Valid 1x1 PNG, so the preview exercises a real image rather than a broken
+     fixture. Its old mtime puts it outside the 24-hour draft grace period. */
+  fs.writeFileSync(file, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+  const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  fs.utimesSync(file, old, old);
+
+  await loginAdmin(page);
+  await adminTab(page, 'تصاویر صفحات').click();
+  const cleanup = page.getByTestId('unused-uploads');
+  await cleanup.getByRole('button', { name: 'بررسی فایل‌ها' }).click();
+  await expect(cleanup).toContainText(name);
+  await expect(cleanup).toContainText('بایت');
+  await expect(cleanup.locator(`img[src="/uploads/images/${name}"]`)).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await cleanup.getByRole('button', { name: 'حذف موارد انتخاب‌شده' }).click();
+  await expect(cleanup).toContainText('مورد و');
+  await expect(cleanup).toContainText('فایل قدیمیِ بدون استفاده‌ای پیدا نشد');
+  expect(fs.existsSync(file)).toBe(false);
 });
 
 test('the rich editor stays usable on a narrow screen @mobile', async ({ page }, testInfo) => {

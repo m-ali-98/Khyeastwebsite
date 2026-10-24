@@ -39,6 +39,7 @@ import {
 import * as db from './db.js';
 import { rateLimitResponse } from './rateLimits.js';
 import { isRichTextValidationError } from './sanitize.js';
+import { productImagesProblem, productImagesProblemMessage } from '../shared/productImages.js';
 
 /* ---------------------------------------------------------------------------
    Trusted origin for payment callback URLs.
@@ -106,7 +107,7 @@ export const shopProductProblems = (products) => {
   return problems;
 };
 
-export function createShopRouter({ database, requireAuth, rateLimiter }) {
+export function createShopRouter({ database, requireAuth, rateLimiter, trustedImageOrigins = () => [] }) {
   /* Set by index.js once the account router exists. The two routers need
      each other — orders need the signed-in customer, accounts need the
      logged-and-capped SMS sender — so one of the two links is late-bound
@@ -886,6 +887,22 @@ export function createShopRouter({ database, requireAuth, rateLimiter }) {
          safe way to change an existing absolute inventory value. */
       const problems = shopProductProblems(b.products);
       if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
+      const imageOrigins = trustedImageOrigins();
+      for (let index = 0; index < b.products.length; index += 1) {
+        const product = b.products[index];
+        const problem = productImagesProblem(product, imageOrigins);
+        if (!problem) continue;
+        const usesGallery = Array.isArray(product?.images) && product.images.length > 0;
+        const imageField = problem.index >= 0
+          ? (usesGallery ? `.images[${problem.index}]` : '.image')
+          : '';
+        return res.status(400).json({
+          error: 'invalid product gallery',
+          code: problem.code,
+          field: `products[${index}]${imageField}`,
+          detail: productImagesProblemMessage(problem),
+        });
+      }
       try {
         db.replaceProducts(D, b.products, { preserveStock: true });
       } catch (error) {
