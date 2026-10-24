@@ -1,0 +1,20 @@
+[Unit]
+Description=Purge expired Khyeast upload quarantine batches
+After=local-fs.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=30m
+User=khyeast
+Group=khyeast
+WorkingDirectory=/srv/khyeast/current
+EnvironmentFile=/etc/khyeast/khyeast.env
+ExecStart=/usr/bin/node scripts/purge-upload-quarantine.mjs
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/khyeast/uploads

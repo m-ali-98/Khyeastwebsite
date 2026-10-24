@@ -126,6 +126,11 @@ try {
   {
     const originalResponse = await fetch(`${BASE}/api/content`);
     const original = await originalResponse.json();
+    check(
+      originalResponse.headers.get('x-khyeast-content-status') === 'persisted',
+      'healthy content reads identify the persisted source',
+      String(originalResponse.headers.get('x-khyeast-content-status')),
+    );
     const put = async (payload) => {
       const response = await fetch(`${BASE}/api/content`, {
         method: 'PUT',
@@ -423,7 +428,46 @@ try {
        retire an upload. Falling back to defaults here would classify live old
        files as unused after a bad restore. */
     const validContentText = fs.readFileSync(contentFile, 'utf8');
-    fs.writeFileSync(contentFile, '{ this is not json');
+    const corruptBytes = '{ this is not json';
+    fs.writeFileSync(contentFile, corruptBytes);
+    const corruptPublicResponse = await fetch(`${BASE}/api/content`);
+    const corruptFallback = await corruptPublicResponse.json();
+    const shopBeforeRefusedSave = JSON.stringify(corruptFallback.shop);
+    corruptFallback.shop.display = {
+      ...corruptFallback.shop.display,
+      title: 'MUST NOT REACH SQLITE',
+    };
+    if (corruptFallback.shop.products?.[0]) {
+      corruptFallback.shop.products[0] = {
+        ...corruptFallback.shop.products[0],
+        title: 'MUST NOT REACH SQLITE',
+      };
+    }
+    const corruptSaveResponse = await fetch(`${BASE}/api/content`, {
+      method: 'PUT',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify(corruptFallback),
+    });
+    const corruptSaveBody = await corruptSaveResponse.json().catch(() => ({}));
+    check(
+      corruptPublicResponse.status === 200 &&
+        corruptPublicResponse.headers.get('x-khyeast-content-status') === 'fallback',
+      'public reads identify shipped fallback content during a corrupt-file incident',
+      String(corruptPublicResponse.headers.get('x-khyeast-content-status')),
+    );
+    check(
+      corruptSaveResponse.status === 503 &&
+        corruptSaveBody.code === 'content-unavailable' &&
+        fs.readFileSync(contentFile, 'utf8') === corruptBytes,
+      'an ordinary Admin save cannot replace corrupt persisted content with defaults',
+      `${corruptSaveResponse.status} ${JSON.stringify(corruptSaveBody)}`,
+    );
+    const shopAfterRefusedSave = (await (await fetch(`${BASE}/api/content`)).json()).shop;
+    check(
+      JSON.stringify(shopAfterRefusedSave) === shopBeforeRefusedSave,
+      'a refused content save makes no shop database mutation',
+      JSON.stringify(shopAfterRefusedSave),
+    );
     const corruptPreview = await scan();
     const corruptCleanupResponse = await fetch(`${BASE}/api/uploads/unused`, {
       method: 'DELETE',
@@ -448,11 +492,44 @@ try {
       'no upload moves while corrupt content disables cleanup',
     );
     fs.rmSync(contentFile);
+    const missingPublicResponse = await fetch(`${BASE}/api/content`);
+    const missingFallback = await missingPublicResponse.json();
+    const missingSaveResponse = await fetch(`${BASE}/api/content`, {
+      method: 'PUT',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify(missingFallback),
+    });
+    const missingSaveBody = await missingSaveResponse.json().catch(() => ({}));
     const missingPreview = await scan();
     check(
       missingPreview.status === 503 && missingPreview.body.code === 'content-unavailable',
       'missing content also disables cleanup with 503',
       JSON.stringify(missingPreview),
+    );
+    check(
+      missingPublicResponse.headers.get('x-khyeast-content-status') === 'fallback' &&
+        missingSaveResponse.status === 503 &&
+        missingSaveBody.code === 'content-unavailable' &&
+        !fs.existsSync(contentFile),
+      'an ordinary Admin save cannot recreate a missing content file from defaults',
+      `${missingSaveResponse.status} ${JSON.stringify(missingSaveBody)}`,
+    );
+
+    const incompleteBytes = JSON.stringify({ texts: {} });
+    fs.writeFileSync(contentFile, incompleteBytes);
+    const incompleteFallback = await (await fetch(`${BASE}/api/content`)).json();
+    const incompleteSaveResponse = await fetch(`${BASE}/api/content`, {
+      method: 'PUT',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify(incompleteFallback),
+    });
+    const incompleteSaveBody = await incompleteSaveResponse.json().catch(() => ({}));
+    check(
+      incompleteSaveResponse.status === 503 &&
+        incompleteSaveBody.code === 'content-unavailable' &&
+        fs.readFileSync(contentFile, 'utf8') === incompleteBytes,
+      'a structurally incomplete content file is preserved and cannot be replaced by a routine save',
+      `${incompleteSaveResponse.status} ${JSON.stringify(incompleteSaveBody)}`,
     );
     fs.writeFileSync(contentFile, validContentText);
 

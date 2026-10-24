@@ -75,6 +75,24 @@ export { SHOP_SEED } from './seed.js';
 
 const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancelled'];
 const rand = (n) => crypto.randomBytes(n).toString('hex');
+
+/** An upstream verification timeout is ambiguous: the customer may already be
+ * charged. Release callback capacity and keep the browser on the exact same URL
+ * so idempotent verification can retry; never redirect this case to failure. */
+export function retryablePaymentVerificationResponse(res, {
+  releaseReservation = () => {},
+  error = null,
+  logger = console,
+} = {}) {
+  releaseReservation();
+  logger.error?.('[shop] verify error:', error?.message || error || 'gateway transport failed');
+  res.setHeader('Retry-After', '5');
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  return res.status(503).type('html').send(`<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5"><title>در حال بررسی پرداخت</title></head>
+<body><main><h1>در حال بررسی نتیجه پرداخت</h1><p>ارتباط با درگاه موقتاً کامل نشد. این صفحه نتیجه را دوباره بررسی می‌کند.</p><p><strong>لطفاً دوباره پرداخت نکنید و این صفحه را نبندید.</strong></p></main></body></html>`);
+}
 const orderCode = () => `KY-${Date.now().toString(36).slice(-5).toUpperCase()}${rand(2).toUpperCase()}`;
 
 /* Thirty minutes is long enough to complete an ordinary gateway round trip
@@ -688,13 +706,16 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
     if (callbackLimit.limited) {
       return rateLimitResponse(res, callbackLimit.retryAfter, 'payment callback rate limited');
     }
-    callbackLimit.finish(true);
 
     let ok = false;
     let refId = '';
     let paymentNote = '';
     try {
       const out = await verifyPayment(payment(), provider, req.query, order.total, attempt.authority);
+      /* Only a completed gateway response consumes callback budget. A network
+         timeout is infrastructure failure, not another customer attempt; its
+         reservation is released below so the same authority can retry. */
+      callbackLimit.finish(true);
       ok = out.ok;
       refId = out.refId;
       if (out.amountMismatch) {
@@ -720,7 +741,14 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
           .join(' · ');
       }
     } catch (e) {
-      console.error('[shop] verify error:', e.message);
+      /* Do not tell a possibly charged customer that payment failed merely
+         because our gateway verification transport timed out. Nginx may
+         replace this retryable 503 with the branded static equivalent during
+         a process cutover. */
+      return retryablePaymentVerificationResponse(res, {
+        releaseReservation: () => callbackLimit.finish(false),
+        error: e,
+      });
     }
     if (ok) {
       /* Verification awaited the gateway, so expiry, a retry, or another

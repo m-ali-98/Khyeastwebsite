@@ -293,7 +293,8 @@ const quarantineTreeStats = (root) => {
 };
 
 /** Permanently purge only quarantine batches whose encoded creation time is
- * older than the retention period. Unknown directory names are retained. */
+ * older than the retention period. The daily CLI calls this automatically;
+ * confirmed cleanup also invokes it opportunistically. Unknown names stay. */
 export function purgeExpiredUploadQuarantine(uploadDir, {
   now = Date.now(),
   retentionMs = UPLOAD_QUARANTINE_RETENTION_MS,
@@ -331,8 +332,9 @@ export function purgeExpiredUploadQuarantine(uploadDir, {
 /**
  * Rescan at confirmation time, then quarantine only URLs that are still old
  * and unused. A file referenced between preview and confirmation is skipped.
- * Batches older than the retention period are purged during a later confirmed
- * cleanup, never during preview.
+ * Expired batches are also purged opportunistically during confirmation; the
+ * independent daily command means expiry no longer depends on another Admin
+ * cleanup. Preview itself never performs a destructive operation.
  */
 export function deleteUnusedUploads(uploadDir, content, urls, options = {}) {
   const requested = [...new Set(Array.isArray(urls) ? urls.filter((url) => typeof url === 'string') : [])]

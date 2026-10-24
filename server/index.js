@@ -49,6 +49,8 @@ import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
 import { sanitizeContentPayload, isRichTextValidationError } from './sanitize.js';
+import { writeJsonAtomicSync } from './jsonFile.js';
+import { createGracefulShutdown } from './gracefulShutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -150,24 +152,56 @@ const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12h
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(CONTENT_FILE)) {
-  const otherData = fs.readdirSync(DATA_DIR).filter((name) => name !== path.basename(CONTENT_FILE));
-  const existingUploads = ['images', 'videos'].some((kind) => {
-    try { return fs.readdirSync(path.join(UPLOAD_DIR, kind), { withFileTypes: true }).some((entry) => entry.isFile()); }
-    catch { return false; }
-  });
+  /* Some test/cPanel layouts put UPLOAD_DIR beneath DATA_DIR. The directory we
+     just created is not evidence of an earlier installation, but anything
+     actually stored below it is. */
+  const uploadRelativeToData = path.relative(DATA_DIR, UPLOAD_DIR);
+  const nestedUploadName = uploadRelativeToData &&
+    !uploadRelativeToData.startsWith(`..${path.sep}`) &&
+    uploadRelativeToData !== '..' &&
+    !path.isAbsolute(uploadRelativeToData)
+    ? uploadRelativeToData.split(path.sep)[0]
+    : '';
+  const otherData = fs.readdirSync(DATA_DIR).filter((name) => (
+    name !== path.basename(CONTENT_FILE) && name !== nestedUploadName && name !== '.gitkeep'
+  ));
+  const uploadStack = [UPLOAD_DIR];
+  let existingUploads = false;
+  while (uploadStack.length && !existingUploads) {
+    const directory = uploadStack.pop();
+    let entries = [];
+    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.name === '.gitkeep') continue;
+      if (entry.isDirectory()) uploadStack.push(path.join(directory, entry.name));
+      else {
+        existingUploads = true;
+        break;
+      }
+    }
+  }
   /* Bootstrap only a genuinely empty installation. If a database, legacy data
      or uploads already exist, a missing content file is much more likely to be
      a failed restore. Keeping it missing makes strict cleanup return 503
      instead of manufacturing a default tree that marks old media unused. */
   if (!otherData.length && !existingUploads) {
-    fs.writeFileSync(CONTENT_FILE, JSON.stringify(DEFAULT_STATE, null, 2));
+    writeJsonAtomicSync(CONTENT_FILE, DEFAULT_STATE);
   } else {
-    console.error('[content] content.json is missing while other persistent state exists; upload cleanup is disabled');
+    console.error('[content] content.json is missing while other persistent state exists; content writes and upload cleanup are disabled');
   }
 }
 
 const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
-const writeJSON = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
+const writeJSON = (f, v) => writeJsonAtomicSync(f, v);
+const PERSISTED_CONTENT_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const validPersistedContent = (value) => (
+  isRecord(value) &&
+  PERSISTED_CONTENT_KEYS.every((key) => Object.hasOwn(value, key)) &&
+  ['texts', 'media', 'links', 'collections'].every((key) => isRecord(value[key])) &&
+  ['brands', 'products', 'posts'].every((key) => Array.isArray(value[key])) &&
+  (!Object.hasOwn(value, 'i18n') || isRecord(value.i18n))
+);
 
 /* ---------------- database ---------------- */
 const db = await store.openDB(DB_FILE);
@@ -186,7 +220,10 @@ const rateLimiter = createRateLimiter({ database: db, store, hashSecret: SECRET 
 /* content.json no longer stores the shop section — the DB does. */
 try {
   const c = readJSON(CONTENT_FILE);
-  if (c.shop) {
+  /* A legacy shop section may be removed only from an otherwise authoritative
+     content tree. An incomplete recovery artifact must remain byte-for-byte
+     untouched for explicit operator repair. */
+  if (validPersistedContent(c) && c.shop) {
     delete c.shop;
     writeJSON(CONTENT_FILE, c);
     console.log('[db] moved "shop" section out of content.json into the database');
@@ -194,15 +231,6 @@ try {
 } catch {}
 
 /** Site content = JSON file + shop section rebuilt from the database. */
-const PERSISTED_CONTENT_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
-const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const validPersistedContent = (value) => (
-  isRecord(value) &&
-  PERSISTED_CONTENT_KEYS.every((key) => Object.hasOwn(value, key)) &&
-  ['texts', 'media', 'links', 'collections'].every((key) => isRecord(value[key])) &&
-  ['brands', 'products', 'posts'].every((key) => Array.isArray(value[key])) &&
-  (!Object.hasOwn(value, 'i18n') || isRecord(value.i18n))
-);
 
 const contentUnavailable = (cause) => Object.assign(
   new Error('persisted content is missing, unreadable, or invalid'),
@@ -230,22 +258,41 @@ const readContentStrict = () => {
   }
 };
 
-/* Public reads retain the historical availability fallback. Upload cleanup and
-   guarded deletion call readContentStrict() directly and therefore fail shut. */
+/* Public reads retain the historical availability fallback, but callers can
+   now distinguish it through X-Khyeast-Content-Status. It must never be fed
+   back into a write as though it were the persisted tree. */
+const fallbackContent = () => {
+  const base = { ...DEFAULT_STATE };
+  delete base.shop;
+  return {
+    ...base,
+    i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
+    shop: {
+      display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
+      products: store.listProducts(db),
+    },
+  };
+};
+
 const readContent = () => {
   try {
     return readContentStrict();
   } catch {
-    const base = { ...DEFAULT_STATE };
-    delete base.shop;
-    return {
-      ...base,
-      i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
-      shop: {
-        display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
-        products: store.listProducts(db),
-      },
-    };
+    return fallbackContent();
+  }
+};
+
+const strictContentForResponse = (res, operation, scope = 'content') => {
+  try {
+    return readContentStrict();
+  } catch (error) {
+    console.error(`[${scope}] ${operation} refused:`, error?.cause?.message || error?.message || error);
+    res.setHeader('Retry-After', '60');
+    res.status(503).json({
+      error: 'persisted content is unavailable; restore or repair content.json before writing',
+      code: 'content-unavailable',
+    });
+    return null;
   }
 };
 
@@ -718,9 +765,19 @@ app.get('/api/content', (_req, res) => {
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   try {
-    res.json(readContent());
+    const content = readContentStrict();
+    res.setHeader('X-Khyeast-Content-Status', 'persisted');
+    res.json(content);
   } catch {
-    res.json(DEFAULT_STATE);
+    /* Keep the public site readable during a restore incident, while exposing
+       that this is a shipped fallback rather than authoritative saved state.
+       Admin uses the header to display a read-only recovery warning. */
+    res.setHeader('X-Khyeast-Content-Status', 'fallback');
+    try {
+      res.json(fallbackContent());
+    } catch {
+      res.json(DEFAULT_STATE);
+    }
   }
 });
 
@@ -884,10 +941,15 @@ app.put('/api/admin/security', requireAuth, (req, res) => {
 /* ---------------- admin: content ---------------- */
 const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts', 'shop'];
 app.put('/api/content', requireAuth, (req, res) => {
+  /* A public GET may deliberately serve shipped defaults during a restore
+     incident. Never let an ordinary Admin save turn that availability fallback
+     into the new authoritative file: all writes begin from a strict read. */
+  const current = strictContentForResponse(res, 'content save');
+  if (!current) return;
+
   const next = req.body;
   if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
   for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
-  const current = readContent();
   /* The slug is both the primary key and the URL for catalogue products and
      blog posts. A blank one produces /products/ (which collides with the index
      route) and a duplicate makes the second entity permanently unreachable,
@@ -996,22 +1058,8 @@ app.delete('/api/messages/:id', requireAuth, (req, res) => {
 });
 
 /* ---------------- admin: uploads ---------------- */
-const strictUploadContent = (res, operation) => {
-  try {
-    return readContentStrict();
-  } catch (error) {
-    console.error(`[uploads] ${operation} refused:`, error?.cause?.message || error?.message || error);
-    res.setHeader('Retry-After', '60');
-    res.status(503).json({
-      error: 'persisted content is unavailable; upload cleanup is disabled',
-      code: 'content-unavailable',
-    });
-    return null;
-  }
-};
-
 app.get('/api/uploads/unused', requireAuth, (_req, res) => {
-  const content = strictUploadContent(res, 'unused-file preview');
+  const content = strictContentForResponse(res, 'unused-file preview', 'uploads');
   if (!content) return;
   res.json(listUnusedUploads(UPLOAD_DIR, content));
 });
@@ -1021,7 +1069,7 @@ app.delete('/api/uploads/unused', requireAuth, (req, res) => {
   /* The content tree is read again here rather than trusting the preview. If a
      file became referenced while the confirmation dialog was open, it is no
      longer a candidate and will be reported as skipped. */
-  const content = strictUploadContent(res, 'unused-file cleanup');
+  const content = strictContentForResponse(res, 'unused-file cleanup', 'uploads');
   if (!content) return;
   const result = deleteUnusedUploads(UPLOAD_DIR, content, req.body.urls);
   res.json({ ok: true, ...result });
@@ -1092,7 +1140,7 @@ app.delete('/api/upload', requireAuth, (req, res) => {
      the Admin intentionally removes only the reference; the unused-files
      cleanup is the normal retirement path. */
   if (!parseUploadUrl(url)) return res.status(400).json({ error: 'invalid url' });
-  const content = strictUploadContent(res, 'guarded upload removal');
+  const content = strictContentForResponse(res, 'guarded upload removal', 'uploads');
   if (!content) return;
   if (isUploadReferenced(url, content)) {
     return res.status(409).json({ error: 'upload is still referenced' });
@@ -1318,17 +1366,19 @@ app.use((err, req, res, _next) => {
   res.status(status === 500 && err instanceof URIError ? 400 : status).json({ error: message });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[content-api] listening on http://0.0.0.0:${PORT}`);
   console.log(`[content-api] database: ${DB_FILE} (${db.driver})`);
   console.log(`[content-api] admin login default user: "${ADMIN_USER}" (set ADMIN_USER / ADMIN_PASS env to change)`);
 });
 
-const shutdown = () => {
-  try {
-    db.close();
-  } catch {}
-  process.exit(0);
-};
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+/* systemd sends SIGTERM on every deployment. Drain callbacks and other active
+   requests before closing SQLite; the bounded timeout remains below the
+   deployment guide's TimeoutStopSec so systemd does not kill us first. */
+const shutdown = createGracefulShutdown({
+  server,
+  timeoutMs: 90_000,
+  closeResources: () => db.close(),
+});
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));

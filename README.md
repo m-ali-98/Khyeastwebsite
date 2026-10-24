@@ -371,13 +371,16 @@ Baselineهای تصویری فعلی platform-specific هستند. `npm run test
 │   └── styles/             استایل عمومی، صفحات داخلی و فروشگاه
 ├── server/
 │   ├── index.js            Express، CMS، upload و SEO runtime
+│   ├── jsonFile.js         ذخیره اتمیک و crash-safe محتوای JSON
+│   ├── gracefulShutdown.js drain محدود requestها هنگام SIGTERM
 │   ├── db.js               schema، migration و عملیات SQLite
 │   ├── shop.js             سفارش، موجودی، Admin فروشگاه و callback پرداخت
 │   ├── accountRoutes.js    حساب مشتری، OTP و نشانی‌ها
 │   ├── payment.js          اتصال زرین‌پال
 │   ├── sms.js              اتصال sms.ir
 │   └── data/               محتوای mutable و دیتابیس محلی
-├── scripts/                build SEO، پردازش تصویر و تست‌ها
+├── scripts/                build SEO، purge قرنطینه، پردازش تصویر و تست‌ها
+├── ops/                    backup آنلاین، unit/timerهای systemd و صفحه retry پرداخت
 ├── e2e/                    Playwright، axe و visual regression
 ├── vite.config.js
 └── playwright.config.js
@@ -391,7 +394,7 @@ Baselineهای تصویری فعلی platform-specific هستند. `npm run test
 
 1. Node.js 22 یا جدیدتر را روی میزبان انتخاب کنید.
 2. پروژه را خارج از document root عمومی قرار دهید.
-3. `npm install` و سپس `npm run build` را اجرا کنید.
+3. `npm ci`، تست‌ها و سپس `npm run build` را در release جدا اجرا کنید.
 4. متغیرهای تولید را مطابق `.env.example` تنظیم کنید.
 5. startup file را `server/index.js` قرار دهید.
 6. مسیرهای `server/data/` و `server/uploads/` را روی دیسک ماندگار نگه دارید.
@@ -422,26 +425,33 @@ HTTPS برای کوکی `__Host-` پنل تولید ضروری است و login �
 
 برای استفاده واقعی از پروژه، حالت Node.js توصیه می‌شود.
 
-## پشتیبان‌گیری و ارتقا
+## پشتیبان‌گیری، قرنطینه و ارتقا
 
-از این دو مسیر نسخه پشتیبان بگیرید:
+دادهٔ عملیاتی شامل `DATA_DIR/content.json`، snapshot معتبر SQLite و فایل‌های زندهٔ `UPLOAD_DIR` است. برای SQLite در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` بدون توقف Node ابتدا uploadها را در staging کپی می‌کند، snapshot دیتابیس و دو نسخهٔ یکسان از `content.json` را اعتبارسنجی می‌کند، یک بار دیگر uploadها را همگام می‌کند و فقط staging ثابت را archive می‌کند. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
+
+پوشهٔ زیر عمداً در backup محلی و offsite قرار نمی‌گیرد:
 
 ```text
-server/data/
-server/uploads/
+UPLOAD_DIR/.quarantine/
 ```
 
-به‌دلیل WAL، برای کپی مستقیم فایل SQLite بهتر است ابتدا برنامه متوقف شود؛ در صورت وجود CLI می‌توان از دستور SQLite `.backup` نیز استفاده کرد. `content.json` و uploadها باید همراه دیتابیس نگهداری شوند.
+قرنطینه recycle bin محلی ۳۰روزه است، نه دادهٔ production یا disaster recovery؛ بنابراین خرابی کامل دیسک، فایل‌های قرنطینه‌شده را نیز از بین می‌برد. این حذف عمدی مانع نگهداری نامحدود فایل‌های حذف‌شده در backupها می‌شود. `npm run uploads:purge-quarantine` فقط batchهای timestampدارِ منقضی را پاک می‌کند و باید روزانه با timer مستقل systemd (templateهای `ops/systemd/`) یا cron میزبان اجرا شود. نام‌های ناشناخته دست‌نخورده باقی می‌مانند.
 
-پیش از نخستین استفاده از «فایل‌های استفاده‌نشده» در پنل نیز همین backup را بگیرید. پاک‌سازی در صورت گم‌شدن، خراب‌بودن یا ناقص‌بودن `content.json` با پاسخ 503 متوقف می‌شود و هرگز به محتوای پیش‌فرض برای تصمیم حذف تکیه نمی‌کند. فایل تأییدشده فوراً پاک نمی‌شود؛ از مسیر عمومی به `UPLOAD_DIR/.quarantine/` منتقل می‌شود، ساختار `images/` یا `videos/` و manifest بازیابی را نگه می‌دارد و دست‌کم ۳۰ روز باقی می‌ماند. پاک‌سازی تأییدشدهٔ بعدی فقط batchهای منقضی‌شده را حذف دائمی می‌کند. برای بازیابی دستی، فایل را با همان نام از پوشهٔ batch به زیرپوشهٔ اصلی `images/` یا `videos/` برگردانید و مالکیت service account را حفظ کنید.
+پیش از نخستین استفاده از «فایل‌های استفاده‌نشده» در پنل یک backup تأییدشده بگیرید. فایل انتخاب‌شده فوراً حذف نمی‌شود؛ از مسیر عمومی به `.quarantine/` منتقل می‌شود، ساختار `images/` یا `videos/` و manifest بازیابی را نگه می‌دارد و حداقل ۳۰ روز قابل بازگردانی است. برای بازیابی، پیش از پایان این مهلت فایل را با همان نام به زیرپوشهٔ اصلی برگردانید و مالکیت service account را حفظ کنید.
 
-هنگام انتشار نسخه جدید:
+اگر `content.json` گم، خراب یا از نظر ساختار ناقص باشد، public GET برای در دسترس‌ماندن سایت defaultهای بسته را با header برابر `X-Khyeast-Content-Status: fallback` نشان می‌دهد؛ اما همهٔ ذخیره‌های محتوایی Admin و عملیات حذف upload با `503 content-unavailable` متوقف می‌شوند. ذخیرهٔ عادی هرگز defaultها را به‌جای فایل ازدست‌رفته ثبت نمی‌کند. پیش از تعمیر دستی، نسخهٔ خراب را با نامی مانند `content.json.bad-<timestamp>` نگه دارید و سپس یک backup معتبر را بازیابی کنید. ذخیره‌های پذیرفته‌شده با temporary file، `fsync` و rename اتمیک نوشته می‌شوند.
 
-1. از داده و uploadها backup بگیرید.
-2. کد و dependencyها را به‌روزرسانی کنید.
-3. `npm install` و `npm run build` را اجرا کنید.
-4. `server/data/` و `server/uploads/` را جایگزین یا پاک نکنید.
-5. برنامه را restart کنید؛ migrationهای SQLite خودکار اجرا می‌شوند.
+هنگام انتشار نسخهٔ جدید:
+
+1. backup آنلاین معتبر و نسخهٔ offsite رمزگذاری‌شده را تأیید کنید.
+2. نسخهٔ جدید را در یک release directory جداگانه `npm ci`، test و build کنید؛ روی checkout در حال اجرا `npm ci` نزنید.
+3. symlink نسخه را اتمیک جابه‌جا کنید و فقط در لحظهٔ cutover سرویس را restart کنید.
+4. `server/data/` و `server/uploads/` را جایگزین یا پاک نکنید؛ state تولید باید بیرون checkout باشد.
+5. SIGTERM ابتدا پذیرش request جدید را می‌بندد و تا ۹۰ ثانیه به callbackهای فعال فرصت پایان می‌دهد؛ unit تولید باید `TimeoutStopSec=120s` داشته باشد.
+6. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان URL را خودکار دوباره بررسی کند و مشتری دوباره پرداخت نکند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
+7. health، ورود Admin و یک callback تکراری پرداخت را بررسی کنید و در صورت شکست symlink را به release قبلی برگردانید.
+
+جزئیات نصب timerها، backup آنلاین، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` و unit/timer مربوط، checksum محلی را دوباره بررسی می‌کنند، جدیدترین archive را به مخزن رمزگذاری‌شده می‌فرستند، `restic check` و retention مستقل را اجرا می‌کنند؛ اما URL و credentialهای provider باید پس از انتخاب storage فقط در `/etc/khyeast/restic.env` تنظیم شوند. یک restore واقعی را تمرین کنید.
 
 ## مجوز
 

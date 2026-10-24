@@ -57,6 +57,7 @@ export function ContentProvider({ children }) {
   const [state, setState] = useState(() => clone(DEFAULT_STATE));
   const [ready, setReady] = useState(false);
   const [backend, setBackend] = useState(false);
+  const [contentAvailable, setContentAvailable] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const inFlight = useRef(null);
   const persistedState = useRef(state);
@@ -75,13 +76,16 @@ export function ContentProvider({ children }) {
       if (!r.ok) throw Object.assign(new Error('no api'), { status: r.status });
       const data = await r.json();
       const next = mergeContentState(DEFAULT_STATE, data);
+      const persisted = r.headers.get('x-khyeast-content-status') !== 'fallback';
       persistedState.current = next;
       setState(next);
       setBackend(true);
+      setContentAvailable(persisted);
       return data;
     })()
       .catch((error) => {
         setBackend(false);
+        setContentAvailable(false);
         throw error;
       })
       .finally(() => {
@@ -125,12 +129,14 @@ export function ContentProvider({ children }) {
         persistedState.current = next;
         if (!optimistic && revision === saveRevision.current) setState(next);
         setBackend(true);
+        setContentAvailable(true);
       })
       .catch((error) => {
         /* A later optimistic edit already supersedes this request. If the
            latest request itself fails, roll the controls back to what the
            server most recently accepted rather than displaying a false save. */
         if (revision === saveRevision.current) setState(persistedState.current);
+        if (error?.code === 'content-unavailable') setContentAvailable(false);
         throw error;
       });
   }, []);
@@ -147,6 +153,7 @@ export function ContentProvider({ children }) {
       locale,
       ready,
       backend,
+      contentAvailable,
       refreshing,
       save,
       reload,
@@ -158,7 +165,7 @@ export function ContentProvider({ children }) {
       posts: view.posts ?? [],
       brands: view.brands ?? fallback.brands,
     }),
-    [state, view, fallback, locale, ready, backend, refreshing, save, reload]
+    [state, view, fallback, locale, ready, backend, contentAvailable, refreshing, save, reload]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

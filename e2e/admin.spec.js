@@ -73,6 +73,40 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
   expect(errors, 'console errors while touring the panel').toEqual([]);
 });
 
+test('fallback content makes only content-authoring tabs read-only', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one viewport is enough for the recovery-state contract');
+  const persisted = await (await page.request.get('/api/content')).json();
+  await page.route('**/api/content', async (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Khyeast-Content-Status': 'fallback',
+          'Cache-Control': 'no-store',
+        },
+        body: JSON.stringify(persisted),
+      });
+    }
+    return route.fulfill({
+      status: 503,
+      headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+      body: JSON.stringify({ error: 'persisted content is unavailable', code: 'content-unavailable' }),
+    });
+  });
+
+  await loginAdmin(page);
+  await expect(page.getByText(/content\.json گم‌شده، خراب یا ناقص است/)).toBeVisible();
+  const boundary = page.locator('.admin__content-boundary');
+  await expect(boundary).toHaveAttribute('disabled', '');
+  await expect(boundary).toHaveAttribute('inert', '');
+  await expect(boundary.locator('button').first()).toBeDisabled();
+
+  await adminTab(page, 'سفارش‌ها').click();
+  await expect(boundary).not.toHaveAttribute('disabled', '');
+  await expect(boundary).not.toHaveAttribute('inert', '');
+});
+
 test('security settings show the effective IP and can disable all rate limits', async ({ page }) => {
   await loginAdmin(page);
   await adminTab(page, 'امنیت و محدودیت‌ها').click();

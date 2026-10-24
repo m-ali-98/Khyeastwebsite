@@ -258,6 +258,13 @@
 }
 
 .admin__main { padding: 34px 38px 80px; min-width: 0; }
+.admin__content-boundary {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.admin__content-boundary:disabled { opacity: .72; }
 .admin__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; flex-wrap: wrap; }
 .admin__head h1 { margin: 0; font-size: 24px; font-weight: 900; }
 .admin__head p { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }

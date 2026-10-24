@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily encrypted offsite replication of Khyeast backups
+
+[Timer]
+# The local backup starts at 03:15 UTC; allow a generous staging window first.
+OnCalendar=*-*-* 05:30:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=khyeast-offsite.service
+
+[Install]
+WantedBy=timers.target

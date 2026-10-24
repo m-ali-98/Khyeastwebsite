@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly validated online Khyeast backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=khyeast-backup.service
+
+[Install]
+WantedBy=timers.target

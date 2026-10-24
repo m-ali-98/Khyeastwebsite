@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "start": "node server/index.js",
+    "uploads:purge-quarantine": "node scripts/purge-upload-quarantine.mjs",
+    "docs:pdf": "node scripts/render-deployment-pdf.mjs",
     "test": "npm run build && node scripts/test/run.mjs",
     "smoke": "npm run build && node scripts/test/run.mjs",
     "test:e2e": "playwright test",

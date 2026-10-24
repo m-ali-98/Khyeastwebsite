@@ -199,6 +199,25 @@ try {
   console.log('  FAIL hardening harness error');
 }
 
+console.log('\nPersistence lifecycle — authoritative files and active requests survive failures');
+for (const [file, label] of [
+  ['json-file.mjs', 'atomic JSON replacement'],
+  ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
+  ['backup-script.mjs', 'validated staged backup and quarantine exclusion'],
+  ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],
+]) {
+  const name = file.replace('.mjs', '');
+  const { stdout, crashed, err } = await suite(file, 30000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, name, (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} ${label}`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
 console.log('\nTheme — first paint defaults light and saved dark mode stays coherent');
 try {
   const { stdout } = await run('node', [path.join(HERE, 'theme.mjs')], { cwd: HERE, timeout: 30000 });

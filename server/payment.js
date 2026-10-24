@@ -43,6 +43,10 @@ import { normalizePhone, toLocalPhone } from './sms.js';
  *  turns a gateway error page into a plain "payment unavailable" and an
  *  order that can still be paid another way. */
 export const ZARINPAL_MIN_RIAL = 10000;
+/* The upstream SDK leaves Axios at its infinite default. A stalled gateway
+   request must release the callback well inside the 90-second graceful drain;
+   the idempotent callback/inquiry paths can safely retry an ambiguous timeout. */
+export const ZARINPAL_REQUEST_TIMEOUT_MS = 20_000;
 
 /** The SDK validates the merchant id as a UUID and throws otherwise. A
  *  half-filled settings form must not take the shop's checkout down, so an
@@ -81,13 +85,21 @@ export function zarinpalConfig(cfg) {
   return out;
 }
 
+export function applyZarinpalTimeouts(client, timeoutMs = ZARINPAL_REQUEST_TIMEOUT_MS) {
+  const timeout = Math.max(1_000, Math.min(60_000, Math.round(Number(timeoutMs) || ZARINPAL_REQUEST_TIMEOUT_MS)));
+  for (const transport of [client?.httpClient, client?.graphqlClient]) {
+    if (transport?.defaults && typeof transport.defaults === 'object') transport.defaults.timeout = timeout;
+  }
+  return client;
+}
+
 async function zarinpalClient(cfg, deps = {}) {
   if (deps.zarinpal) return deps.zarinpal;
   if (!ZarinPalCtor) {
     const mod = await import('zarinpal-node-sdk');
     ZarinPalCtor = mod.ZarinPal || mod.default?.ZarinPal || mod.default;
   }
-  return new ZarinPalCtor(zarinpalConfig(cfg));
+  return applyZarinpalTimeouts(new ZarinPalCtor(zarinpalConfig(cfg)));
 }
 
 /* Both SDK calls answer { data: { code, ... } }; some transports hand back

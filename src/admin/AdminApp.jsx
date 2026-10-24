@@ -18,6 +18,10 @@ import './admin.scss';
    editing English or Arabic, those tabs are replaced by the translation
    editor, while the language-neutral tabs (images, links, orders, messages)
    stay available. */
+const CONTENT_WRITE_TABS = new Set([
+  'products', 'posts', 'shop', 'texts', 'translations', 'media', 'links', 'trust', 'contact',
+]);
+
 const TABS = [
   { id: 'products', label: 'محصولات', icon: 'pack' },
   { id: 'posts', label: 'وبلاگ', icon: 'posts' },
@@ -345,7 +349,7 @@ function Login({ onDone }) {
 }
 
 function AdminShell() {
-  const { backend, t } = useContent();
+  const { backend, contentAvailable, t } = useContent();
   const { locale, isBase } = useAdminLocale();
   const [authed, setAuthed] = useState(null); // null = checking
   const [tab, setTab] = useState('products');
@@ -359,6 +363,7 @@ function AdminShell() {
     [isBase],
   );
   const activeTab = visibleTabs.some((item) => item.id === tab) ? tab : visibleTabs[0].id;
+  const contentReadOnly = backend && !contentAvailable && CONTENT_WRITE_TABS.has(activeTab);
   const paletteCommands = useMemo(
     () =>
       visibleTabs.map((item) => ({
@@ -502,13 +507,25 @@ function AdminShell() {
               سرور محتوا در دسترس نیست؛ تغییرات ذخیره نخواهد شد. (سرور Node را اجرا کنید: npm run server)
             </p>
           )}
+          {backend && !contentAvailable && (
+            <p id="admin-content-recovery-warning" role="alert" style={{ background: 'var(--crimson-soft)', color: 'var(--crimson-700)', borderRadius: 12, padding: '10px 16px', marginBottom: 18 }}>
+              فایل content.json گم‌شده، خراب یا ناقص است. محتوای پیش‌فرض فقط برای نمایش موقت بارگذاری شده و بخش‌های محتوایی تا بازیابی فایل معتبر فقط‌خواندنی هستند؛ ابتدا backup را بررسی کنید.
+            </p>
+          )}
           {!isBase && (
             <p className="admin__locale-note">
               در حال ویرایش نسخه {locale === 'en' ? 'انگلیسی' : 'عربی'} سایت. محتوای فارسی پایه است و از تب‌های
               معمولی ویرایش می‌شود؛ در این بخش فقط ترجمه‌ها را وارد یا اصلاح می‌کنید.
             </p>
           )}
-          <Tab />
+          <fieldset
+            className="admin__content-boundary"
+            disabled={contentReadOnly}
+            inert={contentReadOnly || undefined}
+            aria-describedby={contentReadOnly ? 'admin-content-recovery-warning' : undefined}
+          >
+            <Tab />
+          </fieldset>
         </main>
       </div>
       {paletteOpen && (

@@ -622,7 +622,7 @@ function UnusedUploads() {
       </div>
 
       <div className="admin-unused__guard">
-        پیش از نخستین پاک‌سازی از داده‌ها و بارگذاری‌ها نسخهٔ پشتیبان بگیرید. فایل‌های {Number(report?.graceHours || 24).toLocaleString('fa-IR')} ساعت اخیر نمایش داده نمی‌شوند؛ سرور پیش از انتقال دوباره همه ارجاع‌ها را بررسی می‌کند و فایل‌ها را دست‌کم {Number(report?.quarantineDays || 30).toLocaleString('fa-IR')} روز در قرنطینه نگه می‌دارد.
+        پیش از نخستین پاک‌سازی از داده‌ها و بارگذاری‌های زنده نسخهٔ پشتیبان بگیرید. خود قرنطینه عمداً وارد backup نمی‌شود و batchهای منقضی باید با timer روزانه پاک شوند. فایل‌های {Number(report?.graceHours || 24).toLocaleString('fa-IR')} ساعت اخیر نمایش داده نمی‌شوند؛ سرور پیش از انتقال دوباره همه ارجاع‌ها را بررسی می‌کند و فایل‌ها را دست‌کم {Number(report?.quarantineDays || 30).toLocaleString('fa-IR')} روز در قرنطینه نگه می‌دارد.
       </div>
 
       {message && <p className={`admin-unused__message${message.bad ? ' is-error' : ''}`} role="status">{message.text}</p>}

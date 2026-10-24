@@ -32,6 +32,11 @@ const PORT = 8977;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-behaviour-test-'));
 const DB = path.join(DATA_DIR, 'behaviour.db');
+/* This suite creates a second SQLite fixture before starting the server. Seed
+   content explicitly so the production failed-restore guard correctly sees a
+   complete installation instead of manufacturing defaults beside existing
+   state. */
+fs.copyFileSync(path.join(ROOT, 'server', 'data', 'content.json'), path.join(DATA_DIR, 'content.json'));
 
 let pass = 0;
 let fail = 0;

@@ -276,7 +276,11 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
    GraphQL call — the ledger, refunds, refund status — authenticates as
    `Bearer undefined`. */
 {
-  const { zarinpalConfig } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
+  const {
+    applyZarinpalTimeouts,
+    zarinpalConfig,
+    ZARINPAL_REQUEST_TIMEOUT_MS,
+  } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
 
   const plain = zarinpalConfig({ zarinpalMerchant: MERCHANT, zarinpalSandbox: true });
   check(plain.merchantId === MERCHANT, 'config: the merchant id is passed');
@@ -291,6 +295,46 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
      into the Authorization header unconditionally. */
   check(!('accessToken' in zarinpalConfig({ zarinpalMerchant: MERCHANT, zarinpalAccessToken: '' })), 'config: an empty token is omitted, not sent blank');
   check(!('accessToken' in zarinpalConfig({ zarinpalMerchant: MERCHANT, zarinpalAccessToken: '   ' })), 'config: nor a whitespace one');
+
+  const transports = { httpClient: { defaults: {} }, graphqlClient: { defaults: {} } };
+  check(
+    applyZarinpalTimeouts(transports) === transports &&
+      transports.httpClient.defaults.timeout === ZARINPAL_REQUEST_TIMEOUT_MS &&
+      transports.graphqlClient.defaults.timeout === ZARINPAL_REQUEST_TIMEOUT_MS,
+    'config: REST and GraphQL gateway transports cannot wait forever',
+    JSON.stringify(transports),
+  );
+
+  const { retryablePaymentVerificationResponse } = await import(
+    pathToFileURL(path.join(ROOT, 'server', 'shop.js')).href
+  );
+  const headers = {};
+  const retry = { code: 0, type: '', body: '', released: 0, logs: 0 };
+  const response = {
+    setHeader(name, value) { headers[name.toLowerCase()] = String(value); },
+    status(code) { retry.code = code; return this; },
+    type(value) { retry.type = value; return this; },
+    send(value) { retry.body = String(value); return this; },
+  };
+  retryablePaymentVerificationResponse(response, {
+    releaseReservation: () => { retry.released += 1; },
+    error: new Error('simulated gateway timeout'),
+    logger: { error() { retry.logs += 1; } },
+  });
+  check(
+    retry.code === 503 &&
+      retry.type === 'html' &&
+      retry.released === 1 &&
+      retry.logs === 1 &&
+      headers['retry-after'] === '5' &&
+      headers['cache-control']?.includes('no-store') &&
+      !('location' in headers) &&
+      /http-equiv="refresh" content="5"/.test(retry.body) &&
+      !/content="5;\s*url=/i.test(retry.body) &&
+      retry.body.includes('دوباره پرداخت نکنید'),
+    'callback: an ambiguous verification transport failure releases capacity and retries the unchanged URL',
+    JSON.stringify({ retry, headers }),
+  );
 }
 
 /* ---- 1c. the rest of the gateway: inquiry, unverified, reverse, fee ---- */

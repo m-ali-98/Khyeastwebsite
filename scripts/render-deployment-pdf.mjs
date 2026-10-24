@@ -6,7 +6,11 @@ const root = path.resolve(import.meta.dirname, '..');
 const input = path.join(root, 'docs', 'khyeast-linux-deployment-guide.html');
 const output = path.join(root, 'docs', 'Khyeast-Linux-Deployment-Guide.pdf');
 
-const browser = await chromium.launch({ headless: true });
+const executablePath = String(process.env.CHROMIUM_EXECUTABLE_PATH || '').trim();
+const browser = await chromium.launch({
+  headless: true,
+  ...(executablePath ? { executablePath } : {}),
+});
 try {
   const page = await browser.newPage();
   await page.goto(pathToFileURL(input).href, { waitUntil: 'load' });

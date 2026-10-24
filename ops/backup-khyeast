@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# Online, staged backup for the Khyeast single-host deployment.
+#
+# SQLite's backup API supplies a transactionally consistent database while the
+# app remains online. Two upload passes around the metadata snapshot produce a
+# conservative superset without archiving the changing live tree. Quarantine
+# is intentionally excluded: it is a 30-day local recycle bin, not production
+# state or disaster-recovery data.
+set -Eeuo pipefail
+umask 077
+
+DEST=${BACKUP_DEST:-/var/backups/khyeast}
+STATE_ROOT=${KHYEAST_STATE_ROOT:-/var/lib/khyeast}
+DATA_DIR=${DATA_DIR:-$STATE_ROOT/data}
+UPLOAD_DIR=${UPLOAD_DIR:-$STATE_ROOT/uploads}
+DB_FILE=${DB_FILE:-$DATA_DIR/khyeast.db}
+CONTENT_FILE=${CONTENT_FILE:-$DATA_DIR/content.json}
+RELEASE_DIR=${RELEASE_DIR:-/srv/khyeast/current}
+LOCAL_RETENTION_DAYS=${LOCAL_RETENTION_DAYS:-14}
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+ARCHIVE=$DEST/khyeast-$STAMP.tar
+ARCHIVE_TMP=$DEST/.khyeast-$STAMP-$$.tar.tmp
+CHECKSUM=$ARCHIVE.sha256
+CHECKSUM_TMP=$DEST/.khyeast-$STAMP-$$.sha256.tmp
+STAGE=
+
+fail() {
+  printf 'backup-khyeast: %s\n' "$*" >&2
+  exit 1
+}
+
+cleanup() {
+  if [[ -n ${STAGE:-} ]]; then rm -rf -- "$STAGE"; fi
+  rm -f -- "$ARCHIVE_TMP" "$CHECKSUM_TMP"
+}
+trap cleanup EXIT
+
+for command in sqlite3 rsync node tar sha256sum flock nice ionice cp cmp grep find install mktemp stat sync; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+[[ $LOCAL_RETENTION_DAYS =~ ^(0|[1-9][0-9]*)$ ]] || fail 'LOCAL_RETENTION_DAYS must be a non-negative integer'
+[[ -f $DB_FILE ]] || fail "database not found: $DB_FILE"
+[[ -f $CONTENT_FILE ]] || fail "content file not found: $CONTENT_FILE"
+[[ -d $UPLOAD_DIR ]] || fail "upload directory not found: $UPLOAD_DIR"
+
+install -d -m 0700 "$DEST"
+exec 9>"$DEST/.backup.lock"
+flock -n 9 || fail 'another backup is already running'
+[[ ! -e $ARCHIVE && ! -e $CHECKSUM ]] || fail "archive already exists for timestamp $STAMP"
+
+STAGE=$(mktemp -d "$DEST/.stage-$STAMP.XXXXXX")
+install -d -m 0700 "$STAGE/khyeast/data" "$STAGE/khyeast/uploads"
+
+# Paths are interpolated into sqlite3's dot-command language below. The normal
+# production paths contain neither character; reject surprising configuration
+# rather than constructing an ambiguous command.
+case "$STAGE" in
+  *"'"*|*$'\n'*) fail 'backup path contains a character unsafe for sqlite3 .backup' ;;
+esac
+
+validate_content() {
+  node - "$1" <<'NODE'
+const fs = require('node:fs');
+const file = process.argv[2];
+const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+const object = (item) => item && typeof item === 'object' && !Array.isArray(item);
+const required = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
+if (!object(value) || !required.every((key) => Object.hasOwn(value, key))) {
+  throw new Error('content.json has an incomplete root structure');
+}
+if (!['texts', 'media', 'links', 'collections'].every((key) => object(value[key]))) {
+  throw new Error('content.json has an invalid object section');
+}
+if (!['brands', 'products', 'posts'].every((key) => Array.isArray(value[key]))) {
+  throw new Error('content.json has an invalid list section');
+}
+if (Object.hasOwn(value, 'i18n') && !object(value.i18n)) {
+  throw new Error('content.json has an invalid i18n section');
+}
+NODE
+}
+
+# First pass captures files that could be unreferenced and moved to quarantine
+# after this point. Never use --delete: a conservative extra file is harmless,
+# while deleting a file named by the metadata snapshot would break a restore.
+rsync -a --exclude='/.quarantine/' -- "$UPLOAD_DIR/" "$STAGE/khyeast/uploads/"
+
+snapshot_ok=0
+for attempt in 1 2 3; do
+  before=$STAGE/content.before.json
+  after=$STAGE/content.after.json
+  database=$STAGE/khyeast.db.pending
+  rm -f -- "$before" "$after" "$database"
+
+  if ! cp -- "$CONTENT_FILE" "$before" || ! validate_content "$before"; then
+    printf 'backup-khyeast: content snapshot attempt %s was unreadable; retrying\n' "$attempt" >&2
+    sleep 1
+    continue
+  fi
+
+  if ! sqlite3 -readonly "$DB_FILE" <<SQL
+.bail on
+.timeout 10000
+.backup '$database'
+SQL
+  then
+    printf 'backup-khyeast: SQLite backup attempt %s failed; retrying\n' "$attempt" >&2
+    sleep 1
+    continue
+  fi
+
+  integrity=$(sqlite3 -batch -noheader "$database" 'PRAGMA integrity_check;') || integrity=''
+  foreign_keys=$(sqlite3 -batch -noheader "$database" 'PRAGMA foreign_key_check;') || foreign_keys='check-failed'
+  if [[ $integrity != ok || -n $foreign_keys ]]; then
+    printf 'backup-khyeast: copied database failed integrity checks; retrying\n' >&2
+    sleep 1
+    continue
+  fi
+
+  if ! cp -- "$CONTENT_FILE" "$after" || ! validate_content "$after"; then
+    printf 'backup-khyeast: second content read attempt %s failed; retrying\n' "$attempt" >&2
+    sleep 1
+    continue
+  fi
+  if ! cmp -s -- "$before" "$after"; then
+    printf 'backup-khyeast: content changed during metadata snapshot attempt %s; retrying\n' "$attempt" >&2
+    sleep 1
+    continue
+  fi
+
+  mv -- "$after" "$STAGE/khyeast/data/content.json"
+  mv -- "$database" "$STAGE/khyeast/data/khyeast.db"
+  rm -f -- "$before"
+  snapshot_ok=1
+  break
+done
+[[ $snapshot_ok -eq 1 ]] || fail 'could not obtain a stable content/database snapshot after three attempts'
+
+# Second pass captures uploads completed while content and SQLite were copied.
+# Any rsync warning is a failed backup, not a successful-but-incomplete archive.
+rsync -a --exclude='/.quarantine/' -- "$UPLOAD_DIR/" "$STAGE/khyeast/uploads/"
+[[ ! -e $STAGE/khyeast/uploads/.quarantine ]] || fail 'quarantine exclusion failed'
+
+commit=unknown
+if [[ -e $RELEASE_DIR/.git ]]; then
+  commit=$(git -C "$RELEASE_DIR" rev-parse HEAD 2>/dev/null || printf unknown)
+fi
+content_sha=$(sha256sum "$STAGE/khyeast/data/content.json" | awk '{print $1}')
+database_sha=$(sha256sum "$STAGE/khyeast/data/khyeast.db" | awk '{print $1}')
+node - "$STAGE/khyeast/backup-manifest.json" "$STAMP" "$commit" "$content_sha" "$database_sha" <<'NODE'
+const fs = require('node:fs');
+const [file, createdAt, commit, contentSha256, databaseSha256] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({
+  format: 1,
+  createdAt,
+  commit,
+  online: true,
+  quarantineExcluded: true,
+  contentSha256,
+  databaseSha256,
+}, null, 2), { mode: 0o600 });
+NODE
+
+# Archive only the stable stage. Media is already compressed, so an
+# uncompressed tar avoids a long CPU-heavy gzip window; encrypted offsite tools
+# such as Restic can deduplicate and compress the result independently.
+nice -n 10 ionice -c 3 tar --numeric-owner -C "$STAGE" -cf "$ARCHIVE_TMP" khyeast
+list=$STAGE/archive.list
+tar -tf "$ARCHIVE_TMP" >"$list"
+grep -Fxq 'khyeast/data/content.json' "$list" || fail 'archive is missing content.json'
+grep -Fxq 'khyeast/data/khyeast.db' "$list" || fail 'archive is missing the SQLite snapshot'
+grep -Fxq 'khyeast/backup-manifest.json' "$list" || fail 'archive is missing its manifest'
+if grep -Fq '/.quarantine/' "$list"; then fail 'archive unexpectedly contains quarantine'; fi
+
+archive_hash=$(sha256sum "$ARCHIVE_TMP" | awk '{print $1}')
+printf '%s  %s\n' "$archive_hash" "$(basename "$ARCHIVE")" >"$CHECKSUM_TMP"
+# Flush complete temporary artifacts before exposing final names, then flush the
+# publication directory. A sudden host loss cannot turn a logged success into a
+# pair of durable names backed only by unwritten cache pages.
+sync -f "$ARCHIVE_TMP"
+sync -f "$CHECKSUM_TMP"
+mv -- "$ARCHIVE_TMP" "$ARCHIVE"
+mv -- "$CHECKSUM_TMP" "$CHECKSUM"
+sync -f "$DEST"
+printf 'backup-khyeast: created %s (%s bytes)\n' "$ARCHIVE" "$(stat -c %s "$ARCHIVE")"
+
+# Bound local disk use only after a new archive is complete. Offsite storage
+# needs its own independently verified retention; this local window is not a
+# substitute for it.
+retention_minutes=$(( LOCAL_RETENTION_DAYS * 24 * 60 ))
+expired_list=$STAGE/expired-archives.list
+find "$DEST" -maxdepth 1 -type f -name 'khyeast-*.tar' -mmin "+$retention_minutes" -print0 >"$expired_list"
+while IFS= read -r -d '' expired; do
+  rm -f -- "$expired" "$expired.sha256"
+done <"$expired_list"
+find "$DEST" -maxdepth 1 -type f -name 'khyeast-*.tar.sha256' -mmin "+$retention_minutes" -delete
+
+printf 'backup-khyeast: local backup complete; encrypted offsite replication must verify this archive separately\n'

@@ -1,7 +1,9 @@
 /* Upload-reference scanning and conservative orphan cleanup invariants. */
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   collectUploadReferences,
   deleteUnusedUploads,
@@ -117,6 +119,31 @@ try {
     now: now + UPLOAD_QUARANTINE_RETENTION_MS + 1,
   });
   check(expired.batches === 1 && !fs.existsSync(path.join(root, '.quarantine', batch)), 'expired quarantine batches purge after retention');
+
+  /* Exercise the non-interactive entry point used by the daily systemd timer,
+     not only the underlying helper. Unknown names must remain untouched. */
+  const automatedBatch = path.join(root, '.quarantine', `${Date.now() - UPLOAD_QUARANTINE_RETENTION_MS - 60_000}-daily`);
+  const unknownBatch = path.join(root, '.quarantine', 'operator-review');
+  fs.mkdirSync(path.join(automatedBatch, 'images'), { recursive: true });
+  fs.mkdirSync(unknownBatch, { recursive: true });
+  fs.writeFileSync(path.join(automatedBatch, 'images', 'expired.webp'), Buffer.alloc(23));
+  fs.writeFileSync(path.join(unknownBatch, 'keep.txt'), 'keep');
+  const purgeCli = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL('../purge-upload-quarantine.mjs', import.meta.url))],
+    { env: { ...process.env, UPLOAD_DIR: root }, encoding: 'utf8' },
+  );
+  let purgeReport = {};
+  try { purgeReport = JSON.parse(purgeCli.stdout.trim()); } catch {}
+  check(
+    purgeCli.status === 0 && purgeReport.ok === true && purgeReport.purgedBatches === 1 && purgeReport.purgedFiles === 1,
+    'the scheduled purge command reports expired batches and files',
+    `${purgeCli.status} ${purgeCli.stdout} ${purgeCli.stderr}`,
+  );
+  check(
+    !fs.existsSync(automatedBatch) && fs.existsSync(unknownBatch),
+    'the scheduled purge removes only timestamped expired batches',
+  );
 
   const shared = { a: '/uploads/images/page.jpg', b: '/uploads/images/page.jpg' };
   check(isUploadReferenced('/uploads/images/page.jpg', shared), 'a file shared by multiple fields remains in use');
