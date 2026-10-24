@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useContent } from '../content/ContentContext';
 import { getPack } from '../../shared/i18n/index.js';
 import { useAdminLocale } from './adminLocale';
+import AdminState from './AdminState';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
@@ -197,7 +198,9 @@ export function TranslationsTab() {
                 />
               </div>
             ))}
-            {!textKeys.length && <p style={{ color: 'var(--muted)' }}>موردی یافت نشد.</p>}
+            {!textKeys.length && (
+              <AdminState compact icon="search" title="موردی یافت نشد." detail="عبارت جست‌وجو یا دسته انتخاب‌شده را تغییر دهید." />
+            )}
           </div>
         </>
       )}

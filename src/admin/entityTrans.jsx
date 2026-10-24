@@ -17,6 +17,7 @@ import { sanitizeHtml, sanitizeHtmlResult, richTextRejectionMessage } from '../c
 import { getPack } from '../../shared/i18n/index.js';
 import { useAdminLocale } from './adminLocale';
 import { RichEditor } from './editors';
+import AdminState from './AdminState';
 import {
   TransField,
   TransStringList,
@@ -92,7 +93,9 @@ function TransList({ items, title, sub, subtitle, onEdit, translatedOf }) {
             </div>
           );
         })}
-        {!items.length && <p className="admin__hint">موردی برای ترجمه وجود ندارد.</p>}
+        {!items.length && (
+          <AdminState compact icon="translations" title="موردی برای ترجمه وجود ندارد." />
+        )}
       </div>
     </div>
   );

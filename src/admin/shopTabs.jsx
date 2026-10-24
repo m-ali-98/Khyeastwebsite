@@ -3,6 +3,7 @@ import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
 import { Field, UploadButton, PairListEditor, ProductImagesEditor, RichEditor } from './editors';
+import AdminState from './AdminState';
 import { formatMoney } from '../shop/ShopContext';
 import { productImageList, productImagesProblem, syncProductImages } from '../../shared/productImages.js';
 import { trustSealImageOrigins } from '../../shared/trustSeals.js';
@@ -584,7 +585,9 @@ export function ShopProductsTab() {
             </div>
           </div>
         ))}
-        {!items.length && <p style={{ color: 'var(--muted)' }}>هنوز محصولی در فروشگاه نیست.</p>}
+        {!items.length && (
+          <AdminState icon="store" title="هنوز محصولی در فروشگاه نیست." detail="برای ساخت نخستین کالای قابل خرید، دکمه «محصول جدید» را انتخاب کنید." />
+        )}
       </div>
 
       <h3 style={{ margin: '28px 0 12px' }}>تنظیمات فروشگاه</h3>
@@ -696,7 +699,7 @@ export function AdminSecurityTab() {
     }
   };
 
-  if (!snapshot && !error) return <div className="admin__panel"><p>در حال دریافت تنظیمات امنیتی…</p></div>;
+  if (!snapshot && !error) return <div className="admin__panel"><AdminState kind="loading" icon="refresh" title="در حال دریافت تنظیمات امنیتی…" /></div>;
 
   const proxy = snapshot?.proxy || {};
   const rateLimits = snapshot?.rateLimits;
@@ -990,12 +993,17 @@ export function ShopOrdersTab() {
           <span>بازگرداندن خودکار وجه کامل نشده است؛ سفارش نشان‌دار را بررسی و پس از حل موضوع، هشدار آن را تأیید کنید.</span>
         </div>
       )}
-      {orders === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
-      {orders?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز سفارشی ثبت نشده است.</p>}
+      {orders === null && !err && <AdminState compact kind="loading" icon="refresh" title="در حال دریافت…" />}
+      {orders?.length === 0 && (
+        <AdminState icon="orders" title="هنوز سفارشی ثبت نشده است." detail="سفارش‌های فروشگاه پس از تکمیل فرایند خرید در این بخش نمایش داده می‌شوند." />
+      )}
       {orders !== null && orders.length > 0 && visibleOrders.length === 0 && (
-        <p style={{ color: 'var(--muted)' }}>
-          {showArchived ? 'هنوز سفارشی بایگانی نشده است.' : 'همه سفارش‌ها بایگانی شده‌اند.'}
-        </p>
+        <AdminState
+          compact
+          icon="box"
+          title={showArchived ? 'هنوز سفارشی بایگانی نشده است.' : 'همه سفارش‌ها بایگانی شده‌اند.'}
+          detail={showArchived ? 'برای بازگشت، «سفارش‌های جاری» را انتخاب کنید.' : 'برای دیدن سفارش‌ها، بایگانی را باز کنید.'}
+        />
       )}
 
       {visibleOrders.length > 0 && (
@@ -1281,9 +1289,11 @@ export function ShopCommentsTab() {
           به‌روزرسانی
         </button>
       </div>
-      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
-      {comments === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
-      {comments?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز دیدگاهی ثبت نشده است.</p>}
+      {err && <AdminState compact kind="error" icon="shield" title={err} />}
+      {comments === null && !err && <AdminState compact kind="loading" icon="refresh" title="در حال دریافت…" />}
+      {comments?.length === 0 && (
+        <AdminState icon="comments" title="هنوز دیدگاهی ثبت نشده است." detail="دیدگاه‌های خریداران برای بررسی و پاسخ‌گویی در این بخش ظاهر می‌شوند." />
+      )}
       {comments?.map((c) => (
         <div className="msg" key={c.id}>
           <div className="msg__head" style={{ cursor: 'default' }}>
@@ -1472,7 +1482,7 @@ export function ShopPaymentTab() {
     }
   };
 
-  if (!cfg && !err) return <div className="admin__panel"><p style={{ color: 'var(--muted)' }}>در حال دریافت…</p></div>;
+  if (!cfg && !err) return <div className="admin__panel"><AdminState kind="loading" icon="refresh" title="در حال دریافت…" /></div>;
 
   return (
     <div className="admin__panel">
@@ -1482,7 +1492,7 @@ export function ShopPaymentTab() {
           <p>اتصال، تأیید تراکنش‌های معلق، بازگرداندن وجه و گزارش‌ها</p>
         </div>
       </div>
-      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
+      {err && <AdminState compact kind="error" icon="shield" title={err} />}
 
       {cfg && (
         <>
@@ -1879,7 +1889,7 @@ export function ShopSmsTab() {
     load();
   };
 
-  if (!cfg && !err) return <div className="admin__panel"><p style={{ color: 'var(--muted)' }}>در حال دریافت…</p></div>;
+  if (!cfg && !err) return <div className="admin__panel"><AdminState kind="loading" icon="refresh" title="در حال دریافت…" /></div>;
 
   return (
     <div className="admin__panel">
@@ -1889,7 +1899,7 @@ export function ShopSmsTab() {
           <p>ارسال لینک پیگیری سفارش و کد تأیید — جابه‌جایی بین کلید آزمایشی و اصلی بدون تغییر کد</p>
         </div>
       </div>
-      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
+      {err && <AdminState compact kind="error" icon="shield" title={err} />}
       {cfg && (
         <>
           {readiness && (
@@ -1986,7 +1996,9 @@ export function ShopSmsTab() {
           </div>
 
           <h2 style={{ fontSize: 15, marginTop: 26, marginBottom: 10 }}>آخرین پیامک‌ها</h2>
-          {log.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>هنوز پیامکی ثبت نشده است.</p>}
+          {log.length === 0 && (
+            <AdminState compact icon="send" title="هنوز پیامکی ثبت نشده است." detail="گزارش پیامک‌های ارسالی در این قسمت نمایش داده می‌شود." />
+          )}
           <div className="admin__list">
             {log.map((row) => (
               <div className="admin__item" key={row.id} style={{ alignItems: 'flex-start' }}>
@@ -2243,9 +2255,14 @@ export function ShopCustomersTab() {
         />
       </div>
 
-      {!rows && !err && <p className="cust__loading">در حال دریافت…</p>}
+      {!rows && !err && <AdminState compact kind="loading" icon="refresh" title="در حال دریافت…" />}
       {rows && list.length === 0 && (
-        <p className="cust__none">{rows.length ? 'مشتری‌ای با این مشخصات پیدا نشد.' : 'هنوز مشتری‌ای ثبت‌نام نکرده است.'}</p>
+        <AdminState
+          compact={Boolean(rows.length)}
+          icon={rows.length ? 'search' : 'users'}
+          title={rows.length ? 'مشتری‌ای با این مشخصات پیدا نشد.' : 'هنوز مشتری‌ای ثبت‌نام نکرده است.'}
+          detail={rows.length ? 'عبارت جست‌وجو را تغییر دهید.' : 'حساب‌های تأییدشده مشتریان پس از ثبت‌نام در این بخش نمایش داده می‌شوند.'}
+        />
       )}
 
       {list.length > 0 && (

@@ -3,6 +3,7 @@ import { Icons } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { sanitizeHtmlResult, richTextRejectionMessage } from '../content/sanitize';
 import { Field, UploadButton, StringListEditor, PairListEditor, ProductImagesEditor, RichEditor } from './editors';
+import AdminState from './AdminState';
 import { getPack, LOCALES } from '../../shared/i18n/index.js';
 import { productImageList, productImagesProblem, syncProductImages } from '../../shared/productImages.js';
 import {
@@ -264,6 +265,9 @@ export function ProductsTab() {
         </button>
       </div>
       <div className="admin__list">
+        {!state.products.length && (
+          <AdminState icon="pack" title="هنوز محصولی ثبت نشده است." detail="برای ساخت نخستین محصول، دکمه «محصول جدید» را انتخاب کنید." />
+        )}
         {state.products.map((p) => (
           <div className="admin__item" key={p.slug}>
             <img src={p.image} alt="" />
@@ -432,6 +436,9 @@ export function PostsTab() {
         </button>
       </div>
       <div className="admin__list">
+        {!state.posts.length && (
+          <AdminState icon="posts" title="هنوز مقاله‌ای ثبت نشده است." detail="برای انتشار نخستین نوشته، دکمه «مقاله جدید» را انتخاب کنید." />
+        )}
         {state.posts.map((p) => (
           <div className="admin__item" key={p.slug}>
             <img src={p.image} alt="" />
@@ -528,7 +535,9 @@ export function TextsTab() {
             <textarea rows={String(draft[k]).length > 90 ? 3 : 1} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
           </div>
         ))}
-        {!keys.length && <p style={{ color: 'var(--muted)' }}>موردی یافت نشد.</p>}
+        {!keys.length && (
+          <AdminState compact icon="search" title="موردی یافت نشد." detail="عبارت جست‌وجو یا دسته انتخاب‌شده را تغییر دهید." />
+        )}
       </div>
     </div>
   );
@@ -699,15 +708,16 @@ export function MediaTab() {
       </div>
       <div className="admin__list">
         {Object.keys(state.media).map((k) => (
-          <div className="admin__item" key={k} style={{ gridTemplateColumns: '96px 1fr auto' }}>
-            <img src={state.media[k]} alt="" style={{ width: 96, height: 60 }} />
+          <div className="admin__item admin__item--media" key={k}>
+            <img src={state.media[k]} alt="" />
             <div>
-              <b style={{ direction: 'ltr', textAlign: 'left', fontSize: 12.5 }}>{k}</b>
+              <b className="admin__media-key">{k}</b>
               <input
+                className="admin__media-input"
                 value={state.media[k]}
                 dir="ltr"
+                aria-label={`نشانی تصویر ${k}`}
                 onChange={(e) => set(k, e.target.value)}
-                style={{ width: '100%', border: '1.5px solid var(--line)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5, marginTop: 6 }}
               />
             </div>
             <UploadButton accept="image/*" small label="بارگذاری" onUploaded={(url) => set(k, url)} />
@@ -1099,9 +1109,11 @@ export function MessagesTab() {
           به‌روزرسانی
         </button>
       </div>
-      {err && <p style={{ color: 'var(--crimson-ink)' }}>{err}</p>}
-      {messages === null && !err && <p style={{ color: 'var(--muted)' }}>در حال دریافت…</p>}
-      {messages?.length === 0 && <p style={{ color: 'var(--muted)' }}>هنوز پیامی ثبت نشده است.</p>}
+      {err && <AdminState compact kind="error" icon="shield" title={err} />}
+      {messages === null && !err && <AdminState compact kind="loading" icon="refresh" title="در حال دریافت…" />}
+      {messages?.length === 0 && (
+        <AdminState icon="inbox" title="هنوز پیامی ثبت نشده است." detail="پیام‌های فرم تماس پس از ارسال در این بخش نمایش داده می‌شوند." />
+      )}
       {messages?.map((m) => (
         <div className="msg" key={m.id}>
           <div className={`msg__head ${m.read ? '' : 'unread'}`} onClick={() => setOpen(open === m.id ? null : m.id)}>

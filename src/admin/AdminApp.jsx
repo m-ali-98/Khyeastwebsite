@@ -23,22 +23,29 @@ const CONTENT_WRITE_TABS = new Set([
 ]);
 
 const TABS = [
-  { id: 'products', label: 'محصولات', icon: 'pack' },
-  { id: 'posts', label: 'وبلاگ', icon: 'posts' },
-  { id: 'shop', label: 'فروشگاه — محصولات', icon: 'store', faOnly: true },
-  { id: 'orders', label: 'سفارش‌ها', icon: 'orders', faOnly: true },
-  { id: 'comments', label: 'دیدگاه‌ها', icon: 'comments', faOnly: true },
-  { id: 'payment', label: 'درگاه پرداخت', icon: 'payment', faOnly: true },
-  { id: 'customers', label: 'مشتریان', icon: 'users', faOnly: true },
-  { id: 'sms', label: 'پیامک', icon: 'send', faOnly: true },
-  { id: 'security', label: 'امنیت و محدودیت‌ها', icon: 'shield', faOnly: true },
-  { id: 'texts', label: 'متون سایت', icon: 'text', base: true },
-  { id: 'translations', label: 'متون و فهرست‌ها', icon: 'translations', transOnly: true },
-  { id: 'media', label: 'تصاویر صفحات', icon: 'media' },
-  { id: 'links', label: 'پیوندها', icon: 'link' },
-  { id: 'trust', label: 'نمادهای اعتماد', icon: 'shield', base: true },
-  { id: 'contact', label: 'اطلاعات تماس', icon: 'contact', base: true },
-  { id: 'messages', label: 'پیام‌های مردم', icon: 'inbox' },
+  { id: 'products', label: 'محصولات', icon: 'pack', group: 'content' },
+  { id: 'posts', label: 'وبلاگ', icon: 'posts', group: 'content' },
+  { id: 'texts', label: 'متون سایت', icon: 'text', base: true, group: 'content' },
+  { id: 'translations', label: 'متون و فهرست‌ها', icon: 'translations', transOnly: true, group: 'content' },
+  { id: 'media', label: 'تصاویر صفحات', icon: 'media', group: 'content' },
+  { id: 'links', label: 'پیوندها', icon: 'link', group: 'content' },
+  { id: 'trust', label: 'نمادهای اعتماد', icon: 'shield', base: true, group: 'content' },
+  { id: 'contact', label: 'اطلاعات تماس', icon: 'contact', base: true, group: 'content' },
+  { id: 'shop', label: 'فروشگاه — محصولات', icon: 'store', faOnly: true, group: 'commerce' },
+  { id: 'orders', label: 'سفارش‌ها', icon: 'orders', faOnly: true, group: 'commerce' },
+  { id: 'comments', label: 'دیدگاه‌ها', icon: 'comments', faOnly: true, group: 'commerce' },
+  { id: 'payment', label: 'درگاه پرداخت', icon: 'payment', faOnly: true, group: 'commerce' },
+  { id: 'customers', label: 'مشتریان', icon: 'users', faOnly: true, group: 'commerce' },
+  { id: 'messages', label: 'پیام‌های مردم', icon: 'inbox', group: 'communications' },
+  { id: 'sms', label: 'پیامک', icon: 'send', faOnly: true, group: 'communications' },
+  { id: 'security', label: 'امنیت و محدودیت‌ها', icon: 'shield', faOnly: true, group: 'system' },
+];
+
+const NAV_GROUPS = [
+  { id: 'content', label: 'محتوا' },
+  { id: 'commerce', label: 'فروشگاه' },
+  { id: 'communications', label: 'ارتباطات' },
+  { id: 'system', label: 'سامانه' },
 ];
 
 /* Persian and Arabic keyboards can produce different code points for the same
@@ -320,29 +327,33 @@ function Login({ onDone }) {
         {isDark ? <Icons.sun size={17} /> : <Icons.moon size={17} />}
       </button>
       <mo.form className="admin__login-card" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} onSubmit={submit}>
-        <div style={{ display: 'grid', placeItems: 'center' }}>
-          <Logo size={30} className="admin__logo-mark" />
+        <div className="admin__login-brand" aria-hidden="true">
+          <Logo size={34} className="admin__logo-mark" />
         </div>
+        <span className="admin__login-kicker">مدیریت امن وب‌سایت</span>
         <h1>پنل مدیریت محتوا</h1>
-        <p>شرکت خمیر مایه خوزستان — دسترسی مخصوص مدیر محتوا</p>
-        <label className="field">
-          <span style={{ fontSize: 13, fontWeight: 700 }}>نام کاربری</span>
-          <input value={user} onChange={(e) => setUser(e.target.value)} dir="ltr" autoFocus />
-        </label>
-        <label className="field">
-          <span style={{ fontSize: 13, fontWeight: 700 }}>رمز عبور</span>
-          <PasswordInput value={pass} onChange={(e) => setPass(e.target.value)} dir="ltr" />
-        </label>
-        <button className="btn btn--primary" disabled={busy} type="submit">
-          ورود به پنل
+        <p className="admin__login-intro">شرکت خمیر مایه خوزستان — دسترسی مخصوص مدیر محتوا</p>
+        <div className="admin__login-fields">
+          <label className="field">
+            <span>نام کاربری</span>
+            <input value={user} onChange={(e) => setUser(e.target.value)} dir="ltr" autoComplete="username" autoFocus />
+          </label>
+          <label className="field">
+            <span>رمز عبور</span>
+            <PasswordInput value={pass} onChange={(e) => setPass(e.target.value)} dir="ltr" autoComplete="current-password" />
+          </label>
+        </div>
+        <button className="btn btn--primary admin__login-submit" disabled={busy} type="submit">
+          {busy ? 'در حال بررسی…' : 'ورود به پنل'}
         </button>
-        {err && <div className="admin__login-err">{err}</div>}
-        <p style={{ marginTop: 18, fontSize: 12 }}>
+        {err && <div className="admin__login-err" role="alert">{err}</div>}
+        <footer className="admin__login-footer">
           <Link to="/" className="admin__back-link">
             <Icons.arrow size={14} />
             بازگشت به وب‌سایت
           </Link>
-        </p>
+          <span>نشست مدیریت پس از ورود به‌صورت امن نگهداری می‌شود.</span>
+        </footer>
       </mo.form>
     </main>
   );
@@ -355,23 +366,37 @@ function AdminShell() {
   const [tab, setTab] = useState('products');
   const [packsReady, setPacksReady] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const paletteOpenRef = useRef(false);
   const returnFocusRef = useRef(null);
+  const navToggleRef = useRef(null);
+  const navCloseRef = useRef(null);
+  const mainRef = useRef(null);
 
   const visibleTabs = useMemo(
     () => TABS.filter((item) => (isBase ? !item.transOnly : !item.faOnly && !item.base)),
     [isBase],
   );
   const activeTab = visibleTabs.some((item) => item.id === tab) ? tab : visibleTabs[0].id;
+  const activeTabMeta = visibleTabs.find((item) => item.id === activeTab) || visibleTabs[0];
+  const ActiveTabIcon = Icons[activeTabMeta.icon] || Icons.command;
   const contentReadOnly = backend && !contentAvailable && CONTENT_WRITE_TABS.has(activeTab);
+  const selectTab = useCallback((id) => {
+    const movingFromDrawer = navOpen;
+    setTab(id);
+    setNavOpen(false);
+    if (movingFromDrawer) {
+      window.setTimeout(() => mainRef.current?.focus({ preventScroll: true }), 0);
+    }
+  }, [navOpen]);
   const paletteCommands = useMemo(
     () =>
       visibleTabs.map((item) => ({
         ...item,
         keywords: `${item.id} مدیریت پنل`,
-        run: () => setTab(item.id),
+        run: () => selectTab(item.id),
       })),
-    [visibleTabs],
+    [selectTab, visibleTabs],
   );
 
   const openPalette = useCallback(() => {
@@ -423,6 +448,55 @@ function AdminShell() {
     return () => document.removeEventListener('keydown', shortcut);
   }, [authed, openPalette]);
 
+  /* On tablet and mobile the navigation is a modal drawer. Keep the page from
+     moving under it, support Escape, and put keyboard focus where the user can
+     immediately continue. The desktop media query never opens this drawer. */
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setNavOpen(false);
+        navToggleRef.current?.focus({ preventScroll: true });
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...(document.querySelectorAll(
+        '#admin-navigation a[href], #admin-navigation button:not([disabled]), #admin-navigation input:not([disabled]), #admin-navigation select:not([disabled])',
+      ) || [])].filter((element) => element.getClientRects().length);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    /* A zero-delay task runs after the pointer/click default action has put
+       focus back on the opener; requestAnimationFrame can run before that on
+       touch-emulated browsers and lose the race. */
+    const focusTimer = window.setTimeout(() => navCloseRef.current?.focus({ preventScroll: true }), 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [navOpen]);
+
+  useEffect(() => {
+    if (!navOpen || typeof window.matchMedia !== 'function') return undefined;
+    const desktop = window.matchMedia('(min-width: 1025px)');
+    const closeOnDesktop = (event) => event.matches && setNavOpen(false);
+    desktop.addEventListener?.('change', closeOnDesktop);
+    return () => desktop.removeEventListener?.('change', closeOnDesktop);
+  }, [navOpen]);
+
   if (authed === null || !packsReady) return <AdminLoading />;
   if (!authed) return <div className="admin">{<Login onDone={() => setAuthed(true)} />}</div>;
 
@@ -450,67 +524,158 @@ function AdminShell() {
   return (
     <div className="admin">
       <div className="admin__shell">
-        <aside className="admin__side">
-          <div className="admin__side-brand">
-            <Logo size={40} variant="solid" className="admin__logo-mark" />
+        <header className="admin__mobilebar">
+          <button
+            ref={navToggleRef}
+            type="button"
+            className="admin__mobile-action admin__menu-toggle"
+            aria-label="باز کردن فهرست پنل"
+            aria-controls="admin-navigation"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen(true)}
+          >
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+          </button>
+          <div className="admin__mobile-current" aria-live="polite">
+            <span><ActiveTabIcon size={17} /></span>
             <div>
-              <strong>{t('global.company.short')}</strong>
-              <small>CONTENT ADMIN</small>
+              <small>بخش فعلی</small>
+              <strong>{activeTabMeta.label}</strong>
             </div>
           </div>
-          <AdminLangBar />
-          <AdminThemeBar />
           <button
             type="button"
-            className="admin__command-open"
+            className="admin__mobile-action"
             onClick={openPalette}
+            aria-label="دسترسی سریع به بخش‌ها"
             aria-haspopup="dialog"
-            aria-keyshortcuts="Meta+K Control+K"
           >
-            <Icons.command size={17} />
-            <span>دسترسی سریع</span>
-            <kbd>⌘ / Ctrl K</kbd>
+            <Icons.search size={19} />
           </button>
-          {visibleTabs.map((tb) => {
-            const Ic = Icons[tb.icon];
-            return (
-              <button key={tb.id} className={activeTab === tb.id ? 'is-active' : ''} onClick={() => setTab(tb.id)}>
-                <Ic size={18} />
-                {tb.label}
-              </button>
-            );
-          })}
-          <div className="spacer" />
-          <Link to={locale === 'fa' ? '/' : `/${locale}`} target="_blank">
-            <Icons.globe size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginInlineEnd: 6 }} />
-            مشاهده وب‌سایت
-          </Link>
-          <a
-            href="#logout"
-            onClick={(e) => {
-              e.preventDefault();
-              /* Tell the server first so the session is revoked and its
-                 HttpOnly cookie is cleared. Local UI state is cleared either
-                 way — a failed call must never trap the admin in the panel. */
-              api('/api/auth/logout', { method: 'POST', auth: true })
-                .catch(() => {})
-                .finally(() => setAuthed(false));
-            }}
-          >
-            <Icons.arrow size={15} style={{ display: 'inline-block', verticalAlign: '-3px', marginInlineEnd: 6 }} />
-            خروج از پنل
-          </a>
+        </header>
+
+        <button
+          type="button"
+          className={`admin__nav-scrim ${navOpen ? 'is-open' : ''}`}
+          aria-label="بستن فهرست پنل"
+          tabIndex={navOpen ? 0 : -1}
+          onClick={() => setNavOpen(false)}
+        />
+
+        <aside
+          id="admin-navigation"
+          className={`admin__side ${navOpen ? 'is-open' : ''}`}
+          aria-label="فهرست پنل مدیریت"
+          role={navOpen ? 'dialog' : undefined}
+          aria-modal={navOpen ? 'true' : undefined}
+        >
+          <div className="admin__side-head">
+            <div className="admin__side-brand">
+              <Logo size={40} variant="solid" className="admin__logo-mark" />
+              <div>
+                <strong>{t('global.company.short')}</strong>
+                <small>CONTENT ADMIN</small>
+              </div>
+            </div>
+            <button
+              ref={navCloseRef}
+              type="button"
+              className="admin__side-close"
+              aria-label="بستن فهرست پنل"
+              onClick={() => {
+                setNavOpen(false);
+                navToggleRef.current?.focus({ preventScroll: true });
+              }}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+
+          <div className="admin__side-tools">
+            <AdminLangBar />
+            <AdminThemeBar />
+            <button
+              type="button"
+              className="admin__command-open"
+              onClick={openPalette}
+              aria-haspopup="dialog"
+              aria-keyshortcuts="Meta+K Control+K"
+            >
+              <Icons.command size={17} />
+              <span>دسترسی سریع</span>
+              <kbd>⌘ / Ctrl K</kbd>
+            </button>
+          </div>
+
+          <nav className="admin__nav" aria-label="بخش‌های مدیریت">
+            {NAV_GROUPS.map((group) => {
+              const groupTabs = visibleTabs.filter((item) => item.group === group.id);
+              if (!groupTabs.length) return null;
+              return (
+                <section className="admin__nav-section" key={group.id} aria-labelledby={`admin-nav-${group.id}`}>
+                  <h2 id={`admin-nav-${group.id}`}>{group.label}</h2>
+                  {groupTabs.map((tb) => {
+                    const Ic = Icons[tb.icon] || Icons.command;
+                    return (
+                      <button
+                        key={tb.id}
+                        type="button"
+                        className={activeTab === tb.id ? 'is-active' : ''}
+                        aria-current={activeTab === tb.id ? 'page' : undefined}
+                        onClick={() => selectTab(tb.id)}
+                      >
+                        <Ic size={18} />
+                        <span>{tb.label}</span>
+                      </button>
+                    );
+                  })}
+                </section>
+              );
+            })}
+          </nav>
+
+          <footer className="admin__side-footer">
+            <Link to={locale === 'fa' ? '/' : `/${locale}`} target="_blank">
+              <Icons.globe size={16} />
+              مشاهده وب‌سایت
+            </Link>
+            <a
+              href="#logout"
+              onClick={(e) => {
+                e.preventDefault();
+                /* Tell the server first so the session is revoked and its
+                   HttpOnly cookie is cleared. Local UI state is cleared either
+                   way — a failed call must never trap the admin in the panel. */
+                api('/api/auth/logout', { method: 'POST', auth: true })
+                  .catch(() => {})
+                  .finally(() => setAuthed(false));
+              }}
+            >
+              <Icons.arrow size={16} />
+              خروج از پنل
+            </a>
+          </footer>
         </aside>
-        <main className="admin__main">
+        <main ref={mainRef} className="admin__main" tabIndex={-1}>
           {!backend && (
-            <p style={{ background: 'var(--crimson-soft)', color: 'var(--crimson-700)', borderRadius: 12, padding: '10px 16px', marginBottom: 18 }}>
-              سرور محتوا در دسترس نیست؛ تغییرات ذخیره نخواهد شد. (سرور Node را اجرا کنید: npm run server)
-            </p>
+            <div className="admin__notice admin__notice--error" role="alert">
+              <Icons.shield size={19} />
+              <div>
+                <strong>سرور محتوا در دسترس نیست</strong>
+                <span>تغییرات ذخیره نخواهد شد. سرور Node را با دستور <code dir="ltr">npm run server</code> اجرا کنید.</span>
+              </div>
+            </div>
           )}
           {backend && !contentAvailable && (
-            <p id="admin-content-recovery-warning" role="alert" style={{ background: 'var(--crimson-soft)', color: 'var(--crimson-700)', borderRadius: 12, padding: '10px 16px', marginBottom: 18 }}>
-              فایل content.json گم‌شده، خراب یا ناقص است. محتوای پیش‌فرض فقط برای نمایش موقت بارگذاری شده و بخش‌های محتوایی تا بازیابی فایل معتبر فقط‌خواندنی هستند؛ ابتدا backup را بررسی کنید.
-            </p>
+            <div id="admin-content-recovery-warning" className="admin__notice admin__notice--error" role="alert">
+              <Icons.shield size={19} />
+              <div>
+                <strong>پنل در حالت بازیابی است</strong>
+                <span>فایل content.json گم‌شده، خراب یا ناقص است. محتوای پیش‌فرض فقط برای نمایش موقت بارگذاری شده و بخش‌های محتوایی تا بازیابی فایل معتبر فقط‌خواندنی هستند؛ ابتدا backup را بررسی کنید.</span>
+              </div>
+            </div>
           )}
           {!isBase && (
             <p className="admin__locale-note">

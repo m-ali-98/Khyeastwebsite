@@ -90,22 +90,42 @@ export async function loginAdmin(page) {
   await page.goto('/admin', { waitUntil: 'domcontentloaded' });
   const card = page.locator('.admin__login-card');
   const side = page.locator('.admin__side');
+  const mobileBar = page.locator('.admin__mobilebar');
+  const shellReady = side.or(mobileBar).filter({ visible: true });
 
   /* The panel renders neither until BOTH the session check and the three
      translation dictionaries have resolved, which on a cold chunk cache can
      take a while. Wait for whichever appears instead of assuming the login
-     card is up within a fixed window. */
-  await expect(card.or(side).first()).toBeVisible({ timeout: 30_000 });
+     card is up within a fixed window. On a phone the sidebar is intentionally
+     off-canvas, so the sticky mobile bar is the visible signed-in landmark. */
+  await expect(card.or(shellReady).first()).toBeVisible({ timeout: 30_000 });
 
   /* Already signed in from an earlier test in the same browser context. */
-  if (await side.isVisible()) return;
+  if (await shellReady.count()) return;
   await card.locator('input').first().fill(E2E.user);
   await card.locator('input[type="password"]').fill(E2E.pass);
   await card.getByRole('button', { name: 'ورود به پنل' }).click();
-  await expect(side).toBeVisible({ timeout: 20_000 });
+  await expect(shellReady.first()).toBeVisible({ timeout: 20_000 });
 }
 
 export const adminTab = (page, label) => page.locator('.admin__side button', { hasText: label });
+
+/** Open a destination through either the persistent desktop sidebar or the
+ * mobile drawer. This keeps interaction tests aligned with the real compact
+ * navigation instead of force-clicking an off-canvas control. */
+export async function openAdminTab(page, label) {
+  const tab = adminTab(page, label).first();
+  const toggle = page.getByRole('button', { name: 'باز کردن فهرست پنل' });
+  if (await toggle.isVisible()) {
+    const side = page.locator('.admin__side');
+    const isOpen = await side.evaluate((element) => element.classList.contains('is-open'));
+    if (!isOpen) await toggle.click();
+    await expect(tab).toBeVisible();
+  } else {
+    await expect(tab).toBeVisible();
+  }
+  await tab.click();
+}
 
 /* Persian digits — the site renders every number through faNum(), so a
    literal '2' will never be found in the DOM. */

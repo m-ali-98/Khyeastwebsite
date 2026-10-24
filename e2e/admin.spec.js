@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { loginAdmin, adminTab, watchConsole, gotoReady, routeSettled, one, E2E, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
+import { loginAdmin, adminTab, openAdminTab, watchConsole, gotoReady, routeSettled, one, E2E, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
 
 const field = (page, label) => page.locator('label.field', { hasText: label }).locator('input, textarea, select').first();
 
@@ -586,10 +586,43 @@ test('unused uploads are previewed with size and quarantined only after confirma
   expect(quarantined.some((entry) => String(entry).endsWith(name))).toBe(true);
 });
 
+test('the admin shell uses an accessible drawer on a narrow screen @mobile', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'narrow-screen layout check');
+  await loginAdmin(page);
+
+  const toggle = page.getByRole('button', { name: 'باز کردن فهرست پنل' });
+  const side = page.locator('.admin__side');
+  await expect(toggle).toBeVisible();
+  await expect(side).not.toBeVisible();
+  await expect(page.locator('.admin__mobile-current')).toContainText('محصولات');
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(side).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(side).not.toBeVisible();
+  await expect(toggle).toBeFocused();
+
+  const labels = [
+    'محصولات', 'وبلاگ', 'فروشگاه — محصولات', 'سفارش‌ها', 'دیدگاه‌ها',
+    'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'متون سایت',
+    'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
+  ];
+  for (const label of labels) {
+    await openAdminTab(page, label);
+    await expect(side).not.toBeVisible();
+    await expect(page.locator('.admin__mobile-current')).toContainText(label);
+    await expect(page.locator('.admin__panel').first()).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `${label} introduced horizontal page overflow`).toBeLessThanOrEqual(1);
+  }
+});
+
 test('the rich editor stays usable on a narrow screen @mobile', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'narrow-screen layout check');
   await loginAdmin(page);
-  await adminTab(page, 'وبلاگ').first().click();
+  await openAdminTab(page, 'وبلاگ');
   await page.getByRole('button', { name: /مقاله جدید/ }).first().click();
 
   const editor = page.getByRole('region', { name: 'ویرایشگر متن مقاله' });
