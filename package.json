@@ -34,7 +34,7 @@
     "compression": "^1.8.1",
     "express": "^5.3.0",
     "framer-motion": "^13.5.1",
-    "linkedom": "^0.18.13",
+    "linkedom": "^0.18.14",
     "lucide-react": "^1.61.0",
     "multer": "^2.5.0",
     "react": "^19.3.1",
@@ -48,7 +48,7 @@
     "@playwright/test": "^1.64.1",
     "@vitejs/plugin-react": "^6.1.2",
     "axe-core": "^4.14.0",
-    "sass": "^1.106.0",
+    "sass": "^1.106.1",
     "vite": "^8.3.5"
   },
   "type": "module",
