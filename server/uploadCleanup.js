@@ -4,14 +4,16 @@
    arrays, rich HTML, trust seals, page media, or video fields), so this module
    walks the complete state rather than maintaining a fragile field allowlist.
    Responsive WebP masters and their width variants are treated as one family:
-   one reference keeps the entire family and one cleanup removes all of it. */
+   one reference keeps the entire family and one cleanup quarantines all of it. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { UPLOAD_LADDER } from '../shared/uploadSizes.js';
 
 export const UNUSED_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
+export const UPLOAD_QUARANTINE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_UNUSED_UPLOAD_BATCH = 1000;
 
+const QUARANTINE_DIR = '.quarantine';
 const KINDS = ['images', 'videos'];
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const MASTER_RE = /^(.*)-w\d+\.webp$/i;
@@ -19,7 +21,13 @@ const WIDTHS = [...new Set(UPLOAD_LADDER.map(Number).filter(Number.isFinite))]
   .sort((a, b) => b - a)
   .join('|');
 const VARIANT_RE = new RegExp(`^(.*)-(?:${WIDTHS})\\.webp$`, 'i');
-const EMBEDDED_UPLOAD_RE = /\/uploads\/(images|videos)\/([A-Za-z0-9][A-Za-z0-9_.-]*)(?=[?#"'()\s<>,]|$)/g;
+/* Stop at every character that cannot occur in a server-generated filename.
+   A fixed delimiter allowlist is unsafe here: rich text can put paths before
+   entities, Markdown punctuation, a backslash, or future syntax we did not
+   predict. Dots remain valid inside names, then sentence punctuation is
+   stripped after the match. This deliberately prefers a false reference over
+   falsely declaring a live file unused. */
+const EMBEDDED_UPLOAD_RE = /\/uploads\/(images|videos)\/([A-Za-z0-9][A-Za-z0-9_.-]*)/g;
 const EXACT_UPLOAD_RE = /^\/uploads\/(images|videos)\/([A-Za-z0-9][A-Za-z0-9_.-]*)$/;
 
 /* HTML parsers resolve character references inside src/href values. Decode a
@@ -70,7 +78,8 @@ export function collectUploadReferences(value, { maxNodes = 250_000 } = {}) {
     nodes += 1;
     if (typeof current === 'string') {
       for (const match of searchableText(current).matchAll(EMBEDDED_UPLOAD_RE)) {
-        if (SAFE_NAME.test(match[2])) references.add(`${match[1]}/${match[2]}`);
+        const name = match[2].replace(/\.+$/, '');
+        if (SAFE_NAME.test(name)) references.add(`${match[1]}/${name}`);
       }
       continue;
     }
@@ -167,6 +176,7 @@ export function listUnusedUploads(uploadDir, content, {
     totalBytes: candidates.reduce((sum, item) => sum + item.bytes, 0),
     truncated: candidates.length > items.length,
     graceHours: Math.round(graceMs / (60 * 60 * 1000)),
+    quarantineDays: Math.round(UPLOAD_QUARANTINE_RETENTION_MS / (24 * 60 * 60 * 1000)),
   };
 }
 
@@ -181,50 +191,160 @@ export function isUploadReferenced(url, content) {
   return false;
 }
 
-/** Remove one exact file or one responsive-image family, never arbitrary paths. */
-export function deleteUploadSet(uploadDir, url) {
+/** Move one exact upload or responsive family out of the public tree.
+ *
+ * The batch directory keeps the original kind/name layout, which makes a
+ * manual restore unambiguous, while its leading epoch records the earliest
+ * time it may be purged. Moving within UPLOAD_DIR stays on one filesystem and
+ * is atomic per file. */
+export function quarantineUploadSet(uploadDir, url, {
+  now = Date.now(),
+  retentionMs = UPLOAD_QUARANTINE_RETENTION_MS,
+} = {}) {
   const target = parseUploadUrl(url);
-  if (!target) return { invalid: true, removed: [], stuck: [], bytes: 0 };
-  const dir = path.join(uploadDir, target.kind);
+  if (!target) return { invalid: true, moved: [], stuck: [], bytes: 0, batch: '', restoreUntil: '' };
+  const sourceDir = path.join(uploadDir, target.kind);
   const targetFamily = familyKey(target.kind, target.name);
   let entries = [];
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
+    entries = fs.readdirSync(sourceDir, { withFileTypes: true });
   } catch {
-    return { invalid: false, removed: [], stuck: [], bytes: 0 };
+    return { invalid: false, moved: [], stuck: [], bytes: 0, batch: '', restoreUntil: '' };
   }
-
   const names = entries
     .filter((entry) => entry.isFile() && SAFE_NAME.test(entry.name) && familyKey(target.kind, entry.name) === targetFamily)
-    .map((entry) => entry.name);
-  const removed = [];
+    .map((entry) => entry.name)
+    .sort();
+  if (!names.length) return { invalid: false, moved: [], stuck: [], bytes: 0, batch: '', restoreUntil: '' };
+
+  const quarantineRoot = path.join(uploadDir, QUARANTINE_DIR);
+  fs.mkdirSync(quarantineRoot, { recursive: true, mode: 0o700 });
+  const batchDir = fs.mkdtempSync(path.join(quarantineRoot, `${Math.trunc(Number(now) || Date.now())}-`));
+  const destinationDir = path.join(batchDir, target.kind);
+  fs.mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
+
+  const moved = [];
   const stuck = [];
   let bytes = 0;
   for (const name of names) {
-    const file = path.join(dir, name);
+    const source = path.join(sourceDir, name);
+    const destination = path.join(destinationDir, name);
     let size = 0;
-    try { size = fs.statSync(file).size; } catch {}
+    try { size = fs.statSync(source).size; } catch {}
     try {
-      fs.unlinkSync(file);
-      removed.push(name);
+      fs.renameSync(source, destination);
+      moved.push(name);
       bytes += size;
     } catch {
       stuck.push(name);
     }
   }
-  return { invalid: false, removed, stuck, bytes };
+
+  if (!moved.length) {
+    try { fs.rmSync(batchDir, { recursive: true, force: true }); } catch {}
+    return { invalid: false, moved, stuck, bytes, batch: '', restoreUntil: '' };
+  }
+
+  const createdAt = new Date(Number(now) || Date.now());
+  const safeRetention = Math.max(0, Number(retentionMs) || 0);
+  const restoreUntil = new Date(createdAt.getTime() + safeRetention).toISOString();
+  try {
+    fs.writeFileSync(
+      path.join(batchDir, 'manifest.json'),
+      JSON.stringify({
+        createdAt: createdAt.toISOString(),
+        restoreUntil,
+        originalUrl: url,
+        files: moved.map((name) => ({ kind: target.kind, name })),
+      }, null, 2),
+      { mode: 0o600 },
+    );
+  } catch {
+    /* The kind/name directory remains sufficient for a manual restore. */
+  }
+  return {
+    invalid: false,
+    moved,
+    stuck,
+    bytes,
+    batch: path.basename(batchDir),
+    restoreUntil,
+  };
+}
+
+const quarantineTreeStats = (root) => {
+  const stack = [root];
+  let files = 0;
+  let bytes = 0;
+  while (stack.length) {
+    const current = stack.pop();
+    let entries = [];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      const item = path.join(current, entry.name);
+      if (entry.isDirectory()) stack.push(item);
+      else if (entry.isFile()) {
+        files += 1;
+        try { bytes += fs.statSync(item).size; } catch {}
+      }
+    }
+  }
+  return { files, bytes };
+};
+
+/** Permanently purge only quarantine batches whose encoded creation time is
+ * older than the retention period. Unknown directory names are retained. */
+export function purgeExpiredUploadQuarantine(uploadDir, {
+  now = Date.now(),
+  retentionMs = UPLOAD_QUARANTINE_RETENTION_MS,
+} = {}) {
+  const root = path.join(uploadDir, QUARANTINE_DIR);
+  let entries = [];
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch {
+    return { batches: 0, files: 0, bytes: 0, stuck: [] };
+  }
+  const safeNow = Number(now) || Date.now();
+  const safeRetention = Math.max(0, Number(retentionMs) || 0);
+  let batches = 0;
+  let files = 0;
+  let bytes = 0;
+  const stuck = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const match = entry.name.match(/^(\d{10,})-/);
+    const createdAt = match ? Number(match[1]) : NaN;
+    if (!Number.isFinite(createdAt) || safeNow - createdAt < safeRetention) continue;
+    const batch = path.join(root, entry.name);
+    const stats = quarantineTreeStats(batch);
+    try {
+      fs.rmSync(batch, { recursive: true, force: true });
+      batches += 1;
+      files += stats.files;
+      bytes += stats.bytes;
+    } catch {
+      stuck.push(entry.name);
+    }
+  }
+  return { batches, files, bytes, stuck };
 }
 
 /**
- * Rescan at confirmation time, then remove only URLs that are still old and
- * unused. A file referenced between preview and confirmation is skipped.
+ * Rescan at confirmation time, then quarantine only URLs that are still old
+ * and unused. A file referenced between preview and confirmation is skipped.
+ * Batches older than the retention period are purged during a later confirmed
+ * cleanup, never during preview.
  */
 export function deleteUnusedUploads(uploadDir, content, urls, options = {}) {
   const requested = [...new Set(Array.isArray(urls) ? urls.filter((url) => typeof url === 'string') : [])]
     .slice(0, MAX_UNUSED_UPLOAD_BATCH);
-  const current = listUnusedUploads(uploadDir, content, { ...options, limit: MAX_UNUSED_UPLOAD_BATCH });
+  const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
+  const retentionMs = Number.isFinite(Number(options.quarantineRetentionMs))
+    ? Math.max(0, Number(options.quarantineRetentionMs))
+    : UPLOAD_QUARANTINE_RETENTION_MS;
+  const current = listUnusedUploads(uploadDir, content, { ...options, now, limit: MAX_UNUSED_UPLOAD_BATCH });
   const candidates = new Map(current.items.map((item) => [item.url, item]));
-  const removed = [];
+  const purged = purgeExpiredUploadQuarantine(uploadDir, { now, retentionMs });
+  const quarantined = [];
   const skipped = [];
   const stuck = [];
   let bytes = 0;
@@ -235,14 +355,30 @@ export function deleteUnusedUploads(uploadDir, content, urls, options = {}) {
       skipped.push(url);
       continue;
     }
-    const result = deleteUploadSet(uploadDir, url);
-    if (result.removed.length) {
-      removed.push({ url, fileCount: result.removed.length, bytes: result.bytes });
+    const result = quarantineUploadSet(uploadDir, url, { now, retentionMs });
+    if (result.moved.length) {
+      quarantined.push({
+        url,
+        fileCount: result.moved.length,
+        bytes: result.bytes,
+        batch: result.batch,
+        restoreUntil: result.restoreUntil,
+      });
       bytes += result.bytes;
     }
     for (const name of result.stuck) stuck.push(`/uploads/${candidate.type === 'image' ? 'images' : 'videos'}/${name}`);
-    if (!result.removed.length && !result.stuck.length) skipped.push(url);
+    if (!result.moved.length && !result.stuck.length) skipped.push(url);
   }
 
-  return { removed, skipped, stuck, bytes };
+  return {
+    /* `removed` is retained as an API-compatibility alias: these entries were
+       removed from the live public tree, but remain recoverable in quarantine. */
+    removed: quarantined,
+    quarantined,
+    skipped,
+    stuck,
+    bytes,
+    quarantineDays: Math.round(retentionMs / (24 * 60 * 60 * 1000)),
+    purged,
+  };
 }

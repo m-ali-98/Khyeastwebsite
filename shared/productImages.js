@@ -68,6 +68,45 @@ export function isAllowedProductImageUrl(value, trustedOrigins = []) {
   }
 }
 
+const sameJsonValue = (left, right) => {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameJsonValue(value, right[index]));
+  }
+  if (
+    !left || !right ||
+    typeof left !== 'object' ||
+    typeof right !== 'object'
+  ) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) => key === rightKeys[index] && sameJsonValue(left[key], right[key]));
+};
+
+/** Existing records created before gallery enforcement may contain a URL that
+ * is no longer accepted. Revalidate a new or actually edited product, but do
+ * not let an untouched legacy row block an unrelated whole-page save. Root
+ * keys such as live `stock` can be ignored when the endpoint never persists
+ * the caller's stale value. */
+export function productNeedsImageValidation(product, previousProduct, { ignore = [] } = {}) {
+  if (!product || !previousProduct || typeof product !== 'object' || typeof previousProduct !== 'object') return true;
+  const ignored = new Set(Array.isArray(ignore) ? ignore : []);
+  const comparable = (value) => Object.fromEntries(
+    Object.entries(value).filter(([key]) => !ignored.has(key)),
+  );
+  const incoming = comparable(product);
+  /* ContentContext exposes the canonical compatibility form. Treat that form
+     as the same untouched row as its raw legacy representation; otherwise the
+     act of loading an old one-photo, duplicate, or invalid gallery would make
+     every whole-page payload look edited before the Admin touches it. */
+  return !sameJsonValue(incoming, comparable(previousProduct)) &&
+    !sameJsonValue(incoming, comparable(syncProductImages(previousProduct)));
+}
+
 /** Validate raw input before normalization can silently discard a bad entry.
  * A stable problem object lets Admin and HTTP callers give useful feedback
  * without copying the security rule. */

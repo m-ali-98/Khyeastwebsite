@@ -524,7 +524,7 @@ test('product editors refuse gallery URLs that the image CSP cannot render', asy
   await page.getByRole('button', { name: 'انصراف' }).last().click();
 });
 
-test('unused uploads are previewed with size and deleted only after confirmation', async ({ page }) => {
+test('unused uploads are previewed with size and quarantined only after confirmation', async ({ page }) => {
   const uploadDir = path.join(E2E.dataDir, 'uploads', 'images');
   fs.mkdirSync(uploadDir, { recursive: true });
   const name = `e2e-unused-${STAMP}.png`;
@@ -544,10 +544,12 @@ test('unused uploads are previewed with size and deleted only after confirmation
   await expect(cleanup.locator(`img[src="/uploads/images/${name}"]`)).toBeVisible();
 
   page.once('dialog', (dialog) => dialog.accept());
-  await cleanup.getByRole('button', { name: 'حذف موارد انتخاب‌شده' }).click();
-  await expect(cleanup).toContainText('مورد و');
+  await cleanup.getByRole('button', { name: 'انتقال موارد انتخاب‌شده به قرنطینه' }).click();
+  await expect(cleanup).toContainText('به قرنطینه منتقل شد');
   await expect(cleanup).toContainText('فایل قدیمیِ بدون استفاده‌ای پیدا نشد');
   expect(fs.existsSync(file)).toBe(false);
+  const quarantined = fs.readdirSync(path.join(E2E.dataDir, 'uploads', '.quarantine'), { recursive: true });
+  expect(quarantined.some((entry) => String(entry).endsWith(name))).toBe(true);
 });
 
 test('the rich editor stays usable on a narrow screen @mobile', async ({ page }, testInfo) => {

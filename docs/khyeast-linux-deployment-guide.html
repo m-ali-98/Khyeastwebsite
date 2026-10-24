@@ -788,7 +788,7 @@ curl --connect-timeout 3 http://SERVER_PUBLIC_IP:8787/api/health</pre>
     <li>Confirm products, prices, stock, units, active state, and shipping settings.</li>
     <li>Review Persian content and English/Arabic overrides.</li>
     <li>Upload a test image and verify responsive variants render.</li>
-    <li>Open “unused files,” preview candidates, and understand the 24-hour safety grace period before using cleanup.</li>
+    <li>Back up all persistent state before the first unused-file cleanup. Confirm the 24-hour draft grace period and 30-day quarantine; cleanup must return 503—not infer from defaults—if <code>content.json</code> is unavailable.</li>
   </ul>
 
   <h3>Configure SMS</h3>

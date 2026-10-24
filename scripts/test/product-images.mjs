@@ -14,6 +14,7 @@ import {
   normalizeProductImages,
   productImageList,
   productImagesProblem,
+  productNeedsImageValidation,
   syncProductImages,
 } from '../../shared/productImages.js';
 import { sanitizeContentPayload } from '../../server/sanitize.js';
@@ -78,6 +79,24 @@ check(
 check(
   normalizeProductImages(Array.from({ length: MAX_PRODUCT_IMAGES + 4 }, (_, index) => `/image-${index}.webp`)).length === MAX_PRODUCT_IMAGES,
   'product galleries have a bounded size',
+);
+const legacyProduct = {
+  slug: 'legacy',
+  title: 'Legacy',
+  image: 'http://old.example/photo.webp',
+  images: ['http://old.example/photo.webp', 'http://old.example/photo.webp'],
+  stock: 4,
+};
+check(
+  !productNeedsImageValidation(
+    { images: [...legacyProduct.images], stock: 4, image: legacyProduct.image, title: 'Legacy', slug: 'legacy' },
+    legacyProduct,
+  ) &&
+    !productNeedsImageValidation(syncProductImages(legacyProduct), legacyProduct) &&
+    productNeedsImageValidation({ ...legacyProduct, title: 'Edited' }, legacyProduct) &&
+    !productNeedsImageValidation({ ...legacyProduct, stock: 1 }, legacyProduct, { ignore: ['stock'] }) &&
+    productNeedsImageValidation({ ...legacyProduct, images: [legacyProduct.image] }, legacyProduct),
+  'gallery enforcement targets new or edited products while ignoring stale operational stock',
 );
 const synced = syncProductImages({ image: '/old.webp', images: ['/new.webp', '/second.webp'] });
 check(

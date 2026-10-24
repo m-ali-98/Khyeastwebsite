@@ -543,6 +543,11 @@ const formatUploadBytes = (value) => {
 };
 
 function UnusedUploads() {
+  const cleanupErrorText = (error, fallback) => (
+    error?.code === 'content-unavailable'
+      ? 'فایل content.json در دسترس یا معتبر نیست؛ پاک‌سازی برای جلوگیری از حذف فایل‌های در حال استفاده متوقف شد. ابتدا backup را بررسی و محتوا را بازیابی کنید.'
+      : error?.message || fallback
+  );
   const [report, setReport] = useState(null);
   const [selected, setSelected] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -556,7 +561,7 @@ function UnusedUploads() {
       setReport(next);
       setSelected(next.items.map((item) => item.url));
     } catch (error) {
-      setMessage({ bad: true, text: error.message || 'بررسی فایل‌ها ممکن نشد.' });
+      setMessage({ bad: true, text: cleanupErrorText(error, 'بررسی فایل‌ها ممکن نشد.') });
     } finally {
       setBusy(false);
     }
@@ -567,7 +572,7 @@ function UnusedUploads() {
     const candidates = report.items.filter((item) => selected.includes(item.url));
     const bytes = candidates.reduce((sum, item) => sum + item.bytes, 0);
     if (!window.confirm(
-      `${selected.length.toLocaleString('fa-IR')} مورد (${formatUploadBytes(bytes)}) پس از بررسی دوباره حذف شود؟ این کار قابل بازگشت نیست.`,
+      `${selected.length.toLocaleString('fa-IR')} مورد (${formatUploadBytes(bytes)}) پس از بررسی دوباره به قرنطینهٔ ${Number(report?.quarantineDays || 30).toLocaleString('fa-IR')} روزه منتقل شود؟ پیش از نخستین پاک‌سازی از داده‌ها و بارگذاری‌ها نسخهٔ پشتیبان بگیرید.`,
     )) return;
 
     setBusy(true);
@@ -582,16 +587,17 @@ function UnusedUploads() {
       setReport(next);
       setSelected(next.items.map((item) => item.url));
       const protectedCount = result.skipped?.length || 0;
+      const quarantinedCount = (result.quarantined || result.removed || []).length;
       setMessage({
         bad: Boolean(result.stuck?.length),
         text: result.stuck?.length
-          ? `${result.removed.length.toLocaleString('fa-IR')} مورد حذف شد؛ ${result.stuck.length.toLocaleString('fa-IR')} فایل فعلاً قفل بود.`
+          ? `${quarantinedCount.toLocaleString('fa-IR')} مورد به قرنطینه منتقل شد؛ ${result.stuck.length.toLocaleString('fa-IR')} فایل فعلاً قفل بود.`
           : protectedCount
-            ? `${result.removed.length.toLocaleString('fa-IR')} مورد حذف شد؛ ${protectedCount.toLocaleString('fa-IR')} مورد چون تازه یا در حال استفاده بود، حفظ شد.`
-            : `${result.removed.length.toLocaleString('fa-IR')} مورد و ${formatUploadBytes(result.bytes)} پاک شد.`,
+            ? `${quarantinedCount.toLocaleString('fa-IR')} مورد به قرنطینه منتقل شد؛ ${protectedCount.toLocaleString('fa-IR')} مورد چون تازه یا در حال استفاده بود، حفظ شد.`
+            : `${quarantinedCount.toLocaleString('fa-IR')} مورد با حجم ${formatUploadBytes(result.bytes)} به قرنطینه منتقل شد.`,
       });
     } catch (error) {
-      setMessage({ bad: true, text: error.message || 'پاک‌سازی فایل‌ها ممکن نشد.' });
+      setMessage({ bad: true, text: cleanupErrorText(error, 'پاک‌سازی فایل‌ها ممکن نشد.') });
     } finally {
       setBusy(false);
     }
@@ -616,7 +622,7 @@ function UnusedUploads() {
       </div>
 
       <div className="admin-unused__guard">
-        فایل‌های بارگذاری‌شده در {Number(report?.graceHours || 24).toLocaleString('fa-IR')} ساعت اخیر نمایش داده یا حذف نمی‌شوند تا پیش‌نویس‌های در حال ویرایش ایمن بمانند. پیش از حذف نیز سرور دوباره همه ارجاع‌ها را بررسی می‌کند.
+        پیش از نخستین پاک‌سازی از داده‌ها و بارگذاری‌ها نسخهٔ پشتیبان بگیرید. فایل‌های {Number(report?.graceHours || 24).toLocaleString('fa-IR')} ساعت اخیر نمایش داده نمی‌شوند؛ سرور پیش از انتقال دوباره همه ارجاع‌ها را بررسی می‌کند و فایل‌ها را دست‌کم {Number(report?.quarantineDays || 30).toLocaleString('fa-IR')} روز در قرنطینه نگه می‌دارد.
       </div>
 
       {message && <p className={`admin-unused__message${message.bad ? ' is-error' : ''}`} role="status">{message.text}</p>}
@@ -671,7 +677,7 @@ function UnusedUploads() {
               disabled={busy || !selected.length}
             >
               <Icons.trash size={16} />
-              حذف موارد انتخاب‌شده
+              انتقال موارد انتخاب‌شده به قرنطینه
             </button>
           )}
         </>

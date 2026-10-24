@@ -8,7 +8,9 @@ import {
   isUploadReferenced,
   listUnusedUploads,
   parseUploadUrl,
+  purgeExpiredUploadQuarantine,
   UNUSED_UPLOAD_GRACE_MS,
+  UPLOAD_QUARANTINE_RETENTION_MS,
 } from '../../server/uploadCleanup.js';
 
 let pass = 0;
@@ -66,6 +68,20 @@ try {
     collectUploadReferences('/%75ploads/images/rich%2Ejpg').has('images/rich.jpg'),
     'percent-encoded safe path characters cannot hide an upload reference',
   );
+  const unusualBoundaries = collectUploadReferences([
+    '/uploads/images/rich.jpg&amp;next',
+    '/uploads/images/page.jpg]',
+    '/uploads/images/seal.png}',
+    '/uploads/images/shop.jpg|caption',
+    String.raw`/uploads/videos/story.mp4\metadata`,
+  ]);
+  check(
+    ['images/rich.jpg', 'images/page.jpg', 'images/seal.png', 'images/shop.jpg', 'videos/story.mp4']
+      .every((reference) => unusualBoundaries.has(reference)),
+    'every non-filename character ends an embedded upload reference conservatively',
+  );
+  const sentenceReference = collectUploadReferences('See /uploads/images/page.jpg.').values().next().value;
+  check(sentenceReference === 'images/page.jpg', 'sentence-final dots do not become part of upload filenames', String(sentenceReference));
   check(isUploadReferenced('/uploads/images/gallery-480.webp', content), 'one master reference protects every optimized variant');
 
   put('images', 'orphan-w1600.webp', 31);
@@ -86,8 +102,21 @@ try {
   check(fs.existsSync(path.join(imageDir, 'orphan-480.webp')), 'a skipped responsive family remains complete');
 
   const removed = deleteUnusedUploads(root, content, [first.items[0].url], { now });
-  check(removed.removed.length === 1 && removed.removed[0].fileCount === 3, 'confirmed cleanup removes the whole optimized family');
-  check(!fs.readdirSync(imageDir).some((name) => name.startsWith('orphan-')), 'no optimized orphan survives cleanup');
+  check(removed.quarantined.length === 1 && removed.quarantined[0].fileCount === 3, 'confirmed cleanup quarantines the whole optimized family');
+  check(!fs.readdirSync(imageDir).some((name) => name.startsWith('orphan-')), 'no optimized orphan remains in the public upload tree');
+  const batch = removed.quarantined[0]?.batch;
+  check(
+    Boolean(batch) && fs.existsSync(path.join(root, '.quarantine', batch, 'images', 'orphan-480.webp')),
+    'quarantined files remain recoverable with their original kind and name',
+  );
+  const tooEarly = purgeExpiredUploadQuarantine(root, {
+    now: now + UPLOAD_QUARANTINE_RETENTION_MS - 1,
+  });
+  check(tooEarly.batches === 0 && fs.existsSync(path.join(root, '.quarantine', batch)), 'quarantine cannot purge before 30 days');
+  const expired = purgeExpiredUploadQuarantine(root, {
+    now: now + UPLOAD_QUARANTINE_RETENTION_MS + 1,
+  });
+  check(expired.batches === 1 && !fs.existsSync(path.join(root, '.quarantine', batch)), 'expired quarantine batches purge after retention');
 
   const shared = { a: '/uploads/images/page.jpg', b: '/uploads/images/page.jpg' };
   check(isUploadReferenced('/uploads/images/page.jpg', shared), 'a file shared by multiple fields remains in use');

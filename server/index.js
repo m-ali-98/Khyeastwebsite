@@ -33,12 +33,17 @@ import { createAccountRouter } from './accountRoutes.js';
 import { optimizeImage, optimiserAvailable } from './images.js';
 import {
   deleteUnusedUploads,
-  deleteUploadSet,
   isUploadReferenced,
   listUnusedUploads,
   parseUploadUrl,
+  quarantineUploadSet,
+  UPLOAD_QUARANTINE_RETENTION_MS,
 } from './uploadCleanup.js';
-import { productImagesProblem, productImagesProblemMessage } from '../shared/productImages.js';
+import {
+  productImagesProblem,
+  productImagesProblemMessage,
+  productNeedsImageValidation,
+} from '../shared/productImages.js';
 import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
@@ -144,7 +149,22 @@ const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12h
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(CONTENT_FILE)) fs.writeFileSync(CONTENT_FILE, JSON.stringify(DEFAULT_STATE, null, 2));
+if (!fs.existsSync(CONTENT_FILE)) {
+  const otherData = fs.readdirSync(DATA_DIR).filter((name) => name !== path.basename(CONTENT_FILE));
+  const existingUploads = ['images', 'videos'].some((kind) => {
+    try { return fs.readdirSync(path.join(UPLOAD_DIR, kind), { withFileTypes: true }).some((entry) => entry.isFile()); }
+    catch { return false; }
+  });
+  /* Bootstrap only a genuinely empty installation. If a database, legacy data
+     or uploads already exist, a missing content file is much more likely to be
+     a failed restore. Keeping it missing makes strict cleanup return 503
+     instead of manufacturing a default tree that marks old media unused. */
+  if (!otherData.length && !existingUploads) {
+    fs.writeFileSync(CONTENT_FILE, JSON.stringify(DEFAULT_STATE, null, 2));
+  } else {
+    console.error('[content] content.json is missing while other persistent state exists; upload cleanup is disabled');
+  }
+}
 
 const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const writeJSON = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
@@ -174,22 +194,59 @@ try {
 } catch {}
 
 /** Site content = JSON file + shop section rebuilt from the database. */
-const readContent = () => {
-  let base;
+const PERSISTED_CONTENT_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const validPersistedContent = (value) => (
+  isRecord(value) &&
+  PERSISTED_CONTENT_KEYS.every((key) => Object.hasOwn(value, key)) &&
+  ['texts', 'media', 'links', 'collections'].every((key) => isRecord(value[key])) &&
+  ['brands', 'products', 'posts'].every((key) => Array.isArray(value[key])) &&
+  (!Object.hasOwn(value, 'i18n') || isRecord(value.i18n))
+);
+
+const contentUnavailable = (cause) => Object.assign(
+  new Error('persisted content is missing, unreadable, or invalid'),
+  { code: 'CONTENT_UNAVAILABLE', cause },
+);
+
+/** Destructive upload accounting must never substitute defaults. A missing,
+ * corrupt, or structurally incomplete file may be the only copy that names a
+ * live upload, so cleanup must stop rather than infer that the upload is free. */
+const readContentStrict = () => {
   try {
-    base = readJSON(CONTENT_FILE);
-  } catch {
-    base = { ...DEFAULT_STATE };
-    delete base.shop;
+    const base = readJSON(CONTENT_FILE);
+    if (!validPersistedContent(base)) throw new Error('content.json has an invalid structure');
+    return {
+      ...base,
+      i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
+      shop: {
+        display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
+        products: store.listProducts(db),
+      },
+    };
+  } catch (error) {
+    if (error?.code === 'CONTENT_UNAVAILABLE') throw error;
+    throw contentUnavailable(error);
   }
-  return {
-    ...base,
-    i18n: base.i18n && typeof base.i18n === 'object' ? base.i18n : { en: {}, ar: {} },
-    shop: {
-      display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
-      products: store.listProducts(db),
-    },
-  };
+};
+
+/* Public reads retain the historical availability fallback. Upload cleanup and
+   guarded deletion call readContentStrict() directly and therefore fail shut. */
+const readContent = () => {
+  try {
+    return readContentStrict();
+  } catch {
+    const base = { ...DEFAULT_STATE };
+    delete base.shop;
+    return {
+      ...base,
+      i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
+      shop: {
+        display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
+        products: store.listProducts(db),
+      },
+    };
+  }
 };
 
 /** Persist site content: shop → database, everything else → JSON file.
@@ -205,14 +262,45 @@ const readContent = () => {
  *  dedicated compare-and-set endpoint after this content save, so an explicit
  *  edit is applied only if the live value still matches what the admin saw.
  *  A genuinely new product keeps the initial stock carried by this payload. */
-const writeContent = (next) => {
+const writeContent = (next, previous = null) => {
   /* The panel sanitizes for immediate preview, but only this server-side pass
      protects direct API callers and future clients. Store only canonical safe
      HTML in both content.json and the shop database. */
   const sanitized = sanitizeContentPayload(next);
+
+  /* Sanitization canonicalizes galleries. For an untouched legacy catalogue
+     row that the changed-only validator intentionally skipped, restore the
+     exact old media fields so an unrelated save cannot silently drop an HTTP,
+     duplicate, or formerly trusted URL. The row must be repaired when it is
+     actually edited. */
+  if (Array.isArray(sanitized.products) && Array.isArray(next.products) && Array.isArray(previous?.products)) {
+    const previousBySlug = new Map(previous.products.map((product) => [product?.slug, product]));
+    sanitized.products = sanitized.products.map((product, index) => {
+      const incoming = next.products[index];
+      const prior = previousBySlug.get(incoming?.slug);
+      if (productNeedsImageValidation(incoming, prior)) return product;
+      const preserved = { ...product };
+      for (const field of ['image', 'images']) {
+        if (Object.hasOwn(prior, field)) preserved[field] = prior[field];
+        else delete preserved[field];
+      }
+      return preserved;
+    });
+  }
+
   const { shop, ...rest } = sanitized;
   if (shop && typeof shop === 'object') {
-    if (Array.isArray(shop.products)) store.replaceProducts(db, shop.products, { preserveStock: true });
+    if (Array.isArray(shop.products)) {
+      const oldProducts = Array.isArray(previous?.shop?.products) ? previous.shop.products : null;
+      const oldBySlug = new Map((oldProducts || []).map((product) => [product.slug, product]));
+      const productsChanged = !oldProducts ||
+        shop.products.length !== oldProducts.length ||
+        shop.products.some((product, index) => (
+          product?.slug !== oldProducts[index]?.slug ||
+          productNeedsImageValidation(product, oldBySlug.get(product?.slug), { ignore: ['stock'] })
+        ));
+      if (productsChanged) store.replaceProducts(db, shop.products, { preserveStock: true });
+    }
     if (shop.display && typeof shop.display === 'object')
       store.setSetting(db, 'shop.display', {
         ...DEFAULT_STATE.shop.display,
@@ -799,6 +887,7 @@ app.put('/api/content', requireAuth, (req, res) => {
   const next = req.body;
   if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
   for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  const current = readContent();
   /* The slug is both the primary key and the URL for catalogue products and
      blog posts. A blank one produces /products/ (which collides with the index
      route) and a duplicate makes the second entity permanently unreachable,
@@ -837,16 +926,28 @@ app.put('/api/content', requireAuth, (req, res) => {
   /* Product photos have to be renderable under the exact img-src policy this
      payload will publish. Validate before normalization so a malformed or
      untrusted entry cannot be silently discarded while the save appears to
-     succeed. An active trust seal is the only content-controlled way to add an
-     external HTTPS image origin to CSP, so both rules share this origin set. */
+     succeed. Whole-page Admin saves include every product, so only a new or
+     edited row is revalidated; untouched legacy rows are preserved verbatim
+     and cannot block an unrelated edit. If the effective CSP origin set
+     changes, every gallery is related and must be checked again. */
   const trustedImageOrigins = trustSealImageOrigins(next.collections?.trustSeals);
-  for (const [bucket, list] of [
-    ['products', next.products],
-    ['shop.products', next.shop?.products],
+  const currentImageOrigins = trustSealImageOrigins(current.collections?.trustSeals);
+  const originPolicyChanged = [...new Set(trustedImageOrigins)].sort().join('\n') !==
+    [...new Set(currentImageOrigins)].sort().join('\n');
+  for (const [bucket, list, previousList, ignore] of [
+    ['products', next.products, current.products, []],
+    ['shop.products', next.shop?.products, current.shop?.products, ['stock']],
   ]) {
     if (!Array.isArray(list)) continue;
+    const previousBySlug = new Map(
+      (Array.isArray(previousList) ? previousList : []).map((product) => [product?.slug, product]),
+    );
     for (let index = 0; index < list.length; index += 1) {
       const product = list[index];
+      if (
+        !originPolicyChanged &&
+        !productNeedsImageValidation(product, previousBySlug.get(product?.slug), { ignore })
+      ) continue;
       const problem = productImagesProblem(product, trustedImageOrigins);
       if (!problem) continue;
       const usesGallery = Array.isArray(product?.images) && product.images.length > 0;
@@ -863,9 +964,9 @@ app.put('/api/content', requireAuth, (req, res) => {
   }
 
   /* never let a payload without translations wipe the stored ones */
-  if (!next.i18n || typeof next.i18n !== 'object') next.i18n = readContent().i18n || {};
+  if (!next.i18n || typeof next.i18n !== 'object') next.i18n = current.i18n || {};
   try {
-    writeContent(next);
+    writeContent(next, current);
   } catch (error) {
     if (isRichTextValidationError(error)) {
       return res.status(400).json({
@@ -895,8 +996,24 @@ app.delete('/api/messages/:id', requireAuth, (req, res) => {
 });
 
 /* ---------------- admin: uploads ---------------- */
+const strictUploadContent = (res, operation) => {
+  try {
+    return readContentStrict();
+  } catch (error) {
+    console.error(`[uploads] ${operation} refused:`, error?.cause?.message || error?.message || error);
+    res.setHeader('Retry-After', '60');
+    res.status(503).json({
+      error: 'persisted content is unavailable; upload cleanup is disabled',
+      code: 'content-unavailable',
+    });
+    return null;
+  }
+};
+
 app.get('/api/uploads/unused', requireAuth, (_req, res) => {
-  res.json(listUnusedUploads(UPLOAD_DIR, readContent()));
+  const content = strictUploadContent(res, 'unused-file preview');
+  if (!content) return;
+  res.json(listUnusedUploads(UPLOAD_DIR, content));
 });
 
 app.delete('/api/uploads/unused', requireAuth, (req, res) => {
@@ -904,7 +1021,9 @@ app.delete('/api/uploads/unused', requireAuth, (req, res) => {
   /* The content tree is read again here rather than trusting the preview. If a
      file became referenced while the confirmation dialog was open, it is no
      longer a candidate and will be reported as skipped. */
-  const result = deleteUnusedUploads(UPLOAD_DIR, readContent(), req.body.urls);
+  const content = strictUploadContent(res, 'unused-file cleanup');
+  if (!content) return;
+  const result = deleteUnusedUploads(UPLOAD_DIR, content, req.body.urls);
   res.json({ ok: true, ...result });
 });
 
@@ -969,17 +1088,28 @@ app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => 
 app.delete('/api/upload', requireAuth, (req, res) => {
   const url = String(req.body?.url || '');
   /* This lower-level endpoint remains for existing integrations, but it may no
-     longer delete a file used by another product or page. Gallery removal in
+     longer remove a file used by another product or page. Gallery removal in
      the Admin intentionally removes only the reference; the unused-files
-     cleanup is the normal deletion path. */
+     cleanup is the normal retirement path. */
   if (!parseUploadUrl(url)) return res.status(400).json({ error: 'invalid url' });
-  if (isUploadReferenced(url, readContent())) {
+  const content = strictUploadContent(res, 'guarded upload removal');
+  if (!content) return;
+  if (isUploadReferenced(url, content)) {
     return res.status(409).json({ error: 'upload is still referenced' });
   }
-  /* The reference check and deletion are synchronous, so no request in this
-     process can save content in between. */
-  const deleted = deleteUploadSet(UPLOAD_DIR, url);
-  res.json({ ok: true, stuck: deleted.stuck, removed: deleted.removed, bytes: deleted.bytes });
+  /* The reference check and quarantine move are synchronous, so no request in
+     this process can save content in between. */
+  const result = quarantineUploadSet(UPLOAD_DIR, url);
+  res.json({
+    ok: true,
+    stuck: result.stuck,
+    removed: result.moved,
+    quarantined: result.moved,
+    bytes: result.bytes,
+    batch: result.batch,
+    restoreUntil: result.restoreUntil,
+    quarantineDays: Math.round(UPLOAD_QUARANTINE_RETENTION_MS / (24 * 60 * 60 * 1000)),
+  });
 });
 
 /* Defence in depth for anything already on disk (including files uploaded
@@ -990,6 +1120,7 @@ app.use(
   '/uploads',
   express.static(UPLOAD_DIR, {
     maxAge: '30d',
+    dotfiles: 'deny',
     setHeaders: (res) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; sandbox");

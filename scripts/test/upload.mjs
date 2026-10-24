@@ -197,6 +197,66 @@ try {
 
     const restored = await put(original);
     check(restored.status === 200, 'content is restored after gallery-policy checks', String(restored.status));
+
+    /* A pre-enforcement row must not make every future whole-page save
+       impossible, nor may normalization silently erase it. It is validated as
+       soon as that product itself is edited. */
+    const contentFile = path.join(TMP, 'content.json');
+    const legacy = JSON.parse(fs.readFileSync(contentFile, 'utf8'));
+    const legacyUrl = 'http://legacy.example/product.webp';
+    legacy.products[0] = {
+      ...legacy.products[0],
+      image: legacyUrl,
+      images: [legacyUrl, legacyUrl],
+    };
+    const legacyUntrustedUrl = 'https://legacy-cdn.example/product.webp';
+    legacy.products[1] = {
+      ...legacy.products[1],
+      image: legacyUntrustedUrl,
+      images: [legacyUntrustedUrl],
+    };
+    const legacyDuplicateUrl = '/uploads/images/legacy-duplicate.webp';
+    legacy.products[2] = {
+      ...legacy.products[2],
+      image: legacyDuplicateUrl,
+      images: [legacyDuplicateUrl, legacyDuplicateUrl],
+    };
+    fs.writeFileSync(contentFile, JSON.stringify(legacy, null, 2));
+    const legacyPayload = await (await fetch(`${BASE}/api/content`)).json();
+    /* ContentContext canonicalizes legacy media while loading it. Reproduce the
+       actual Admin payload, not the raw file representation. */
+    legacyPayload.products[0] = { ...legacyPayload.products[0], image: '', images: [] };
+    legacyPayload.products[2] = {
+      ...legacyPayload.products[2],
+      image: legacyDuplicateUrl,
+      images: [legacyDuplicateUrl],
+    };
+    legacyPayload.texts = { ...legacyPayload.texts, __gallerySaveProbe: 'unrelated edit' };
+    const unrelated = await put(legacyPayload);
+    const savedLegacyProducts = JSON.parse(fs.readFileSync(contentFile, 'utf8')).products;
+    const preservedLegacy = savedLegacyProducts[0];
+    check(
+      unrelated.status === 200 &&
+        preservedLegacy.image === legacyUrl &&
+        JSON.stringify(preservedLegacy.images) === JSON.stringify([legacyUrl, legacyUrl]) &&
+        savedLegacyProducts[1].image === legacyUntrustedUrl &&
+        JSON.stringify(savedLegacyProducts[1].images) === JSON.stringify([legacyUntrustedUrl]) &&
+        savedLegacyProducts[2].image === legacyDuplicateUrl &&
+        JSON.stringify(savedLegacyProducts[2].images) === JSON.stringify([legacyDuplicateUrl, legacyDuplicateUrl]),
+      'an untouched invalid legacy gallery neither blocks nor gets rewritten by an unrelated save',
+      `${unrelated.status} ${JSON.stringify(unrelated.body)}`,
+    );
+    const editedLegacy = structuredClone(legacyPayload);
+    editedLegacy.products[0].image = 'http://legacy.example/replacement.webp';
+    editedLegacy.products[0].images = ['http://legacy.example/replacement.webp'];
+    const editedLegacyResult = await put(editedLegacy);
+    check(
+      editedLegacyResult.status === 400 && editedLegacyResult.body.code === 'invalid_url',
+      'editing a legacy gallery requires replacing it with an allowed image',
+      `${editedLegacyResult.status} ${JSON.stringify(editedLegacyResult.body)}`,
+    );
+    const restoredAgain = await put(original);
+    check(restoredAgain.status === 200, 'content is restored after the legacy-gallery compatibility check', String(restoredAgain.status));
   }
 
   /* ---- a large photo is shrunk, and the whole ladder is on disk -------- */
@@ -359,6 +419,43 @@ try {
     });
     check(stillUsed.status === 409 && fs.existsSync(onDisk(keptImageUrl)), 'the legacy delete endpoint cannot remove referenced media', String(stillUsed.status));
 
+    /* Missing or corrupt persisted content must disable every path that can
+       retire an upload. Falling back to defaults here would classify live old
+       files as unused after a bad restore. */
+    const validContentText = fs.readFileSync(contentFile, 'utf8');
+    fs.writeFileSync(contentFile, '{ this is not json');
+    const corruptPreview = await scan();
+    const corruptCleanupResponse = await fetch(`${BASE}/api/uploads/unused`, {
+      method: 'DELETE',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ urls: [orphanUrl] }),
+    });
+    const corruptCleanupBody = await corruptCleanupResponse.json().catch(() => ({}));
+    const corruptDirectResponse = await fetch(`${BASE}/api/upload`, {
+      method: 'DELETE',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ url: keptImageUrl }),
+    });
+    const corruptDirectBody = await corruptDirectResponse.json().catch(() => ({}));
+    check(
+      [corruptPreview, { status: corruptCleanupResponse.status, body: corruptCleanupBody }, { status: corruptDirectResponse.status, body: corruptDirectBody }]
+        .every((result) => result.status === 503 && result.body.code === 'content-unavailable'),
+      'corrupt content fails closed for preview, cleanup confirmation and guarded deletion',
+      JSON.stringify({ corruptPreview, corruptCleanupBody, corruptDirectBody }),
+    );
+    check(
+      fs.existsSync(onDisk(keptImageUrl)) && fs.existsSync(path.join(UPLOADS, 'images', 'cleanup-480.webp')),
+      'no upload moves while corrupt content disables cleanup',
+    );
+    fs.rmSync(contentFile);
+    const missingPreview = await scan();
+    check(
+      missingPreview.status === 503 && missingPreview.body.code === 'content-unavailable',
+      'missing content also disables cleanup with 503',
+      JSON.stringify(missingPreview),
+    );
+    fs.writeFileSync(contentFile, validContentText);
+
     /* Simulate content becoming referenced after the preview. The cleanup
        endpoint has to rescan at confirmation time and skip it. */
     content.posts[0] = {
@@ -383,9 +480,24 @@ try {
       body: JSON.stringify({ urls: [orphanUrl, keptVideoUrl] }),
     });
     const cleanupBody = await cleanup.json().catch(() => ({}));
-    check(cleanup.status === 200 && cleanupBody.removed?.length === 2 && cleanupBody.bytes > 67, 'confirmed cleanup removes only the selected current orphans', JSON.stringify(cleanupBody));
-    check(!fs.existsSync(onDisk(keptVideoUrl)), 'the selected unused video is gone');
-    check(!fs.readdirSync(path.join(UPLOADS, 'images')).some((name) => name.startsWith('cleanup-')), 'every selected optimized variant is gone');
+    check(
+      cleanup.status === 200 && cleanupBody.quarantined?.length === 2 && cleanupBody.bytes > 67 && cleanupBody.quarantineDays === 30,
+      'confirmed cleanup quarantines only the selected current orphans for 30 days',
+      JSON.stringify(cleanupBody),
+    );
+    check(!fs.existsSync(onDisk(keptVideoUrl)), 'the selected unused video leaves the public upload tree');
+    check(!fs.readdirSync(path.join(UPLOADS, 'images')).some((name) => name.startsWith('cleanup-')), 'every selected optimized variant leaves the public tree');
+    const quarantineFiles = fs.readdirSync(path.join(UPLOADS, '.quarantine'), { recursive: true });
+    check(
+      quarantineFiles.some((name) => String(name).endsWith('cleanup-480.webp')) &&
+        quarantineFiles.some((name) => String(name).endsWith(path.basename(onDisk(keptVideoUrl)))),
+      'quarantined image variants and video remain recoverable on disk',
+      quarantineFiles.join(' '),
+    );
+    const hiddenManifest = await fetch(
+      `${BASE}/uploads/.quarantine/${encodeURIComponent(cleanupBody.quarantined[0].batch)}/manifest.json`,
+    );
+    check(hiddenManifest.status !== 200, 'quarantine manifests are never publicly served', String(hiddenManifest.status));
   }
 
   /* ---- nothing stray was left behind ----------------------------------- */
