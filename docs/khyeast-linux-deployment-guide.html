@@ -249,8 +249,8 @@
     </tbody>
   </table>
   <div class="callout warning">
-    <b class="label">Upload memory</b>
-    The application allows a file up to 200 MB and validates uploads in memory. Four gigabytes of RAM is the safer baseline if administrators upload large videos. If large videos are unnecessary, enforce a smaller Nginx limit operationally.
+    <b class="label">Upload staging and memory</b>
+    The application preserves the 200 MB file limit but streams each multipart body to private <code>UPLOAD_DIR/.incoming</code> storage instead of retaining it as a JavaScript Buffer. One upload per Node process is admitted at a time; videos publish by atomic rename and Sharp reads images from that staged path. Image decoding still needs memory bounded by the pixel limit, so 4 GB remains the safer baseline. Keep at least one upload plus generated variants free on the upload filesystem.
   </div>
 
   <h3>Access checklist</h3>
@@ -644,6 +644,7 @@ server {
 
     location = /api/upload {
         client_max_body_size 210m;
+        proxy_request_buffering off;
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
@@ -727,6 +728,7 @@ server {
 
     location = /api/upload {
         client_max_body_size 210m;
+        proxy_request_buffering off;
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
@@ -786,7 +788,7 @@ NGINX
 
 sudo nginx -t
 sudo systemctl reload nginx</pre>
-  <p>The 210 MB allowance is scoped to the exact authenticated upload endpoint. Every other route remains under the 8 MB JSON/application ceiling, so a large request cannot consume proxy resources on login, callbacks, contact, or ordinary API routes.</p>
+  <p>The 210 MB allowance is scoped to the exact authenticated upload endpoint. <code>proxy_request_buffering off</code> streams that body to the application's private disk stage instead of creating a second complete Nginx request-body copy. Every other route remains under the 8 MB JSON/application ceiling, so a large request cannot consume proxy resources on login, callbacks, contact, or ordinary API routes.</p>
   <div class="callout warning"><b class="label">Certificate paths</b>Certbot uses a directory named after the certificate's primary name. Confirm with <code>sudo certbot certificates</code> and adjust the paths if your certificate directory differs.</div>
 
   <h3>Why the proxy headers are exact</h3>
@@ -875,8 +877,8 @@ curl --connect-timeout 3 http://SERVER_PUBLIC_IP:8787/api/health</pre>
     <li>Review all rate limits. Disable them only temporarily during controlled troubleshooting.</li>
     <li>Confirm products, prices, stock, units, active state, and shipping settings.</li>
     <li>Review Persian content and English/Arabic overrides.</li>
-    <li>Upload a test image and verify responsive variants render.</li>
-    <li>Back up all live persistent state before the first unused-file cleanup. Confirm the 24-hour draft grace period, daily 30-day quarantine timer, and deliberate backup exclusion of <code>.quarantine</code>.</li>
+    <li>Upload a test image and video, verify responsive variants render, and confirm <code>UPLOAD_DIR/.incoming</code> is empty afterward. A deliberately concurrent second upload should receive 503 with <code>Retry-After</code>, not allocate another large processing buffer.</li>
+    <li>Back up all live persistent state before the first unused-file cleanup. Confirm the 24-hour draft grace period, daily 30-day quarantine timer, and deliberate backup exclusion of <code>.quarantine</code> and <code>.incoming</code>.</li>
     <li>Confirm <code>/api/content</code> reports <code>X-Khyeast-Content-Status: persisted</code>. If content is unavailable, Admin writes and cleanup must return 503—not recreate or infer from defaults.</li>
   </ul>
 
@@ -937,20 +939,22 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
       <tr><td><code>data/content.json</code></td><td>Required; parse and structure-check</td><td>Published CMS state</td></tr>
       <tr><td>SQLite</td><td>Required; active: <code>.backup</code>; stopped: stable staged copy; always run integrity and foreign-key checks</td><td>Orders, payment attempts, stock, accounts and settings</td></tr>
       <tr><td>Live <code>uploads/</code></td><td>Required; copy into staging twice</td><td>Files referenced by content and products</td></tr>
+      <tr><td><code>uploads/.incoming/</code></td><td><strong>Exclude locally and offsite</strong></td><td>Incomplete multipart staging; never live recovery state</td></tr>
       <tr><td><code>uploads/.quarantine/</code></td><td><strong>Exclude locally and offsite</strong></td><td>30-day local recycle bin, not production state</td></tr>
       <tr><td><code>/etc/khyeast/khyeast.env</code></td><td>Separate encrypted secrets backup</td><td>Contains Admin credentials and stable secret</td></tr>
     </tbody>
   </table>
   <div class="callout warning"><b class="label">Quarantine trade-off</b>A total disk loss also loses quarantined files. That is intentional: ordinary backups must not preserve retired media indefinitely. Restore a mistaken cleanup from the local quarantine before its 30-day deadline.</div>
+  <p>The private <code>.incoming</code> directory is different: it contains only an upload that has not yet been accepted. Videos and untouched images publish by atomic rename; optimized images are read from staging and publish their master only after all variants. Rejection removes the staged file. Generated leftovers older than 24 hours are purged at startup and hourly, and backup excludes them on both upload passes.</p>
 
   <h3>Why active and stopped-service snapshots are conservative</h3>
   <ol class="steps">
     <li>Measure the live payload and require room for staging, an uncompressed archive, and a 1 GiB post-estimate reserve before copying.</li>
-    <li>Copy live uploads into a fresh stage, excluding <code>.quarantine</code>.</li>
+    <li>Copy live uploads into a fresh stage, excluding <code>.quarantine</code> and transient <code>.incoming</code> bodies.</li>
     <li>Read and validate <code>content.json</code>.</li>
     <li>If <code>khyeast.service</code> is active, run SQLite <code>.backup</code>. If systemd confirms it is inactive, copy the stable main file; if WAL survived an unclean stop, copy the main/WAL/SHM set and consolidate only that writable staged copy.</li>
     <li>Run integrity and foreign-key checks on the resulting snapshot. Read content again and retry if its bytes changed.</li>
-    <li>Run a second upload copy without <code>--delete</code>. This catches newly published files while retaining a conservative file that was retired during the run.</li>
+    <li>Run a second upload copy without <code>--delete</code> and with both private exclusions. Accepted videos and untouched images appear by atomic rename, optimized masters publish only after their variants, and an in-progress multipart body never enters the archive.</li>
     <li>Archive only the stable stage, record the database snapshot mode in its manifest, verify its listing, hash and flush it, then publish the final name atomically.</li>
   </ol>
   <p>Never accept <code>tar</code> exit code 1 or an <code>rsync</code> warning as success. “File changed” or “vanished” can mean an archive is missing a referenced upload. The maintained implementation is <code>ops/backup-khyeast</code>; it creates an uncompressed tar because images and videos are already compressed.</p>
@@ -977,7 +981,7 @@ latest=$(find /var/backups/khyeast -maxdepth 1 -type f -name 'khyeast-*.tar' -pr
 test -n "$latest"
 (cd "$(dirname "$latest")" &amp;&amp; sha256sum -c "$(basename "$latest").sha256")
 tar -tf "$latest" | sed -n '1,30p'
-if tar -tf "$latest" | grep -F '/.quarantine/'; then exit 1; fi
+if tar -tf "$latest" | grep -E '/\.(quarantine|incoming)/'; then exit 1; fi
 
 <span class="comment"># Required one-time VPS test: cleanly stop the app, then prove the same</span>
 <span class="comment"># read-only backup unit takes the stable no-WAL path. The EXIT trap restarts</span>
@@ -1317,7 +1321,7 @@ sudo tail -n 100 /var/log/nginx/error.log</pre>
   <p>SQLite is configured with WAL, busy timeout, transactions, and savepoints. It is appropriate for this single-host deployment. Short write transactions still need monitoring under a flood. Use Nginx/CDN/WAF limits as the first line of volumetric defense; application rate limits are not a substitute for edge protection.</p>
   <ul>
     <li>Keep the database on local SSD.</li>
-    <li>Keep free disk space for WAL, uploads, and temporary image processing.</li>
+    <li>Keep free disk space for WAL, one 200 MB <code>.incoming</code> body, generated image variants, uploads, and temporary image processing.</li>
     <li>Start with one Node process. Load-test before adding workers.</li>
     <li>Do not horizontally scale multiple machines around one SQLite file.</li>
     <li>Use the Admin archive lifecycle instead of deleting financially significant orders.</li>
@@ -1401,7 +1405,7 @@ namei -l /var/lib/khyeast/uploads</pre>
     <li>Build and test a separate release directory before switching Passenger's application root; do not run <code>npm ci</code> beneath live workers.</li>
     <li>Restart through cPanel's application control. Use Passenger's restart mechanism only if your host documents it.</li>
     <li>Use Cron Jobs to run <code>npm run uploads:purge-quarantine</code> daily as the application user, with the production <code>UPLOAD_DIR</code>.</li>
-    <li>Use a hosting backup job that invokes SQLite <code>.backup</code> and excludes <code>UPLOAD_DIR/.quarantine</code>; a raw copy of the live WAL database is not sufficient.</li>
+    <li>Use a hosting backup job that invokes SQLite <code>.backup</code> and excludes <code>UPLOAD_DIR/.quarantine</code> plus <code>UPLOAD_DIR/.incoming</code>; a raw copy of the live WAL database is not sufficient.</li>
   </ol>
 
   <h3>Apache proxy contract</h3>
@@ -1480,7 +1484,7 @@ https://example.com/admin</pre>
     <li>The one-time real-host stopped-service backup test passed under the read-only sandbox.</li>
     <li>The VPS offsite credential is provider-enforced append-only; full maintenance credentials exist only on a separate host.</li>
     <li>Validated active/stopped backup, append-only offsite replication, separate-host Restic maintenance, certificate renewal, and daily quarantine purge are monitored.</li>
-    <li>Backup archives exclude <code>uploads/.quarantine</code>.</li>
+    <li>Backup archives exclude <code>uploads/.quarantine</code> and transient <code>uploads/.incoming</code>.</li>
   </ul>
 
   <h3>Launch-day application checklist</h3>

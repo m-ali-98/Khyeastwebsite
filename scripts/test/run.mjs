@@ -203,7 +203,7 @@ console.log('\nPersistence lifecycle — authoritative files and active requests
 for (const [file, label] of [
   ['json-file.mjs', 'atomic JSON replacement'],
   ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
-  ['backup-script.mjs', 'validated staged backup and quarantine exclusion'],
+  ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],
 ]) {
   const name = file.replace('.mjs', '');

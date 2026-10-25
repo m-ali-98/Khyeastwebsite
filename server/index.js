@@ -74,6 +74,10 @@ for (const envPath of [path.join(__dirname, '.env'), path.join(__dirname, '..', 
    cPanel deployment and the scratch test harnesses out of the real data tree. */
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(__dirname, 'uploads');
+/* Multipart bodies are staged on the same filesystem as live uploads. That
+   keeps a 200 MB video out of the JavaScript heap and lets publication use an
+   atomic rename. The private directory is neither served nor backed up. */
+const UPLOAD_INCOMING_DIR = path.join(UPLOAD_DIR, '.incoming');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
 const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
@@ -173,6 +177,9 @@ if (!fs.existsSync(CONTENT_FILE)) {
     try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
       if (entry.name === '.gitkeep') continue;
+      /* An abandoned multipart body is transient, not evidence that this is an
+         established content installation. It will be purged below. */
+      if (directory === UPLOAD_DIR && entry.name === '.incoming' && entry.isDirectory()) continue;
       if (entry.isDirectory()) uploadStack.push(path.join(directory, entry.name));
       else {
         existingUploads = true;
@@ -629,10 +636,89 @@ const contentMatchesExt = (buf, ext) => {
   const sigs = MAGIC.filter((m) => m.ext === key);
   return sigs.length ? sigs.some((m) => Boolean(m.test(buf))) : false;
 };
+const UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
+const UPLOAD_INCOMING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const UPLOAD_TEMP_NAME = /^upload-[a-z0-9]+-[a-f0-9]{16}\.part$/;
+
+fs.mkdirSync(UPLOAD_INCOMING_DIR, { recursive: true, mode: 0o700 });
+
+/* A killed worker can leave a completed or partial Multer file behind. Remove
+   only this application's generated names, and only after a full day, so a
+   slow active request can never be mistaken for debris. */
+const purgeStaleIncomingUploads = (now = Date.now()) => {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(UPLOAD_INCOMING_DIR, { withFileTypes: true });
+  } catch (error) {
+    console.error('[upload] could not scan incoming directory:', error.message);
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !UPLOAD_TEMP_NAME.test(entry.name)) continue;
+    const file = path.join(UPLOAD_INCOMING_DIR, entry.name);
+    try {
+      const stat = fs.statSync(file);
+      if (now - stat.mtimeMs >= UPLOAD_INCOMING_MAX_AGE_MS) fs.unlinkSync(file);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') console.error('[upload] could not remove stale incoming file:', error.message);
+    }
+  }
+};
+purgeStaleIncomingUploads();
+setInterval(purgeStaleIncomingUploads, 60 * 60 * 1000).unref?.();
+
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 },
+  storage: multer.diskStorage({
+    destination: (_req, _file, done) => done(null, UPLOAD_INCOMING_DIR),
+    filename: (_req, _file, done) => {
+      try {
+        done(null, `upload-${Date.now().toString(36)}-${crypto.randomBytes(8).toString('hex')}.part`);
+      } catch (error) {
+        done(error);
+      }
+    },
+  }),
+  limits: { fileSize: UPLOAD_MAX_BYTES, files: 1, fields: 0, parts: 1 },
 });
+
+/* The Admin gallery already sends selected files sequentially. Enforce that
+   contract server-side so concurrent tabs cannot run multiple large Sharp
+   decoders in one process. Reject before Multer starts reading the body. */
+let activeUploadRequests = 0;
+const reserveUploadSlot = (req, res, next) => {
+  if (activeUploadRequests >= 1) {
+    res.setHeader('Retry-After', '5');
+    return res.status(503).json({ error: 'another upload is still being processed' });
+  }
+  activeUploadRequests += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeUploadRequests = Math.max(0, activeUploadRequests - 1);
+  };
+  req.uploadSlot = { processing: false, release };
+  const releaseBeforeProcessing = () => {
+    if (!req.uploadSlot.processing) release();
+  };
+  /* Multer failures never enter the route, so the response lifecycle releases
+     their slot. Once image processing starts, only the route's finally block
+     may release it—even if the client disconnects while Sharp is still busy. */
+  res.once('finish', releaseBeforeProcessing);
+  res.once('close', releaseBeforeProcessing);
+  next();
+};
+
+const readFilePrefix = async (file, length = 16) => {
+  const handle = await fs.promises.open(file, 'r');
+  try {
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+};
 
 const DIST = path.join(__dirname, '..', 'dist');
 
@@ -1075,62 +1161,94 @@ app.delete('/api/uploads/unused', requireAuth, (req, res) => {
   res.json({ ok: true, ...result });
 });
 
-app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'no file' });
-  const ext = path.extname(req.file.originalname).toLowerCase();
-  const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
-  if (!kind) return res.status(415).json({ error: 'unsupported file type' });
-  if (!contentMatchesExt(req.file.buffer, ext))
-    return res.status(415).json({ error: 'file content does not match its extension' });
-
-  const dir = path.join(UPLOAD_DIR, `${kind}s`);
-  fs.mkdirSync(dir, { recursive: true });
-  const stem = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-
-  /* Videos are stored as they arrive. Images go through server/images.js,
-     which shrinks them to a sane width and writes the smaller copies the
-     browser picks between. It never throws and never refuses: anything it
-     cannot improve comes back as the original bytes. */
-  const opt =
-    kind === 'image'
-      ? await optimizeImage(req.file.buffer, ext)
-      : { optimised: false, buffer: req.file.buffer, ext, width: null, variants: [], originalBytes: req.file.buffer.length };
-
-  /* Write the smaller copies FIRST and the master last, then hand back the
-     -w<width> name. The browser reads that suffix as "the whole ladder is
-     there", so it must only ever be published once the ladder really is. If
-     any write fails we roll back to the plain name and the plain file, and
-     the upload still succeeds — unoptimised beats broken. */
-  const written = [];
-  let name = `${stem}${opt.ext}`;
+app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), async (req, res) => {
+  if (req.uploadSlot) req.uploadSlot.processing = true;
+  const staged = req.file?.path;
   try {
-    if (opt.optimised && opt.variants.length) {
-      for (const v of opt.variants) {
-        const vf = path.join(dir, `${stem}-${v.width}.webp`);
-        fs.writeFileSync(vf, v.buffer);
-        written.push(vf);
-      }
-      name = `${stem}-w${opt.width}.webp`;
+    if (!req.file || !staged) return res.status(400).json({ error: 'no file' });
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
+    if (!kind) return res.status(415).json({ error: 'unsupported file type' });
+    if (!contentMatchesExt(await readFilePrefix(staged), ext)) {
+      return res.status(415).json({ error: 'file content does not match its extension' });
     }
-    const master = path.join(dir, name);
-    fs.writeFileSync(master, opt.buffer);
-    written.push(master);
-  } catch (err) {
-    for (const f of written) {
-      try { fs.unlinkSync(f); } catch { /* best effort */ }
-    }
-    name = `${stem}${ext}`;
-    fs.writeFileSync(path.join(dir, name), req.file.buffer);
-    return res.json({ url: `/uploads/${kind}s/${name}`, optimised: false, bytes: req.file.buffer.length, originalBytes: req.file.buffer.length });
-  }
 
-  res.json({
-    url: `/uploads/${kind}s/${name}`,
-    optimised: Boolean(opt.optimised),
-    bytes: opt.buffer.length,
-    originalBytes: opt.originalBytes,
-    width: opt.width,
-  });
+    const dir = path.join(UPLOAD_DIR, `${kind}s`);
+    fs.mkdirSync(dir, { recursive: true });
+    const stem = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+    /* Videos never need to enter the JavaScript heap: after the signature
+       check, atomically publish the staged file on the same filesystem. */
+    if (kind === 'video') {
+      const name = `${stem}${ext}`;
+      await fs.promises.rename(staged, path.join(dir, name));
+      return res.json({
+        url: `/uploads/videos/${name}`,
+        optimised: false,
+        bytes: req.file.size,
+        originalBytes: req.file.size,
+      });
+    }
+
+    /* Sharp reads images directly from the staged path. Its decoded-pixel
+       memory remains bounded separately; the original compressed file is not
+       duplicated into a 200 MB Node Buffer. */
+    const opt = await optimizeImage(staged, ext, req.file.size);
+    if (!opt.optimised) {
+      const name = `${stem}${ext}`;
+      await fs.promises.rename(staged, path.join(dir, name));
+      return res.json({
+        url: `/uploads/images/${name}`,
+        optimised: false,
+        bytes: req.file.size,
+        originalBytes: req.file.size,
+        width: null,
+      });
+    }
+
+    /* Write the smaller copies FIRST and the master last, then hand back the
+       -w<width> name. If any write fails, remove even a partially written path
+       and atomically publish the untouched staged original instead. */
+    const written = [];
+    let name = opt.variants.length ? `${stem}-w${opt.width}.webp` : `${stem}${opt.ext}`;
+    try {
+      for (const variant of opt.variants) {
+        const file = path.join(dir, `${stem}-${variant.width}.webp`);
+        written.push(file);
+        fs.writeFileSync(file, variant.buffer);
+      }
+      const master = path.join(dir, name);
+      written.push(master);
+      fs.writeFileSync(master, opt.buffer);
+    } catch {
+      for (const file of written) {
+        try { fs.unlinkSync(file); } catch { /* best effort */ }
+      }
+      name = `${stem}${ext}`;
+      await fs.promises.rename(staged, path.join(dir, name));
+      return res.json({
+        url: `/uploads/images/${name}`,
+        optimised: false,
+        bytes: req.file.size,
+        originalBytes: req.file.size,
+        width: null,
+      });
+    }
+
+    return res.json({
+      url: `/uploads/images/${name}`,
+      optimised: true,
+      bytes: opt.buffer.length,
+      originalBytes: opt.originalBytes,
+      width: opt.width,
+    });
+  } finally {
+    if (staged) {
+      try { await fs.promises.rm(staged, { force: true }); }
+      catch (error) { console.error('[upload] could not remove incoming file:', error.message); }
+    }
+    req.uploadSlot?.release();
+  }
 });
 
 app.delete('/api/upload', requireAuth, (req, res) => {

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { Readable } from 'node:stream';
 import sharp from 'sharp';
 import { UPLOAD_LADDER, UPLOAD_MAX_WIDTH, widthFromName, variantWidths } from '../../shared/uploadSizes.js';
 
@@ -26,7 +27,14 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-upload-'));
 const DB = path.join(TMP, 'test.db');
 const UPLOADS = path.join(TMP, 'uploads');
+const INCOMING = path.join(UPLOADS, '.incoming');
+const STALE_INCOMING = path.join(INCOMING, 'upload-old-0123456789abcdef.part');
 const PASS = 'khyeast-1404';
+
+fs.mkdirSync(INCOMING, { recursive: true });
+fs.writeFileSync(STALE_INCOMING, 'abandoned multipart bytes');
+const staleAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+fs.utimesSync(STALE_INCOMING, staleAt, staleAt);
 
 let pass = 0;
 let fail = 0;
@@ -103,7 +111,11 @@ const send = async (cookie, buf, filename, type) => {
     headers: { Cookie: cookie, Origin: BASE },
     body: fd,
   });
-  return { status: r.status, body: await r.json().catch(() => ({})) };
+  return {
+    status: r.status,
+    body: await r.json().catch(() => ({})),
+    retryAfter: r.headers.get('retry-after'),
+  };
 };
 
 /* A noisy photo, so the size comparisons are not won by a flat colour. */
@@ -112,8 +124,14 @@ const photo = (w, h, fmt = 'jpeg') => {
   for (let i = 0; i < px.length; i++) px[i] = (i * 2654435761) % 251;
   return sharp(px, { raw: { width: w, height: h, channels: 3 } })[fmt]({ quality: 92 }).toBuffer();
 };
+const mp4Fixture = (fill = 7) => Buffer.concat([
+  Buffer.from([0, 0, 0, 0x18]),
+  Buffer.from('ftypisom', 'latin1'),
+  Buffer.alloc(64, fill),
+]);
 
 const onDisk = (url) => path.join(UPLOADS, url.replace(/^\/uploads\//, ''));
+const incomingFiles = () => (fs.existsSync(INCOMING) ? fs.readdirSync(INCOMING) : []);
 let keptImageUrl = '';
 let keptVideoUrl = '';
 
@@ -121,6 +139,22 @@ try {
   await start();
   const token = await login();
   check(Boolean(token), 'logged in');
+  const serverSource = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  check(
+    serverSource.includes('multer.diskStorage') &&
+      !serverSource.includes('multer.memoryStorage') &&
+      !serverSource.includes('req.file.buffer'),
+    'multipart uploads use disk staging rather than whole-file RAM buffers',
+  );
+  check(
+    serverSource.includes('const UPLOAD_MAX_BYTES = 200 * 1024 * 1024'),
+    'disk staging preserves the required 200 MB application limit',
+  );
+  check(
+    !fs.existsSync(STALE_INCOMING) && incomingFiles().length === 0,
+    'startup purges abandoned incoming files without leaving upload debris',
+    incomingFiles().join(', '),
+  );
 
   /* ---- content saves enforce the same origins as document CSP ---------- */
   {
@@ -264,12 +298,71 @@ try {
     check(restoredAgain.status === 200, 'content is restored after the legacy-gallery compatibility check', String(restoredAgain.status));
   }
 
+  /* ---- only one large multipart body is admitted per process ----------- */
+  {
+    const mp4 = mp4Fixture(9);
+    const boundary = `----khyeast-${Date.now().toString(36)}`;
+    const head = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="held.mp4"\r\n` +
+      'Content-Type: video/mp4\r\n\r\n',
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+    let releaseHeld;
+    const held = new Promise((resolve) => { releaseHeld = resolve; });
+    async function* heldBody() {
+      yield head;
+      yield mp4.subarray(0, 12);
+      await held;
+      yield mp4.subarray(12);
+      yield tail;
+    }
+    const firstPromise = fetch(`${BASE}/api/upload`, {
+      method: 'POST',
+      headers: {
+        Cookie: token,
+        Origin: BASE,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body: Readable.from(heldBody()),
+      duplex: 'half',
+    });
+    try {
+      for (let attempt = 0; attempt < 50 && incomingFiles().length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      check(incomingFiles().length === 1, 'the active request is streamed into one private staged file', incomingFiles().join(', '));
+      const stagedResponse = await fetch(`${BASE}/uploads/.incoming/${encodeURIComponent(incomingFiles()[0] || '')}`);
+      check(
+        [403, 404].includes(stagedResponse.status),
+        'the private staging directory is never served as an upload',
+        String(stagedResponse.status),
+      );
+      const busy = await send(token, mp4, 'second.mp4', 'video/mp4');
+      check(
+        busy.status === 503 && busy.retryAfter === '5',
+        'a concurrent large upload is refused before another body is processed',
+        `${busy.status} ${JSON.stringify(busy.body)}`,
+      );
+    } finally {
+      releaseHeld();
+    }
+    const first = await firstPromise;
+    const firstBody = await first.json().catch(() => ({}));
+    check(
+      first.status === 200,
+      'the admitted upload completes after the concurrency gate',
+      `${first.status} ${JSON.stringify(firstBody)} ${serverLog.trim().slice(-500)}`,
+    );
+    check(incomingFiles().length === 0, 'the completed held upload leaves staging empty', incomingFiles().join(', '));
+  }
+
   /* ---- a large photo is shrunk, and the whole ladder is on disk -------- */
   {
     const src = await photo(3000, 2000);
     const { status, body } = await send(token, src, 'camera.jpg', 'image/jpeg');
 
     check(status === 200, 'a large photo uploads', String(status));
+    check(incomingFiles().length === 0, 'a processed image leaves no staged multipart file', incomingFiles().join(', '));
     check(body.optimised === true, 'the response says it was optimised', JSON.stringify(body));
     check(/\/uploads\/images\/[\w.-]+-w\d+\.webp$/.test(body.url || ''), 'the url carries the advertised width', body.url);
     check(body.bytes < body.originalBytes / 2, 'it is at least halved', `${body.originalBytes} -> ${body.bytes}`);
@@ -332,13 +425,10 @@ try {
   /* ---- a video is still stored byte for byte --------------------------- */
   {
     /* Smallest thing that passes the magic-byte check for .mp4. */
-    const mp4 = Buffer.concat([
-      Buffer.from([0, 0, 0, 0x18]),
-      Buffer.from('ftypisom', 'latin1'),
-      Buffer.alloc(64, 7),
-    ]);
+    const mp4 = mp4Fixture();
     const { status, body } = await send(token, mp4, 'clip.mp4', 'video/mp4');
     check(status === 200, 'a video uploads', String(status));
+    check(incomingFiles().length === 0, 'a video is atomically moved out of staging', incomingFiles().join(', '));
     check(body.url?.endsWith('.mp4'), 'a video keeps its container', body.url);
     check(body.optimised === false, 'a video is not run through the image pipeline');
     keptVideoUrl = body.url;
@@ -355,6 +445,22 @@ try {
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
     const r2 = await send(token, svg, 'logo.svg', 'image/svg+xml');
     check(r2.status === 415, 'svg is still refused outright', String(r2.status));
+    check(incomingFiles().length === 0, 'rejected uploads remove their staged files', incomingFiles().join(', '));
+
+    const wrongField = new FormData();
+    wrongField.append('attachment', new Blob([html], { type: 'image/png' }), 'wrong.png');
+    const wrongFieldResponse = await fetch(`${BASE}/api/upload`, {
+      method: 'POST',
+      headers: { Cookie: token, Origin: BASE },
+      body: wrongField,
+    });
+    check(wrongFieldResponse.status === 400, 'Multer rejects an unexpected field without leaking a slot', String(wrongFieldResponse.status));
+    const afterMiddlewareError = await send(token, mp4Fixture(), 'after-error.mp4', 'video/mp4');
+    check(
+      afterMiddlewareError.status === 200 && incomingFiles().length === 0,
+      'a middleware rejection releases capacity and leaves staging clean',
+      `${afterMiddlewareError.status} ${incomingFiles().join(', ')}`,
+    );
 
     const anon = await fetch(`${BASE}/api/upload`, { method: 'POST', body: new FormData() });
     check(anon.status === 401, 'an anonymous upload is still refused', String(anon.status));

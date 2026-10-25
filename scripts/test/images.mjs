@@ -2,11 +2,14 @@
    never lose an upload, rotate it, flatten an animation, or publish a name
    that promises files which are not on disk.
    -------------------------------------------------------------------------
-   server/images.js is pure and knows nothing about Express, so every case
-   below is driven directly with buffers built by sharp. The naming contract
+   server/images.js knows nothing about Express, so cases below are driven
+   directly with buffers or a staged file built by sharp. The naming contract
    is checked against the same shared module the browser uses, because the
    browser builds a srcset out of the filename alone. */
 import sharp from 'sharp';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { optimizeImage } from '../../server/images.js';
 import { UPLOAD_MAX_WIDTH, UPLOAD_LADDER, variantWidths, widthFromName } from '../../shared/uploadSizes.js';
 
@@ -49,6 +52,22 @@ const png = async (w, h) => noise(w, h).png().toBuffer();
     widths.join(),
   );
   check(r.variants.every((v) => v.buffer.length < r.buffer.length), 'every variant is smaller than the master');
+}
+
+/* ---- production reads the compressed source from disk, not a heap copy -- */
+{
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-image-path-'));
+  const file = path.join(temp, 'camera.jpg');
+  try {
+    const source = await jpeg(2400, 1200);
+    fs.writeFileSync(file, source);
+    const result = await optimizeImage(file, '.jpg', source.length);
+    check(result.optimised, 'a staged image path is optimised', result.reason);
+    check(Buffer.isBuffer(result.buffer), 'a staged path returns only the optimized master buffer');
+    check(result.originalBytes === source.length, 'a staged path preserves the original byte count');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 }
 
 /* ---- the naming contract the browser depends on ----------------------- */
