@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Append-only replication of the newest completed local archive to an encrypted
+# Restic repository. The VPS credential must be unable to forget, prune,
+# overwrite, or delete existing repository objects. Retention and repository
+# checks belong to ops/maintain-khyeast-restic on a separate trusted machine.
+set -Eeuo pipefail
+umask 077
+
+BACKUP_DEST=${BACKUP_DEST:-/var/backups/khyeast}
+RESTIC_TAG=${RESTIC_TAG:-khyeast-validated-archive}
+MAX_LOCAL_BACKUP_AGE_HOURS=${MAX_LOCAL_BACKUP_AGE_HOURS:-30}
+
+fail() {
+  printf 'replicate-khyeast-restic: %s\n' "$*" >&2
+  exit 1
+}
+
+for command in restic sha256sum flock find sort stat date; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+[[ -n ${RESTIC_REPOSITORY:-} ]] || fail 'RESTIC_REPOSITORY is not configured'
+[[ -n ${RESTIC_PASSWORD_FILE:-} && -r $RESTIC_PASSWORD_FILE ]] || fail 'RESTIC_PASSWORD_FILE is missing or unreadable'
+[[ ${RESTIC_APPEND_ONLY:-} == true ]] || fail \
+  'RESTIC_APPEND_ONLY=true is required after provider-side append-only access has been verified'
+[[ $MAX_LOCAL_BACKUP_AGE_HOURS =~ ^[0-9]+$ ]] && (( MAX_LOCAL_BACKUP_AGE_HOURS >= 1 )) || fail 'MAX_LOCAL_BACKUP_AGE_HOURS must be a positive integer'
+[[ -d $BACKUP_DEST ]] || fail "local backup directory not found: $BACKUP_DEST"
+
+exec 9>/run/lock/khyeast-offsite.lock
+flock -n 9 || fail 'another offsite replication is already running'
+
+mapfile -t candidates < <(
+  find "$BACKUP_DEST" -maxdepth 1 -type f -name 'khyeast-*.tar' -printf '%T@ %p\n' | sort -nr
+)
+[[ ${#candidates[@]} -gt 0 ]] || fail 'no completed local archive was found'
+archive=${candidates[0]#* }
+checksum=$archive.sha256
+[[ -f $checksum ]] || fail "checksum sidecar not found: $checksum"
+archive_age_seconds=$(( $(date +%s) - $(stat -c %Y "$archive") ))
+(( archive_age_seconds >= 0 )) || fail 'newest local archive has a future timestamp; check the system clock'
+(( archive_age_seconds <= MAX_LOCAL_BACKUP_AGE_HOURS * 60 * 60 )) || fail "newest local archive is older than ${MAX_LOCAL_BACKUP_AGE_HOURS} hours"
+verify_local_archive() {
+  (
+    cd "$(dirname "$archive")"
+    sha256sum -c "$(basename "$checksum")"
+  )
+}
+verify_local_archive
+
+# This host intentionally performs one repository operation: append a snapshot.
+# A compromised VPS must not possess a credential capable of expiring history.
+restic backup --tag "$RESTIC_TAG" -- "$archive" "$checksum"
+verify_local_archive
+
+printf 'replicate-khyeast-restic: uploaded append-only snapshot for %s\n' "$(basename "$archive")"

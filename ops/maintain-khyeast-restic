@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Run only on a separate trusted maintenance host with full Restic repository
+# credentials. Never install these credentials on the application VPS.
+set -Eeuo pipefail
+umask 077
+
+RESTIC_TAG=${RESTIC_TAG:-khyeast-validated-archive}
+RESTIC_KEEP_DAILY=${RESTIC_KEEP_DAILY:-14}
+RESTIC_KEEP_WEEKLY=${RESTIC_KEEP_WEEKLY:-8}
+RESTIC_KEEP_MONTHLY=${RESTIC_KEEP_MONTHLY:-12}
+
+fail() {
+  printf 'maintain-khyeast-restic: %s\n' "$*" >&2
+  exit 1
+}
+
+for command in restic flock; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+[[ -n ${RESTIC_REPOSITORY:-} ]] || fail 'RESTIC_REPOSITORY is not configured'
+[[ -n ${RESTIC_PASSWORD_FILE:-} && -r $RESTIC_PASSWORD_FILE ]] || fail 'RESTIC_PASSWORD_FILE is missing or unreadable'
+for value in "$RESTIC_KEEP_DAILY" "$RESTIC_KEEP_WEEKLY" "$RESTIC_KEEP_MONTHLY"; do
+  [[ $value =~ ^(0|[1-9][0-9]*)$ ]] || fail 'Restic retention values must be non-negative integers'
+done
+(( RESTIC_KEEP_DAILY >= 1 )) || fail 'RESTIC_KEEP_DAILY must retain at least one recovery point'
+
+exec 9>/run/lock/khyeast-offsite-maintenance.lock
+flock -n 9 || fail 'another offsite maintenance run is already active'
+
+# Check before destructive maintenance, apply reviewed retention, then prove the
+# repository still passes a full structural check. Full-access credentials live
+# only on this maintenance host.
+restic check
+restic forget \
+  --tag "$RESTIC_TAG" \
+  --group-by host,tags \
+  --keep-daily "$RESTIC_KEEP_DAILY" \
+  --keep-weekly "$RESTIC_KEEP_WEEKLY" \
+  --keep-monthly "$RESTIC_KEEP_MONTHLY" \
+  --prune
+restic check
+restic cache --cleanup
+
+printf 'maintain-khyeast-restic: repository check and retention completed\n'

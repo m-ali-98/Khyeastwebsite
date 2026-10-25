@@ -1,0 +1,1548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Khuzestan Yeast Website — Linux Production Deployment Guide</title>
+<style>
+  :root {
+    --crimson: #9f1239;
+    --crimson-dark: #4c071b;
+    --crimson-soft: #fff1f4;
+    --ink: #171417;
+    --muted: #625b60;
+    --line: #ded7da;
+    --soft: #f7f4f5;
+    --blue: #155e75;
+    --green: #166534;
+    --amber: #92400e;
+    --red: #991b1b;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 10.3pt; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: #fff;
+    font-family: Arial, "Noto Sans", "DejaVu Sans", sans-serif;
+    line-height: 1.55;
+    counter-reset: figure;
+  }
+  a { color: var(--crimson); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .page { max-width: 180mm; margin: 0 auto; }
+  .cover {
+    min-height: 245mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 18mm 10mm 12mm;
+    color: #fff;
+    background:
+      radial-gradient(circle at 82% 15%, rgba(255,255,255,.17), transparent 25%),
+      linear-gradient(145deg, #2a0710 0%, #590c22 45%, #9f1239 100%);
+    border-radius: 6mm;
+    page-break-after: always;
+  }
+  .cover .kicker { text-transform: uppercase; letter-spacing: .18em; font-weight: 700; font-size: 9pt; opacity: .82; }
+  .cover h1 { margin: 9mm 0 4mm; color: #fff; font-size: 34pt; line-height: 1.08; letter-spacing: -.025em; }
+  .cover .subtitle { max-width: 125mm; margin: 0; font-size: 14pt; line-height: 1.55; opacity: .92; }
+  .cover-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4mm; margin-top: 12mm; max-width: 125mm; }
+  .cover-chip { padding: 4mm; border: 1px solid rgba(255,255,255,.25); border-radius: 3mm; background: rgba(255,255,255,.08); }
+  .cover-chip b { display: block; margin-bottom: 1mm; font-size: 10pt; }
+  .cover-chip span { font-size: 8.5pt; opacity: .8; }
+  .cover-meta { display: flex; justify-content: space-between; gap: 8mm; padding-top: 8mm; border-top: 1px solid rgba(255,255,255,.25); font-size: 9pt; opacity: .85; }
+  h1, h2, h3, h4 { color: var(--crimson-dark); line-height: 1.25; break-after: avoid; }
+  h1 { font-size: 27pt; margin: 0 0 7mm; }
+  h2 { font-size: 20pt; margin: 0 0 5mm; padding-bottom: 2.5mm; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 14pt; margin: 8mm 0 3mm; }
+  h4 { font-size: 11pt; margin: 5mm 0 2mm; }
+  p { margin: 0 0 3.5mm; }
+  ul, ol { margin: 2mm 0 4mm 6mm; padding-left: 5mm; }
+  li { margin: 1.3mm 0; }
+  strong { color: #2e2026; }
+  .chapter { page-break-before: always; }
+  .chapter-number { display: inline-block; margin-bottom: 3mm; color: var(--crimson); font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing: .14em; }
+  .lead { margin-bottom: 7mm; color: var(--muted); font-size: 12pt; line-height: 1.65; }
+  .toc { page-break-after: always; }
+  .toc-grid { columns: 2; column-gap: 12mm; }
+  .toc-item { display: block; break-inside: avoid; margin: 0 0 3.2mm; padding: 2.5mm 0; border-bottom: 1px dotted var(--line); color: var(--ink); }
+  .toc-item b { display: inline-block; min-width: 7mm; color: var(--crimson); }
+  .toc-item small { display: block; margin-left: 8mm; color: var(--muted); }
+  .card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4mm; margin: 5mm 0; }
+  .card { break-inside: avoid; padding: 4.5mm; border: 1px solid var(--line); border-radius: 3mm; background: #fff; }
+  .card h3, .card h4 { margin-top: 0; }
+  .card p:last-child { margin-bottom: 0; }
+  .callout { break-inside: avoid; margin: 5mm 0; padding: 4mm 4.5mm; border-left: 1.4mm solid var(--blue); border-radius: 1.5mm; background: #f0f9ff; }
+  .callout b.label { display: block; margin-bottom: 1.5mm; color: var(--blue); font-size: 8.5pt; text-transform: uppercase; letter-spacing: .1em; }
+  .callout.warning { border-color: #d97706; background: #fffbeb; }
+  .callout.warning b.label { color: var(--amber); }
+  .callout.danger { border-color: #dc2626; background: #fef2f2; }
+  .callout.danger b.label { color: var(--red); }
+  .callout.success { border-color: #16a34a; background: #f0fdf4; }
+  .callout.success b.label { color: var(--green); }
+  code { font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: .92em; color: #491124; }
+  pre {
+    break-inside: auto;
+    page-break-inside: auto;
+    margin: 3mm 0 5mm;
+    padding: 4mm;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid #2d2629;
+    border-radius: 2.5mm;
+    color: #f8f3f5;
+    background: #201b1e;
+    font-family: "DejaVu Sans Mono", Consolas, monospace;
+    font-size: 8.2pt;
+    line-height: 1.52;
+  }
+  pre .comment { color: #b9acb2; }
+  pre .accent { color: #f9a8bd; }
+  table { width: 100%; margin: 4mm 0 6mm; border-collapse: collapse; font-size: 9pt; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th, td { padding: 2.8mm 3mm; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+  th { color: var(--crimson-dark); background: var(--crimson-soft); font-weight: 800; }
+  td code { font-size: 8.3pt; }
+  .checklist { list-style: none; margin-left: 0; padding-left: 0; }
+  .checklist li { position: relative; padding-left: 8mm; margin: 2.2mm 0; }
+  .checklist li::before { content: "□"; position: absolute; left: 0; top: -.5mm; color: var(--crimson); font-size: 14pt; font-weight: 700; }
+  .steps { counter-reset: step; list-style: none; margin-left: 0; padding-left: 0; }
+  .steps > li { position: relative; counter-increment: step; margin: 5mm 0; padding-left: 11mm; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: -.5mm; display: grid; width: 7mm; height: 7mm; place-items: center; border-radius: 50%; color: #fff; background: var(--crimson); font-size: 8pt; font-weight: 800; }
+  .arch { display: grid; grid-template-columns: 1fr auto 1fr auto 1.25fr; align-items: center; gap: 3mm; margin: 7mm 0; }
+  .arch-box { padding: 5mm 3mm; border: 1px solid var(--line); border-radius: 3mm; text-align: center; background: var(--soft); font-size: 9pt; }
+  .arch-box b { display: block; margin-bottom: 1mm; color: var(--crimson-dark); }
+  .arch-arrow { color: var(--crimson); font-size: 18pt; font-weight: 800; }
+  .flow { margin: 4mm 0; padding: 4mm; border: 1px solid var(--line); border-radius: 3mm; background: var(--soft); }
+  .flow code { display: block; margin: 1mm 0; }
+  .small { color: var(--muted); font-size: 8.6pt; }
+  .muted { color: var(--muted); }
+  .pill { display: inline-block; margin: 0 1mm 1mm 0; padding: .8mm 2mm; border-radius: 99px; color: var(--crimson-dark); background: var(--crimson-soft); font-size: 8pt; font-weight: 700; }
+  .keep { break-inside: avoid; }
+  .rtl { direction: rtl; font-family: Arial, "Noto Sans Arabic", "DejaVu Sans", sans-serif; }
+  .footer-note { margin-top: 10mm; padding-top: 4mm; border-top: 1px solid var(--line); color: var(--muted); font-size: 8.5pt; }
+  @page { size: A4; margin: 18mm 16mm 20mm; }
+  @media print {
+    a { color: inherit; }
+    .cover { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<section class="cover">
+  <div>
+    <div class="kicker">Production Operations Manual</div>
+    <h1>Linux Deployment<br>from Zero to Launch</h1>
+    <p class="subtitle">A complete, project-specific guide for deploying the Khuzestan Yeast website on an Ubuntu/Debian server with Node.js, systemd, Nginx, HTTPS, SQLite backups, secure proxy handling, and a repeatable update process.</p>
+    <div class="cover-grid">
+      <div class="cover-chip"><b>Application</b><span>React 19 · Vite 8 · Express 5</span></div>
+      <div class="cover-chip"><b>Runtime</b><span>Node.js 22+ · SQLite WAL</span></div>
+      <div class="cover-chip"><b>Production edge</b><span>Nginx · Let's Encrypt · UFW</span></div>
+      <div class="cover-chip"><b>Process manager</b><span>systemd · one reliable service</span></div>
+    </div>
+  </div>
+  <div class="cover-meta">
+    <span>Repository: m-ali-98/Khyeastwebsite</span>
+    <span>Edition 1.0 · 25 October 2026</span>
+  </div>
+</section>
+
+<section class="toc">
+  <span class="chapter-number">Navigation</span>
+  <h1>Table of contents</h1>
+  <p class="lead">Follow Chapters 1–11 in order for a first deployment. Chapters 12–18 turn that deployment into an operable production service.</p>
+  <div class="toc-grid">
+    <a class="toc-item" href="#ch1"><b>1</b> Understand the production architecture<small>What runs where, and what must persist</small></a>
+    <a class="toc-item" href="#ch2"><b>2</b> Prepare accounts, domain, and server<small>Capacity, DNS, access, and launch worksheet</small></a>
+    <a class="toc-item" href="#ch3"><b>3</b> Secure the base Linux system<small>Updates, SSH, firewall, packages, time</small></a>
+    <a class="toc-item" href="#ch4"><b>4</b> Install Node.js 22+<small>Supported runtime and verification</small></a>
+    <a class="toc-item" href="#ch5"><b>5</b> Create users, directories, and persistent storage<small>Least privilege and safe data locations</small></a>
+    <a class="toc-item" href="#ch6"><b>6</b> Fetch, validate, and build the application<small>Git, npm ci, tests, and SEO origin</small></a>
+    <a class="toc-item" href="#ch7"><b>7</b> Configure production secrets and environment<small>Required variables and safe permissions</small></a>
+    <a class="toc-item" href="#ch8"><b>8</b> Run the app with systemd<small>Service hardening, startup, and logs</small></a>
+    <a class="toc-item" href="#ch9"><b>9</b> Configure Nginx and HTTPS<small>Reverse proxy, TLS, upload size, redirects</small></a>
+    <a class="toc-item" href="#ch10"><b>10</b> Verify proxy, cookies, IP, and security<small>Real-host Admin test and trust-proxy rules</small></a>
+    <a class="toc-item" href="#ch11"><b>11</b> Configure the application and go live<small>Admin, payment, SMS, stock, and launch tests</small></a>
+    <a class="toc-item" href="#ch12"><b>12</b> Back up, expire quarantine, and restore<small>Active/stopped SQLite, append-only offsite, reconciliation</small></a>
+    <a class="toc-item" href="#ch13"><b>13</b> Deploy with a bounded cutover<small>Versioned releases, graceful drain, rollback</small></a>
+    <a class="toc-item" href="#ch14"><b>14</b> Monitor and maintain the service<small>Logs, disk, health, certificates, alerts</small></a>
+    <a class="toc-item" href="#ch15"><b>15</b> Troubleshooting guide<small>502, 426, cookies, uploads, SQLite, callbacks</small></a>
+    <a class="toc-item" href="#ch16"><b>16</b> cPanel / Apache / Passenger appendix<small>Shared-host deployment and protocol headers</small></a>
+    <a class="toc-item" href="#ch17"><b>17</b> Static-only deployment limits<small>What works—and what definitely does not</small></a>
+    <a class="toc-item" href="#ch18"><b>18</b> Final checklists and command sheet<small>Prelaunch, launch day, and incident essentials</small></a>
+  </div>
+</section>
+
+<section id="ch1" class="chapter">
+  <span class="chapter-number">Chapter 1</span>
+  <h2>Understand the production architecture</h2>
+  <p class="lead">This is not a static brochure. The same Node.js application serves the built React site, route-aware SEO HTML, APIs, Admin, uploads, customer accounts, orders, inventory, payment callbacks, and SMS workflows.</p>
+
+  <div class="arch">
+    <div class="arch-box"><b>Browser / Gateway</b>HTTPS requests<br>payment callbacks</div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-box"><b>Nginx</b>Ports 80/443<br>TLS + reverse proxy</div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-box"><b>Node.js / Express</b>127.0.0.1:8787<br>React build + API + SEO</div>
+  </div>
+  <div class="arch" style="grid-template-columns:1fr auto 1fr auto 1fr">
+    <div class="arch-box"><b>content.json</b>CMS text and page content</div>
+    <div class="arch-arrow">+</div>
+    <div class="arch-box"><b>khyeast.db</b>SQLite orders, users, stock, settings</div>
+    <div class="arch-arrow">+</div>
+    <div class="arch-box"><b>uploads/</b>Admin images, videos, optimized variants</div>
+  </div>
+
+  <h3>The four production layers</h3>
+  <table>
+    <thead><tr><th>Layer</th><th>Responsibility</th><th>Recommended component</th></tr></thead>
+    <tbody>
+      <tr><td>DNS</td><td>Maps the public domain to the server</td><td>Your DNS provider</td></tr>
+      <tr><td>Edge</td><td>TLS, port 80 redirect, request forwarding, upload limit</td><td>Nginx + Let's Encrypt</td></tr>
+      <tr><td>Application</td><td>Website, API, Admin, callbacks, runtime SEO</td><td>Node.js managed by systemd</td></tr>
+      <tr><td>State</td><td>Content, SQLite, uploads, settings, payment history</td><td>Local persistent SSD + backups</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <b class="label">Do not deploy only dist/ for the real service</b>
+    A static <code>dist/</code> upload cannot provide Admin, contact storage, accounts, inventory, orders, payment, SMS, or live CMS content. The full Node process is required.
+  </div>
+
+  <h3>Data that must survive every code update</h3>
+  <ul>
+    <li><code>content.json</code> — Admin-edited page content and translation overrides.</li>
+    <li><code>khyeast.db</code> plus its WAL state — products, stock, customers, addresses, orders, sessions, OTP records, messages, comments, payment history, SMS and rate-limit settings.</li>
+    <li><code>uploads/</code> — images, videos, and responsive image variants.</li>
+    <li><code>ADMIN_SECRET</code> and the rest of the production environment — never lose the stable secret.</li>
+  </ul>
+  <p>This guide keeps mutable state in <code>/var/lib/khyeast</code>, outside the Git checkout. That separation makes updates safer and prevents a mistaken checkout or cleanup from destroying production data.</p>
+
+  <h3>What this guide deliberately uses</h3>
+  <div class="card-grid">
+    <div class="card"><h4>Ubuntu/Debian VPS</h4><p>Commands target Ubuntu 24.04 LTS or a current Debian-based equivalent with sudo access.</p></div>
+    <div class="card"><h4>One Node process</h4><p>Start with one reliable process. SQLite is local and the expected load does not require a cluster.</p></div>
+    <div class="card"><h4>systemd</h4><p>Automatic start, restart, shutdown signals, resource ownership, and journal logs.</p></div>
+    <div class="card"><h4>Nginx</h4><p>Public ports, TLS, canonical redirects, forwarding headers, and upload limits.</p></div>
+  </div>
+</section>
+
+<section id="ch2" class="chapter">
+  <span class="chapter-number">Chapter 2</span>
+  <h2>Prepare accounts, domain, and server</h2>
+  <p class="lead">Gather everything first. Most failed launches are missing-access or DNS problems, not application problems.</p>
+
+  <h3>Recommended server size</h3>
+  <table>
+    <thead><tr><th>Resource</th><th>Minimum</th><th>Recommended starting point</th></tr></thead>
+    <tbody>
+      <tr><td>CPU</td><td>1 vCPU</td><td>2 vCPU</td></tr>
+      <tr><td>Memory</td><td>2 GB</td><td>4 GB, especially when building and optimizing uploads</td></tr>
+      <tr><td>Disk</td><td>20 GB SSD</td><td>40+ GB SSD, sized for uploads and backup retention</td></tr>
+      <tr><td>OS</td><td>64-bit Linux</td><td>Ubuntu 24.04 LTS</td></tr>
+      <tr><td>Network</td><td>Ports 22, 80, 443</td><td>Static public IP and provider firewall</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warning">
+    <b class="label">Upload memory</b>
+    The application allows a file up to 200 MB and validates uploads in memory. Four gigabytes of RAM is the safer baseline if administrators upload large videos. If large videos are unnecessary, enforce a smaller Nginx limit operationally.
+  </div>
+
+  <h3>Access checklist</h3>
+  <ul class="checklist">
+    <li>A Linux server with a static public IPv4 address.</li>
+    <li>A sudo-capable SSH account using an SSH key.</li>
+    <li>Control of the domain's DNS records.</li>
+    <li>Read access to <code>m-ali-98/Khyeastwebsite</code> (deploy key if private).</li>
+    <li>Production Admin username and a strong password.</li>
+    <li>ZarinPal and sms.ir credentials, if those features will be enabled.</li>
+    <li>An off-server destination for encrypted backups.</li>
+  </ul>
+
+  <h3>Choose one canonical domain</h3>
+  <p>Examples in this guide use <code>example.com</code> as canonical and redirect <code>www.example.com</code> to it. Replace both everywhere. The application's <code>PUBLIC_ORIGIN</code> must be the exact final HTTPS origin, with no trailing slash:</p>
+  <pre>PUBLIC_ORIGIN=https://example.com</pre>
+
+  <h3>Launch worksheet</h3>
+  <table>
+    <tbody>
+      <tr><th>Canonical domain</th><td>________________________________________</td></tr>
+      <tr><th>Optional alias</th><td>________________________________________</td></tr>
+      <tr><th>Server public IP</th><td>________________________________________</td></tr>
+      <tr><th>SSH user</th><td>________________________________________</td></tr>
+      <tr><th>Git release branch/tag</th><td>________________________________________</td></tr>
+      <tr><th>Backup destination</th><td>________________________________________</td></tr>
+      <tr><th>Operations contact</th><td>________________________________________</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Create DNS records</h3>
+  <table>
+    <thead><tr><th>Name</th><th>Type</th><th>Value</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>@</code></td><td>A</td><td>Your server IPv4</td><td>Canonical apex</td></tr>
+      <tr><td><code>www</code></td><td>CNAME</td><td><code>example.com</code></td><td>Optional alias</td></tr>
+      <tr><td><code>@</code></td><td>AAAA</td><td>Your server IPv6</td><td>Only publish if IPv6 actually works end to end</td></tr>
+    </tbody>
+  </table>
+  <p>Use a short TTL such as 300 seconds before launch. Verify from a machine outside the server:</p>
+  <pre>dig +short A example.com
+dig +short A www.example.com
+<span class="comment"># Add AAAA checks only when using IPv6:</span>
+dig +short AAAA example.com</pre>
+  <div class="callout warning"><b class="label">Common DNS trap</b>Do not publish an AAAA record merely because the DNS panel offers one. A broken IPv6 path causes intermittent failures for visitors who prefer IPv6.</div>
+</section>
+
+<section id="ch3" class="chapter">
+  <span class="chapter-number">Chapter 3</span>
+  <h2>Secure the base Linux system</h2>
+  <p class="lead">Work from a sudo user. Never run the application as root, and never expose the Node port directly to the internet.</p>
+
+  <h3>Update the operating system</h3>
+  <pre>sudo apt update
+sudo apt full-upgrade -y
+sudo apt install -y \
+  git curl ca-certificates nginx certbot python3-certbot-nginx \
+  sqlite3 rsync restic build-essential python3 ufw \
+  unattended-upgrades apt-listchanges
+
+sudo timedatectl set-timezone UTC
+sudo timedatectl set-ntp true
+
+<span class="comment"># Reboot if the kernel or core libraries were upgraded.</span>
+sudo reboot</pre>
+  <p>Reconnect after the reboot and confirm:</p>
+  <pre>uname -a
+timedatectl
+systemctl --failed</pre>
+
+  <h3>Install unattended security updates</h3>
+  <p>Let Debian/Ubuntu apply security updates daily, but keep reboots deliberate so payment callbacks are not interrupted without a maintenance window:</p>
+  <pre>sudo tee /etc/apt/apt.conf.d/20auto-upgrades &gt;/dev/null &lt;&lt;'APT'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+APT
+sudo tee /etc/apt/apt.conf.d/52khyeast-unattended &gt;/dev/null &lt;&lt;'APT'
+Unattended-Upgrade::Automatic-Reboot "false";
+APT
+
+sudo systemctl enable --now unattended-upgrades
+systemctl list-timers apt-daily.timer apt-daily-upgrade.timer
+sudo unattended-upgrade --dry-run --debug
+sudo test ! -e /var/run/reboot-required || cat /var/run/reboot-required.pkgs</pre>
+  <p>Monitor failed APT units and <code>/var/run/reboot-required</code>. Schedule a reviewed reboot when required; first take a validated backup and use the callback-safe maintenance procedure rather than enabling surprise automatic reboots.</p>
+
+  <h3>Use a dedicated human deployment account</h3>
+  <p>If your cloud image already supplied a non-root sudo user, keep it. Otherwise, from the provider console or an existing root session:</p>
+  <pre>adduser deploy
+usermod -aG sudo deploy
+install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+<span class="comment"># Add the deploy user's public key to:</span>
+nano /home/deploy/.ssh/authorized_keys
+chown deploy:deploy /home/deploy/.ssh/authorized_keys
+chmod 600 /home/deploy/.ssh/authorized_keys</pre>
+
+  <h3>Harden SSH—without locking yourself out</h3>
+  <div class="callout danger"><b class="label">Keep a second SSH session open</b>Prove key login works in a new terminal before disabling password or root login. Keep your provider's rescue console available.</div>
+  <pre>sudo nano /etc/ssh/sshd_config.d/99-production-hardening.conf</pre>
+  <pre>PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes</pre>
+  <pre>sudo sshd -t
+sudo systemctl reload ssh
+<span class="comment"># Open a second terminal and test before closing the first.</span>
+ssh deploy@example.com</pre>
+
+  <h3>Enable the host firewall</h3>
+  <pre>sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+sudo ufw status verbose</pre>
+  <p>Mirror the same rule at the cloud-provider firewall: allow 22 only from trusted administration IPs when practical, allow 80/443 publicly, and do not allow 8787.</p>
+
+  <h3>Optional swap for small servers</h3>
+  <p>If <code>swapon --show</code> is empty, a 2 GB swap file can keep a small VPS build from being killed. It does not replace enough RAM:</p>
+  <pre>sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+swapon --show</pre>
+</section>
+
+<section id="ch4" class="chapter">
+  <span class="chapter-number">Chapter 4</span>
+  <h2>Install Node.js 22 or newer</h2>
+  <p class="lead">The project requires Node.js 22+. Use a supported LTS release. The commands below use NodeSource for Node 22; if your organization has an approved package source, use that instead.</p>
+
+  <h3>Install from NodeSource</h3>
+  <p>Download the setup script, inspect it, then run it. Do not pipe an unseen remote script directly into a privileged shell.</p>
+  <pre>cd /tmp
+curl -fsSLo nodesource_setup.sh https://deb.nodesource.com/setup_22.x
+less nodesource_setup.sh
+sudo -E bash nodesource_setup.sh
+sudo apt install -y nodejs</pre>
+  <p>Verify the actual runtime:</p>
+  <pre>node --version
+npm --version
+command -v node
+command -v npm</pre>
+  <div class="callout success"><b class="label">Expected</b><code>node --version</code> must report <code>v22.x</code> or a newer supported release. The systemd examples assume Node is at <code>/usr/bin/node</code>; use the path printed by <code>command -v node</code> if different.</div>
+
+  <h3>Why not use nvm for the system service?</h3>
+  <p><code>nvm</code> is excellent for interactive development, but a systemd service does not load your shell profile. A system-wide, pinned Node installation produces a simpler and more predictable production service. If you must use nvm, put the absolute Node binary path in <code>ExecStart</code> and document the version-owner relationship.</p>
+</section>
+
+<section id="ch5" class="chapter">
+  <span class="chapter-number">Chapter 5</span>
+  <h2>Create users, directories, and persistent storage</h2>
+  <p class="lead">A human deployment user owns the code. A locked service account runs Node. Only the mutable data directories are writable by the application.</p>
+
+  <h3>Create the service account and directories</h3>
+  <pre><span class="comment"># Locked system account; no interactive shell.</span>
+sudo adduser --system --group --home /var/lib/khyeast khyeast
+
+<span class="comment"># Versioned code. The human deployment user owns releases.</span>
+sudo install -d -m 0750 -o "$USER" -g khyeast /srv/khyeast
+sudo install -d -m 0750 -o "$USER" -g khyeast /srv/khyeast/releases
+
+<span class="comment"># Persistent writable state.</span>
+sudo install -d -m 0750 -o khyeast -g khyeast /var/lib/khyeast/data
+sudo install -d -m 0750 -o khyeast -g khyeast /var/lib/khyeast/uploads
+
+<span class="comment"># Root-only environment configuration.</span>
+sudo install -d -m 0700 -o root -g root /etc/khyeast</pre>
+
+  <h3>Why these locations?</h3>
+  <table>
+    <thead><tr><th>Path</th><th>Owner</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>/srv/khyeast/releases/*</code></td><td>Deployment user</td><td>Immutable tested release directories</td></tr>
+      <tr><td><code>/srv/khyeast/current</code></td><td>Deployment user</td><td>Symlink to the release systemd currently starts</td></tr>
+      <tr><td><code>/var/lib/khyeast/data</code></td><td><code>khyeast</code></td><td><code>content.json</code> and SQLite database</td></tr>
+      <tr><td><code>/var/lib/khyeast/uploads</code></td><td><code>khyeast</code></td><td>Uploaded images, videos, and image variants</td></tr>
+      <tr><td><code>/etc/khyeast/khyeast.env</code></td><td>root, mode 600</td><td>Production secrets and runtime configuration</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning">
+    <b class="label">Use local persistent storage</b>
+    SQLite WAL should live on the server's local persistent filesystem, not an ephemeral container layer and not a generic NFS share. If you later scale across machines, move state to architecture designed for shared access rather than mounting one SQLite file over the network.
+  </div>
+</section>
+
+<section id="ch6" class="chapter">
+  <span class="chapter-number">Chapter 6</span>
+  <h2>Fetch, validate, and build the application</h2>
+  <p class="lead">Deploy an intentional release—preferably a reviewed tag or the protected main branch. Do not deploy an arbitrary working tree.</p>
+
+  <h3>Clone the first versioned release</h3>
+  <pre>cd /srv/khyeast
+git clone https://github.com/m-ali-98/Khyeastwebsite.git releases/initial
+ln -s /srv/khyeast/releases/initial /srv/khyeast/current
+cd /srv/khyeast/current
+
+git switch main
+git pull --ff-only origin main
+git status --short
+git log -1 --oneline
+readlink -f /srv/khyeast/current</pre>
+  <p>If the repository is private, use a read-only GitHub deploy key and the SSH URL instead. Never paste a personal access token into a command, remote URL, shell history, or environment file.</p>
+
+  <h3>Install exactly what the lockfile declares</h3>
+  <pre>cd /srv/khyeast/current
+npm ci
+npm audit</pre>
+  <p><code>npm ci</code> is intentionally used instead of <code>npm install</code>: it reproduces <code>package-lock.json</code> and fails if the manifest and lockfile disagree.</p>
+
+  <h3>Run the scripted validation</h3>
+  <pre>npm test</pre>
+  <p>This builds the project and exercises routes, malformed content, sanitizer, payment, SMS, authentication, uploads, accounts, inventory, SEO, and API behavior. Run browser tests in CI or staging when Chromium is available:</p>
+  <pre>npx playwright install chromium
+npx playwright test \
+  e2e/public.spec.js \
+  e2e/admin.spec.js \
+  e2e/account.spec.js \
+  e2e/a11y.spec.js \
+  e2e/seo.spec.js</pre>
+  <div class="callout"><b class="label">Visual baselines</b>Visual snapshots are platform-specific. Do not regenerate or accept new baselines merely to make a Linux run green; inspect intended visual changes on the baseline platform.</div>
+
+  <h3>Build with the real canonical origin</h3>
+  <p>The build generates route HTML, sitemap, robots, canonical links, hreflang, social metadata, and structured data. Pass the production origin at build time:</p>
+  <pre>cd /srv/khyeast/current
+PUBLIC_ORIGIN=https://example.com npm run build</pre>
+  <p>Confirm the expected output:</p>
+  <pre>test -f dist/index.html
+test -f dist/sitemap.xml
+test -f dist/robots.txt
+ls -lah dist | head</pre>
+
+  <h3>Seed initial content once</h3>
+  <p>Because production state lives outside the checkout, copy the shipped <code>content.json</code> only when the persistent file does not yet exist:</p>
+  <pre>if ! sudo test -f /var/lib/khyeast/data/content.json; then
+  sudo install -m 0640 -o khyeast -g khyeast \
+    /srv/khyeast/current/server/data/content.json \
+    /var/lib/khyeast/data/content.json
+fi</pre>
+  <div class="callout danger"><b class="label">Never repeat this blindly</b>On an existing site, overwriting persistent <code>content.json</code> with the repository copy discards Admin edits. Updates must preserve <code>/var/lib/khyeast</code>.</div>
+
+  <pre><span class="comment"># Give the locked service account read access to the finished release.</span>
+release=$(readlink -f /srv/khyeast/current)
+sudo chown -R "$USER":khyeast "$release"
+sudo chmod -R o-rwx "$release"
+sudo chmod -R g+rX "$release"</pre>
+</section>
+
+<section id="ch7" class="chapter">
+  <span class="chapter-number">Chapter 7</span>
+  <h2>Configure production secrets and environment</h2>
+  <p class="lead">Production startup deliberately fails when required security values are missing, too short, or still equal to the published development defaults.</p>
+
+  <h3>Generate strong values</h3>
+  <pre><span class="comment"># Example 48-character Admin password. Store it in a password manager.</span>
+openssl rand -hex 24
+
+<span class="comment"># Stable 64-character signing/HMAC secret.</span>
+openssl rand -hex 32</pre>
+  <p>Create the environment file with <code>sudoedit</code>:</p>
+  <pre>sudoedit /etc/khyeast/khyeast.env</pre>
+  <pre>NODE_ENV=production
+PORT=8787
+
+ADMIN_USER=choose-a-private-admin-name
+ADMIN_PASS="PASTE-THE-48-CHARACTER-PASSWORD"
+ADMIN_SECRET=PASTE-THE-64-CHARACTER-SECRET
+
+PUBLIC_ORIGIN=https://example.com
+TRUSTED_HOSTS="example.com,www.example.com"
+TRUST_PROXY="loopback, linklocal, uniquelocal"
+
+DATA_DIR=/var/lib/khyeast/data
+UPLOAD_DIR=/var/lib/khyeast/uploads
+DB_FILE=/var/lib/khyeast/data/khyeast.db
+
+<span class="comment"># Optional ownership tokens:</span>
+<span class="comment"># GOOGLE_SITE_VERIFICATION=...</span>
+<span class="comment"># BING_SITE_VERIFICATION=...</span></pre>
+  <pre>sudo chown root:root /etc/khyeast/khyeast.env
+sudo chmod 600 /etc/khyeast/khyeast.env
+sudo stat /etc/khyeast/khyeast.env</pre>
+
+  <h3>Required variables</h3>
+  <table>
+    <thead><tr><th>Variable</th><th>Rule</th><th>Why it matters</th></tr></thead>
+    <tbody>
+      <tr><td><code>NODE_ENV</code></td><td>Exactly <code>production</code></td><td>Enables secure production behavior and configuration refusal</td></tr>
+      <tr><td><code>ADMIN_USER</code></td><td>Private, non-default username</td><td>Admin login identity</td></tr>
+      <tr><td><code>ADMIN_PASS</code></td><td>At least 12 characters; use much more</td><td>Admin login credential</td></tr>
+      <tr><td><code>ADMIN_SECRET</code></td><td>At least 32 characters; stable across workers and restores</td><td>Admin signing, OTP pepper, rate-limit HMAC separation</td></tr>
+      <tr><td><code>PUBLIC_ORIGIN</code></td><td>Exact HTTPS origin, no path or trailing slash</td><td>Callbacks, cookies, canonical URLs, sitemap, trusted-host fallback</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <b class="label">Protect and preserve ADMIN_SECRET</b>
+    Every process must use the same stable value. Treat it as backup-critical. Rotating it invalidates Admin sessions and intentionally starts fresh rate-limit buckets; it also invalidates outstanding OTP hashes. Do not rotate it casually during an update.
+  </div>
+
+  <h3>Optional settings</h3>
+  <ul>
+    <li><code>TRUSTED_HOSTS</code>: valid aliases in addition to <code>PUBLIC_ORIGIN</code>.</li>
+    <li><code>TRUST_PROXY</code>: keep the safe default for same-host Nginx. Never set <code>true</code> unless direct access to Node is impossible and the proxy topology is fully controlled.</li>
+    <li><code>RATE_LIMITS_ENABLED</code> and <code>RL_MAX_*</code>: initial overrides only. Saved Admin settings later become authoritative.</li>
+    <li><code>SEO_ORIGIN</code>: optional build-only origin; normally <code>PUBLIC_ORIGIN</code> is enough.</li>
+    <li><code>PENDING_ORDER_TTL_MS</code>: default is approximately 30 minutes. Do not change without understanding inventory behavior.</li>
+  </ul>
+
+  <h3>What does not belong in this file</h3>
+  <p>ZarinPal and sms.ir settings are managed inside Admin and stored in the application database. Do not duplicate them in Git. Do not commit <code>.env</code>, environment files, database copies, private keys, or backup archives.</p>
+</section>
+
+<section id="ch8" class="chapter">
+  <span class="chapter-number">Chapter 8</span>
+  <h2>Run the application with systemd</h2>
+  <p class="lead">systemd starts the application after boot, restarts it on failure, passes secrets without exposing them in the unit, and sends SIGTERM for a clean SQLite shutdown.</p>
+
+  <h3>Create the service unit</h3>
+  <pre>sudo tee /etc/systemd/system/khyeast.service &gt;/dev/null &lt;&lt;'UNIT'
+[Unit]
+Description=Khuzestan Yeast website and API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=khyeast
+Group=khyeast
+WorkingDirectory=/srv/khyeast/current
+EnvironmentFile=/etc/khyeast/khyeast.env
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=120s
+KillSignal=SIGTERM
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/khyeast
+
+[Install]
+WantedBy=multi-user.target
+UNIT</pre>
+  <p>If <code>command -v node</code> returned a different path, change <code>ExecStart</code>. The application stops accepting new connections on SIGTERM, drains active HTTP requests for up to 90 seconds, and only then closes SQLite. Keep <code>TimeoutStopSec</code> above that bound so systemd does not kill an in-flight ZarinPal verification first.</p>
+
+  <h3>Start and enable the service</h3>
+  <pre>sudo systemctl daemon-reload
+sudo systemctl enable --now khyeast
+sudo systemctl status khyeast --no-pager
+sudo journalctl -u khyeast -n 100 --no-pager</pre>
+  <p>Test directly on the server:</p>
+  <pre>curl -fsS http://127.0.0.1:8787/api/health
+ss -ltnp | grep ':8787'</pre>
+  <p>A healthy response resembles:</p>
+  <pre>{"ok":true,"db":"sqlite","imageOptimiser":true}</pre>
+  <div class="callout"><b class="label">Sharp fallback</b>If <code>imageOptimiser</code> is false, uploads still work and are stored safely, but responsive WebP optimization is unavailable. Review <code>npm ci</code> output, architecture compatibility, and service logs.</div>
+
+  <h3>Useful service commands</h3>
+  <pre>sudo systemctl restart khyeast
+sudo systemctl stop khyeast
+sudo systemctl start khyeast
+sudo systemctl is-active khyeast
+sudo journalctl -u khyeast -f</pre>
+
+  <div class="callout danger"><b class="label">Do not run two managers</b>Do not start the same application with both systemd and PM2, or with both systemd and Passenger. Duplicate processes can fight over the same port and make incidents difficult to diagnose.</div>
+</section>
+
+<section id="ch9" class="chapter">
+  <span class="chapter-number">Chapter 9</span>
+  <h2>Configure Nginx and HTTPS</h2>
+  <p class="lead">Nginx owns public ports 80 and 443. Node remains behind it. Port 80 must redirect to HTTPS before a request reaches Node.</p>
+
+  <h3>Phase A: temporary HTTP configuration for certificate issuance</h3>
+  <pre>sudo tee /etc/nginx/sites-available/khyeast &gt;/dev/null &lt;&lt;'NGINX'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com www.example.com;
+
+    client_max_body_size 8m;
+
+    location = /api/upload {
+        client_max_body_size 210m;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+}
+NGINX
+
+sudo ln -sfn /etc/nginx/sites-available/khyeast /etc/nginx/sites-enabled/khyeast
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx</pre>
+  <p>This temporary HTTP proxy exists only so the ACME challenge can be completed. Production Admin login over HTTP is intentionally refused.</p>
+
+  <h3>Request the certificate</h3>
+  <pre>sudo certbot certonly --nginx \
+  -d example.com \
+  -d www.example.com</pre>
+  <p>Use a monitored operations email, accept the terms, and do not share the private key. If you use only one hostname, request only that hostname.</p>
+
+  <h3>Install the payment-callback retry page</h3>
+  <p>If Node is between releases when the customer's browser returns from ZarinPal, Nginx should not show a generic 502 that encourages a second payment. This static 503 page preserves the callback URL, says not to pay again, retries the same authority every five seconds at most six times, then stops with a manual “check this payment” action:</p>
+  <pre>sudo install -m 0644 -o root -g root \
+  /srv/khyeast/current/ops/payment-callback-unavailable.html \
+  /var/www/khyeast-payment-callback-unavailable.html</pre>
+
+  <h3>Phase B: final HTTPS and redirect configuration</h3>
+  <pre>sudo tee /etc/nginx/sites-available/khyeast &gt;/dev/null &lt;&lt;'NGINX'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com www.example.com;
+    return 308 https://example.com$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name www.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    return 308 https://example.com$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    client_max_body_size 8m;
+
+    location = /api/upload {
+        client_max_body_size 210m;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+
+    location = /api/shop-pay/zarinpal/callback {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_intercept_errors on;
+        error_page 502 503 504 =503 /khyeast-payment-callback-unavailable.html;
+    }
+
+    location = /khyeast-payment-callback-unavailable.html {
+        internal;
+        root /var/www;
+        add_header Retry-After 5 always;
+        add_header Cache-Control "no-store" always;
+        add_header X-Robots-Tag "noindex, nofollow" always;
+        add_header Content-Security-Policy
+            "default-src 'none'; script-src 'sha256-l7W4Ms+KjVqxIOZnBfBxRNgzDz4kx1c+N4LtdQI5l3c='; style-src 'unsafe-inline'; frame-ancestors 'none'"
+            always;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+}
+NGINX
+
+sudo nginx -t
+sudo systemctl reload nginx</pre>
+  <p>The 210 MB allowance is scoped to the exact authenticated upload endpoint. Every other route remains under the 8 MB JSON/application ceiling, so a large request cannot consume proxy resources on login, callbacks, contact, or ordinary API routes.</p>
+  <div class="callout warning"><b class="label">Certificate paths</b>Certbot uses a directory named after the certificate's primary name. Confirm with <code>sudo certbot certificates</code> and adjust the paths if your certificate directory differs.</div>
+
+  <h3>Why the proxy headers are exact</h3>
+  <ul>
+    <li><code>Host</code> preserves the real public hostname for canonical and trust checks.</li>
+    <li><code>X-Forwarded-For</code> carries the visitor chain. Express accepts it only from trusted proxy peers.</li>
+    <li><code>X-Forwarded-Proto https</code> lets Node issue the production <code>__Host-ky_admin</code> Secure cookie and HSTS.</li>
+    <li>The port-80 virtual host redirects and never proxies. This prevents a real HTTP request from being mistaken for HTTPS if a protocol header is absent.</li>
+    <li>The exact ZarinPal callback location intercepts proxy-unavailable errors and the application's explicit retryable verification 503. Its page refreshes the original URL; it does not claim success, alter the authority query, or mask an application-generated 4xx/500 response.</li>
+  </ul>
+
+  <h3>Check certificate renewal</h3>
+  <pre>sudo systemctl status certbot.timer --no-pager
+sudo certbot renew --dry-run</pre>
+
+  <h3>Basic public checks</h3>
+  <pre>curl -I http://example.com/
+curl -I https://example.com/
+curl -fsS https://example.com/api/health
+curl -I https://example.com/sitemap.xml
+curl -I https://example.com/robots.txt</pre>
+  <p>The HTTP request should return 308 to HTTPS. The HTTPS response should include application security headers. Do not add a blanket Nginx cache: live HTML and <code>/api/content</code> intentionally revalidate.</p>
+</section>
+
+<section id="ch10" class="chapter">
+  <span class="chapter-number">Chapter 10</span>
+  <h2>Verify proxy, cookies, IP, and security</h2>
+  <p class="lead">A page loading over HTTPS is not enough. Admin cookies, payment callbacks, rate limits, and audit logs depend on Node detecting the browser-facing protocol and the real visitor IP correctly.</p>
+
+  <h3>Perform the required real-host Admin test</h3>
+  <ol class="steps">
+    <li>Open <code>https://example.com/admin</code> by typing it directly in a real browser.</li>
+    <li>Log in with the production Admin credentials.</li>
+    <li>Open the Admin tab named <span class="rtl">«امنیت و محدودیت‌ها»</span> (Security and limits).</li>
+    <li>Confirm the <strong>effective protocol is HTTPS</strong>.</li>
+    <li>Confirm the source is forwarded protocol (or the guarded trusted-proxy fallback on a host that strips the header).</li>
+    <li>Confirm <code>req.ip</code> is the visitor's real public IP, not <code>127.0.0.1</code>, the Nginx address, or an attacker-supplied value.</li>
+    <li>Repeat once from a phone on mobile data to prove different visitors produce different IPs.</li>
+  </ol>
+
+  <h3>Inspect the Admin cookie</h3>
+  <p>In browser DevTools → Application/Storage → Cookies, production Admin authentication should use:</p>
+  <table>
+    <tbody>
+      <tr><th>Name</th><td><code>__Host-ky_admin</code></td></tr>
+      <tr><th>Secure</th><td>Yes</td></tr>
+      <tr><th>HttpOnly</th><td>Yes</td></tr>
+      <tr><th>SameSite</th><td>Strict</td></tr>
+      <tr><th>Path</th><td><code>/</code></td></tr>
+      <tr><th>Domain attribute</th><td>Absent, as required by the <code>__Host-</code> prefix</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <b class="label">Never “fix” login by weakening the cookie</b>
+    If production login returns 426 or the cookie is not stored, fix TLS and proxy detection. Do not remove <code>Secure</code>, replace the <code>__Host-</code> cookie, or broadly trust arbitrary Host / forwarding headers.
+  </div>
+
+  <h3>Trust-proxy rules</h3>
+  <ul>
+    <li>Same-host Nginx normally works with <code>loopback, linklocal, uniquelocal</code>.</li>
+    <li>Keep port 8787 blocked at both UFW and the cloud firewall.</li>
+    <li>Do not use <code>TRUST_PROXY=true</code> while a client can reach Node directly.</li>
+    <li>For a load balancer or CDN, trust only its known subnet/hop topology and configure the edge's real-IP feature. Test spoofed <code>X-Forwarded-For</code> from outside.</li>
+    <li>All workers must share one stable <code>ADMIN_SECRET</code>; rate-limit counters are already shared through SQLite on one host.</li>
+  </ul>
+
+  <h3>Command-line header checks</h3>
+  <pre>curl -sSI https://example.com/ | sed -n '1,25p'
+curl -sSI https://example.com/admin | sed -n '1,25p'
+
+<span class="comment"># Direct Node access should fail from another machine:</span>
+curl --connect-timeout 3 http://SERVER_PUBLIC_IP:8787/api/health</pre>
+  <p>The last command should time out or be refused. Test it from outside the server, not from localhost.</p>
+</section>
+
+<section id="ch11" class="chapter">
+  <span class="chapter-number">Chapter 11</span>
+  <h2>Configure the application and go live</h2>
+  <p class="lead">The infrastructure can be healthy while the business configuration is incomplete. Finish these steps before accepting real orders.</p>
+
+  <h3>First Admin session</h3>
+  <ul class="checklist">
+    <li>Log in only at the final HTTPS hostname.</li>
+    <li>Check the Security tab's effective protocol, real IP, proxy peer, and rate-limit status.</li>
+    <li>Review all rate limits. Disable them only temporarily during controlled troubleshooting.</li>
+    <li>Confirm products, prices, stock, units, active state, and shipping settings.</li>
+    <li>Review Persian content and English/Arabic overrides.</li>
+    <li>Upload a test image and verify responsive variants render.</li>
+    <li>Back up all live persistent state before the first unused-file cleanup. Confirm the 24-hour draft grace period, daily 30-day quarantine timer, and deliberate backup exclusion of <code>.quarantine</code>.</li>
+    <li>Confirm <code>/api/content</code> reports <code>X-Khyeast-Content-Status: persisted</code>. If content is unavailable, Admin writes and cleanup must return 503—not recreate or infer from defaults.</li>
+  </ul>
+
+  <h3>Configure SMS</h3>
+  <ol>
+    <li>Enter sms.ir settings in Admin.</li>
+    <li>Switch from log-only mode to the intended production transport.</li>
+    <li>Send OTP to a controlled phone.</li>
+    <li>Test resend timing and both registered and unregistered flows.</li>
+    <li>Confirm logs do not expose OTPs to unauthorized operators. Restrict journal access.</li>
+  </ol>
+
+  <h3>Configure ZarinPal</h3>
+  <ol>
+    <li>Enter production merchant/payment settings in Admin.</li>
+    <li>Confirm <code>PUBLIC_ORIGIN</code> is the final HTTPS origin before generating any payment request.</li>
+    <li>Use a gateway-provided test method or one controlled low-value transaction.</li>
+    <li>Verify callback success, order status, inventory, authority history, and separate <code>ref_id</code>.</li>
+    <li>Test a canceled payment and a payment retry.</li>
+    <li>Review inquiry, reverse, refund, and “needs attention” operations with authorized staff.</li>
+  </ol>
+  <div class="callout warning"><b class="label">Currency</b>The application stores and sends amounts in Iranian rial (<code>IRR</code>). Confirm displayed toman conversions against the rial values entered in Admin.</div>
+  <p>REST and GraphQL requests made by the ZarinPal SDK are bounded at 20 seconds. An ambiguous verification timeout returns a no-store retry page for the same authority-bound callback, releases that failed reservation instead of consuming callback-limit budget, and cannot hold shutdown open indefinitely.</p>
+
+  <h3>End-to-end launch test</h3>
+  <table>
+    <thead><tr><th>Area</th><th>Test</th><th>Expected result</th></tr></thead>
+    <tbody>
+      <tr><td>Public site</td><td>Home, product, blog, contact in FA/EN/AR</td><td>Correct language, direction, metadata, no broken images</td></tr>
+      <tr><td>SEO</td><td>Sitemap, robots, canonical, JSON-LD, 404</td><td>Correct domain; private routes noindex</td></tr>
+      <tr><td>Contact</td><td>Submit valid and invalid messages</td><td>Validation, rate limit, Admin visibility</td></tr>
+      <tr><td>Account</td><td>OTP, registration, login, password recovery</td><td>Real SMS and no account-enumeration difference</td></tr>
+      <tr><td>Shop</td><td>Add, checkout, stock deduction</td><td>Server totals and correct inventory</td></tr>
+      <tr><td>Payment</td><td>Success, cancel, retry, callback refresh</td><td>Idempotent state and exact order binding</td></tr>
+      <tr><td>Persistence</td><td>Edit content, restart service, reload</td><td>Content, uploads, stock, and orders remain</td></tr>
+      <tr><td>Mobile</td><td>Real phone on cellular network</td><td>Layout works; real client IP differs</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Final public smoke commands</h3>
+  <pre>curl -fsS https://example.com/api/health
+curl -fsS https://example.com/robots.txt
+curl -fsS https://example.com/sitemap.xml | head
+curl -sS -o /dev/null -w '%{http_code}\n' https://example.com/nonexistent-page
+curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
+  <p>The unknown route should return a genuine 404. Port 80 should redirect. Health should be 200.</p>
+</section>
+
+<section id="ch12" class="chapter">
+  <span class="chapter-number">Chapter 12</span>
+  <h2>Back up, expire quarantine, and restore</h2>
+  <p class="lead">Use SQLite's online snapshot while Node is active, and a stable staged copy when systemd confirms Node is stopped. Validate space and every artifact, then append offsite with credentials that cannot erase history.</p>
+
+  <h3>What is—and is not—backup data</h3>
+  <table>
+    <thead><tr><th>Item</th><th>Policy</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td><code>data/content.json</code></td><td>Required; parse and structure-check</td><td>Published CMS state</td></tr>
+      <tr><td>SQLite</td><td>Required; active: <code>.backup</code>; stopped: stable staged copy; always run integrity and foreign-key checks</td><td>Orders, payment attempts, stock, accounts and settings</td></tr>
+      <tr><td>Live <code>uploads/</code></td><td>Required; copy into staging twice</td><td>Files referenced by content and products</td></tr>
+      <tr><td><code>uploads/.quarantine/</code></td><td><strong>Exclude locally and offsite</strong></td><td>30-day local recycle bin, not production state</td></tr>
+      <tr><td><code>/etc/khyeast/khyeast.env</code></td><td>Separate encrypted secrets backup</td><td>Contains Admin credentials and stable secret</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warning"><b class="label">Quarantine trade-off</b>A total disk loss also loses quarantined files. That is intentional: ordinary backups must not preserve retired media indefinitely. Restore a mistaken cleanup from the local quarantine before its 30-day deadline.</div>
+
+  <h3>Why active and stopped-service snapshots are conservative</h3>
+  <ol class="steps">
+    <li>Measure the live payload and require room for staging, an uncompressed archive, and a 1 GiB post-estimate reserve before copying.</li>
+    <li>Copy live uploads into a fresh stage, excluding <code>.quarantine</code>.</li>
+    <li>Read and validate <code>content.json</code>.</li>
+    <li>If <code>khyeast.service</code> is active, run SQLite <code>.backup</code>. If systemd confirms it is inactive, copy the stable main file; if WAL survived an unclean stop, copy the main/WAL/SHM set and consolidate only that writable staged copy.</li>
+    <li>Run integrity and foreign-key checks on the resulting snapshot. Read content again and retry if its bytes changed.</li>
+    <li>Run a second upload copy without <code>--delete</code>. This catches newly published files while retaining a conservative file that was retired during the run.</li>
+    <li>Archive only the stable stage, record the database snapshot mode in its manifest, verify its listing, hash and flush it, then publish the final name atomically.</li>
+  </ol>
+  <p>Never accept <code>tar</code> exit code 1 or an <code>rsync</code> warning as success. “File changed” or “vanished” can mean an archive is missing a referenced upload. The maintained implementation is <code>ops/backup-khyeast</code>; it creates an uncompressed tar because images and videos are already compressed.</p>
+
+  <h3>Install and test active and stopped-service backup</h3>
+  <pre>sudo install -d -m 0700 /var/backups/khyeast
+sudo install -m 0700 -o root -g root \
+  /srv/khyeast/current/ops/backup-khyeast \
+  /usr/local/sbin/backup-khyeast
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast/current/ops/systemd/khyeast-backup.service \
+  /etc/systemd/system/khyeast-backup.service
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast/current/ops/systemd/khyeast-backup.timer \
+  /etc/systemd/system/khyeast-backup.timer
+
+sudo systemctl daemon-reload
+sudo systemctl start khyeast-backup.service
+sudo journalctl -u khyeast-backup.service -n 100 --no-pager
+sudo systemctl is-active khyeast
+
+latest=$(find /var/backups/khyeast -maxdepth 1 -type f -name 'khyeast-*.tar' -printf '%T@ %p\n' \
+  | sort -n | tail -1 | cut -d' ' -f2-)
+test -n "$latest"
+(cd "$(dirname "$latest")" &amp;&amp; sha256sum -c "$(basename "$latest").sha256")
+tar -tf "$latest" | sed -n '1,30p'
+if tar -tf "$latest" | grep -F '/.quarantine/'; then exit 1; fi
+
+<span class="comment"># Required one-time VPS test: cleanly stop the app, then prove the same</span>
+<span class="comment"># read-only backup unit takes the stable no-WAL path. The EXIT trap restarts</span>
+<span class="comment"># the app even if a check fails.</span>
+(
+  set -Eeuo pipefail
+  trap 'sudo systemctl start khyeast &gt;/dev/null 2&gt;&amp;1 || true' EXIT
+  sudo systemctl stop khyeast
+  sleep 2
+  test "$(sudo systemctl is-active khyeast 2&gt;/dev/null || true)" = inactive
+  sudo test ! -e /var/lib/khyeast/data/khyeast.db-wal
+  sudo systemctl start khyeast-backup.service
+  test "$(sudo systemctl show khyeast-backup.service -p Result --value)" = success
+  offline_latest=$(find /var/backups/khyeast -maxdepth 1 -type f -name 'khyeast-*.tar' -printf '%T@ %p\n' \
+    | sort -n | tail -1 | cut -d' ' -f2-)
+  tar -xOf "$offline_latest" khyeast/backup-manifest.json | grep -F 'offline-clean-copy'
+  sudo systemctl start khyeast
+  sudo systemctl is-active --quiet khyeast
+  trap - EXIT
+)
+
+sudo systemctl enable --now khyeast-backup.timer
+sudo systemctl list-timers khyeast-backup.timer</pre>
+  <p>The service is intentionally external and privileged only enough to inspect systemd state, read application state, and write the root-only backup directory. It never stops or restarts <code>khyeast.service</code>; the stopped-service sequence above is an explicit operator test. The source remains read-only even in offline mode because consolidation happens under <code>BACKUP_DEST</code>. After publishing a valid replacement, it keeps a bounded 14-day local window. Override <code>LOCAL_RETENTION_DAYS</code>, <code>BACKUP_MIN_FREE_BYTES</code> (default 1 GiB), or <code>APP_SERVICE</code> only in a root-owned unit override. If paths differ, override <code>DATA_DIR</code>, <code>UPLOAD_DIR</code>, <code>DB_FILE</code>, <code>BACKUP_DEST</code>, and <code>RELEASE_DIR</code>; update <code>ReadOnlyPaths</code>/<code>ReadWritePaths</code> for non-default locations.</p>
+
+  <h3>Expire upload quarantine every day</h3>
+  <pre>sudo install -m 0644 -o root -g root \
+  /srv/khyeast/current/ops/systemd/khyeast-quarantine-purge.service \
+  /etc/systemd/system/khyeast-quarantine-purge.service
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast/current/ops/systemd/khyeast-quarantine-purge.timer \
+  /etc/systemd/system/khyeast-quarantine-purge.timer
+
+sudo systemctl daemon-reload
+sudo systemctl start khyeast-quarantine-purge.service
+sudo journalctl -u khyeast-quarantine-purge.service -n 50 --no-pager
+sudo systemctl enable --now khyeast-quarantine-purge.timer
+sudo systemctl list-timers khyeast-quarantine-purge.timer</pre>
+  <p>The command runs as <code>khyeast</code>, applies the fixed 30-day retention, and removes only timestamped batch directories. Unknown names and unexpired batches remain. On cPanel without systemd, schedule <code>npm run uploads:purge-quarantine</code> daily through Cron Jobs with the same <code>UPLOAD_DIR</code> and application user. A custom systemd upload path outside <code>/var/lib/khyeast/uploads</code> also needs a matching <code>ReadWritePaths</code> override.</p>
+
+  <div class="callout danger"><b class="label">The VPS must not be able to erase offsite history</b>Encryption is not immutability. A compromised server can run <code>restic forget --prune</code> if its backend credential allows deletion. Give the VPS a provider-enforced append-only credential and run <code>check</code>, retention, prune and restore drills from a different trusted machine with a separate full-access credential.</div>
+  <div class="callout"><b class="label">Threat boundary</b>This design preserves earlier snapshots when the application VPS—including root and its local backup directory—is compromised. It does not survive compromise of the provider control plane, the full-access maintenance host, or every copy of the Restic password. Protect those with separate administrators, MFA, restricted network access and an offline recovery-secret copy.</div>
+
+  <h3>Split Restic upload from trusted maintenance</h3>
+  <p>Choose a Restic-compatible backend with a documented append-only mode (for example, an append-only REST server or an equivalent provider policy). The VPS credential may read what Restic needs for deduplication and append new repository objects, but it must not overwrite or delete established packs, indexes, snapshots, or keys. Validate that policy in a disposable repository before production. <code>RESTIC_APPEND_ONLY=true</code> is only an operator assertion and startup guard; provider-side authorization is the real control.</p>
+
+  <h4>On the separate trusted maintenance machine</h4>
+  <p>Initialize and maintain the repository here, not on the VPS. Keep its full-access backend credential and the shared Restic encryption password in the organization's secrets vault. Install the reviewed assets from a Git clone on this machine:</p>
+  <pre>sudo git clone --branch main --single-branch \
+  https://github.com/m-ali-98/Khyeastwebsite.git \
+  /srv/khyeast-maintenance-source
+sudo install -m 0700 -o root -g root \
+  /srv/khyeast-maintenance-source/ops/maintain-khyeast-restic \
+  /usr/local/sbin/maintain-khyeast-restic
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast-maintenance-source/ops/systemd/khyeast-offsite-maintenance.service \
+  /etc/systemd/system/khyeast-offsite-maintenance.service
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast-maintenance-source/ops/systemd/khyeast-offsite-maintenance.timer \
+  /etc/systemd/system/khyeast-offsite-maintenance.timer
+sudo install -d -m 0700 /etc/khyeast
+sudo sh -c 'umask 077; openssl rand -hex 32 &gt;/etc/khyeast/restic-password'
+sudo install -m 0600 -o root -g root /dev/null \
+  /etc/khyeast/restic-maintenance.env
+sudoedit /etc/khyeast/restic-maintenance.env</pre>
+  <pre>RESTIC_REPOSITORY=REPLACE-WITH-THE-CHOSEN-REPOSITORY
+RESTIC_PASSWORD_FILE=/etc/khyeast/restic-password
+<span class="comment"># Add the chosen provider's FULL-ACCESS maintenance credential here.</span></pre>
+  <pre>sudo -i
+set -a
+. /etc/khyeast/restic-maintenance.env
+set +a
+<span class="comment"># For an existing repository, this must succeed:</span>
+restic snapshots
+<span class="comment"># Only if the command explicitly reported that this independently verified</span>
+<span class="comment"># target is new, initialize it in a separate deliberate step: restic init</span>
+exit
+sudo systemctl daemon-reload</pre>
+
+  <h4>On the application VPS</h4>
+  <p>Securely provision the same encryption password from the vault, but use a different append-only backend credential:</p>
+  <pre>sudo install -m 0700 -o root -g root \
+  /srv/khyeast/current/ops/replicate-khyeast-restic \
+  /usr/local/sbin/replicate-khyeast-restic
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast/current/ops/systemd/khyeast-offsite.service \
+  /etc/systemd/system/khyeast-offsite.service
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast/current/ops/systemd/khyeast-offsite.timer \
+  /etc/systemd/system/khyeast-offsite.timer
+sudo install -m 0600 -o root -g root /dev/null /etc/khyeast/restic.env
+sudoedit /etc/khyeast/restic.env</pre>
+  <pre>RESTIC_REPOSITORY=REPLACE-WITH-THE-CHOSEN-REPOSITORY
+RESTIC_PASSWORD_FILE=/etc/khyeast/restic-password
+RESTIC_APPEND_ONLY=true
+<span class="comment"># Add only the provider's APPEND-ONLY VPS credential here.</span>
+<span class="comment"># Never copy the maintenance credential to this host.</span></pre>
+  <pre>sudo chown root:root /etc/khyeast/restic.env /etc/khyeast/restic-password
+sudo chmod 0600 /etc/khyeast/restic.env /etc/khyeast/restic-password
+sudo systemctl daemon-reload
+sudo systemctl start khyeast-offsite.service
+sudo journalctl -u khyeast-offsite.service -n 100 --no-pager
+sudo systemctl enable --now khyeast-offsite.timer
+sudo systemctl list-timers khyeast-offsite.timer</pre>
+  <p>The VPS script refuses an archive older than 30 hours, verifies SHA-256 before and after upload, and invokes only <code>restic backup</code>. It contains no <code>check</code>, <code>forget</code>, <code>prune</code>, or cleanup command. On the maintenance machine, run and monitor the weekly unit; it checks the repository, applies 14 daily, 8 weekly and 12 monthly points, prunes, then checks again:</p>
+  <pre>sudo systemctl start khyeast-offsite-maintenance.service
+sudo journalctl -u khyeast-offsite-maintenance.service -n 100 --no-pager
+sudo systemctl enable --now khyeast-offsite-maintenance.timer
+sudo systemctl list-timers khyeast-offsite-maintenance.timer</pre>
+  <p>After the first VPS upload, confirm the new snapshot from the maintenance machine. A successful upload log alone is not proof of recovery:</p>
+  <pre>sudo -i
+set -a
+. /etc/khyeast/restic-maintenance.env
+set +a
+restic snapshots --tag khyeast-validated-archive
+restic check
+mkdir -p /srv/restore/offsite-test
+restic restore REPLACE_WITH_SNAPSHOT_ID --target /srv/restore/offsite-test
+cd /srv/restore/offsite-test/var/backups/khyeast
+sha256sum -c khyeast-YYYYMMDDTHHMMSSZ.tar.sha256
+<span class="comment"># Continue with the archive inspection and restore drill below.</span>
+exit</pre>
+  <p>Record the restore date, snapshot ID, checksum result, SQLite integrity result and operator. Never regenerate the encryption password after initialization, and never store the only copy on either machine.</p>
+
+  <h3>Content-file recovery is fail-closed</h3>
+  <p>When <code>content.json</code> is missing, unparsable, or structurally incomplete, the public API may serve shipped defaults with <code>X-Khyeast-Content-Status: fallback</code>. Admin content-authoring saves and upload cleanup return <code>503 content-unavailable</code>; a routine save cannot bury the incident by recreating defaults. Before explicit repair, preserve any bad bytes:</p>
+  <pre>stamp=$(date -u +%Y%m%dT%H%M%SZ)
+sudo cp -a /var/lib/khyeast/data/content.json \
+  "/var/lib/khyeast/data/content.json.bad-$stamp" 2&gt;/dev/null || true
+
+<span class="comment"># Extract to a temporary file; never unpack over the live path.</span>
+archive=/secure/path/khyeast-YYYYMMDDTHHMMSSZ.tar
+(cd "$(dirname "$archive")" &amp;&amp; sha256sum -c "$(basename "$archive").sha256")
+restore=$(mktemp)
+tar -xOf "$archive" khyeast/data/content.json &gt;"$restore"
+node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$restore"
+sudo install -o khyeast -g khyeast -m 0640 "$restore" \
+  /var/lib/khyeast/data/content.json.restored
+sudo mv -f /var/lib/khyeast/data/content.json.restored \
+  /var/lib/khyeast/data/content.json
+rm -f "$restore"
+curl -fsSI https://example.com/api/content | grep -i 'x-khyeast-content-status: persisted'</pre>
+  <p>Accepted application saves use a same-directory temporary file, <code>fsync</code>, and atomic rename, so a crash cannot expose a half-written JSON document.</p>
+
+  <h3>Restore procedure</h3>
+  <ol class="steps">
+    <li>Verify the SHA-256 sidecar and inspect the manifest and archive listing.</li>
+    <li>Provision a compatible clean server and check out the commit recorded in <code>backup-manifest.json</code>.</li>
+    <li>Stop Node only for the restore, not for routine backups.</li>
+    <li>Run and verify one final stopped-service safety backup. If damaged source data makes validation fail, preserve the entire old state directory instead of forcing an archive.</li>
+    <li>Move current state aside; never immediately delete it.</li>
+    <li>Extract the archive under <code>/var/lib</code>, restore the separately protected environment, correct ownership, and start.</li>
+    <li>Before reopening checkout, reconcile the restored payment-attempt ledger with ZarinPal, including its <code>unverified</code> list and all transactions since the snapshot.</li>
+    <li>Test a real order, upload, Admin save, customer login and repeated payment callback.</li>
+  </ol>
+  <pre>(cd /secure/path &amp;&amp; sha256sum -c khyeast-YYYYMMDDTHHMMSSZ.tar.sha256)
+tar -xOf /secure/path/khyeast-YYYYMMDDTHHMMSSZ.tar khyeast/backup-manifest.json
+sudo systemctl stop khyeast
+<span class="comment"># Safety snapshot of the state about to be replaced; this now works stopped.</span>
+sudo systemctl start khyeast-backup.service
+sudo systemctl show khyeast-backup.service -p Result --value | grep -Fx success
+safety=$(find /var/backups/khyeast -maxdepth 1 -type f -name 'khyeast-*.tar' -printf '%T@ %p\n' \
+  | sort -n | tail -1 | cut -d' ' -f2-)
+(cd "$(dirname "$safety")" &amp;&amp; sha256sum -c "$(basename "$safety").sha256")
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+sudo test ! -e /var/lib/khyeast || \
+  sudo mv /var/lib/khyeast "/var/lib/khyeast.before-restore-$stamp"
+sudo tar -C /var/lib -xf /secure/path/khyeast-YYYYMMDDTHHMMSSZ.tar
+sudo chown -R khyeast:khyeast /var/lib/khyeast
+sudo chmod 0750 /var/lib/khyeast /var/lib/khyeast/data /var/lib/khyeast/uploads
+sudo chmod 0640 /var/lib/khyeast/data/content.json /var/lib/khyeast/data/khyeast.db
+test "$(sudo sqlite3 -readonly /var/lib/khyeast/data/khyeast.db 'PRAGMA integrity_check;')" = ok
+test -z "$(sudo sqlite3 -readonly /var/lib/khyeast/data/khyeast.db 'PRAGMA foreign_key_check;')"
+sudo systemctl start khyeast &amp;&amp; curl -fsS https://example.com/api/health</pre>
+
+  <h3>Reconcile payments after every data restore</h3>
+  <div class="callout danger"><b class="label">A database restore rewinds payment knowledge, not the bank</b>ZarinPal may contain successful charges made after the archive timestamp. Do not declare recovery complete or resume normal checkout merely because health is green.</div>
+  <ol class="steps">
+    <li>Read <code>createdAt</code> from the restored <code>backup-manifest.json</code> and define the reconciliation window from that time through the end of the incident.</li>
+    <li>In Admin → Payment, load ZarinPal's <strong>unverified</strong> payments. For every authority that maps to a restored pending order, use the built-in verify action; it verifies the stored amount and immutable authority before settling.</li>
+    <li>Review the gateway transaction list for the whole window and compare authority, reference, amount and status with Admin payment-attempt history. Use the preserved pre-restore state to identify orders created after the snapshot.</li>
+    <li>Do not manually mark an online order paid to hide a mismatch. A successful gateway charge with no recoverable local order mapping needs explicit financial handling; reverse or refund it according to gateway status and record the decision.</li>
+    <li>Investigate duplicate authorities and any order marked paid locally but absent at the gateway. Replaying an exact mapped callback is safe; starting another payment is not.</li>
+    <li>Record every reconciled authority, order code, action and operator, then test one settled callback refresh before reopening checkout.</li>
+  </ol>
+</section>
+
+
+<section id="ch13" class="chapter">
+  <span class="chapter-number">Chapter 13</span>
+  <h2>Deploy with a bounded cutover</h2>
+  <p class="lead">Never run <code>npm ci</code>, tests, or a build inside the release serving customers. Prepare a complete versioned directory while the old process stays online; the only single-instance interruption is the final graceful restart.</p>
+
+  <h3>What not to do</h3>
+  <p>Stopping Node before dependency installation and tests creates minutes of avoidable downtime. Running those commands without stopping is also unsafe: <code>npm ci</code> removes <code>node_modules</code> and the build replaces <code>dist</code> beneath the live process. Versioned releases avoid both failures.</p>
+  <p>Deploy with <code>git clone</code>, not a Windows ZIP or files copied from a CRLF checkout. The repository's <code>.gitattributes</code> pins <code>ops/**</code>, shell scripts, systemd services and timers to LF so Git preserves executable Linux syntax even when a contributor works on Windows.</p>
+
+  <h3>Prepare, validate, and switch one release</h3>
+  <pre>set -Eeuo pipefail
+release="/srv/khyeast/releases/$(date -u +%Y%m%dT%H%M%SZ)"
+previous=$(readlink -f /srv/khyeast/current)
+test -d "$previous"
+printf 'Previous release: %s\n' "$previous"
+
+git clone https://github.com/m-ali-98/Khyeastwebsite.git "$release"
+cd "$release"
+git checkout main
+git status --short
+git log -1 --oneline
+npm ci
+npm audit
+npm test
+PUBLIC_ORIGIN=https://example.com npm run build
+
+test -f dist/index.html
+test -f dist/sitemap.xml
+sudo chown -R "$USER":khyeast "$release"
+sudo chmod -R o-rwx "$release"
+sudo chmod -R g+rX "$release"
+
+<span class="comment"># Snapshot live state without stopping Node.</span>
+sudo systemctl start khyeast-backup.service
+sudo systemctl show khyeast-backup.service -p Result --value | grep -Fx success
+sudo journalctl -u khyeast-backup.service -n 30 --no-pager
+sudo test -s /etc/khyeast/restic.env
+sudo systemctl start khyeast-offsite.service
+sudo systemctl show khyeast-offsite.service -p Result --value | grep -Fx success
+sudo journalctl -u khyeast-offsite.service -n 30 --no-pager
+
+<span class="comment"># Keep the proxy's callback fallback page in step with the release.</span>
+sudo install -m 0644 -o root -g root \
+  "$release/ops/payment-callback-unavailable.html" \
+  /var/www/khyeast-payment-callback-unavailable.html
+
+<span class="comment"># Atomic symlink publication, followed by the only restart.</span>
+rm -f /srv/khyeast/current.next
+ln -s "$release" /srv/khyeast/current.next
+sudo mv -Tf /srv/khyeast/current.next /srv/khyeast/current
+sudo systemctl restart khyeast
+
+sudo systemctl status khyeast --no-pager
+readlink -f /srv/khyeast/current
+curl -fsS https://example.com/api/health
+git -C /srv/khyeast/current log -1 --oneline
+
+<span class="comment"># After health passes, publish reviewed operations templates for future runs.</span>
+sudo install -m 0700 -o root -g root ops/backup-khyeast /usr/local/sbin/backup-khyeast
+sudo install -m 0700 -o root -g root ops/replicate-khyeast-restic /usr/local/sbin/replicate-khyeast-restic
+sudo install -m 0644 -o root -g root \
+  ops/systemd/khyeast-backup.service ops/systemd/khyeast-backup.timer \
+  ops/systemd/khyeast-offsite.service ops/systemd/khyeast-offsite.timer \
+  ops/systemd/khyeast-quarantine-purge.service ops/systemd/khyeast-quarantine-purge.timer \
+  /etc/systemd/system/
+<span class="comment"># Never install the maintenance unit or its full credentials on this VPS.</span>
+sudo systemctl daemon-reload</pre>
+  <p>SIGTERM first closes the Node listener and drains active requests for up to 90 seconds before SQLite closes. A callback already being verified can therefore finish. A callback arriving during the remaining restart gap receives the dedicated Nginx 503 page and automatically retries the same authority URL instead of inviting a second payment.</p>
+
+  <h3>Required post-cutover checks</h3>
+  <ul class="checklist">
+    <li>Health, home, one product, one uploaded image, sitemap and a genuine 404 work.</li>
+    <li>Admin login on the real HTTPS hostname works and Security reports the correct protocol and client IP.</li>
+    <li>Content reports <code>X-Khyeast-Content-Status: persisted</code>, not <code>fallback</code>.</li>
+    <li>Stock, recent orders and payment-attempt history are intact.</li>
+    <li>A safely repeatable settled callback URL still produces the settled result rather than a new attempt.</li>
+    <li>Application, Nginx, backup and quarantine-timer logs contain no new error.</li>
+  </ul>
+
+  <h3>Rollback</h3>
+  <p>If smoke tests fail, inspect logs, then atomically return the symlink to the previously printed directory:</p>
+  <pre>previous=/srv/khyeast/releases/REPLACE-WITH-PREVIOUS-RELEASE
+test -d "$previous"
+rm -f /srv/khyeast/current.rollback
+ln -s "$previous" /srv/khyeast/current.rollback
+sudo mv -Tf /srv/khyeast/current.rollback /srv/khyeast/current
+sudo systemctl restart khyeast
+curl -fsS https://example.com/api/health
+readlink -f /srv/khyeast/current</pre>
+  <div class="callout danger"><b class="label">Code rollback is not always a data rollback</b>Startup may already have applied a forward database migration. Do not assume old code is compatible with migrated data. For a migration incident, assess orders accepted since the snapshot before restoring data; blindly restoring an older database can erase real payments.</div>
+
+  <h3>When a restart gap is still unacceptable</h3>
+  <p>A graceful single process protects requests already in flight but cannot accept a new connection while the next process starts. True continuous service needs two ports or hosts: start and health-check the new release, switch the Nginx upstream, then drain the old release. Use that blue/green pattern only when database migrations are backward-compatible with both versions and shared SQLite write load has been tested. The static callback retry page remains useful defense in depth.</p>
+
+  <div class="callout">
+    <b class="label">Rules for every update</b>
+    Record old and new commit IDs; verify the validated local snapshot and append-only offsite replication; build outside the live release; never replace <code>/var/lib/khyeast</code>; cut over atomically; smoke-test payment and Admin; then monitor closely.
+  </div>
+</section>
+
+
+<section id="ch14" class="chapter">
+  <span class="chapter-number">Chapter 14</span>
+  <h2>Monitor and maintain the service</h2>
+  <p class="lead">Health monitoring should detect application failure, certificate expiry, disk pressure, backup failure, and abnormal abuse before customers report them.</p>
+
+  <h3>Daily operational commands</h3>
+  <pre>systemctl is-active khyeast nginx
+systemctl list-timers khyeast-backup.timer khyeast-offsite.timer khyeast-quarantine-purge.timer
+systemctl show khyeast-backup.service khyeast-offsite.service khyeast-quarantine-purge.service \
+  -p Id -p Result -p ExecMainStatus -p InactiveEnterTimestamp
+curl -fsS https://example.com/api/health
+curl -fsSI https://example.com/api/content | grep -i x-khyeast-content-status
+df -h
+df -i
+sudo du -sh /var/lib/khyeast/*
+sudo journalctl -u khyeast --since '24 hours ago' --no-pager
+sudo tail -n 100 /var/log/nginx/error.log</pre>
+  <p>On the separate Restic maintenance host, also monitor <code>khyeast-offsite-maintenance.timer</code>/<code>.service</code>, repository-check results, retention and restore drills. Never copy that host's full credential into VPS monitoring.</p>
+
+  <h3>Recommended alerts</h3>
+  <table>
+    <thead><tr><th>Signal</th><th>Suggested alert</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td><code>/api/health</code></td><td>Non-200 twice in 2–5 minutes</td><td>App, database, or proxy unavailable</td></tr>
+      <tr><td>Disk usage</td><td>75% warning, 85% critical</td><td>SQLite and uploads need free disk</td></tr>
+      <tr><td>Certificate</td><td>Less than 21 days remaining</td><td>Renewal failure before outage</td></tr>
+      <tr><td>Backups</td><td>No validated local and append-only offsite copy in 26 hours</td><td>Silent backup or replication failure</td></tr>
+      <tr><td>Restic maintenance</td><td>Weekly check/prune fails or restore drill is overdue</td><td>Repository corruption or unusable recovery points</td></tr>
+      <tr><td>Quarantine timer</td><td>Failed run or no run in 36 hours</td><td>Deleted media can consume disk indefinitely</td></tr>
+      <tr><td>Content status</td><td>Header changes from <code>persisted</code> to <code>fallback</code></td><td>Missing/corrupt content; Admin is fail-closed</td></tr>
+      <tr><td>HTTP 5xx</td><td>Rate above normal baseline</td><td>Application/proxy regression</td></tr>
+      <tr><td>HTTP 429</td><td>Sudden sustained rise</td><td>Attack, broken client, or overly strict policy</td></tr>
+      <tr><td>Logs</td><td><code>SQLITE_BUSY</code>, payment reversal/refund attention</td><td>Operational or financial intervention</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Log handling</h3>
+  <ul>
+    <li>Application logs are in journald: <code>journalctl -u khyeast</code>.</li>
+    <li>Nginx access/error logs are under <code>/var/log/nginx</code> and normally rotate through logrotate.</li>
+    <li>Restrict membership of <code>systemd-journal</code> and log access; log-mode SMS can contain OTP test output.</li>
+    <li>Do not log environment files, cookies, bearer tokens, payment credentials, full callback URLs with secrets, or backup contents.</li>
+    <li>Set a retention policy appropriate for security investigations and privacy obligations.</li>
+  </ul>
+
+  <h3>Capacity and SQLite</h3>
+  <p>SQLite is configured with WAL, busy timeout, transactions, and savepoints. It is appropriate for this single-host deployment. Short write transactions still need monitoring under a flood. Use Nginx/CDN/WAF limits as the first line of volumetric defense; application rate limits are not a substitute for edge protection.</p>
+  <ul>
+    <li>Keep the database on local SSD.</li>
+    <li>Keep free disk space for WAL, uploads, and temporary image processing.</li>
+    <li>Start with one Node process. Load-test before adding workers.</li>
+    <li>Do not horizontally scale multiple machines around one SQLite file.</li>
+    <li>Use the Admin archive lifecycle instead of deleting financially significant orders.</li>
+  </ul>
+
+  <h3>OS maintenance</h3>
+  <pre>sudo apt update
+apt list --upgradable
+sudo apt upgrade
+<span class="comment"># Reboot during a planned window when required.</span></pre>
+  <p>After any reboot, confirm systemd started the application, Nginx is healthy, the certificate timer is active, and the real-host Admin diagnostic still reports the correct protocol and IP.</p>
+</section>
+
+<section id="ch15" class="chapter">
+  <span class="chapter-number">Chapter 15</span>
+  <h2>Troubleshooting guide</h2>
+  <p class="lead">Diagnose from the inside out: service → localhost health → Nginx → DNS/TLS → browser. Do not weaken security controls to hide a proxy or configuration error.</p>
+
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to check</th></tr></thead>
+    <tbody>
+      <tr><td>Service refuses to start</td><td>Production env missing, default, too short, or invalid origin</td><td><code>journalctl -u khyeast -n 100</code>; permissions on environment file</td></tr>
+      <tr><td>Nginx 502</td><td>Node stopped, wrong port, failed startup</td><td><code>systemctl status khyeast</code>; localhost health; Nginx <code>proxy_pass</code></td></tr>
+      <tr><td>Admin login returns 426</td><td>Node sees plain HTTP</td><td>HTTPS vhost must send <code>X-Forwarded-Proto: https</code>; check <code>PUBLIC_ORIGIN</code>; redirect port 80</td></tr>
+      <tr><td>Login succeeds but does not persist</td><td>Secure cookie not accepted</td><td>Real HTTPS, valid certificate, final hostname, <code>__Host-ky_admin</code> flags</td></tr>
+      <tr><td>All visitors have proxy IP</td><td>Missing XFF or wrong trust topology</td><td>Nginx headers and Admin Security diagnostic</td></tr>
+      <tr><td>Visitor can spoof IP</td><td>Node port public or <code>TRUST_PROXY=true</code></td><td>UFW/cloud firewall; use known proxy ranges only</td></tr>
+      <tr><td>Upload returns 413</td><td>Exact <code>/api/upload</code> Nginx limit below request size</td><td>Keep 210 MB only in that location; reload Nginx; app maximum is 200 MB</td></tr>
+      <tr><td>Upload returns 415</td><td>Unsupported extension or file signature mismatch</td><td>Use JPEG/PNG/WebP/GIF/AVIF or supported MP4/WebM; SVG is intentionally rejected</td></tr>
+      <tr><td>SQLite readonly / EACCES</td><td>Wrong owner or path</td><td><code>namei -l /var/lib/khyeast/data/khyeast.db</code>; owner must be service user</td></tr>
+      <tr><td><code>SQLITE_BUSY</code></td><td>Disk latency, flood, external file access, excess workers</td><td>Local SSD, one app process, logs, edge limits; never edit live DB directly</td></tr>
+      <tr><td>Content vanished after update</td><td>Persistent path not used or content file overwritten</td><td><code>DATA_DIR</code>; preserve bad bytes; restore a verified backup; never copy seed over existing content</td></tr>
+      <tr><td>Admin save returns 503</td><td>Missing, corrupt, or incomplete <code>content.json</code></td><td>Check the content-status header and logs; restore/repair explicitly—never save defaults over it</td></tr>
+      <tr><td>Quarantine keeps growing</td><td>Daily purge timer disabled or failing</td><td><code>systemctl status khyeast-quarantine-purge.timer</code> and service journal</td></tr>
+      <tr><td>Images missing after update</td><td>Uploads not persistent or wrong permissions</td><td><code>UPLOAD_DIR</code>; backup/restore; static request status</td></tr>
+      <tr><td>External gallery image blocked</td><td>Origin not in CSP trusted set or URL is HTTP</td><td>Upload locally or use an approved HTTPS trusted origin; do not weaken CSP globally</td></tr>
+      <tr><td>Wrong canonical/sitemap domain</td><td>Build used default origin</td><td>Rebuild with <code>PUBLIC_ORIGIN=https://...</code>, restart, clear only appropriate caches</td></tr>
+      <tr><td>Payment callback fails</td><td>Origin/DNS/TLS/configuration mismatch</td><td>Exact <code>PUBLIC_ORIGIN</code>, gateway settings, callback reachability, authority logs</td></tr>
+      <tr><td>No real SMS arrives</td><td>SMS remains in log mode or credentials invalid</td><td>Admin SMS settings and restricted application logs</td></tr>
+      <tr><td>Certificate renewal fails</td><td>DNS or port 80 challenge path unavailable</td><td><code>certbot renew --dry-run</code>, DNS, firewall, Nginx config</td></tr>
+      <tr><td>Deep routes show Nginx 404</td><td>Nginx serves files instead of proxying all routes</td><td>Use one <code>location /</code> proxy to Node; Node handles routes and runtime SEO</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Diagnostic sequence</h3>
+  <pre><span class="comment"># 1. Is the process alive?</span>
+sudo systemctl status khyeast --no-pager
+sudo journalctl -u khyeast -n 150 --no-pager
+
+<span class="comment"># 2. Does Node answer locally?</span>
+curl -v http://127.0.0.1:8787/api/health
+
+<span class="comment"># 3. Is Nginx valid and listening?</span>
+sudo nginx -t
+sudo systemctl status nginx --no-pager
+sudo ss -ltnp | grep -E ':(80|443|8787)\b'
+
+<span class="comment"># 4. Does public DNS/TLS work?</span>
+dig +short example.com
+curl -vkI https://example.com/
+
+<span class="comment"># 5. Are paths and disk healthy?</span>
+df -h
+namei -l /var/lib/khyeast/data/khyeast.db
+namei -l /var/lib/khyeast/uploads</pre>
+</section>
+
+<section id="ch16" class="chapter">
+  <span class="chapter-number">Chapter 16</span>
+  <h2>cPanel / Apache / Passenger appendix</h2>
+  <p class="lead">Use this chapter instead of systemd/Nginx when the Linux host is managed by cPanel's “Setup Node.js App” and Passenger. The same application, state, HTTPS, and proxy rules still apply.</p>
+
+  <h3>Application setup</h3>
+  <ol class="steps">
+    <li>Select Node.js 22 or newer and production mode.</li>
+    <li>Place the repository outside <code>public_html</code>.</li>
+    <li>Set the application root to the repository and startup file to <code>server/index.js</code>.</li>
+    <li>Do not manually set <code>PORT</code> unless the host explicitly requires it; Passenger normally injects the listening endpoint.</li>
+    <li>Add the required environment variables from Chapter 7 through cPanel's environment UI.</li>
+    <li>Use persistent writable paths for <code>DATA_DIR</code>, <code>DB_FILE</code>, and <code>UPLOAD_DIR</code>. Ensure every Passenger worker sees the same local files.</li>
+    <li>Build and test a separate release directory before switching Passenger's application root; do not run <code>npm ci</code> beneath live workers.</li>
+    <li>Restart through cPanel's application control. Use Passenger's restart mechanism only if your host documents it.</li>
+    <li>Use Cron Jobs to run <code>npm run uploads:purge-quarantine</code> daily as the application user, with the production <code>UPLOAD_DIR</code>.</li>
+    <li>Use a hosting backup job that invokes SQLite <code>.backup</code> and excludes <code>UPLOAD_DIR/.quarantine</code>; a raw copy of the live WAL database is not sufficient.</li>
+  </ol>
+
+  <h3>Apache proxy contract</h3>
+  <ul>
+    <li>Prefer <code>X-Forwarded-Proto: https</code> on the HTTPS virtual host.</li>
+    <li>Preserve the public <code>Host</code>.</li>
+    <li>Forward the real client chain in <code>X-Forwarded-For</code>.</li>
+    <li>Port 80 must redirect to HTTPS before Passenger. If port 80 must be proxied, it must explicitly send <code>X-Forwarded-Proto: http</code>; it must never omit the protocol header.</li>
+    <li>Keep the Passenger/internal Node endpoint inaccessible to public clients.</li>
+    <li>Ask the host to provide an equivalent no-store 503 retry page for the exact ZarinPal callback path during Passenger restarts; it must preserve the query string and must not report success.</li>
+  </ul>
+
+  <div class="callout warning">
+    <b class="label">Guarded fallback is not a replacement for a correct proxy</b>
+    If a trusted cPanel/Apache proxy omits <code>X-Forwarded-Proto</code>, production can infer HTTPS only when <code>PUBLIC_ORIGIN</code> is HTTPS, the real Host matches <code>PUBLIC_ORIGIN</code>/<code>TRUSTED_HOSTS</code>, and the socket peer is trusted. A port-80 redirect is still mandatory.
+  </div>
+
+  <h3>Post-deploy checks</h3>
+  <pre>https://example.com/api/health
+https://example.com/sitemap.xml
+https://example.com/robots.txt
+https://example.com/admin</pre>
+  <p>Log in on the real HTTPS host, then inspect the Security tab. The effective protocol must be HTTPS and <code>req.ip</code> must be the visitor—not a Passenger worker. Do not substitute a localhost curl test for this browser check.</p>
+
+  <h3>Passenger workers and SQLite</h3>
+  <p>Rate-limit counters and reservations are stored in SQLite, so ceilings do not multiply by worker count. SQLite still requires one local persistent data path and short writes. Monitor <code>SQLITE_BUSY</code> and avoid an excessive Passenger worker count. Every worker must receive the same <code>ADMIN_SECRET</code>.</p>
+</section>
+
+<section id="ch17" class="chapter">
+  <span class="chapter-number">Chapter 17</span>
+  <h2>Static-only deployment limits</h2>
+  <p class="lead">A static host can publish <code>dist/</code> as a limited read-only fallback, but it is not a complete deployment of this product.</p>
+
+  <h3>What static hosting can provide</h3>
+  <ul>
+    <li>Built public pages and assets.</li>
+    <li>Generated route HTML, sitemap, robots, canonical metadata, and static 404 behavior where the host honors the generated rules.</li>
+    <li>Only the content present at build time.</li>
+  </ul>
+
+  <h3>What static hosting cannot provide</h3>
+  <ul class="checklist">
+    <li>Admin login or content publication.</li>
+    <li>Contact-message storage.</li>
+    <li>Customer accounts, OTP, addresses, or sessions.</li>
+    <li>Cart checkout, live inventory, orders, or comments.</li>
+    <li>ZarinPal payment creation, callback verification, inquiry, reverse, or refund.</li>
+    <li>sms.ir delivery.</li>
+    <li>Uploads or unused-file cleanup.</li>
+    <li>Runtime SEO based on current CMS/database content.</li>
+  </ul>
+  <div class="callout danger"><b class="label">Decision</b>If the site will sell products or use Admin, deploy the Node application. Do not point the domain at <code>npm run preview</code>; Vite preview is not the production API server.</div>
+</section>
+
+<section id="ch18" class="chapter">
+  <span class="chapter-number">Chapter 18</span>
+  <h2>Final checklists and command sheet</h2>
+  <p class="lead">Use these pages during the real launch and retain a signed copy with the release record.</p>
+
+  <h3>Prelaunch checklist</h3>
+  <ul class="checklist">
+    <li>Reviewed release is merged/tagged; exact commit recorded.</li>
+    <li>Node.js is version 22+; <code>npm ci</code>, <code>npm test</code>, build, and audit pass.</li>
+    <li>DNS A/CNAME records resolve correctly; no broken AAAA record.</li>
+    <li>Code is outside the public document root.</li>
+    <li>Data and uploads are on persistent local storage and owned by <code>khyeast</code>.</li>
+    <li>Environment file is root-owned, mode 600, and excluded from Git.</li>
+    <li><code>PUBLIC_ORIGIN</code> is the exact canonical HTTPS origin.</li>
+    <li>Stable <code>ADMIN_SECRET</code> is stored in the secrets backup.</li>
+    <li>Node port 8787 is not publicly reachable.</li>
+    <li>Port 80 returns a permanent HTTPS redirect before Node.</li>
+    <li>HTTPS certificate is valid for canonical and alias hostnames.</li>
+    <li>Nginx sends Host, X-Forwarded-For, and X-Forwarded-Proto; 210 MB is scoped only to <code>/api/upload</code>.</li>
+    <li>systemd service is enabled, uses a 120-second stop timeout, and survives reboot.</li>
+    <li>Unattended security updates are enabled; reboot-required state is monitored and automatic surprise reboots are disabled.</li>
+    <li>The one-time real-host stopped-service backup test passed under the read-only sandbox.</li>
+    <li>The VPS offsite credential is provider-enforced append-only; full maintenance credentials exist only on a separate host.</li>
+    <li>Validated active/stopped backup, append-only offsite replication, separate-host Restic maintenance, certificate renewal, and daily quarantine purge are monitored.</li>
+    <li>Backup archives exclude <code>uploads/.quarantine</code>.</li>
+  </ul>
+
+  <h3>Launch-day application checklist</h3>
+  <ul class="checklist">
+    <li>Real-host Admin login works and uses <code>__Host-ky_admin</code>.</li>
+    <li>Content status is <code>persisted</code>; a missing/corrupt file has been proven to make Admin writes fail with 503.</li>
+    <li>Security tab shows effective HTTPS and real visitor IP.</li>
+    <li>Rate limits are enabled with reviewed values.</li>
+    <li>FA/EN/AR public pages, 404, canonical, sitemap, and robots are correct.</li>
+    <li>Products, prices in rial, discounts, shipping, active state, and stock are verified.</li>
+    <li>Contact form and Admin message view work.</li>
+    <li>Customer OTP, registration, login, password reset, and address flow work.</li>
+    <li>SMS is in intended production mode and a controlled message arrives.</li>
+    <li>Payment success, cancellation, retry, and callback refresh are tested safely.</li>
+    <li>Service restart preserves content, uploads, customers, stock, and orders.</li>
+    <li>A backup made after configuration has been copied off-server and verified.</li>
+  </ul>
+
+  <h3>Command sheet</h3>
+  <table>
+    <thead><tr><th>Task</th><th>Command</th></tr></thead>
+    <tbody>
+      <tr><td>App status</td><td><code>sudo systemctl status khyeast --no-pager</code></td></tr>
+      <tr><td>Follow app logs</td><td><code>sudo journalctl -u khyeast -f</code></td></tr>
+      <tr><td>Restart app</td><td><code>sudo systemctl restart khyeast</code></td></tr>
+      <tr><td>Local health</td><td><code>curl -fsS http://127.0.0.1:8787/api/health</code></td></tr>
+      <tr><td>Public health</td><td><code>curl -fsS https://example.com/api/health</code></td></tr>
+      <tr><td>Test Nginx</td><td><code>sudo nginx -t</code></td></tr>
+      <tr><td>Reload Nginx</td><td><code>sudo systemctl reload nginx</code></td></tr>
+      <tr><td>Renewal test</td><td><code>sudo certbot renew --dry-run</code></td></tr>
+      <tr><td>Disk usage</td><td><code>df -h &amp;&amp; sudo du -sh /var/lib/khyeast/*</code></td></tr>
+      <tr><td>Manual backup</td><td><code>sudo /usr/local/sbin/backup-khyeast</code></td></tr>
+      <tr><td>Backup timer</td><td><code>systemctl list-timers khyeast-backup.timer</code></td></tr>
+      <tr><td>Offsite timer</td><td><code>systemctl list-timers khyeast-offsite.timer</code></td></tr>
+      <tr><td>Quarantine timer</td><td><code>systemctl list-timers khyeast-quarantine-purge.timer</code></td></tr>
+      <tr><td>Content state</td><td><code>curl -fsSI https://example.com/api/content | grep -i x-khyeast-content-status</code></td></tr>
+      <tr><td>Current release</td><td><code>cd /srv/khyeast/current &amp;&amp; git log -1 --oneline</code></td></tr>
+      <tr><td>Scripted tests</td><td><code>cd /srv/khyeast/current &amp;&amp; npm test</code></td></tr>
+      <tr><td>Production build</td><td><code>PUBLIC_ORIGIN=https://example.com npm run build</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+    <h3>Incident first response</h3>
+    <ol>
+      <li>Preserve evidence: note time, symptoms, release commit, and relevant request/order identifiers.</li>
+      <li>Check service health and logs; do not expose secrets in screenshots or tickets.</li>
+      <li>If financial correctness is uncertain, stop accepting new orders or put the service into a controlled maintenance state.</li>
+      <li>Create a data backup before destructive repair.</li>
+      <li>Prefer a reviewed rollback/restore over live database editing.</li>
+      <li>After recovery, verify payment, stock, callback, SMS, and Admin security—not only the home page.</li>
+    </ol>
+
+    <div class="callout success">
+      <b class="label">Deployment complete</b>
+      A launch is complete only when HTTPS, proxy detection, Admin authentication, persistence, payment/SMS workflows, automated backups, restore readiness, and monitoring have all been verified on the real host.
+    </div>
+  </div>
+
+  <p class="footer-note">Project-specific guide for <code>m-ali-98/Khyeastwebsite</code>, prepared against the application architecture current on 25 October 2026. Recheck the repository README and <code>.env.example</code> after future upgrades because runtime requirements and environment variables may evolve.</p>
+</section>
+
+</div>
+</body>
+</html>

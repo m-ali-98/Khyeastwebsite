@@ -1,0 +1,365 @@
+/* ==========================================================================
+   Full test suite.
+
+     npm test          (runs vite build first, then this)
+
+   Why it exists: `vite build` only proves the code parses. It cannot catch a
+   ReferenceError thrown during render, which blanks the whole site while the
+   build still reports success — that is exactly how an undefined easing
+   constant once shipped a white page to production.
+
+   So every check here executes the real built bundle against a real DOM, or
+   talks to a real running server. Each route boots in its own child process
+   because module state (React's registry, the route prefetch cache) leaks
+   between boots inside one process and produces false failures.
+   ========================================================================== */
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const run = promisify(execFile);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+const ROUTES = [
+  '/', '/about', '/products', '/products/dezmaye-gold-80', '/products/shetab-90',
+  '/products/xpower-70', '/products/nanmaye-10', '/shop', '/shop/cart',
+  '/shop/checkout', '/shop/dezmaye-gold-80', '/export', '/quality', '/blog',
+  '/blog/reduce-bread-production-costs', '/contact', '/shop/login', '/shop/account',
+  '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/contact', '/en/shop',
+  '/ar', '/ar/about', '/ar/products', '/ar/products/dezmaye-gold-80', '/ar/contact', '/ar/shop',
+  '/dezmaye', '/shetab', '/nonexistent-page',
+];
+
+/* Values a corrupted or hostile localStorage could hold. The literal string
+   "null" is the important one: it is truthy, so a naive `v ? JSON.parse(v)`
+   guard passes it straight through and every `{ ...cart }` spread then throws,
+   killing the entire site with no way for the visitor to recover. */
+const CART_STATES = [
+  '{}', 'null', '{not json', '42', '"hello"', '[{"slug":"x"}]',
+  '{"dezmaye-gold-80":2}', '{"dezmaye-gold-80":"abc"}', '{"dezmaye-gold-80":-5}',
+  '{"dezmaye-gold-80":1000000000}', '{"dezmaye-gold-80":null}', '{"no-such":2}',
+  '{"__proto__":{"polluted":1},"dezmaye-gold-80":1}',
+];
+
+let pass = 0;
+let fail = 0;
+const failures = [];
+
+const record = (ok, label, detail = '') => {
+  if (ok) { pass++; return; }
+  fail++;
+  failures.push(`${label}${detail ? ' — ' + detail : ''}`);
+};
+
+/* A suite that exits non-zero makes execFile reject, and its stdout — the
+   LEAK lines saying what actually broke — goes in the bin. Keep it: a bare
+   "harness error" has cost real debugging time. */
+async function suite(file, timeout) {
+  try {
+    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
+    return { stdout, crashed: false, err: '' };
+  } catch (e) {
+    return { stdout: e?.stdout || '', crashed: true, err: String(e?.stderr || e?.message || e).trim() };
+  }
+}
+
+async function child(script, arg) {
+  const { stdout } = await run('node', [path.join(HERE, script), arg], { cwd: HERE, timeout: 40000 });
+  return JSON.parse(stdout.trim().split('\n').pop());
+}
+
+console.log('\nRoutes — every page must mount and render real content');
+for (const route of ROUTES) {
+  try {
+    const r = await child('route-one.mjs', route);
+    const nameless = r.namelessLinks || [];
+    const skips = r.headingSkips || [];
+    const ok = r.chars > 40 && !r.errors.length && !nameless.length && !skips.length;
+    const why =
+      r.errors[0]?.slice(0, 90) ||
+      (nameless.length ? `nameless link: ${nameless.join(', ')}` : '') ||
+      (skips.length ? `heading level skipped: ${skips.join(', ')}` : '') ||
+      `${r.chars} chars`;
+    record(ok, `route ${route}`, why);
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${route.padEnd(38)} ${String(r.chars).padStart(5)}ch ${ok ? '' : why.slice(0, 60)}`);
+  } catch (e) {
+    record(false, `route ${route}`, String(e.message).split('\n')[0].slice(0, 90));
+    console.log(`  FAIL ${route.padEnd(38)} harness error`);
+  }
+}
+
+console.log('\nCart — a corrupted localStorage must never take the site down');
+for (const state of CART_STATES) {
+  try {
+    const r = await child('cart-one.mjs', state);
+    const ok = r.chars > 40 && !r.errors.length;
+    record(ok, `cart ${state}`, r.errors[0]?.slice(0, 90));
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${state.slice(0, 46).padEnd(48)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 50) || ''}`);
+  } catch (e) {
+    record(false, `cart ${state}`, String(e.message).slice(0, 90));
+    console.log(`  FAIL ${state.slice(0, 46).padEnd(48)} harness error`);
+  }
+}
+
+console.log('\nContent — a malformed API payload must not blank the site');
+const CONTENT_CASES = [
+  'texts is string', 'products is object', 'products null', 'product missing slug',
+  'product is null', 'posts is string', 'shop missing', 'shop.products null',
+  'deeply empty', 'array at root', 'null at root', 'number at root', 'huge nesting',
+];
+for (const name of CONTENT_CASES) {
+  for (const route of ['/', '/products', '/shop']) {
+    try {
+      const { stdout } = await run('node', [path.join(HERE, 'content-one.mjs'), name, route], { cwd: HERE, timeout: 40000 });
+      const r = JSON.parse(stdout.trim().split('\n').pop());
+      const ok = r.chars > 40 && !r.errors.length;
+      record(ok, `content ${name} @ ${route}`, r.errors[0]?.slice(0, 80));
+      if (!ok) console.log(`  FAIL ${name.padEnd(22)} ${route.padEnd(11)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 50) || ''}`);
+    } catch (e) {
+      record(false, `content ${name} @ ${route}`, String(e.message).slice(0, 80));
+      console.log(`  FAIL ${name.padEnd(22)} ${route.padEnd(11)} harness error`);
+    }
+  }
+}
+console.log(`  ${CONTENT_CASES.length * 3} malformed payloads checked`);
+
+console.log('\nSanitizer — admin-authored HTML must never execute or restyle');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'sanitizer.mjs')], { cwd: HERE, timeout: 40000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'sanitizer', leaks.join('; ').slice(0, 120));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line}`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'sanitizer', String(e.message).slice(0, 90));
+  console.log('  FAIL sanitizer harness error');
+}
+
+console.log('\nPayment — the money path must fail closed');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'payment.mjs')], { cwd: HERE, timeout: 40000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'payment', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} amount + callback-origin cases`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'payment', String(e.message).slice(0, 90));
+  console.log('  FAIL payment harness error');
+}
+
+console.log('\nSMS — a message that cannot be sent must not cost an order');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'sms.mjs')], { cwd: HERE, timeout: 40000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'sms', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} phone, secret and transport cases`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'sms', String(e.message).slice(0, 90));
+  console.log('  FAIL sms harness error');
+}
+
+console.log('\nAuth — logging out must revoke the session, not just hide its cookie');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'auth.mjs')], { cwd: HERE, timeout: 60000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'auth', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} session / revocation cases`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'auth', String(e.message).slice(0, 90));
+  console.log('  FAIL auth harness error');
+}
+
+console.log('\nHardening — headers, error leakage, exposed files');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'hardening.mjs')], { cwd: HERE, timeout: 60000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'hardening', leaks.join('; ').slice(0, 160));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} transport-level checks`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'hardening', String(e.message).slice(0, 90));
+  console.log('  FAIL hardening harness error');
+}
+
+console.log('\nPersistence lifecycle — authoritative files and active requests survive failures');
+for (const [file, label] of [
+  ['json-file.mjs', 'atomic JSON replacement'],
+  ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
+  ['backup-script.mjs', 'validated staged backup and quarantine exclusion'],
+  ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],
+]) {
+  const name = file.replace('.mjs', '');
+  const { stdout, crashed, err } = await suite(file, 30000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, name, (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} ${label}`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
+console.log('\nTheme — first paint defaults light and saved dark mode stays coherent');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'theme.mjs')], { cwd: HERE, timeout: 30000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'theme', leaks.join('; ').slice(0, 200));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} startup and palette checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+} catch (e) {
+  record(false, 'theme', String(e.message).slice(0, 90));
+  console.log('  FAIL theme harness error');
+}
+
+console.log('\nLoading — first paint and route feedback follow real readiness');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'loading.mjs')], { cwd: HERE, timeout: 30000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'loading', leaks.join('; ').slice(0, 200));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} readiness and motion checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+} catch (e) {
+  record(false, 'loading', String(e.message).slice(0, 90));
+  console.log('  FAIL loading harness error');
+}
+
+console.log('\nAssets — every referenced image must ship, and nothing oversized');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'assets.mjs')], { cwd: HERE, timeout: 30000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'assets', leaks.join('; ').slice(0, 200));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} asset checks`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'assets', String(e.message).slice(0, 90));
+  console.log('  FAIL assets harness error');
+}
+
+console.log('\nSEO — every public route must be crawlable, canonical and safe');
+{
+  const { stdout, crashed, err } = await suite('seo.mjs', 40000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'seo', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} crawl, metadata, schema and sitemap checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
+console.log('\nUpload optimisation — a photo may be shrunk, but never lost or broken');
+for (const [file, label, timeout] of [
+  ['images.mjs', 'upload optimisation checks', 60000],
+  ['upload-cleanup.mjs', 'unused-file reference and safety checks', 30000],
+  ['upload.mjs', 'upload round-trip checks', 90000],
+]) {
+  const name = file.replace('.mjs', '');
+  const { stdout, crashed, err } = await suite(file, timeout);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.trim().startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, name, (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} ${label}`);
+  leaks.forEach((l) => console.log('       ' + l.trim()));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
+console.log('\nAccounts — a phone, a password, and no sight of anyone else orders');
+for (const [file, label, timeout] of [
+  ['accounts.mjs', 'hashing, codes, sessions and addresses', 40000],
+  ['account-http.mjs', 'signup, login, ownership and snapshots', 90000],
+]) {
+  const name = file.replace('.mjs', '');
+  try {
+    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
+    const line = stdout.trim().split('\n').pop();
+    const m = line.match(/(\d+)\/(\d+)/);
+    const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+    const ok = Boolean(m) && m[1] === m[2];
+    record(ok, name, leaks.join('; ').slice(0, 200));
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} ${label}`);
+    leaks.forEach((l) => console.log('       ' + l));
+  } catch (e) {
+    record(false, name, String(e.message).slice(0, 90));
+    console.log(`  FAIL ${name} harness error`);
+  }
+}
+
+console.log('\nProduct images — legacy media, ordered galleries and SQLite persistence');
+{
+  const { stdout, crashed, err } = await suite('product-images.mjs', 40000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'product-images', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} gallery compatibility and persistence checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
+console.log('\nInventory — duplicate carts and abandoned payments cannot oversell');
+{
+  const { stdout, crashed, err } = await suite('inventory.mjs', 40000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'inventory', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} stock and expiry checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
+console.log('\nBehaviour — limits, errors and inventory must not cost a sale');
+try {
+  const { stdout } = await run('node', [path.join(HERE, 'behaviour.mjs')], { cwd: HERE, timeout: 90000 });
+  const line = stdout.trim().split('\n').pop();
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
+  const ok = Boolean(m) && m[1] === m[2];
+  record(ok, 'behaviour', leaks.join('; ').slice(0, 200));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} behavioural checks`);
+  leaks.forEach((l) => console.log('       ' + l));
+} catch (e) {
+  record(false, 'behaviour', String(e.message).slice(0, 90));
+  console.log('  FAIL behaviour harness error');
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+if (fail) {
+  console.log('\nFailures:');
+  failures.forEach((f) => console.log('  • ' + f));
+  process.exit(1);
+}
+console.log('All checks passed.\n');

@@ -1,0 +1,23 @@
+[Unit]
+Description=Append the latest validated Khyeast backup with restricted Restic credentials
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/khyeast/restic.env
+
+[Service]
+Type=oneshot
+TimeoutStartSec=6h
+EnvironmentFile=/etc/khyeast/restic.env
+Environment=RESTIC_CACHE_DIR=/var/cache/khyeast-restic
+ExecStart=/usr/local/sbin/replicate-khyeast-restic
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+CacheDirectory=khyeast-restic
+CacheDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadOnlyPaths=/var/backups/khyeast
+ReadWritePaths=/var/cache/khyeast-restic /run/lock

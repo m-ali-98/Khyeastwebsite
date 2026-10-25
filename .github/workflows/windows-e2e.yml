@@ -1,0 +1,51 @@
+name: Windows browser regression
+
+# Browser regression is run locally by the project owner. Keep this workflow
+# available only for an explicit one-off diagnostic; branch pushes never run it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-regression:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install chromium
+
+      # Keep the session-persistence regression explicit on both viewports.
+      # The complete run below then proves it in normal suite order as well.
+      - name: Focused desktop and mobile account relogin
+        run: >-
+          npx playwright test e2e/account.spec.js
+          --grep "existing customer signs in"
+          --project=desktop --project=mobile
+
+      - name: Complete browser and visual suite
+        run: npx playwright test
+
+      - name: Preserve failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-playwright-failure
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 1

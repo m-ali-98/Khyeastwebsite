@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily expiry of Khyeast upload quarantine
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+Unit=khyeast-quarantine-purge.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,90 @@
+import { Icons, Reveal, SectionHead, PageHero, CTABand, hl } from '../components/ui';
+import { useContent } from '../content/ContentContext';
+import { imgProps, SIZES } from '../lib/img';
+
+export default function Quality() {
+  const { t, m, col } = useContent();
+  const certs = col('certs');
+  const qcSteps = col('qcSteps');
+
+  return (
+    <>
+      <PageHero className="quality-hero" title={t('quality.hero.title')} sub={t('quality.hero.sub')} image={m('quality.hero.img')} />
+
+      <section className="section section--airy quality-lab">
+        <div className="container">
+          <div className="split quality-lab__layout">
+            <Reveal x={40} y={0}>
+              <div className="split__media">
+                <span className="badge-float">{t('quality.lab.badge')}</span>
+                <div className="img-main">
+                  <img {...imgProps(m('quality.lab.img'), SIZES.half)} alt={t('quality.lab.overline')} loading="lazy" />
+                </div>
+              </div>
+            </Reveal>
+            <Reveal className="section-copy" x={-40} y={0} delay={0.1}>
+              <span className="overline">{t('quality.lab.overline')}</span>
+              <h2 className="section-title">{hl(t('quality.lab.title'))}</h2>
+              <p>{t('quality.lab.p1')}</p>
+              <p>{t('quality.lab.p2')}</p>
+              <ul className="check-list">
+                {[1, 2, 3].map((i) => (
+                  <li key={i}>
+                    <Icons.check size={20} />
+                    {t(`quality.lab.check${i}`)}
+                  </li>
+                ))}
+              </ul>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      <section className="section section--soft quality-certs">
+        <div className="container">
+          <SectionHead overline={t('quality.certs.overline')} title={hl(t('quality.certs.title'))} align="start" />
+          <div className="certs-grid">
+            {certs.map((c, i) => {
+              const Ic = Icons[c.icon] || Icons.shield;
+              return (
+                <Reveal key={c.id} delay={(i % 4) * 0.1} className="card cert-card">
+                  <div className="cert-card__mark">
+                    {c.image ? (
+                      <img src={c.image} alt="" width="520" height="420" loading="lazy" decoding="async" />
+                    ) : (
+                      <Ic size={30} />
+                    )}
+                  </div>
+                  <h3>{c.title}</h3>
+                  <p>{c.text}</p>
+                </Reveal>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="section quality-process">
+        <div className="container">
+          <SectionHead overline={t('quality.steps.overline')} title={hl(t('quality.steps.title'))} />
+          <div className="steps">
+            {qcSteps.map((s, i) => {
+              const Ic = Icons[s.icon] || Icons.flask;
+              return (
+                <Reveal key={s.title} delay={i * 0.14} className="step">
+                  <div className="step__num step__num--icon">
+                    <Ic size={34} />
+                  </div>
+                  <h3>{s.title}</h3>
+                  <p>{s.text}</p>
+                </Reveal>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <CTABand />
+    </>
+  );
+}
