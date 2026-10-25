@@ -685,6 +685,103 @@ test.describe('shop purchase flow', () => {
     await expect(page.locator('.auth-card')).toBeVisible();
   });
 
+  test('a persisted cart explains and repairs every unavailable inventory case', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('ky_shop_cart_v1', JSON.stringify({
+        'dezmaye-gold-80': 7,
+        'dezmaye-gold-500': 2,
+        'dezmaye-golden-400': 1,
+        'removed-product': 3,
+      }));
+    });
+    await page.route('**/api/content', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.shop.products = body.shop.products.map((product) => {
+        if (product.slug === 'dezmaye-gold-80') return { ...product, stock: 2 };
+        if (product.slug === 'dezmaye-gold-500') return { ...product, stock: 0 };
+        if (product.slug === 'dezmaye-golden-400') return { ...product, active: false };
+        return product;
+      });
+      await route.fulfill({ response, json: body });
+    });
+
+    await gotoReady(page, '/shop/cart');
+    const notice = page.getByTestId('cart-availability-notice');
+    await expect(notice).toBeVisible();
+    await expect(notice.locator('li')).toHaveCount(4);
+    await expect(notice).toContainText('موجودی فعلی');
+    await expect(notice).toContainText('removed-product');
+    await expect(page.locator('.cart-table__row:not(.head)')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'افزایش' })).toBeDisabled();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('ky_shop_cart_v1')))).toEqual({
+      'dezmaye-gold-80': 2,
+    });
+  });
+
+  test('checkout preflight never posts a line that has just sold out', async ({ page }) => {
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone: uniquePhone() });
+    await addAddress(page);
+    await gotoReady(page, '/shop/shetab-90');
+    await page.locator('.sp-buy__row .btn').click();
+    await gotoReady(page, '/shop/checkout');
+    await expect(page.locator('.checkout-form')).toBeVisible();
+
+    let orderPosts = 0;
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/shop-public/orders') orderPosts += 1;
+    });
+    await page.route('**/api/shop-products', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.products = body.products.map((product) => (
+        product.slug === 'shetab-90' ? { ...product, stock: 0 } : product
+      ));
+      await route.fulfill({ response, json: body });
+    });
+
+    await page.locator('.checkout-form button[type="submit"]').click();
+    await routeSettled(page, /\/shop\/cart$/);
+    await expect(page.getByTestId('cart-availability-notice')).toContainText('موجودی آن به پایان رسیده است');
+    await expect(page.locator('.cart-empty')).toBeVisible();
+    expect(orderPosts).toBe(0);
+  });
+
+  test('a race-time stock conflict refreshes and reconciles before retry', async ({ page }) => {
+    await gotoReady(page, '/shop');
+    await signUpCustomer(page, { phone: uniquePhone() });
+    await addAddress(page);
+    await gotoReady(page, '/shop/xpower-70');
+    await page.locator('.sp-buy__row .btn').click();
+    await gotoReady(page, '/shop/checkout');
+    await expect(page.locator('.checkout-form')).toBeVisible();
+
+    let productReads = 0;
+    let orderPosts = 0;
+    await page.route('**/api/shop-products', async (route) => {
+      productReads += 1;
+      const response = await route.fetch();
+      const body = await response.json();
+      if (productReads >= 2) {
+        body.products = body.products.map((product) => (
+          product.slug === 'xpower-70' ? { ...product, stock: 0 } : product
+        ));
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await page.route('**/api/shop-public/orders', async (route) => {
+      orderPosts += 1;
+      await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'insufficient stock' }) });
+    });
+
+    await page.locator('.checkout-form button[type="submit"]').click();
+    await routeSettled(page, /\/shop\/cart$/);
+    await expect(page.getByTestId('cart-availability-notice')).toContainText('موجودی آن به پایان رسیده است');
+    expect(productReads).toBe(2);
+    expect(orderPosts).toBe(1);
+  });
+
   test('the cart survives a reload', async ({ page }) => {
     await gotoReady(page, '/shop/dezmaye-gold-80');
     await page.locator('.sp-buy__row .btn').click();

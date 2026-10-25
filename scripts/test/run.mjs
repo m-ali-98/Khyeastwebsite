@@ -328,6 +328,19 @@ console.log('\nProduct images — legacy media, ordered galleries and SQLite per
   if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
 }
 
+console.log('\nCart availability — persisted lines follow the live catalogue');
+{
+  const { stdout, crashed, err } = await suite('cart-availability.mjs', 10000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'cart-availability', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} deletion, deactivation and stock-change checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
 console.log('\nInventory — duplicate carts and abandoned payments cannot oversell');
 {
   const { stdout, crashed, err } = await suite('inventory.mjs', 40000);

@@ -469,8 +469,10 @@ try {
   }
   check(ready, 'server starts for startup expiry check');
   if (ready) {
-    const products = await (await fetch(`${BASE}/api/shop-products`)).json();
+    const productResponse = await fetch(`${BASE}/api/shop-products`);
+    const products = await productResponse.json();
     check(products.products.find((product) => product.slug === 'limited')?.stock === 20, 'server startup sweep restores offline abandoned stock');
+    check(/no-store/i.test(productResponse.headers.get('cache-control') || ''), 'live inventory responses cannot be served from cache');
   }
 } catch (error) {
   check(false, 'inventory harness', String(error?.stack || error).slice(0, 300));

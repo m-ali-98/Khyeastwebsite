@@ -409,8 +409,12 @@ export function createShopRouter({
     });
   });
 
-  /** Public product catalogue (shop products live in the DB now). */
+  /** Public product catalogue (shop products live in the DB now). Inventory is
+   * re-read immediately before checkout, so neither a browser nor a proxy may
+   * reuse an older stock snapshot. */
   r.get('/api/shop-products', (_req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
     res.json({ products: db.listProducts(D).filter((p) => p.active) });
   });
 

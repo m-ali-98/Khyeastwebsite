@@ -1313,6 +1313,70 @@
 }
 
 /* ---------------- cart ---------------- */
+.cart-availability {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  margin-bottom: 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--ink-2);
+
+  > svg {
+    margin-top: 2px;
+    color: var(--warn);
+    flex: none;
+  }
+
+  &__body { min-width: 0; }
+
+  &__title {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ink);
+    font-size: 15px;
+    font-weight: 900;
+  }
+
+  p,
+  li {
+    overflow-wrap: anywhere;
+    font-size: 13.2px;
+    line-height: 1.95;
+  }
+
+  p { color: var(--muted); }
+
+  ul {
+    margin: 8px 0 0;
+    padding-inline-start: 20px;
+  }
+
+  li + li { margin-top: 3px; }
+
+  &__dismiss {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--warn-line);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, background-color 0.2s;
+
+    &:hover {
+      border-color: var(--crimson);
+      background: var(--crimson-soft);
+      color: var(--crimson-ink);
+    }
+  }
+}
+
 .cart-layout {
   display: grid;
   grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
