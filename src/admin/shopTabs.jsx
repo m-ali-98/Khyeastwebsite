@@ -1896,7 +1896,7 @@ export function ShopSmsTab() {
       <div className="admin__head">
         <div>
           <h1>پیامک (sms.ir)</h1>
-          <p>ارسال لینک پیگیری سفارش و کد تأیید — جابه‌جایی بین کلید آزمایشی و اصلی بدون تغییر کد</p>
+          <p>ارسال لینک پیگیری، کد تأیید و اعلان ارسال سفارش — جابه‌جایی بین کلید آزمایشی و اصلی بدون تغییر کد</p>
         </div>
       </div>
       {err && <AdminState compact kind="error" icon="shield" title={err} />}
@@ -1954,6 +1954,13 @@ export function ShopSmsTab() {
                 value={cfg.orderTemplateId || ''}
                 onChange={(v) => setCfg({ ...cfg, orderTemplateId: v })}
               />
+              <Field
+                label="شناسه قالب «سفارش ارسال شد» (اختیاری)"
+                dir="ltr"
+                type="number"
+                value={cfg.statusTemplateId || ''}
+                onChange={(v) => setCfg({ ...cfg, statusTemplateId: v })}
+              />
             </div>
           )}
 
@@ -1964,7 +1971,7 @@ export function ShopSmsTab() {
             </label>
             <label className="admin__row" style={{ gap: 8 }}>
               <input type="checkbox" checked={!!cfg.onStatus} onChange={(e) => setCfg({ ...cfg, onStatus: e.target.checked })} />
-              ارسال پیامک هنگام تغییر وضعیت سفارش (پرداخت‌شده، ارسال‌شده…)
+              ارسال یک پیامک دیگر فقط وقتی وضعیت سفارش به «ارسال‌شده» تغییر می‌کند
             </label>
             <Field
               label="سقف ارسال روزانه (۰ یعنی بدون محدودیت)"
@@ -2021,7 +2028,8 @@ export function ShopSmsTab() {
             <ul style={{ margin: '6px 18px 0', listStyle: 'disc' }}>
               <li>یک <b>خط ارسال</b> تهیه کنید و شماره آن را در فیلد بالا بگذارید.</li>
               <li>برای کد تأیید، در بخش «قالب‌های پیامکی» یک قالب با پارامتر <code dir="ltr">CODE</code> بسازید و شناسه آن را وارد کنید؛ ارسال کد با متن آزاد توسط اپراتور فیلتر می‌شود.</li>
-              <li>برای پیامک سفارش هم بهتر است یک قالب با پارامترهای <code dir="ltr">CODE</code> و <code dir="ltr">LINK</code> ثبت شود، چون پیامک حاوی لینک روی خطوط اشتراکی معمولاً مسدود می‌گردد.</li>
+              <li>برای پیامک ثبت سفارش هم بهتر است یک قالب با پارامترهای <code dir="ltr">CODE</code> و <code dir="ltr">LINK</code> ثبت شود، چون پیامک حاوی لینک روی خطوط اشتراکی معمولاً مسدود می‌گردد.</li>
+              <li>برای اعلان «سفارش ارسال شد» یک قالب جدا با پارامتر <code dir="ltr">CODE</code> بسازید. تغییر به وضعیت‌های پرداخت‌شده، تحویل‌شده یا لغوشده پیامک دیگری ارسال نمی‌کند.</li>
               <li>کلید API فقط روی سرور نگهداری می‌شود؛ در این صفحه هرگز کامل نمایش داده نمی‌شود.</li>
               <li>اگر ارسال پیامک با خطا روبه‌رو شود، سفارش مشتری همچنان ثبت می‌شود و خطا در همین گزارش ثبت می‌گردد.</li>
             </ul>

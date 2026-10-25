@@ -44,6 +44,8 @@ const {
   smsReadiness,
   orderStatusUrl,
   orderSmsText,
+  shipmentSmsText,
+  shouldSendShipmentSms,
   sendSms,
 } = sms;
 
@@ -112,6 +114,9 @@ const {
   check(normalizeSms({ dailyCap: -5 }).dailyCap === 0, 'a negative cap cannot be stored');
   check(normalizeSms({ verifyTemplateId: '12345' }).verifyTemplateId === 12345, 'template ids coerce to numbers');
   check(normalizeSms({ verifyTemplateId: 'abc' }).verifyTemplateId === 0, 'a non-numeric template id is zero, not NaN');
+  check(normalizeSms({ statusTemplateId: '24680' }).statusTemplateId === 24680, 'shipment template id is persisted as a number');
+  check(normalizeSms({ statusTemplateId: '' }).statusTemplateId === 0, 'blank shipment template id remains an empty fallback');
+  check(normalizeSms({}).onStatus === false, 'shipment notifications are opt-in');
 
   check(smsReadiness({ provider: 'log' }).ready === true, 'the log provider is always ready');
   const half = smsReadiness({ provider: 'smsir', apiKey: 'k' });
@@ -134,6 +139,19 @@ const {
      must carry it — a message without it is useless to the customer. */
   check(text.includes('token=abc123'), 'the link carries the order token');
   check(text.includes('۹٬۱۰۰٬۰۰۰') || /[۰-۹]/.test(text), 'the amount is in Persian digits');
+
+  const shipped = shipmentSmsText(order);
+  check(shipped.includes(order.code), 'the shipment message includes the order code');
+  check(shipped.includes('ارسال شد'), 'the shipment message names the shipped milestone');
+
+  const enabled = { onStatus: true };
+  check(shouldSendShipmentSms('paid', 'shipped', enabled), 'paid to shipped sends the one follow-up message');
+  check(shouldSendShipmentSms('pending_payment', 'shipped', enabled), 'any real transition into shipped may notify');
+  check(!shouldSendShipmentSms('shipped', 'shipped', enabled), 'saving an already-shipped order does not resend');
+  check(!shouldSendShipmentSms('paid', 'delivered', enabled), 'delivered does not send a status message');
+  check(!shouldSendShipmentSms('pending_payment', 'paid', enabled), 'paid does not send a status message');
+  check(!shouldSendShipmentSms('shipped', 'cancelled', enabled), 'cancelled does not send a status message');
+  check(!shouldSendShipmentSms('paid', 'shipped', { onStatus: false }), 'disabled shipment notifications stay quiet');
 }
 
 /* ---------------------------------------------------- 5. sending, safely */

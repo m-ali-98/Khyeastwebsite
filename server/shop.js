@@ -35,6 +35,8 @@ import {
   toLocalPhone,
   orderStatusUrl,
   orderSmsText,
+  shipmentSmsText,
+  shouldSendShipmentSms,
 } from './sms.js';
 import * as db from './db.js';
 import { rateLimitResponse } from './rateLimits.js';
@@ -1074,6 +1076,21 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
         detail: 'هشدار مالی هم‌زمان فعال شد؛ سفارش بایگانی نشد.',
       });
     }
+
+    /* The order-created SMS is the first customer message. The only later
+       milestone worth another message is a real transition into `shipped` —
+       paid, delivered, cancelled, note edits, and repeated saves stay quiet. */
+    const sms = smsCfg();
+    if (updated && shouldSendShipmentSms(order.status, patch.status, sms)) {
+      dispatchSms({
+        kind: 'shipped',
+        to: order.customer?.phone,
+        ref: order.code,
+        text: shipmentSmsText(order),
+        templateId: sms.statusTemplateId || 0,
+        params: [{ name: 'CODE', value: order.code }],
+      });
+    }
     res.json({ ok: true });
   });
 
@@ -1213,18 +1230,6 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
               ? 'این پرداخت اضافه بود و مبلغ آن بازگردانده شد.'
               : 'این پرداخت اضافه است و بازگرداندن خودکار آن نیاز به پیگیری دارد.',
             reversed: !!reversed.ok,
-          });
-        }
-      } else {
-        const sms = smsCfg();
-        if (sms.onStatus) {
-          dispatchSms({
-            kind: 'status',
-            to: order.customer?.phone,
-            ref: order.code,
-            text: `خمیرمایه خوزستان\nپرداخت سفارش ${order.code} تأیید شد.`,
-            templateId: sms.statusTemplateId || 0,
-            params: [{ name: 'CODE', value: order.code }],
           });
         }
       }

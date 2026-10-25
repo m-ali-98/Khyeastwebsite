@@ -97,7 +97,9 @@ export function normalizeSms(s = {}) {
     verifyTemplateId: int(s.verifyTemplateId, 0),
     orderTemplateId: int(s.orderTemplateId, 0),
     statusTemplateId: int(s.statusTemplateId, 0),
-    /* send an SMS when an order is placed / when its status changes */
+    /* The customer gets the initial order message and, optionally, one more
+       message when fulfilment reaches `shipped`. `onStatus` is kept as the
+       persisted key for backwards compatibility, but no other status uses it. */
     onOrder: s.onOrder !== false,
     onStatus: Boolean(s.onStatus),
     /* A hard ceiling on messages per day. A bot hammering the OTP endpoint
@@ -156,6 +158,20 @@ export function orderSmsText(order, url) {
     `مبلغ: ${faDigits(Number(order.total).toLocaleString('en-US'))} ریال`,
     `پیگیری: ${url}`,
   ].join('\n');
+}
+
+export function shipmentSmsText(order) {
+  return [
+    'خمیرمایه خوزستان',
+    `سفارش شما با کد ${order.code} ارسال شد.`,
+  ].join('\n');
+}
+
+/** Status notifications are intentionally narrow: after the initial order
+ * message, the only customer-facing milestone is the first transition into
+ * `shipped`. Saving a note on an already-shipped order must not send again. */
+export function shouldSendShipmentSms(previousStatus, nextStatus, settings = {}) {
+  return Boolean(settings.onStatus) && previousStatus !== 'shipped' && nextStatus === 'shipped';
 }
 
 /* ------------------------------------------------------------ transport */

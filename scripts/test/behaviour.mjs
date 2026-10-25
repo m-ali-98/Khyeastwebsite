@@ -455,6 +455,28 @@ try {
       headers: { 'Content-Type': 'application/json', ...auth },
       body: JSON.stringify({ status }),
     });
+  const shipmentLogs = async (ref) => {
+    const payload = await (await fetch(`${BASE}/api/shop-admin/sms`, { headers: auth })).json();
+    return (payload.log || []).filter((row) => row.kind === 'shipped' && row.ref === ref);
+  };
+  const waitForShipmentLogs = async (ref, count) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const rows = await shipmentLogs(ref);
+      if (rows.length >= count) return rows;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return shipmentLogs(ref);
+  };
+
+  /* Keep routine status changes quiet. This setting means a customer gets the
+     order-created message and exactly one optional follow-up on `shipped`. */
+  const smsSettings = await fetch(`${BASE}/api/shop-admin/sms`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ provider: 'log', onOrder: false, onStatus: true, statusTemplateId: 24680 }),
+  });
+  const savedSms = await smsSettings.json();
+  check(smsSettings.ok && savedSms.sms?.statusTemplateId === 24680, 'shipment SMS template id saves through the admin API');
 
   /* Duplicate slugs are one inventory claim, not independent lines. */
   await setStock(5);
@@ -491,6 +513,24 @@ try {
   check((await stockOf()) === 7, 'ordering 3 of 10 leaves 7');
 
   const id = await orderIdFor(order.code);
+
+  await setStatus(id, 'paid');
+  await setStatus(id, 'delivered');
+  check((await shipmentLogs(order.code)).length === 0, 'paid and delivered status changes do not send SMS');
+  await setStatus(id, 'shipped');
+  const sentRows = await waitForShipmentLogs(order.code, 1);
+  check(sentRows.length === 1, 'the first transition into shipped sends one SMS', `got ${sentRows.length}`);
+  check(sentRows[0]?.text.includes('ارسال شد'), 'the shipped SMS has the customer-facing shipment text');
+  const noteEdit = await fetch(`${BASE}/api/shop-admin/orders/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ adminNote: 'یادداشت داخلی بدون تغییر وضعیت' }),
+  });
+  check(noteEdit.ok, 'an internal note edit succeeds without changing shipment status');
+  await setStatus(id, 'shipped');
+  await setStatus(id, 'delivered');
+  check((await shipmentLogs(order.code)).length === 1, 'note edits, repeated shipped saves and later statuses do not send another SMS');
+
   await setStatus(id, 'cancelled');
   check((await stockOf()) === 10, 'cancelling returns the reserved stock');
 

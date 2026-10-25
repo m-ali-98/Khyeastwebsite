@@ -166,6 +166,18 @@ test('switching the panel to English swaps in the translation editors', async ({
   await expect(adminTab(page, 'سفارش‌ها')).toBeVisible();
 });
 
+test('shipment SMS is the only optional order-status notification and has its own template field', async ({ page }) => {
+  await loginAdmin(page);
+  await adminTab(page, 'پیامک').click();
+
+  await field(page, 'سرویس پیامک').selectOption('smsir');
+  const templateId = field(page, 'شناسه قالب «سفارش ارسال شد»');
+  await expect(templateId).toBeVisible();
+  await expect(templateId).toHaveValue('');
+  await expect(page.getByText('ارسال یک پیامک دیگر فقط وقتی وضعیت سفارش به «ارسال‌شده» تغییر می‌کند')).toBeVisible();
+  await expect(page.getByText(/تغییر وضعیت سفارش \(پرداخت‌شده/)).toHaveCount(0);
+});
+
 test('the panel honours dark mode', async ({ page }) => {
   await loginAdmin(page);
   await page.locator('.admin__themebtns button', { hasText: 'تاریک' }).click();
