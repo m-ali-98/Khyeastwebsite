@@ -171,6 +171,8 @@ test('shipment SMS is the only optional order-status notification and has its ow
   await adminTab(page, 'پیامک').click();
 
   await field(page, 'سرویس پیامک').selectOption('smsir');
+  await expect(page.getByText('ارسال پیامک «سفارش ثبت شد» همراه لینک پیگیری، فقط پس از پرداخت موفق')).toBeVisible();
+  await expect(field(page, 'شناسه قالب ثبت سفارش پس از پرداخت موفق')).toBeVisible();
   const templateId = field(page, 'شناسه قالب «سفارش ارسال شد»');
   await expect(templateId).toBeVisible();
   await expect(templateId).toHaveValue('');

@@ -455,6 +455,10 @@ try {
       headers: { 'Content-Type': 'application/json', ...auth },
       body: JSON.stringify({ status }),
     });
+  const orderLogs = async (ref) => {
+    const payload = await (await fetch(`${BASE}/api/shop-admin/sms`, { headers: auth })).json();
+    return (payload.log || []).filter((row) => row.kind === 'order' && row.ref === ref);
+  };
   const shipmentLogs = async (ref) => {
     const payload = await (await fetch(`${BASE}/api/shop-admin/sms`, { headers: auth })).json();
     return (payload.log || []).filter((row) => row.kind === 'shipped' && row.ref === ref);
@@ -468,12 +472,12 @@ try {
     return shipmentLogs(ref);
   };
 
-  /* Keep routine status changes quiet. This setting means a customer gets the
-     order-created message and exactly one optional follow-up on `shipped`. */
+  /* The order message is enabled but must wait for verified payment. Routine
+     status edits stay quiet except for the one optional `shipped` follow-up. */
   const smsSettings = await fetch(`${BASE}/api/shop-admin/sms`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify({ provider: 'log', onOrder: false, onStatus: true, statusTemplateId: 24680 }),
+    body: JSON.stringify({ provider: 'log', onOrder: true, onStatus: true, statusTemplateId: 24680 }),
   });
   const savedSms = await smsSettings.json();
   check(smsSettings.ok && savedSms.sms?.statusTemplateId === 24680, 'shipment SMS template id saves through the admin API');
@@ -510,11 +514,13 @@ try {
   check(invOrder.ok, 'inventory test order placed', `status ${invOrder.status}`);
 
   const { order } = await invOrder.json();
+  check((await orderLogs(order.code)).length === 0, 'creating an unpaid order does not send the order-registered SMS');
   check((await stockOf()) === 7, 'ordering 3 of 10 leaves 7');
 
   const id = await orderIdFor(order.code);
 
   await setStatus(id, 'paid');
+  check((await orderLogs(order.code)).length === 0, 'a manual paid-status edit cannot impersonate successful gateway verification');
   await setStatus(id, 'delivered');
   check((await shipmentLogs(order.code)).length === 0, 'paid and delivered status changes do not send SMS');
   await setStatus(id, 'shipped');

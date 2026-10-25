@@ -285,10 +285,14 @@ try {
   check(same.customer.address.includes('دزفول'), 'the past order still shows the old address', same.customer.address);
   check(!same.customer.address.includes('شوشتر'), 'and not the edited one');
 
-  /* The order confirmation goes to the verified account number. */
-  const confirm = await lastSms('0001');
-  check(confirm.kind === 'order' && confirm.text.includes(order.body.order.code), 'the confirmation SMS names the order');
-  check(confirm.text.includes(`token=`), 'and carries the tracking link');
+  /* Registration alone is not payment. The confirmation and private tracking
+     link must stay silent until the gateway successfully verifies this order. */
+  const smsAfterOrder = await json(await call('GET', '/api/shop-admin/sms', undefined, { cookie: adminCookie }));
+  const premature = (smsAfterOrder.body.log || []).find(
+    (row) => row.kind === 'order' && row.ref === order.body.order.code,
+  );
+  check(!premature, 'an unpaid order does not receive the order confirmation SMS');
+  check(order.body.order.status === 'pending_payment', 'the silent order is still waiting for successful payment');
 
   /* --------------------------------------------------------- 7. logout */
   const out = await json(await call('POST', '/api/account/logout', {}, { cookie: cookie1 }));

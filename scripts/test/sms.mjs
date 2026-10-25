@@ -5,8 +5,8 @@
    customer's only link to their order, and an account's credit balance. The
    properties guarded here are, in order of how much they would cost:
 
-   1. A send NEVER throws. Order creation calls this; a provider outage must
-      not turn a committed, paid order into a 500.
+   1. A send NEVER throws. Payment settlement calls this; a provider outage
+      must not turn a committed, paid order into a 500.
    2. The API key never leaves the server, and saving the settings form with
       the mask in the field does not erase it.
    3. One phone number has exactly one canonical form, whatever the visitor
@@ -17,6 +17,10 @@
    ========================================================================== */
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import express from 'express';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -154,7 +158,156 @@ const {
   check(!shouldSendShipmentSms('paid', 'shipped', { onStatus: false }), 'disabled shipment notifications stay quiet');
 }
 
-/* ---------------------------------------------------- 5. sending, safely */
+/* ------------------------------------- 5. only after successful payment */
+{
+  const dbStore = await import(pathToFileURL(path.join(ROOT, 'server/db.js')).href);
+  const { createShopRouter } = await import(pathToFileURL(path.join(ROOT, 'server/shop.js')).href);
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-paid-sms-test-'));
+  const database = await dbStore.openDB(path.join(dataDir, 'sms.db'));
+  const account = {
+    id: crypto.randomUUID(),
+    phone: '989123456789',
+    name: 'خریدار تست',
+    email: '',
+    passHash: 'not-used-in-this-test',
+    at: new Date().toISOString(),
+  };
+  dbStore.insertCustomer(database, account);
+  dbStore.setSetting(database, 'shop.sms', {
+    provider: 'log',
+    onOrder: true,
+    onStatus: false,
+    orderTemplateId: 13579,
+  });
+
+  const verificationCalls = [];
+  const paymentVerifier = async (config, provider, params, expectedRial, expectedAuthority) => {
+    verificationCalls.push({ config, provider, params, expectedRial, expectedAuthority });
+    const ok = String(params.Status || params.status || '').toUpperCase() === 'OK';
+    return { ok, refId: ok ? `REF-${verificationCalls.length}` : '' };
+  };
+  const permit = () => ({ limited: false, retryAfter: 0, finish() {} });
+  const router = createShopRouter({
+    database,
+    requireAuth: (_req, _res, next) => next(),
+    rateLimiter: { check: permit, reserve: permit },
+    paymentVerifier,
+  });
+  const app = express();
+  app.use(express.json());
+  app.use(router);
+  const server = await new Promise((resolve) => {
+    const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+  });
+  const address = server.address();
+  const origin = `http://127.0.0.1:${address.port}`;
+  dbStore.setSetting(database, 'shop.payment', { provider: 'zarinpal', callbackBase: origin });
+
+  const insertPendingOrder = (label) => {
+    const order = {
+      id: crypto.randomUUID(),
+      code: `KY-PAID-${label}`,
+      token: crypto.randomBytes(16).toString('hex'),
+      customerId: account.id,
+      /* Deliberately different: the SMS must use the verified account phone,
+         not a delivery recipient copied into the order. */
+      customer: { name: 'گیرنده دیگر', phone: '09120000000' },
+      subtotal: 9_100_000,
+      shipping: 0,
+      total: 9_100_000,
+      currency: 'IRR',
+      status: 'pending_payment',
+      provider: 'zarinpal',
+      payAuthority: `A${crypto.randomBytes(18).toString('hex')}`,
+      payRef: null,
+      adminNote: '',
+      at: new Date().toISOString(),
+      paidAt: null,
+      items: [],
+    };
+    dbStore.insertOrder(database, order);
+    return order;
+  };
+  const orderLogs = (ref) => dbStore.listSmsLog(database, 50)
+    .filter((row) => row.kind === 'order' && row.ref === ref);
+  const waitForOrderLogs = async (ref, count) => {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const rows = orderLogs(ref);
+      if (rows.length >= count) return rows;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return orderLogs(ref);
+  };
+
+  try {
+    const callbackOrder = insertPendingOrder('CALLBACK');
+    check(orderLogs(callbackOrder.code).length === 0, 'a pending order has no order-registered SMS');
+    const callbackUrl =
+      `${origin}/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(callbackOrder.code)}` +
+      `&Authority=${encodeURIComponent(callbackOrder.payAuthority)}&Status=OK`;
+    const paid = await fetch(callbackUrl, { redirect: 'manual' });
+    const paidLogs = await waitForOrderLogs(callbackOrder.code, 1);
+    check(paid.status === 302 && /[?&]pay=ok/.test(paid.headers.get('location') || ''), 'successful payment returns to the success page');
+    check(dbStore.getOrderById(database, callbackOrder.id)?.status === 'paid', 'successful verification settles the order before SMS');
+    check(paidLogs.length === 1, 'successful gateway payment sends one order-registered SMS', `got ${paidLogs.length}`);
+    check(paidLogs[0]?.phone === account.phone, 'payment SMS uses the verified account phone');
+    check(paidLogs[0]?.text.includes(`token=${callbackOrder.token}`), 'payment SMS carries the private tracking link');
+    check(
+      verificationCalls[0]?.provider === 'zarinpal' &&
+        verificationCalls[0]?.expectedRial === callbackOrder.total &&
+        verificationCalls[0]?.expectedAuthority === callbackOrder.payAuthority,
+      'payment must be verified against the stored amount and authority before SMS',
+    );
+
+    await fetch(callbackUrl, { redirect: 'manual' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check(verificationCalls.length === 1, 'an idempotent paid callback does not verify or notify again');
+    check(orderLogs(callbackOrder.code).length === 1, 'refreshing the successful callback does not duplicate the SMS');
+
+    const failedOrder = insertPendingOrder('FAILED');
+    const failed = await fetch(
+      `${origin}/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(failedOrder.code)}` +
+        `&Authority=${encodeURIComponent(failedOrder.payAuthority)}&Status=NOK`,
+      { redirect: 'manual' },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check(failed.status === 302 && /[?&]pay=fail/.test(failed.headers.get('location') || ''), 'failed payment returns to the failure page');
+    check(dbStore.getOrderById(database, failedOrder.id)?.status === 'pending_payment', 'failed verification cannot mark an order paid');
+    check(orderLogs(failedOrder.code).length === 0, 'failed payment never sends the order-registered SMS');
+
+    const lateOrder = insertPendingOrder('LATE');
+    dbStore.updateOrder(database, lateOrder.id, { status: 'cancelled', autoCancelled: true });
+    const late = await fetch(
+      `${origin}/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(lateOrder.code)}` +
+        `&Authority=${encodeURIComponent(lateOrder.payAuthority)}&Status=OK`,
+      { redirect: 'manual' },
+    );
+    const lateLogs = await waitForOrderLogs(lateOrder.code, 1);
+    check(late.status === 302 && dbStore.getOrderById(database, lateOrder.id)?.status === 'paid', 'a verified late payment that reclaims inventory is successful');
+    check(lateLogs.length === 1, 'a successfully recovered late payment sends the order-registered SMS');
+
+    const recoveredOrder = insertPendingOrder('RECOVERED');
+    const recovered = await fetch(
+      `${origin}/api/shop-admin/payment/unverified/${encodeURIComponent(recoveredOrder.payAuthority)}/verify`,
+      { method: 'POST' },
+    );
+    const recoveredLogs = await waitForOrderLogs(recoveredOrder.code, 1);
+    check(recovered.ok && dbStore.getOrderById(database, recoveredOrder.id)?.status === 'paid', 'Admin recovery can settle a successfully verified payment');
+    check(recoveredLogs.length === 1, 'a recovered successful payment sends the order-registered SMS');
+    await fetch(
+      `${origin}/api/shop-admin/payment/unverified/${encodeURIComponent(recoveredOrder.payAuthority)}/verify`,
+      { method: 'POST' },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check(orderLogs(recoveredOrder.code).length === 1, 'rechecking a recovered paid order does not duplicate the SMS');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    database.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+/* ---------------------------------------------------- 6. sending, safely */
 {
   const cfg = { provider: 'smsir', apiKey: 'k', lineNumber: '3000' };
 

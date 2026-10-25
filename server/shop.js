@@ -131,7 +131,13 @@ export const shopProductProblems = (products) => {
   return problems;
 };
 
-export function createShopRouter({ database, requireAuth, rateLimiter, trustedImageOrigins = () => [] }) {
+export function createShopRouter({
+  database,
+  requireAuth,
+  rateLimiter,
+  trustedImageOrigins = () => [],
+  paymentVerifier = verifyPayment,
+}) {
   /* Set by index.js once the account router exists. The two routers need
      each other — orders need the signed-in customer, accounts need the
      logged-and-capped SMS sender — so one of the two links is late-bound
@@ -185,9 +191,9 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
   setInterval(sweepExpiredOrders, orderSweepIntervalMs).unref?.();
 
   /* One place where an SMS is attempted, logged and capped.
-     Deliberately not awaited by the order path: a message that takes four
-     seconds to send must not add four seconds to checkout, and a provider
-     outage must not turn a paid order into an error page. Every outcome,
+     Deliberately not awaited by customer and payment paths: a message that
+     takes four seconds to send must not delay checkout or the gateway return,
+     and a provider outage must not turn a paid order into an error page. Every outcome,
      including a refusal by the cap, is written to sms_log. */
   function dispatchSms(msg) {
     const cfg = smsCfg();
@@ -222,6 +228,29 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
         log({ ...msg, provider: cfg.provider, environment: cfg.environment, ok: false, error: String(e?.message || e) });
         return { ok: false, error: String(e?.message || e) };
       });
+  }
+
+  /** Send the «order registered» message only after this request has atomically
+   * moved a gateway-verified order to `paid`. Callers deliberately exclude
+   * order creation, manual status edits and idempotent callback refreshes. */
+  function dispatchPaidOrderSms(order, req) {
+    const sms = smsCfg();
+    if (!sms.onOrder || !order?.paidAt || !['paid', 'shipped', 'delivered'].includes(order.status)) return;
+    const account = db.getCustomerById(D, order.customerId);
+    const url = orderStatusUrl(safeOrigin(req, payment().callbackBase), order);
+    dispatchSms({
+      kind: 'order',
+      /* The account phone was verified. The delivery recipient may be a
+         neighbour, so the address snapshot must never choose this recipient. */
+      to: account?.phone || '',
+      ref: order.code,
+      text: orderSmsText(order, url),
+      templateId: sms.orderTemplateId || 0,
+      params: [
+        { name: 'CODE', value: order.code },
+        { name: 'LINK', value: url },
+      ],
+    });
   }
 
   /** A second authority for an already-paid/cancelled order represents a real
@@ -555,28 +584,9 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
       order.payRef = afterGateway.payRef;
     }
 
-    /* After the commit, and not awaited: the order exists whatever the SMS
-       does. The status link carries the order's private token, which is the
-       only thing that makes the tracking page readable — so this message is
-       the customer's key to their own order, and it is sent to the number
-       they just proved they can be reached at. */
-    const sms = smsCfg();
-    if (sms.onOrder) {
-      const url = orderStatusUrl(origin, order);
-      dispatchSms({
-        kind: 'order',
-        /* the account's verified number, not whatever was typed into the
-           delivery address — the latter may be a neighbour's */
-        to: account.phone,
-        ref: order.code,
-        text: orderSmsText(order, url),
-        templateId: sms.orderTemplateId || 0,
-        params: [
-          { name: 'CODE', value: order.code },
-          { name: 'LINK', value: url },
-        ],
-      });
-    }
+    /* Creating an unpaid order is intentionally silent. The «order registered»
+       SMS is dispatched only after the gateway has verified the payment and
+       the order has atomically reached `paid`; see the callback paths below. */
     res.json({
       ok: true,
       order: { code: order.code, token: order.token, total: order.total, status: order.status, provider: order.provider },
@@ -710,10 +720,11 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
     }
 
     let ok = false;
+    let paidNow = false;
     let refId = '';
     let paymentNote = '';
     try {
-      const out = await verifyPayment(payment(), provider, req.query, order.total, attempt.authority);
+      const out = await paymentVerifier(payment(), provider, req.query, order.total, attempt.authority);
       /* Only a completed gateway response consumes callback budget. A network
          timeout is infrastructure failure, not another customer attempt; its
          reservation is released below so the same authority can retry. */
@@ -781,6 +792,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
             });
             if (settled) {
               ok = true;
+              paidNow = true;
               resolved = true;
               break;
             }
@@ -843,6 +855,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
 
             if (claimed.reserved) {
               ok = true;
+              paidNow = true;
               resolved = true;
               break;
             }
@@ -894,6 +907,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
         if (!resolved) ok = false;
       }
     }
+    if (ok && paidNow) dispatchPaidOrderSms(db.getOrderById(D, order.id), req);
     res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=${ok ? 'ok' : 'fail'}`);
   });
 
@@ -1077,8 +1091,8 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
       });
     }
 
-    /* The order-created SMS is the first customer message. The only later
-       milestone worth another message is a real transition into `shipped` —
+    /* The payment-confirmed order SMS is the first customer message. The only
+       later milestone worth another message is a real transition into `shipped` —
        paid, delivered, cancelled, note edits, and repeated saves stay quiet. */
     const sms = smsCfg();
     if (updated && shouldSendShipmentSms(order.status, patch.status, sms)) {
@@ -1197,7 +1211,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
       return res.status(404).json({ error: 'سفارشی با این کد پرداخت پیدا نشد.' });
     }
 
-    const out = await verifyPayment(
+    const out = await paymentVerifier(
       payment(),
       'zarinpal',
       { Authority: authority, Status: 'OK' },
@@ -1206,6 +1220,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
     );
     if (!out.ok) return res.status(409).json({ error: out.message || out.error || 'تأیید پرداخت ممکن نشد.', code: out.gatewayCode });
 
+    let paidNow = false;
     if (order.status === 'pending_payment') {
       const settled = db.settlePendingOrder(D, order.id, authority, {
         provider: 'zarinpal',
@@ -1213,6 +1228,7 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
         paidAt: new Date().toISOString(),
         adminNote: order.adminNote,
       });
+      paidNow = settled;
       if (!settled) {
         const latest = db.getOrderById(D, order.id);
         if (!latest || !['paid', 'shipped', 'delivered'].includes(latest.status)) {
@@ -1262,7 +1278,9 @@ export function createShopRouter({ database, requireAuth, rateLimiter, trustedIm
         reversed: !!reversed.ok,
       });
     }
-    res.json({ ok: true, ref: out.refId, order: db.getOrderById(D, order.id) });
+    const paidOrder = db.getOrderById(D, order.id);
+    if (paidNow) dispatchPaidOrderSms(paidOrder, req);
+    res.json({ ok: true, ref: out.refId, order: paidOrder });
   });
 
   /** Retry reversal for one specific extra payment attempt. The order-level
