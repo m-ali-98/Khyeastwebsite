@@ -250,7 +250,7 @@
   </table>
   <div class="callout warning">
     <b class="label">Upload staging and memory</b>
-    The application preserves the 200 MB file limit but streams each multipart body to private <code>UPLOAD_DIR/.incoming</code> storage instead of retaining it as a JavaScript Buffer. One upload per Node process is admitted at a time; videos publish by atomic rename and Sharp reads images from that staged path. Image decoding still needs memory bounded by the pixel limit, so 4 GB remains the safer baseline. Keep at least one upload plus generated variants free on the upload filesystem.
+    The application preserves the 200 MB file limit but streams each multipart body to private <code>UPLOAD_DIR/.incoming</code> storage instead of retaining it as a JavaScript Buffer. One upload per Node process is admitted at a time; videos publish by atomic rename and Sharp reads images from that staged path. The response is sent only after staging cleanup and slot release, so the next sequential gallery upload is not mistaken for a concurrent request. Image decoding still needs memory bounded by the pixel limit, so 4 GB remains the safer baseline. Keep at least one upload plus generated variants free on the upload filesystem.
   </div>
 
   <h3>Access checklist</h3>
@@ -945,7 +945,7 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
     </tbody>
   </table>
   <div class="callout warning"><b class="label">Quarantine trade-off</b>A total disk loss also loses quarantined files. That is intentional: ordinary backups must not preserve retired media indefinitely. Restore a mistaken cleanup from the local quarantine before its 30-day deadline.</div>
-  <p>The private <code>.incoming</code> directory is different: it contains only an upload that has not yet been accepted. Videos and untouched images publish by atomic rename; optimized images are read from staging and publish their master only after all variants. Rejection removes the staged file. Generated leftovers older than 24 hours are purged at startup and hourly, and backup excludes them on both upload passes.</p>
+  <p>The private <code>.incoming</code> directory is different: it contains only an upload that has not yet been accepted. Videos and untouched images publish by atomic rename; optimized images are read from staging and publish their master only after all variants. Success and rejection both remove staging and release the per-process upload slot before sending their response; an Admin multi-photo sequence can therefore begin its next request immediately. Generated leftovers older than 24 hours are purged at startup and hourly, and backup excludes them on both upload passes.</p>
 
   <h3>Why active and stopped-service snapshots are conservative</h3>
   <ol class="steps">
@@ -1026,7 +1026,7 @@ sudo systemctl list-timers khyeast-quarantine-purge.timer</pre>
   <div class="callout"><b class="label">Threat boundary</b>This design preserves earlier snapshots when the application VPS—including root and its local backup directory—is compromised. It does not survive compromise of the provider control plane, the full-access maintenance host, or every copy of the Restic password. Protect those with separate administrators, MFA, restricted network access and an offline recovery-secret copy.</div>
 
   <h3>Split Restic upload from trusted maintenance</h3>
-  <p>Choose a Restic-compatible backend with a documented append-only mode (for example, an append-only REST server or an equivalent provider policy). The VPS credential may read what Restic needs for deduplication and append new repository objects, but it must not overwrite or delete established packs, indexes, snapshots, or keys. Validate that policy in a disposable repository before production. <code>RESTIC_APPEND_ONLY=true</code> is only an operator assertion and startup guard; provider-side authorization is the real control.</p>
+  <p>Choose a Restic-compatible backend with a documented append-only mode (for example, <code>rest-server --append-only</code> or an equivalent provider policy). The VPS credential may read what Restic needs for deduplication and append new repository objects, but it must not overwrite or delete established packs, indexes, snapshots, keys, or repository history. A backup creates a repository lock and removes it afterwards. Although upstream Restic exposes the global <code>--no-lock</code> option in <code>backup --help</code>, released Restic and current upstream do not honor it for <code>backup</code> (see <a href="https://github.com/restic/restic/issues/1544">upstream issue #1544</a>); adding that flag would provide false assurance while the lock is still created. The endpoint must instead permit deletion only for ephemeral <code>locks/*</code> objects while denying history deletion, as Rest Server's append-only mode does. If a provider cannot scope that exception, do not point Restic directly at its no-delete credential; put a compatible append-only REST/rclone boundary in front of it. Lock-taking <code>check</code>, <code>forget</code>, <code>prune</code>, and <code>unlock</code> remain exclusive to the full-access maintenance host. Validate the exact restricted credential in a disposable repository before production. <code>RESTIC_APPEND_ONLY=true</code> is only an operator assertion and startup guard; provider-side authorization is the real control.</p>
 
   <h4>On the separate trusted maintenance machine</h4>
   <p>Initialize and maintain the repository here, not on the VPS. Keep its full-access backend credential and the shared Restic encryption password in the organization's secrets vault. Install the reviewed assets from a Git clone on this machine:</p>
@@ -1061,6 +1061,24 @@ restic snapshots
 exit
 sudo systemctl daemon-reload</pre>
 
+  <h4>One-time proof of the append-only credential</h4>
+  <div class="callout warning"><b class="label">Use a disposable repository</b>Run this authorization test once before production with the exact endpoint, provider policy, and restricted credential intended for the VPS. Never test <code>forget</code> against the production repository. A mock command or an environment variable claiming “append only” is not evidence.</div>
+  <p>Initialize a throwaway repository with the full maintenance credential, then switch to the restricted credential. A normal backup must complete cleanly, including removal of its ephemeral lock. If it fails while removing <code>locks/*</code>, that direct provider policy is incompatible; do not try to conceal the failure with <code>--no-lock</code>. Record the probe snapshot ID, and verify that deleting it with the restricted credential fails specifically because deletion of repository history is forbidden:</p>
+  <pre class="keep"><span class="comment"># Disposable repository + the exact restricted VPS credential only.</span>
+printf 'append-only credential probe\n' &gt;/tmp/khyeast-restic-probe.txt
+restic backup --tag append-only-credential-probe \
+  /tmp/khyeast-restic-probe.txt
+restic snapshots --tag append-only-credential-probe
+probe=REPLACE_WITH_PROBE_SNAPSHOT_ID
+if restic forget "$probe"; then
+  echo 'FATAL: the VPS credential can delete repository history' &gt;&amp;2
+  exit 1
+else
+  echo 'Expected authorization refusal; verify it was not a configuration error.'
+fi
+rm -f /tmp/khyeast-restic-probe.txt</pre>
+  <p>Back on the trusted maintenance host, use the full credential to confirm that the supposedly denied probe snapshot still exists, run <code>restic check</code>, restore the probe and verify its bytes, and confirm <code>restic list locks</code> is empty. Then remove the disposable snapshot/repository. This full-access verification distinguishes a real history-delete denial from a command that failed only after deleting the snapshot or because it was mistyped. Retain the dated test record with the provider policy identity. Repeat the proof whenever that policy, credential scope, endpoint, or Restic major version changes.</p>
+
   <h4>On the application VPS</h4>
   <p>Securely provision the same encryption password from the vault, but use a different append-only backend credential:</p>
   <pre>sudo install -m 0700 -o root -g root \
@@ -1086,7 +1104,7 @@ sudo systemctl start khyeast-offsite.service
 sudo journalctl -u khyeast-offsite.service -n 100 --no-pager
 sudo systemctl enable --now khyeast-offsite.timer
 sudo systemctl list-timers khyeast-offsite.timer</pre>
-  <p>The VPS script refuses an archive older than 30 hours, verifies SHA-256 before and after upload, and invokes only <code>restic backup</code>. It contains no <code>check</code>, <code>forget</code>, <code>prune</code>, or cleanup command. On the maintenance machine, run and monitor the weekly unit; it checks the repository, applies 14 daily, 8 weekly and 12 monthly points, prunes, then checks again:</p>
+  <p>The VPS script refuses an archive older than 30 hours, verifies SHA-256 before and after upload, and invokes only <code>restic backup</code>. It deliberately does not add the ineffective <code>--no-lock</code> flag and contains no <code>check</code>, <code>forget</code>, <code>prune</code>, <code>unlock</code>, or cleanup command. The first manual service start above is also the production credential smoke test: it must exit successfully—including lock cleanup—with the exact restricted credential before the timer is enabled. On the maintenance machine, run and monitor the weekly unit; it checks the repository, applies 14 daily, 8 weekly and 12 monthly points, prunes, then checks again:</p>
   <pre>sudo systemctl start khyeast-offsite-maintenance.service
 sudo journalctl -u khyeast-offsite-maintenance.service -n 100 --no-pager
 sudo systemctl enable --now khyeast-offsite-maintenance.timer
@@ -1482,7 +1500,7 @@ https://example.com/admin</pre>
     <li>systemd service is enabled, uses a 120-second stop timeout, and survives reboot.</li>
     <li>Unattended security updates are enabled; reboot-required state is monitored and automatic surprise reboots are disabled.</li>
     <li>The one-time real-host stopped-service backup test passed under the read-only sandbox.</li>
-    <li>The VPS offsite credential is provider-enforced append-only; full maintenance credentials exist only on a separate host.</li>
+    <li>The exact VPS offsite credential passed the disposable-repository proof: normal <code>backup</code> and lock cleanup succeeded, restricted <code>forget</code> failed, the full-access host proved the snapshot remained/restored and no lock remained, and full maintenance credentials exist only on that separate host.</li>
     <li>Validated active/stopped backup, append-only offsite replication, separate-host Restic maintenance, certificate renewal, and daily quarantine purge are monitored.</li>
     <li>Backup archives exclude <code>uploads/.quarantine</code> and transient <code>uploads/.incoming</code>.</li>
   </ul>

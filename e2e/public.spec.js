@@ -789,6 +789,64 @@ test.describe('shop purchase flow', () => {
     await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(1));
   });
 
+  test('two open tabs synchronize before either can overwrite the newer cart', async ({ page, context }) => {
+    /* Wrap the app's listener before its bundle executes so this test can
+       deterministically pause delivery and exercise the mutation-time reread. */
+    await page.addInitScript(() => {
+      window.__pauseCartStorage = false;
+      window.__blockedCartEvents = 0;
+      const add = window.addEventListener.bind(window);
+      window.addEventListener = (type, listener, options) => {
+        if (type !== 'storage') return add(type, listener, options);
+        return add(type, (event) => {
+          if (window.__pauseCartStorage && event.key === 'ky_shop_cart_v1') {
+            window.__blockedCartEvents += 1;
+            return;
+          }
+          listener.call(window, event);
+        }, options);
+      };
+    });
+    const firstErrors = watchConsole(page);
+    await gotoReady(page, '/shop/dezmaye-gold-80');
+    const second = await context.newPage();
+    const secondErrors = watchConsole(second);
+    try {
+      await gotoReady(second, '/shop/shetab-90');
+
+      await page.locator('.sp-buy__row .btn').click();
+      await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(1));
+      await expect(second.locator('.nav__cart-badge')).toHaveText(faNum(1));
+
+      await second.locator('.sp-buy__row .btn').click();
+      await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(2));
+      await expect(second.locator('.nav__cart-badge')).toHaveText(faNum(2));
+
+      /* Simulate a delayed listener in the first tab. Its next mutation must
+         still re-read storage instead of dropping the unseen second-tab line. */
+      await page.evaluate(() => {
+        window.__blockedCartEvents = 0;
+        window.__pauseCartStorage = true;
+      });
+      await second.locator('.sp-buy__row .btn').click();
+      await expect(second.locator('.nav__cart-badge')).toHaveText(faNum(3));
+      await expect.poll(() => page.evaluate(() => window.__blockedCartEvents)).toBeGreaterThan(0);
+      await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(2));
+
+      await page.locator('.sp-buy__row .btn').click();
+      await expect(page.locator('.nav__cart-badge')).toHaveText(faNum(4));
+      await expect(second.locator('.nav__cart-badge')).toHaveText(faNum(4));
+      await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('ky_shop_cart_v1')))).toEqual({
+        'dezmaye-gold-80': 2,
+        'shetab-90': 2,
+      });
+      expect(firstErrors).toEqual([]);
+      expect(secondErrors).toEqual([]);
+    } finally {
+      await second.close();
+    }
+  });
+
   test('a corrupted cart in localStorage does not blank the site @mobile', async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem('ky_shop_cart_v1', 'null');

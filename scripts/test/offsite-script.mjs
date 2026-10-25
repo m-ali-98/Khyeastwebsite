@@ -1,6 +1,6 @@
-/* The VPS may append a checksum-verified snapshot but must never hold Restic
-   credentials that can check, forget, prune, or delete repository history.
-   Those operations run from a separate trusted maintenance host. */
+/* The VPS may append a checksum-verified snapshot and remove only ephemeral
+   locks, but must never hold credentials that can check, forget, prune, or
+   delete repository history. Those operations run from a trusted host. */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -31,6 +31,10 @@ const restic = path.join(bin, 'restic');
 fs.writeFileSync(restic, `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >>"$RESTIC_TEST_LOG"
+if [[ "$1" == backup && " $* " == *" --no-lock "* ]]; then
+  printf 'upstream Restic does not honor --no-lock for backup\\n' >&2
+  exit 73
+fi
 `, { mode: 0o755 });
 
 const archive = path.join(backups, 'khyeast-20261024T120000Z.tar');
@@ -63,11 +67,24 @@ try {
   const result = run();
   const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [];
   check(result.status === 0, 'a verified local archive reaches the offsite workflow', `${result.status} ${result.stderr}`);
-  check(calls[0]?.startsWith('backup --tag khyeast-validated-archive -- '), 'Restic receives only the completed archive and checksum', calls.join(' | '));
   check(
-    calls.length === 1 && !calls.some((call) => /\b(check|forget|prune)\b/.test(call)),
-    'the VPS replication job has no repository-check or deletion operation',
+    calls[0]?.startsWith('backup --tag khyeast-validated-archive -- '),
+    'the append-only upload receives only the completed archive and checksum',
     calls.join(' | '),
+  );
+  check(
+    calls.length === 1
+      && !calls.some((call) => /\b(check|forget|prune|unlock)\b/.test(call))
+      && !calls.some((call) => /(^|\s)--no-lock(?:\s|$)/.test(call)),
+    'the VPS job has no destructive operation and does not rely on backup ignoring its repository lock',
+    calls.join(' | '),
+  );
+  const guide = fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
+  check(
+    guide.includes('One-time proof of the append-only credential')
+      && guide.includes('A mock command or an environment variable claiming “append only” is not evidence.')
+      && guide.includes('confirm that the supposedly denied probe snapshot still exists'),
+    'the runbook requires a real provider denial test and independent full-access verification',
   );
 
   fs.writeFileSync(log, '');

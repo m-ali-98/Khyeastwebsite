@@ -47,7 +47,11 @@ verify_local_archive() {
 verify_local_archive
 
 # This host intentionally performs one repository operation: append a snapshot.
-# A compromised VPS must not possess a credential capable of expiring history.
+# Upstream Restic accepts the global --no-lock flag for `backup` but does not
+# honor it: backup still creates and removes an append lock. The append-only
+# endpoint must therefore deny deletion of repository history while permitting
+# deletion only under locks/ (as rest-server --append-only does). The trusted
+# maintenance host owns check/forget/prune with its separate full credential.
 restic backup --tag "$RESTIC_TAG" -- "$archive" "$checksum"
 verify_local_archive
 

@@ -356,6 +356,30 @@ try {
     check(incomingFiles().length === 0, 'the completed held upload leaves staging empty', incomingFiles().join(', '));
   }
 
+  /* ---- a response means the next sequential upload is safe to start ----- */
+  {
+    const mp4 = mp4Fixture(11);
+    const statuses = [];
+    const stagedAtResponse = [];
+    for (let index = 0; index < 150; index += 1) {
+      const result = await send(token, mp4, `sequential-${index}.mp4`, 'video/mp4');
+      statuses.push(result.status);
+      const staged = incomingFiles();
+      if (staged.length) stagedAtResponse.push(`${index}:${staged.join(',')}`);
+      if (result.body.url) fs.rmSync(onDisk(result.body.url), { force: true });
+    }
+    check(
+      statuses.every((status) => status === 200),
+      '150 back-to-back keep-alive uploads are all admitted after the prior response',
+      statuses.map((status, index) => (status === 200 ? '' : `${index}:${status}`)).filter(Boolean).join(' '),
+    );
+    check(
+      stagedAtResponse.length === 0 && incomingFiles().length === 0,
+      'every sequential response is sent only after its staged multipart file is removed',
+      stagedAtResponse.join(' | '),
+    );
+  }
+
   /* ---- a large photo is shrunk, and the whole ladder is on disk -------- */
   {
     const src = await photo(3000, 2000);

@@ -1164,90 +1164,117 @@ app.delete('/api/uploads/unused', requireAuth, (req, res) => {
 app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), async (req, res) => {
   if (req.uploadSlot) req.uploadSlot.processing = true;
   const staged = req.file?.path;
+  let reply;
   try {
-    if (!req.file || !staged) return res.status(400).json({ error: 'no file' });
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
-    if (!kind) return res.status(415).json({ error: 'unsupported file type' });
-    if (!contentMatchesExt(await readFilePrefix(staged), ext)) {
-      return res.status(415).json({ error: 'file content does not match its extension' });
-    }
-
-    const dir = path.join(UPLOAD_DIR, `${kind}s`);
-    fs.mkdirSync(dir, { recursive: true });
-    const stem = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-
-    /* Videos never need to enter the JavaScript heap: after the signature
-       check, atomically publish the staged file on the same filesystem. */
-    if (kind === 'video') {
-      const name = `${stem}${ext}`;
-      await fs.promises.rename(staged, path.join(dir, name));
-      return res.json({
-        url: `/uploads/videos/${name}`,
-        optimised: false,
-        bytes: req.file.size,
-        originalBytes: req.file.size,
-      });
-    }
-
-    /* Sharp reads images directly from the staged path. Its decoded-pixel
-       memory remains bounded separately; the original compressed file is not
-       duplicated into a 200 MB Node Buffer. */
-    const opt = await optimizeImage(staged, ext, req.file.size);
-    if (!opt.optimised) {
-      const name = `${stem}${ext}`;
-      await fs.promises.rename(staged, path.join(dir, name));
-      return res.json({
-        url: `/uploads/images/${name}`,
-        optimised: false,
-        bytes: req.file.size,
-        originalBytes: req.file.size,
-        width: null,
-      });
-    }
-
-    /* Write the smaller copies FIRST and the master last, then hand back the
-       -w<width> name. If any write fails, remove even a partially written path
-       and atomically publish the untouched staged original instead. */
-    const written = [];
-    let name = opt.variants.length ? `${stem}-w${opt.width}.webp` : `${stem}${opt.ext}`;
-    try {
-      for (const variant of opt.variants) {
-        const file = path.join(dir, `${stem}-${variant.width}.webp`);
-        written.push(file);
-        fs.writeFileSync(file, variant.buffer);
+    /* Compute a response without publishing it yet. The one-upload slot must
+       remain held until the staged file is gone; otherwise a keep-alive client
+       can receive 200 and start its next request before this finally block has
+       released capacity. */
+    reply = await (async () => {
+      if (!req.file || !staged) return { status: 400, body: { error: 'no file' } };
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const kind = ALLOWED.image.includes(ext) ? 'image' : ALLOWED.video.includes(ext) ? 'video' : null;
+      if (!kind) return { status: 415, body: { error: 'unsupported file type' } };
+      if (!contentMatchesExt(await readFilePrefix(staged), ext)) {
+        return { status: 415, body: { error: 'file content does not match its extension' } };
       }
-      const master = path.join(dir, name);
-      written.push(master);
-      fs.writeFileSync(master, opt.buffer);
-    } catch {
-      for (const file of written) {
-        try { fs.unlinkSync(file); } catch { /* best effort */ }
-      }
-      name = `${stem}${ext}`;
-      await fs.promises.rename(staged, path.join(dir, name));
-      return res.json({
-        url: `/uploads/images/${name}`,
-        optimised: false,
-        bytes: req.file.size,
-        originalBytes: req.file.size,
-        width: null,
-      });
-    }
 
-    return res.json({
-      url: `/uploads/images/${name}`,
-      optimised: true,
-      bytes: opt.buffer.length,
-      originalBytes: opt.originalBytes,
-      width: opt.width,
-    });
+      const dir = path.join(UPLOAD_DIR, `${kind}s`);
+      fs.mkdirSync(dir, { recursive: true });
+      const stem = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+      /* Videos never need to enter the JavaScript heap: after the signature
+         check, atomically publish the staged file on the same filesystem. */
+      if (kind === 'video') {
+        const name = `${stem}${ext}`;
+        await fs.promises.rename(staged, path.join(dir, name));
+        return {
+          status: 200,
+          body: {
+            url: `/uploads/videos/${name}`,
+            optimised: false,
+            bytes: req.file.size,
+            originalBytes: req.file.size,
+          },
+        };
+      }
+
+      /* Sharp reads images directly from the staged path. Its decoded-pixel
+         memory remains bounded separately; the original compressed file is not
+         duplicated into a 200 MB Node Buffer. */
+      const opt = await optimizeImage(staged, ext, req.file.size);
+      if (!opt.optimised) {
+        const name = `${stem}${ext}`;
+        await fs.promises.rename(staged, path.join(dir, name));
+        return {
+          status: 200,
+          body: {
+            url: `/uploads/images/${name}`,
+            optimised: false,
+            bytes: req.file.size,
+            originalBytes: req.file.size,
+            width: null,
+          },
+        };
+      }
+
+      /* Write the smaller copies FIRST and the master last, then hand back the
+         -w<width> name. If any write fails, remove even a partially written path
+         and atomically publish the untouched staged original instead. */
+      const written = [];
+      let name = opt.variants.length ? `${stem}-w${opt.width}.webp` : `${stem}${opt.ext}`;
+      try {
+        for (const variant of opt.variants) {
+          const file = path.join(dir, `${stem}-${variant.width}.webp`);
+          written.push(file);
+          fs.writeFileSync(file, variant.buffer);
+        }
+        const master = path.join(dir, name);
+        written.push(master);
+        fs.writeFileSync(master, opt.buffer);
+      } catch {
+        for (const file of written) {
+          try { fs.unlinkSync(file); } catch { /* best effort */ }
+        }
+        name = `${stem}${ext}`;
+        await fs.promises.rename(staged, path.join(dir, name));
+        return {
+          status: 200,
+          body: {
+            url: `/uploads/images/${name}`,
+            optimised: false,
+            bytes: req.file.size,
+            originalBytes: req.file.size,
+            width: null,
+          },
+        };
+      }
+
+      return {
+        status: 200,
+        body: {
+          url: `/uploads/images/${name}`,
+          optimised: true,
+          bytes: opt.buffer.length,
+          originalBytes: opt.originalBytes,
+          width: opt.width,
+        },
+      };
+    })();
   } finally {
     if (staged) {
       try { await fs.promises.rm(staged, { force: true }); }
       catch (error) { console.error('[upload] could not remove incoming file:', error.message); }
     }
     req.uploadSlot?.release();
+
+    /* A response is the client's signal that it may begin another sequential
+       gallery upload. Send it only after cleanup and release are complete. If
+       processing threw, leave reply unset so Express handles that error after
+       this finally block has still released all resources. */
+    if (reply && !res.headersSent && !res.destroyed) {
+      res.status(reply.status).json(reply.body);
+    }
   }
 });
 
