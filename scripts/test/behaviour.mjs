@@ -463,6 +463,14 @@ try {
     const payload = await (await fetch(`${BASE}/api/shop-admin/sms`, { headers: auth })).json();
     return (payload.log || []).filter((row) => row.kind === 'shipped' && row.ref === ref);
   };
+  const waitForOrderLogs = async (ref, count) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const rows = await orderLogs(ref);
+      if (rows.length >= count) return rows;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return orderLogs(ref);
+  };
   const waitForShipmentLogs = async (ref, count) => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const rows = await shipmentLogs(ref);
@@ -472,8 +480,8 @@ try {
     return shipmentLogs(ref);
   };
 
-  /* The order message is enabled but must wait for verified payment. Routine
-     status edits stay quiet except for the one optional `shipped` follow-up. */
+  /* The order message is enabled but must wait for payment: gateway verification
+     online, or the first Admin-confirmed `paidAt` for an offline order. */
   const smsSettings = await fetch(`${BASE}/api/shop-admin/sms`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...auth },
@@ -520,9 +528,16 @@ try {
   const id = await orderIdFor(order.code);
 
   await setStatus(id, 'paid');
-  check((await orderLogs(order.code)).length === 0, 'a manual paid-status edit cannot impersonate successful gateway verification');
+  const paidOrderRows = await waitForOrderLogs(order.code, 1);
+  check(paidOrderRows.length === 1, 'the first Admin-confirmed offline payment sends the order SMS');
+  check(
+    paidOrderRows[0]?.text.includes(`token=${order.token}`),
+    'the offline-payment confirmation includes the private tracking link',
+  );
+  await setStatus(id, 'paid');
+  check((await orderLogs(order.code)).length === 1, 'saving the paid offline order again does not duplicate its confirmation');
   await setStatus(id, 'delivered');
-  check((await shipmentLogs(order.code)).length === 0, 'paid and delivered status changes do not send SMS');
+  check((await shipmentLogs(order.code)).length === 0, 'paid and delivered status changes do not send the shipment SMS');
   await setStatus(id, 'shipped');
   const sentRows = await waitForShipmentLogs(order.code, 1);
   check(sentRows.length === 1, 'the first transition into shipped sends one SMS', `got ${sentRows.length}`);
@@ -552,6 +567,7 @@ try {
   check((await stockOf()) === 7, 'un-cancelling an order re-reserves its stock');
   await setStatus(id, 'paid');
   check((await stockOf()) === 7, 'moving between live statuses does not touch stock');
+  check((await orderLogs(order.code)).length === 1, 'a later return to paid does not resend the offline-payment SMS');
   await setStatus(id, 'cancelled');
   check((await stockOf()) === 10, 're-cancelling returns the stock again');
   await setStatus(id, 'delivered');

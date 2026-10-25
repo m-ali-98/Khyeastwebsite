@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Khyeast Restic check and retention on a trusted maintenance host
+
+[Timer]
+OnCalendar=Sun *-*-* 05:45:00 UTC
+RandomizedDelaySec=2h
+Persistent=true
+Unit=khyeast-offsite-maintenance.service
+
+[Install]
+WantedBy=timers.target

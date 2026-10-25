@@ -39,7 +39,7 @@ HTML نوشته‌شده توسط مدیر پیش از ذخیره در سرور 
 - رزرو اتمیک موجودی و جلوگیری از oversell
 - انقضای سفارش پرداخت‌نشده پس از حدود ۳۰ دقیقه و بازگرداندن موجودی
 - دیدگاه محصول، تأیید مدیر، پاسخ و قفل دیدگاه‌ها
-- پیامک OTP و ثبت سفارش از طریق `sms.ir`، همراه با گزارش ارسال
+- پیامک OTP، تأیید سفارش پس از پرداخت و اعلان ارسال از طریق `sms.ir`، همراه با گزارش ارسال
 - پرداخت زرین‌پال، استعلام، تراکنش‌های تأییدنشده، reverse و refund
 
 همه مبالغ در دیتابیس و درخواست‌های زرین‌پال با واحد **ریال (`IRR`)** نگهداری می‌شوند.
@@ -256,7 +256,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - login و ثبت‌نام پیش از شروع scrypt ظرفیت limiter را رزرو می‌کنند؛ درخواست‌های هم‌زمان نمی‌توانند همگی پیش از ثبت نتیجه از سقف عبور کنند.
 - ارسال OTP از پاسخ HTTP جداست تا زمان پاسخ سرویس پیامک نیز oracle تشخیص حساب نباشد.
 - حالت پیش‌فرض SMS، `log` است؛ پیام واقعی ارسال نمی‌شود اما مسیر کامل در گزارش ثبت می‌شود.
-- خطای سرویس پیامک هرگز سفارش ثبت‌شده را rollback نمی‌کند.
+- پیام «سفارش ثبت شد» هنگام ایجاد سفارش پرداخت‌نشده ارسال نمی‌شود؛ برای پرداخت آنلاین پس از verification موفق درگاه و برای سفارش آفلاین فقط هنگام نخستین تأیید Admin که `paidAt` را ثبت می‌کند ارسال می‌شود.
+- خطای سرویس پیامک هرگز سفارش پرداخت‌شده را rollback نمی‌کند.
 
 ## امنیت
 
@@ -380,7 +381,7 @@ Baselineهای تصویری فعلی platform-specific هستند. `npm run test
 │   ├── sms.js              اتصال sms.ir
 │   └── data/               محتوای mutable و دیتابیس محلی
 ├── scripts/                build SEO، purge قرنطینه، پردازش تصویر و تست‌ها
-├── ops/                    backup آنلاین، unit/timerهای systemd و صفحه retry پرداخت
+├── ops/                    backup معتبر، replication append-only، maintenance و retry پرداخت
 ├── e2e/                    Playwright، axe و visual regression
 ├── vite.config.js
 └── playwright.config.js
@@ -427,7 +428,7 @@ HTTPS برای کوکی `__Host-` پنل تولید ضروری است و login �
 
 ## پشتیبان‌گیری، قرنطینه و ارتقا
 
-دادهٔ عملیاتی شامل `DATA_DIR/content.json`، snapshot معتبر SQLite و فایل‌های زندهٔ `UPLOAD_DIR` است. برای SQLite در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` بدون توقف Node ابتدا uploadها را در staging کپی می‌کند، snapshot دیتابیس و دو نسخهٔ یکسان از `content.json` را اعتبارسنجی می‌کند، یک بار دیگر uploadها را همگام می‌کند و فقط staging ثابت را archive می‌کند. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
+دادهٔ عملیاتی شامل `DATA_DIR/content.json`، snapshot معتبر SQLite و فایل‌های زندهٔ `UPLOAD_DIR` است. برای SQLite فعال در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` ابتدا فضای آزاد لازم را بررسی می‌کند و بدون توقف Node snapshot آنلاین می‌گیرد. اگر systemd تأیید کند `khyeast.service` متوقف است، فایل پایدار SQLite (و در توقف ناپاک مجموعهٔ WAL) ابتدا به staging قابل‌نوشتن کپی و همان‌جا یکپارچه و اعتبارسنجی می‌شود؛ بنابراین sandbox فقط‌خواندنی backup اضطراری را خراب نمی‌کند. دو نسخهٔ یکسان از `content.json` و دو گذر upload اعتبارسنجی می‌شوند و فقط staging ثابت archive می‌شود. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
 
 پوشهٔ زیر عمداً در backup محلی و offsite قرار نمی‌گیرد:
 
@@ -448,10 +449,10 @@ UPLOAD_DIR/.quarantine/
 3. symlink نسخه را اتمیک جابه‌جا کنید و فقط در لحظهٔ cutover سرویس را restart کنید.
 4. `server/data/` و `server/uploads/` را جایگزین یا پاک نکنید؛ state تولید باید بیرون checkout باشد.
 5. SIGTERM ابتدا پذیرش request جدید را می‌بندد و تا ۹۰ ثانیه به callbackهای فعال فرصت پایان می‌دهد؛ unit تولید باید `TimeoutStopSec=120s` داشته باشد.
-6. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان URL را خودکار دوباره بررسی کند و مشتری دوباره پرداخت نکند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
+6. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان authority را حداکثر شش بار خودکار دوباره بررسی کند و سپس با اقدام دستی متوقف شود؛ مشتری نباید دوباره پرداخت کند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
 7. health، ورود Admin و یک callback تکراری پرداخت را بررسی کنید و در صورت شکست symlink را به release قبلی برگردانید.
 
-جزئیات نصب timerها، backup آنلاین، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` و unit/timer مربوط، checksum محلی را دوباره بررسی می‌کنند، جدیدترین archive را به مخزن رمزگذاری‌شده می‌فرستند، `restic check` و retention مستقل را اجرا می‌کنند؛ اما URL و credentialهای provider باید پس از انتخاب storage فقط در `/etc/khyeast/restic.env` تنظیم شوند. یک restore واقعی را تمرین کنید.
+جزئیات نصب timerها، backup آنلاین/متوقف، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` روی VPS فقط checksum محلی را دوباره بررسی و با credential واقعاً append-only snapshot جدید را اضافه می‌کند؛ این credential نباید اجازهٔ overwrite، forget، prune یا delete داشته باشد. `restic check` و retention فقط با `ops/maintain-khyeast-restic` و credential کامل روی یک ماشین مورداعتماد جدا اجرا می‌شوند. URL و credentialهای VPS فقط در `/etc/khyeast/restic.env` می‌مانند و credential نگهداری هرگز روی VPS قرار نمی‌گیرد. یک restore واقعی را تمرین کنید.
 
 ## مجوز
 

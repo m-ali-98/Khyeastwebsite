@@ -98,6 +98,16 @@ const start = async () => {
 };
 
 try {
+  const attributes = fs.readFileSync(path.join(ROOT, '.gitattributes'), 'utf8');
+  for (const rule of ['ops/** text eol=lf', '*.sh text eol=lf', '*.service text eol=lf', '*.timer text eol=lf']) {
+    check(attributes.split(/\r?\n/).includes(rule), `.gitattributes pins LF for ${rule.split(' ')[0]}`);
+  }
+  const opsRoot = path.join(ROOT, 'ops');
+  const crlfOps = fs.readdirSync(opsRoot, { recursive: true })
+    .filter((entry) => fs.statSync(path.join(opsRoot, entry)).isFile())
+    .filter((entry) => fs.readFileSync(path.join(opsRoot, entry)).includes(Buffer.from('\r\n')));
+  check(crlfOps.length === 0, 'committed operations files contain no CRLF bytes', crlfOps.join(', '));
+
   await start();
 
   /* ---- 1. security headers ---------------------------------------------- */

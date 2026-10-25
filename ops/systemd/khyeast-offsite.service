@@ -1,5 +1,5 @@
 [Unit]
-Description=Replicate the latest validated Khyeast backup with Restic
+Description=Append the latest validated Khyeast backup with restricted Restic credentials
 Wants=network-online.target
 After=network-online.target
 ConditionPathExists=/etc/khyeast/restic.env

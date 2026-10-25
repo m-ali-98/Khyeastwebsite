@@ -148,7 +148,7 @@
   </div>
   <div class="cover-meta">
     <span>Repository: m-ali-98/Khyeastwebsite</span>
-    <span>Edition 1.0 · 24 October 2026</span>
+    <span>Edition 1.0 · 25 October 2026</span>
   </div>
 </section>
 
@@ -168,7 +168,7 @@
     <a class="toc-item" href="#ch9"><b>9</b> Configure Nginx and HTTPS<small>Reverse proxy, TLS, upload size, redirects</small></a>
     <a class="toc-item" href="#ch10"><b>10</b> Verify proxy, cookies, IP, and security<small>Real-host Admin test and trust-proxy rules</small></a>
     <a class="toc-item" href="#ch11"><b>11</b> Configure the application and go live<small>Admin, payment, SMS, stock, and launch tests</small></a>
-    <a class="toc-item" href="#ch12"><b>12</b> Back up, expire quarantine, and restore<small>Online SQLite snapshot, staging, timers, secrets</small></a>
+    <a class="toc-item" href="#ch12"><b>12</b> Back up, expire quarantine, and restore<small>Active/stopped SQLite, append-only offsite, reconciliation</small></a>
     <a class="toc-item" href="#ch13"><b>13</b> Deploy with a bounded cutover<small>Versioned releases, graceful drain, rollback</small></a>
     <a class="toc-item" href="#ch14"><b>14</b> Monitor and maintain the service<small>Logs, disk, health, certificates, alerts</small></a>
     <a class="toc-item" href="#ch15"><b>15</b> Troubleshooting guide<small>502, 426, cookies, uploads, SQLite, callbacks</small></a>
@@ -308,7 +308,8 @@ dig +short AAAA example.com</pre>
 sudo apt full-upgrade -y
 sudo apt install -y \
   git curl ca-certificates nginx certbot python3-certbot-nginx \
-  sqlite3 rsync restic build-essential python3 ufw
+  sqlite3 rsync restic build-essential python3 ufw \
+  unattended-upgrades apt-listchanges
 
 sudo timedatectl set-timezone UTC
 sudo timedatectl set-ntp true
@@ -319,6 +320,23 @@ sudo reboot</pre>
   <pre>uname -a
 timedatectl
 systemctl --failed</pre>
+
+  <h3>Install unattended security updates</h3>
+  <p>Let Debian/Ubuntu apply security updates daily, but keep reboots deliberate so payment callbacks are not interrupted without a maintenance window:</p>
+  <pre>sudo tee /etc/apt/apt.conf.d/20auto-upgrades &gt;/dev/null &lt;&lt;'APT'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+APT
+sudo tee /etc/apt/apt.conf.d/52khyeast-unattended &gt;/dev/null &lt;&lt;'APT'
+Unattended-Upgrade::Automatic-Reboot "false";
+APT
+
+sudo systemctl enable --now unattended-upgrades
+systemctl list-timers apt-daily.timer apt-daily-upgrade.timer
+sudo unattended-upgrade --dry-run --debug
+sudo test ! -e /var/run/reboot-required || cat /var/run/reboot-required.pkgs</pre>
+  <p>Monitor failed APT units and <code>/var/run/reboot-required</code>. Schedule a reviewed reboot when required; first take a validated backup and use the callback-safe maintenance procedure rather than enabling surprise automatic reboots.</p>
 
   <h3>Use a dedicated human deployment account</h3>
   <p>If your cloud image already supplied a non-root sudo user, keep it. Otherwise, from the provider console or an existing root session:</p>
@@ -622,7 +640,22 @@ server {
     listen [::]:80;
     server_name example.com www.example.com;
 
-    client_max_body_size 210m;
+    client_max_body_size 8m;
+
+    location = /api/upload {
+        client_max_body_size 210m;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:8787;
@@ -653,7 +686,7 @@ sudo systemctl reload nginx</pre>
   <p>Use a monitored operations email, accept the terms, and do not share the private key. If you use only one hostname, request only that hostname.</p>
 
   <h3>Install the payment-callback retry page</h3>
-  <p>If Node is between releases when the customer's browser returns from ZarinPal, Nginx should not show a generic 502 that encourages a second payment. This static 503 page preserves the callback URL, says not to pay again, and refreshes it every five seconds until Node can perform the idempotent verification:</p>
+  <p>If Node is between releases when the customer's browser returns from ZarinPal, Nginx should not show a generic 502 that encourages a second payment. This static 503 page preserves the callback URL, says not to pay again, retries the same authority every five seconds at most six times, then stops with a manual “check this payment” action:</p>
   <pre>sudo install -m 0644 -o root -g root \
   /srv/khyeast/current/ops/payment-callback-unavailable.html \
   /var/www/khyeast-payment-callback-unavailable.html</pre>
@@ -690,7 +723,22 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    client_max_body_size 210m;
+    client_max_body_size 8m;
+
+    location = /api/upload {
+        client_max_body_size 210m;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
 
     location = /api/shop-pay/zarinpal/callback {
         proxy_pass http://127.0.0.1:8787;
@@ -715,7 +763,7 @@ server {
         add_header Cache-Control "no-store" always;
         add_header X-Robots-Tag "noindex, nofollow" always;
         add_header Content-Security-Policy
-            "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
+            "default-src 'none'; script-src 'sha256-l7W4Ms+KjVqxIOZnBfBxRNgzDz4kx1c+N4LtdQI5l3c='; style-src 'unsafe-inline'; frame-ancestors 'none'"
             always;
     }
 
@@ -738,6 +786,7 @@ NGINX
 
 sudo nginx -t
 sudo systemctl reload nginx</pre>
+  <p>The 210 MB allowance is scoped to the exact authenticated upload endpoint. Every other route remains under the 8 MB JSON/application ceiling, so a large request cannot consume proxy resources on login, callbacks, contact, or ordinary API routes.</p>
   <div class="callout warning"><b class="label">Certificate paths</b>Certbot uses a directory named after the certificate's primary name. Confirm with <code>sudo certbot certificates</code> and adjust the paths if your certificate directory differs.</div>
 
   <h3>Why the proxy headers are exact</h3>
@@ -879,14 +928,14 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
 <section id="ch12" class="chapter">
   <span class="chapter-number">Chapter 12</span>
   <h2>Back up, expire quarantine, and restore</h2>
-  <p class="lead">Keep Node online while SQLite creates its own consistent snapshot. Stage immutable uploads around that snapshot, validate every artifact, then replicate it offsite with credentials that never enter Express.</p>
+  <p class="lead">Use SQLite's online snapshot while Node is active, and a stable staged copy when systemd confirms Node is stopped. Validate space and every artifact, then append offsite with credentials that cannot erase history.</p>
 
   <h3>What is—and is not—backup data</h3>
   <table>
     <thead><tr><th>Item</th><th>Policy</th><th>Reason</th></tr></thead>
     <tbody>
       <tr><td><code>data/content.json</code></td><td>Required; parse and structure-check</td><td>Published CMS state</td></tr>
-      <tr><td>SQLite</td><td>Required; use <code>.backup</code>, then integrity and foreign-key checks</td><td>Orders, payment attempts, stock, accounts and settings</td></tr>
+      <tr><td>SQLite</td><td>Required; active: <code>.backup</code>; stopped: stable staged copy; always run integrity and foreign-key checks</td><td>Orders, payment attempts, stock, accounts and settings</td></tr>
       <tr><td>Live <code>uploads/</code></td><td>Required; copy into staging twice</td><td>Files referenced by content and products</td></tr>
       <tr><td><code>uploads/.quarantine/</code></td><td><strong>Exclude locally and offsite</strong></td><td>30-day local recycle bin, not production state</td></tr>
       <tr><td><code>/etc/khyeast/khyeast.env</code></td><td>Separate encrypted secrets backup</td><td>Contains Admin credentials and stable secret</td></tr>
@@ -894,18 +943,19 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
   </table>
   <div class="callout warning"><b class="label">Quarantine trade-off</b>A total disk loss also loses quarantined files. That is intentional: ordinary backups must not preserve retired media indefinitely. Restore a mistaken cleanup from the local quarantine before its 30-day deadline.</div>
 
-  <h3>Why the online snapshot is conservative</h3>
+  <h3>Why active and stopped-service snapshots are conservative</h3>
   <ol class="steps">
+    <li>Measure the live payload and require room for staging, an uncompressed archive, and a 1 GiB post-estimate reserve before copying.</li>
     <li>Copy live uploads into a fresh stage, excluding <code>.quarantine</code>.</li>
     <li>Read and validate <code>content.json</code>.</li>
-    <li>Run SQLite <code>.backup</code> while WAL remains online; validate the copied database.</li>
-    <li>Read content again and retry if its bytes changed during the database snapshot.</li>
+    <li>If <code>khyeast.service</code> is active, run SQLite <code>.backup</code>. If systemd confirms it is inactive, copy the stable main file; if WAL survived an unclean stop, copy the main/WAL/SHM set and consolidate only that writable staged copy.</li>
+    <li>Run integrity and foreign-key checks on the resulting snapshot. Read content again and retry if its bytes changed.</li>
     <li>Run a second upload copy without <code>--delete</code>. This catches newly published files while retaining a conservative file that was retired during the run.</li>
-    <li>Archive only the stable stage, verify its listing, hash and flush it, then publish the final name atomically.</li>
+    <li>Archive only the stable stage, record the database snapshot mode in its manifest, verify its listing, hash and flush it, then publish the final name atomically.</li>
   </ol>
   <p>Never accept <code>tar</code> exit code 1 or an <code>rsync</code> warning as success. “File changed” or “vanished” can mean an archive is missing a referenced upload. The maintained implementation is <code>ops/backup-khyeast</code>; it creates an uncompressed tar because images and videos are already compressed.</p>
 
-  <h3>Install and test the online backup</h3>
+  <h3>Install and test active and stopped-service backup</h3>
   <pre>sudo install -d -m 0700 /var/backups/khyeast
 sudo install -m 0700 -o root -g root \
   /srv/khyeast/current/ops/backup-khyeast \
@@ -929,9 +979,29 @@ test -n "$latest"
 tar -tf "$latest" | sed -n '1,30p'
 if tar -tf "$latest" | grep -F '/.quarantine/'; then exit 1; fi
 
+<span class="comment"># Required one-time VPS test: cleanly stop the app, then prove the same</span>
+<span class="comment"># read-only backup unit takes the stable no-WAL path. The EXIT trap restarts</span>
+<span class="comment"># the app even if a check fails.</span>
+(
+  set -Eeuo pipefail
+  trap 'sudo systemctl start khyeast &gt;/dev/null 2&gt;&amp;1 || true' EXIT
+  sudo systemctl stop khyeast
+  sleep 2
+  test "$(sudo systemctl is-active khyeast 2&gt;/dev/null || true)" = inactive
+  sudo test ! -e /var/lib/khyeast/data/khyeast.db-wal
+  sudo systemctl start khyeast-backup.service
+  test "$(sudo systemctl show khyeast-backup.service -p Result --value)" = success
+  offline_latest=$(find /var/backups/khyeast -maxdepth 1 -type f -name 'khyeast-*.tar' -printf '%T@ %p\n' \
+    | sort -n | tail -1 | cut -d' ' -f2-)
+  tar -xOf "$offline_latest" khyeast/backup-manifest.json | grep -F 'offline-clean-copy'
+  sudo systemctl start khyeast
+  sudo systemctl is-active --quiet khyeast
+  trap - EXIT
+)
+
 sudo systemctl enable --now khyeast-backup.timer
 sudo systemctl list-timers khyeast-backup.timer</pre>
-  <p>The service is intentionally external and privileged only enough to read application state and write the root-only backup directory. It never stops or restarts <code>khyeast.service</code>. After publishing a valid replacement, it keeps a bounded 14-day local window; set <code>LOCAL_RETENTION_DAYS</code> in a root-only override if capacity and policy require another value. If paths differ, override <code>DATA_DIR</code>, <code>UPLOAD_DIR</code>, <code>DB_FILE</code>, <code>BACKUP_DEST</code>, and <code>RELEASE_DIR</code>; update the unit's <code>ReadOnlyPaths</code>/<code>ReadWritePaths</code> sandbox for any location outside these defaults.</p>
+  <p>The service is intentionally external and privileged only enough to inspect systemd state, read application state, and write the root-only backup directory. It never stops or restarts <code>khyeast.service</code>; the stopped-service sequence above is an explicit operator test. The source remains read-only even in offline mode because consolidation happens under <code>BACKUP_DEST</code>. After publishing a valid replacement, it keeps a bounded 14-day local window. Override <code>LOCAL_RETENTION_DAYS</code>, <code>BACKUP_MIN_FREE_BYTES</code> (default 1 GiB), or <code>APP_SERVICE</code> only in a root-owned unit override. If paths differ, override <code>DATA_DIR</code>, <code>UPLOAD_DIR</code>, <code>DB_FILE</code>, <code>BACKUP_DEST</code>, and <code>RELEASE_DIR</code>; update <code>ReadOnlyPaths</code>/<code>ReadWritePaths</code> for non-default locations.</p>
 
   <h3>Expire upload quarantine every day</h3>
   <pre>sudo install -m 0644 -o root -g root \
@@ -948,10 +1018,47 @@ sudo systemctl enable --now khyeast-quarantine-purge.timer
 sudo systemctl list-timers khyeast-quarantine-purge.timer</pre>
   <p>The command runs as <code>khyeast</code>, applies the fixed 30-day retention, and removes only timestamped batch directories. Unknown names and unexpired batches remain. On cPanel without systemd, schedule <code>npm run uploads:purge-quarantine</code> daily through Cron Jobs with the same <code>UPLOAD_DIR</code> and application user. A custom systemd upload path outside <code>/var/lib/khyeast/uploads</code> also needs a matching <code>ReadWritePaths</code> override.</p>
 
-  <div class="callout danger"><b class="label">Local copies are not enough</b>Replicate completed <code>.tar</code> and <code>.sha256</code> files to encrypted offsite storage with Restic or an equivalent tool. Keep repository credentials in a separate root-only environment file—not <code>khyeast.env</code>, the repository, Admin, or Express. Alert when either the local snapshot or offsite replication fails. Configure remote retention independently and never expire its last verified recovery points merely because a local run completed.</div>
+  <div class="callout danger"><b class="label">The VPS must not be able to erase offsite history</b>Encryption is not immutability. A compromised server can run <code>restic forget --prune</code> if its backend credential allows deletion. Give the VPS a provider-enforced append-only credential and run <code>check</code>, retention, prune and restore drills from a different trusted machine with a separate full-access credential.</div>
+  <div class="callout"><b class="label">Threat boundary</b>This design preserves earlier snapshots when the application VPS—including root and its local backup directory—is compromised. It does not survive compromise of the provider control plane, the full-access maintenance host, or every copy of the Restic password. Protect those with separate administrators, MFA, restricted network access and an offline recovery-secret copy.</div>
 
-  <h3>Connect encrypted Restic offsite storage</h3>
-  <p>Choose the provider and repository first. The repository URL and provider-specific credentials cannot be guessed by this guide. Once chosen, install the checksum-gated replication job:</p>
+  <h3>Split Restic upload from trusted maintenance</h3>
+  <p>Choose a Restic-compatible backend with a documented append-only mode (for example, an append-only REST server or an equivalent provider policy). The VPS credential may read what Restic needs for deduplication and append new repository objects, but it must not overwrite or delete established packs, indexes, snapshots, or keys. Validate that policy in a disposable repository before production. <code>RESTIC_APPEND_ONLY=true</code> is only an operator assertion and startup guard; provider-side authorization is the real control.</p>
+
+  <h4>On the separate trusted maintenance machine</h4>
+  <p>Initialize and maintain the repository here, not on the VPS. Keep its full-access backend credential and the shared Restic encryption password in the organization's secrets vault. Install the reviewed assets from a Git clone on this machine:</p>
+  <pre>sudo git clone --branch main --single-branch \
+  https://github.com/m-ali-98/Khyeastwebsite.git \
+  /srv/khyeast-maintenance-source
+sudo install -m 0700 -o root -g root \
+  /srv/khyeast-maintenance-source/ops/maintain-khyeast-restic \
+  /usr/local/sbin/maintain-khyeast-restic
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast-maintenance-source/ops/systemd/khyeast-offsite-maintenance.service \
+  /etc/systemd/system/khyeast-offsite-maintenance.service
+sudo install -m 0644 -o root -g root \
+  /srv/khyeast-maintenance-source/ops/systemd/khyeast-offsite-maintenance.timer \
+  /etc/systemd/system/khyeast-offsite-maintenance.timer
+sudo install -d -m 0700 /etc/khyeast
+sudo sh -c 'umask 077; openssl rand -hex 32 &gt;/etc/khyeast/restic-password'
+sudo install -m 0600 -o root -g root /dev/null \
+  /etc/khyeast/restic-maintenance.env
+sudoedit /etc/khyeast/restic-maintenance.env</pre>
+  <pre>RESTIC_REPOSITORY=REPLACE-WITH-THE-CHOSEN-REPOSITORY
+RESTIC_PASSWORD_FILE=/etc/khyeast/restic-password
+<span class="comment"># Add the chosen provider's FULL-ACCESS maintenance credential here.</span></pre>
+  <pre>sudo -i
+set -a
+. /etc/khyeast/restic-maintenance.env
+set +a
+<span class="comment"># For an existing repository, this must succeed:</span>
+restic snapshots
+<span class="comment"># Only if the command explicitly reported that this independently verified</span>
+<span class="comment"># target is new, initialize it in a separate deliberate step: restic init</span>
+exit
+sudo systemctl daemon-reload</pre>
+
+  <h4>On the application VPS</h4>
+  <p>Securely provision the same encryption password from the vault, but use a different append-only backend credential:</p>
   <pre>sudo install -m 0700 -o root -g root \
   /srv/khyeast/current/ops/replicate-khyeast-restic \
   /usr/local/sbin/replicate-khyeast-restic
@@ -961,47 +1068,39 @@ sudo install -m 0644 -o root -g root \
 sudo install -m 0644 -o root -g root \
   /srv/khyeast/current/ops/systemd/khyeast-offsite.timer \
   /etc/systemd/system/khyeast-offsite.timer
-
-sudo test -e /etc/khyeast/restic-password || \
-  sudo sh -c 'umask 077; openssl rand -hex 32 &gt;/etc/khyeast/restic-password'
-sudo test -e /etc/khyeast/restic.env || \
-  sudo install -m 0600 -o root -g root /dev/null /etc/khyeast/restic.env
+sudo install -m 0600 -o root -g root /dev/null /etc/khyeast/restic.env
 sudoedit /etc/khyeast/restic.env</pre>
   <pre>RESTIC_REPOSITORY=REPLACE-WITH-THE-CHOSEN-REPOSITORY
 RESTIC_PASSWORD_FILE=/etc/khyeast/restic-password
-<span class="comment"># Add only the chosen provider's required credential variables here.</span>
-<span class="comment"># Never add these values to khyeast.env or the Admin panel.</span></pre>
+RESTIC_APPEND_ONLY=true
+<span class="comment"># Add only the provider's APPEND-ONLY VPS credential here.</span>
+<span class="comment"># Never copy the maintenance credential to this host.</span></pre>
   <pre>sudo chown root:root /etc/khyeast/restic.env /etc/khyeast/restic-password
 sudo chmod 0600 /etc/khyeast/restic.env /etc/khyeast/restic-password
-
-<span class="comment"># In a temporary root shell, load the root-owned file.</span>
-sudo -i
-set -a
-. /etc/khyeast/restic.env
-set +a
-restic snapshots
-<span class="comment"># Run `restic init` only after confirming the intended target is a new, empty repository.</span>
-exit
-
 sudo systemctl daemon-reload
 sudo systemctl start khyeast-offsite.service
 sudo journalctl -u khyeast-offsite.service -n 100 --no-pager
 sudo systemctl enable --now khyeast-offsite.timer
 sudo systemctl list-timers khyeast-offsite.timer</pre>
-  <p>The replication script refuses a newest local archive older than 30 hours, re-verifies SHA-256 before any network call, uploads only the completed archive and sidecar, runs <code>restic check</code>, then applies 14 daily, 8 weekly and 12 monthly encrypted recovery points. Store the Restic password separately in the organization's secrets vault; losing the server and its only password copy makes encrypted backups unrecoverable. Never regenerate or overwrite that password after repository initialization.</p>
-  <p>Prove recovery from offsite storage on a separate restore path, not over production:</p>
+  <p>The VPS script refuses an archive older than 30 hours, verifies SHA-256 before and after upload, and invokes only <code>restic backup</code>. It contains no <code>check</code>, <code>forget</code>, <code>prune</code>, or cleanup command. On the maintenance machine, run and monitor the weekly unit; it checks the repository, applies 14 daily, 8 weekly and 12 monthly points, prunes, then checks again:</p>
+  <pre>sudo systemctl start khyeast-offsite-maintenance.service
+sudo journalctl -u khyeast-offsite-maintenance.service -n 100 --no-pager
+sudo systemctl enable --now khyeast-offsite-maintenance.timer
+sudo systemctl list-timers khyeast-offsite-maintenance.timer</pre>
+  <p>After the first VPS upload, confirm the new snapshot from the maintenance machine. A successful upload log alone is not proof of recovery:</p>
   <pre>sudo -i
 set -a
-. /etc/khyeast/restic.env
+. /etc/khyeast/restic-maintenance.env
 set +a
 restic snapshots --tag khyeast-validated-archive
+restic check
 mkdir -p /srv/restore/offsite-test
 restic restore REPLACE_WITH_SNAPSHOT_ID --target /srv/restore/offsite-test
 cd /srv/restore/offsite-test/var/backups/khyeast
 sha256sum -c khyeast-YYYYMMDDTHHMMSSZ.tar.sha256
 <span class="comment"># Continue with the archive inspection and restore drill below.</span>
 exit</pre>
-  <p>A successful upload log alone is not proof of recovery. Record the restore date, snapshot ID, checksum result, SQLite integrity result and operator.</p>
+  <p>Record the restore date, snapshot ID, checksum result, SQLite integrity result and operator. Never regenerate the encryption password after initialization, and never store the only copy on either machine.</p>
 
   <h3>Content-file recovery is fail-closed</h3>
   <p>When <code>content.json</code> is missing, unparsable, or structurally incomplete, the public API may serve shipped defaults with <code>X-Khyeast-Content-Status: fallback</code>. Admin content-authoring saves and upload cleanup return <code>503 content-unavailable</code>; a routine save cannot bury the incident by recreating defaults. Before explicit repair, preserve any bad bytes:</p>
@@ -1028,13 +1127,22 @@ curl -fsSI https://example.com/api/content | grep -i 'x-khyeast-content-status: 
     <li>Verify the SHA-256 sidecar and inspect the manifest and archive listing.</li>
     <li>Provision a compatible clean server and check out the commit recorded in <code>backup-manifest.json</code>.</li>
     <li>Stop Node only for the restore, not for routine backups.</li>
+    <li>Run and verify one final stopped-service safety backup. If damaged source data makes validation fail, preserve the entire old state directory instead of forcing an archive.</li>
     <li>Move current state aside; never immediately delete it.</li>
     <li>Extract the archive under <code>/var/lib</code>, restore the separately protected environment, correct ownership, and start.</li>
+    <li>Before reopening checkout, reconcile the restored payment-attempt ledger with ZarinPal, including its <code>unverified</code> list and all transactions since the snapshot.</li>
     <li>Test a real order, upload, Admin save, customer login and repeated payment callback.</li>
   </ol>
   <pre>(cd /secure/path &amp;&amp; sha256sum -c khyeast-YYYYMMDDTHHMMSSZ.tar.sha256)
 tar -xOf /secure/path/khyeast-YYYYMMDDTHHMMSSZ.tar khyeast/backup-manifest.json
 sudo systemctl stop khyeast
+<span class="comment"># Safety snapshot of the state about to be replaced; this now works stopped.</span>
+sudo systemctl start khyeast-backup.service
+sudo systemctl show khyeast-backup.service -p Result --value | grep -Fx success
+safety=$(find /var/backups/khyeast -maxdepth 1 -type f -name 'khyeast-*.tar' -printf '%T@ %p\n' \
+  | sort -n | tail -1 | cut -d' ' -f2-)
+(cd "$(dirname "$safety")" &amp;&amp; sha256sum -c "$(basename "$safety").sha256")
+
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 sudo test ! -e /var/lib/khyeast || \
   sudo mv /var/lib/khyeast "/var/lib/khyeast.before-restore-$stamp"
@@ -1045,6 +1153,17 @@ sudo chmod 0640 /var/lib/khyeast/data/content.json /var/lib/khyeast/data/khyeast
 test "$(sudo sqlite3 -readonly /var/lib/khyeast/data/khyeast.db 'PRAGMA integrity_check;')" = ok
 test -z "$(sudo sqlite3 -readonly /var/lib/khyeast/data/khyeast.db 'PRAGMA foreign_key_check;')"
 sudo systemctl start khyeast &amp;&amp; curl -fsS https://example.com/api/health</pre>
+
+  <h3>Reconcile payments after every data restore</h3>
+  <div class="callout danger"><b class="label">A database restore rewinds payment knowledge, not the bank</b>ZarinPal may contain successful charges made after the archive timestamp. Do not declare recovery complete or resume normal checkout merely because health is green.</div>
+  <ol class="steps">
+    <li>Read <code>createdAt</code> from the restored <code>backup-manifest.json</code> and define the reconciliation window from that time through the end of the incident.</li>
+    <li>In Admin → Payment, load ZarinPal's <strong>unverified</strong> payments. For every authority that maps to a restored pending order, use the built-in verify action; it verifies the stored amount and immutable authority before settling.</li>
+    <li>Review the gateway transaction list for the whole window and compare authority, reference, amount and status with Admin payment-attempt history. Use the preserved pre-restore state to identify orders created after the snapshot.</li>
+    <li>Do not manually mark an online order paid to hide a mismatch. A successful gateway charge with no recoverable local order mapping needs explicit financial handling; reverse or refund it according to gateway status and record the decision.</li>
+    <li>Investigate duplicate authorities and any order marked paid locally but absent at the gateway. Replaying an exact mapped callback is safe; starting another payment is not.</li>
+    <li>Record every reconciled authority, order code, action and operator, then test one settled callback refresh before reopening checkout.</li>
+  </ol>
 </section>
 
 
@@ -1055,6 +1174,7 @@ sudo systemctl start khyeast &amp;&amp; curl -fsS https://example.com/api/health
 
   <h3>What not to do</h3>
   <p>Stopping Node before dependency installation and tests creates minutes of avoidable downtime. Running those commands without stopping is also unsafe: <code>npm ci</code> removes <code>node_modules</code> and the build replaces <code>dist</code> beneath the live process. Versioned releases avoid both failures.</p>
+  <p>Deploy with <code>git clone</code>, not a Windows ZIP or files copied from a CRLF checkout. The repository's <code>.gitattributes</code> pins <code>ops/**</code>, shell scripts, systemd services and timers to LF so Git preserves executable Linux syntax even when a contributor works on Windows.</p>
 
   <h3>Prepare, validate, and switch one release</h3>
   <pre>set -Eeuo pipefail
@@ -1107,7 +1227,12 @@ git -C /srv/khyeast/current log -1 --oneline
 <span class="comment"># After health passes, publish reviewed operations templates for future runs.</span>
 sudo install -m 0700 -o root -g root ops/backup-khyeast /usr/local/sbin/backup-khyeast
 sudo install -m 0700 -o root -g root ops/replicate-khyeast-restic /usr/local/sbin/replicate-khyeast-restic
-sudo install -m 0644 -o root -g root ops/systemd/*.service ops/systemd/*.timer /etc/systemd/system/
+sudo install -m 0644 -o root -g root \
+  ops/systemd/khyeast-backup.service ops/systemd/khyeast-backup.timer \
+  ops/systemd/khyeast-offsite.service ops/systemd/khyeast-offsite.timer \
+  ops/systemd/khyeast-quarantine-purge.service ops/systemd/khyeast-quarantine-purge.timer \
+  /etc/systemd/system/
+<span class="comment"># Never install the maintenance unit or its full credentials on this VPS.</span>
 sudo systemctl daemon-reload</pre>
   <p>SIGTERM first closes the Node listener and drains active requests for up to 90 seconds before SQLite closes. A callback already being verified can therefore finish. A callback arriving during the remaining restart gap receives the dedicated Nginx 503 page and automatically retries the same authority URL instead of inviting a second payment.</p>
 
@@ -1138,7 +1263,7 @@ readlink -f /srv/khyeast/current</pre>
 
   <div class="callout">
     <b class="label">Rules for every update</b>
-    Record old and new commit IDs; verify the online snapshot and offsite replication; build outside the live release; never replace <code>/var/lib/khyeast</code>; cut over atomically; smoke-test payment and Admin; then monitor closely.
+    Record old and new commit IDs; verify the validated local snapshot and append-only offsite replication; build outside the live release; never replace <code>/var/lib/khyeast</code>; cut over atomically; smoke-test payment and Admin; then monitor closely.
   </div>
 </section>
 
@@ -1160,6 +1285,7 @@ df -i
 sudo du -sh /var/lib/khyeast/*
 sudo journalctl -u khyeast --since '24 hours ago' --no-pager
 sudo tail -n 100 /var/log/nginx/error.log</pre>
+  <p>On the separate Restic maintenance host, also monitor <code>khyeast-offsite-maintenance.timer</code>/<code>.service</code>, repository-check results, retention and restore drills. Never copy that host's full credential into VPS monitoring.</p>
 
   <h3>Recommended alerts</h3>
   <table>
@@ -1168,7 +1294,8 @@ sudo tail -n 100 /var/log/nginx/error.log</pre>
       <tr><td><code>/api/health</code></td><td>Non-200 twice in 2–5 minutes</td><td>App, database, or proxy unavailable</td></tr>
       <tr><td>Disk usage</td><td>75% warning, 85% critical</td><td>SQLite and uploads need free disk</td></tr>
       <tr><td>Certificate</td><td>Less than 21 days remaining</td><td>Renewal failure before outage</td></tr>
-      <tr><td>Backups</td><td>No validated local and offsite copy in 26 hours</td><td>Silent backup or replication failure</td></tr>
+      <tr><td>Backups</td><td>No validated local and append-only offsite copy in 26 hours</td><td>Silent backup or replication failure</td></tr>
+      <tr><td>Restic maintenance</td><td>Weekly check/prune fails or restore drill is overdue</td><td>Repository corruption or unusable recovery points</td></tr>
       <tr><td>Quarantine timer</td><td>Failed run or no run in 36 hours</td><td>Deleted media can consume disk indefinitely</td></tr>
       <tr><td>Content status</td><td>Header changes from <code>persisted</code> to <code>fallback</code></td><td>Missing/corrupt content; Admin is fail-closed</td></tr>
       <tr><td>HTTP 5xx</td><td>Rate above normal baseline</td><td>Application/proxy regression</td></tr>
@@ -1218,7 +1345,7 @@ sudo apt upgrade
       <tr><td>Login succeeds but does not persist</td><td>Secure cookie not accepted</td><td>Real HTTPS, valid certificate, final hostname, <code>__Host-ky_admin</code> flags</td></tr>
       <tr><td>All visitors have proxy IP</td><td>Missing XFF or wrong trust topology</td><td>Nginx headers and Admin Security diagnostic</td></tr>
       <tr><td>Visitor can spoof IP</td><td>Node port public or <code>TRUST_PROXY=true</code></td><td>UFW/cloud firewall; use known proxy ranges only</td></tr>
-      <tr><td>Upload returns 413</td><td>Nginx body limit below request size</td><td><code>client_max_body_size</code>; reload Nginx; app maximum is 200 MB</td></tr>
+      <tr><td>Upload returns 413</td><td>Exact <code>/api/upload</code> Nginx limit below request size</td><td>Keep 210 MB only in that location; reload Nginx; app maximum is 200 MB</td></tr>
       <tr><td>Upload returns 415</td><td>Unsupported extension or file signature mismatch</td><td>Use JPEG/PNG/WebP/GIF/AVIF or supported MP4/WebM; SVG is intentionally rejected</td></tr>
       <tr><td>SQLite readonly / EACCES</td><td>Wrong owner or path</td><td><code>namei -l /var/lib/khyeast/data/khyeast.db</code>; owner must be service user</td></tr>
       <tr><td><code>SQLITE_BUSY</code></td><td>Disk latency, flood, external file access, excess workers</td><td>Local SSD, one app process, logs, edge limits; never edit live DB directly</td></tr>
@@ -1347,9 +1474,12 @@ https://example.com/admin</pre>
     <li>Node port 8787 is not publicly reachable.</li>
     <li>Port 80 returns a permanent HTTPS redirect before Node.</li>
     <li>HTTPS certificate is valid for canonical and alias hostnames.</li>
-    <li>Nginx sends Host, X-Forwarded-For, and X-Forwarded-Proto.</li>
+    <li>Nginx sends Host, X-Forwarded-For, and X-Forwarded-Proto; 210 MB is scoped only to <code>/api/upload</code>.</li>
     <li>systemd service is enabled, uses a 120-second stop timeout, and survives reboot.</li>
-    <li>Validated online backup, encrypted offsite replication, certificate renewal, and daily quarantine purge are monitored.</li>
+    <li>Unattended security updates are enabled; reboot-required state is monitored and automatic surprise reboots are disabled.</li>
+    <li>The one-time real-host stopped-service backup test passed under the read-only sandbox.</li>
+    <li>The VPS offsite credential is provider-enforced append-only; full maintenance credentials exist only on a separate host.</li>
+    <li>Validated active/stopped backup, append-only offsite replication, separate-host Restic maintenance, certificate renewal, and daily quarantine purge are monitored.</li>
     <li>Backup archives exclude <code>uploads/.quarantine</code>.</li>
   </ul>
 
@@ -1410,7 +1540,7 @@ https://example.com/admin</pre>
     </div>
   </div>
 
-  <p class="footer-note">Project-specific guide for <code>m-ali-98/Khyeastwebsite</code>, prepared against the application architecture current on 24 October 2026. Recheck the repository README and <code>.env.example</code> after future upgrades because runtime requirements and environment variables may evolve.</p>
+  <p class="footer-note">Project-specific guide for <code>m-ali-98/Khyeastwebsite</code>, prepared against the application architecture current on 25 October 2026. Recheck the repository README and <code>.env.example</code> after future upgrades because runtime requirements and environment variables may evolve.</p>
 </section>
 
 </div>

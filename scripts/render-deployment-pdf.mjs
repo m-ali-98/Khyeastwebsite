@@ -30,7 +30,7 @@ try {
       </div>`,
     footerTemplate: `
       <div style="width:100%;padding:0 16mm;font-family:Arial,sans-serif;font-size:7.5px;color:#796d72;display:flex;justify-content:space-between;">
-        <span>m-ali-98/Khyeastwebsite · 24 Oct 2026</span>
+        <span>m-ali-98/Khyeastwebsite · 25 Oct 2026</span>
         <span><span class="pageNumber"></span> / <span class="totalPages"></span></span>
       </div>`,
   });

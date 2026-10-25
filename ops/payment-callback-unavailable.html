@@ -3,7 +3,6 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="refresh" content="5">
   <meta name="robots" content="noindex,nofollow">
   <title>در حال بررسی پرداخت</title>
   <style>
@@ -14,15 +13,53 @@
     h1 { margin: 0 0 14px; font-size: clamp(22px,5vw,30px); }
     p { margin: 10px 0; line-height: 1.9; }
     strong { color: #8e0b22; }
+    a { display: inline-block; margin-top: 14px; color: #fff; background: #a80d28; border-radius: 10px; padding: 10px 16px; text-decoration: none; font-weight: 700; }
     small { display: block; margin-top: 20px; color: #65605c; }
   </style>
 </head>
 <body>
   <main>
     <h1>در حال بررسی نتیجه پرداخت</h1>
-    <p>ارتباط با سامانه فروش برای چند لحظه در دسترس نیست. همین صفحه هر پنج ثانیه دوباره نتیجه را بررسی می‌کند.</p>
-    <p><strong>لطفاً دوباره پرداخت نکنید و این صفحه را نبندید.</strong></p>
-    <small>اگر وضعیت پس از چند دقیقه مشخص نشد، اطلاعات سفارش را برای پشتیبانی نگه دارید.</small>
+    <p>ارتباط با سامانه فروش برای چند لحظه در دسترس نیست.</p>
+    <p id="retry-status" role="status" aria-live="polite">در حال آماده‌سازی بررسی دوباره…</p>
+    <p><strong>لطفاً دوباره پرداخت نکنید.</strong></p>
+    <a id="retry-payment" href="" hidden>بررسی دوباره همین پرداخت</a>
+    <small>بررسی خودکار حداکثر شش بار انجام می‌شود. اگر وضعیت مشخص نشد، اطلاعات سفارش را برای پشتیبانی نگه دارید.</small>
   </main>
+  <script>
+(() => {
+  const limit = 6;
+  const ttl = 10 * 60 * 1000;
+  const key = `khyeast-payment-retry:${location.pathname}${location.search}`;
+  const status = document.getElementById('retry-status');
+  const retry = document.getElementById('retry-payment');
+  let stored = null;
+  let storageAvailable = true;
+  try {
+    stored = JSON.parse(sessionStorage.getItem(key) || 'null');
+  } catch {
+    storageAvailable = false;
+  }
+  const fresh = stored && Number.isInteger(stored.attempt) && stored.attempt >= 0 && Date.now() - stored.at < ttl;
+  const attempt = fresh ? stored.attempt : 0;
+  let scheduled = false;
+  if (storageAvailable && attempt < limit) {
+    const next = attempt + 1;
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ attempt: next, at: Date.now() }));
+      status.textContent = `تلاش خودکار ${next} از ${limit} تا پنج ثانیه دیگر انجام می‌شود.`;
+      window.setTimeout(() => location.reload(), 5000);
+      scheduled = true;
+    } catch {}
+  }
+  if (!scheduled) {
+    status.textContent = 'بررسی خودکار متوقف شد. پس از اطمینان از اتصال، نتیجه همین پرداخت را دستی بررسی کنید.';
+    retry.hidden = false;
+    retry.addEventListener('click', () => {
+      try { sessionStorage.removeItem(key); } catch {}
+    });
+  }
+})();
+  </script>
 </body>
 </html>

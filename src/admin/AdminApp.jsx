@@ -448,9 +448,11 @@ function AdminShell() {
     return () => document.removeEventListener('keydown', shortcut);
   }, [authed, openPalette]);
 
-  /* On tablet and mobile the navigation is a modal drawer. Keep the page from
-     moving under it, support Escape, and put keyboard focus where the user can
-     immediately continue. The desktop media query never opens this drawer. */
+  /* On tablet and mobile the navigation is a modal drawer. The rendered shell
+     also marks its header/main inert and aria-hidden while open, so pointer,
+     keyboard and assistive-technology users all stay inside the dialog. Keep
+     the page still, support Escape, and put focus where the user can continue.
+     The desktop media query never opens this drawer. */
   useEffect(() => {
     if (!navOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
@@ -459,7 +461,10 @@ function AdminShell() {
       if (event.key === 'Escape') {
         event.preventDefault();
         setNavOpen(false);
-        navToggleRef.current?.focus({ preventScroll: true });
+        /* The opener is inert until React commits the closed state. Focusing it
+           synchronously is therefore rejected by browsers; defer restoration
+           until the background has become interactive again. */
+        window.setTimeout(() => navToggleRef.current?.focus({ preventScroll: true }), 0);
         return;
       }
       if (event.key !== 'Tab') return;
@@ -524,7 +529,11 @@ function AdminShell() {
   return (
     <div className="admin">
       <div className="admin__shell">
-        <header className="admin__mobilebar">
+        <header
+          className="admin__mobilebar"
+          inert={navOpen || undefined}
+          aria-hidden={navOpen ? 'true' : undefined}
+        >
           <button
             ref={navToggleRef}
             type="button"
@@ -561,7 +570,10 @@ function AdminShell() {
           className={`admin__nav-scrim ${navOpen ? 'is-open' : ''}`}
           aria-label="بستن فهرست پنل"
           tabIndex={navOpen ? 0 : -1}
-          onClick={() => setNavOpen(false)}
+          onClick={() => {
+            setNavOpen(false);
+            window.setTimeout(() => navToggleRef.current?.focus({ preventScroll: true }), 0);
+          }}
         />
 
         <aside
@@ -586,7 +598,7 @@ function AdminShell() {
               aria-label="بستن فهرست پنل"
               onClick={() => {
                 setNavOpen(false);
-                navToggleRef.current?.focus({ preventScroll: true });
+                window.setTimeout(() => navToggleRef.current?.focus({ preventScroll: true }), 0);
               }}
             >
               <span aria-hidden="true">×</span>
@@ -658,7 +670,13 @@ function AdminShell() {
             </a>
           </footer>
         </aside>
-        <main ref={mainRef} className="admin__main" tabIndex={-1}>
+        <main
+          ref={mainRef}
+          className="admin__main"
+          tabIndex={-1}
+          inert={navOpen || undefined}
+          aria-hidden={navOpen ? 'true' : undefined}
+        >
           {!backend && (
             <div className="admin__notice admin__notice--error" role="alert">
               <Icons.shield size={19} />

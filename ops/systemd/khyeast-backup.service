@@ -1,5 +1,5 @@
 [Unit]
-Description=Create a validated online Khyeast backup
+Description=Create a validated Khyeast backup while the app is active or stopped
 After=local-fs.target
 
 [Service]

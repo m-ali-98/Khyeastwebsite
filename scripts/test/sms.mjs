@@ -240,6 +240,18 @@ const {
   };
 
   try {
+    const manualOnlineOrder = insertPendingOrder('MANUAL-ONLINE');
+    const manualPaid = await fetch(`${origin}/api/shop-admin/orders/${manualOnlineOrder.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'paid' }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check(
+      manualPaid.ok && orderLogs(manualOnlineOrder.code).length === 0,
+      'a manual paid edit on an online order cannot impersonate gateway-verified SMS confirmation',
+    );
+
     const callbackOrder = insertPendingOrder('CALLBACK');
     check(orderLogs(callbackOrder.code).length === 0, 'a pending order has no order-registered SMS');
     const callbackUrl =

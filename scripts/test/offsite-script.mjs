@@ -1,5 +1,6 @@
-/* Offsite replication must verify the local SHA-256 before invoking Restic,
-   then check the encrypted repository before pruning its retention set. */
+/* The VPS may append a checksum-verified snapshot but must never hold Restic
+   credentials that can check, forget, prune, or delete repository history.
+   Those operations run from a separate trusted maintenance host. */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -37,17 +38,25 @@ fs.writeFileSync(archive, 'validated archive bytes');
 const hash = spawnSync('sha256sum', [archive], { encoding: 'utf8' }).stdout.split(/\s+/)[0];
 fs.writeFileSync(`${archive}.sha256`, `${hash}  ${path.basename(archive)}\n`);
 
-const run = () => spawnSync('bash', [path.join(ROOT, 'ops', 'replicate-khyeast-restic')], {
+const envFor = (extra = {}) => ({
+  ...process.env,
+  PATH: `${bin}:${process.env.PATH}`,
+  BACKUP_DEST: backups,
+  RESTIC_REPOSITORY: 'test:encrypted-repository',
+  RESTIC_PASSWORD_FILE: password,
+  RESTIC_TEST_LOG: log,
+  RESTIC_APPEND_ONLY: 'true',
+  ...extra,
+});
+const run = (extra = {}) => spawnSync('bash', [path.join(ROOT, 'ops', 'replicate-khyeast-restic')], {
   cwd: ROOT,
   encoding: 'utf8',
-  env: {
-    ...process.env,
-    PATH: `${bin}:${process.env.PATH}`,
-    BACKUP_DEST: backups,
-    RESTIC_REPOSITORY: 'test:encrypted-repository',
-    RESTIC_PASSWORD_FILE: password,
-    RESTIC_TEST_LOG: log,
-  },
+  env: envFor(extra),
+});
+const maintain = () => spawnSync('bash', [path.join(ROOT, 'ops', 'maintain-khyeast-restic')], {
+  cwd: ROOT,
+  encoding: 'utf8',
+  env: envFor(),
 });
 
 try {
@@ -55,11 +64,34 @@ try {
   const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [];
   check(result.status === 0, 'a verified local archive reaches the offsite workflow', `${result.status} ${result.stderr}`);
   check(calls[0]?.startsWith('backup --tag khyeast-validated-archive -- '), 'Restic receives only the completed archive and checksum', calls.join(' | '));
-  check(calls[1] === 'check', 'repository metadata is checked after upload', calls.join(' | '));
   check(
-    calls[2]?.includes('forget') && calls[2].includes('--group-by host,tags') && calls[2].includes('--keep-daily 14') && calls[2].includes('--prune') && calls[3] === 'cache --cleanup',
-    'remote retention and the local Restic cache are pruned only after verification',
+    calls.length === 1 && !calls.some((call) => /\b(check|forget|prune)\b/.test(call)),
+    'the VPS replication job has no repository-check or deletion operation',
     calls.join(' | '),
+  );
+
+  fs.writeFileSync(log, '');
+  const unconfirmed = run({ RESTIC_APPEND_ONLY: 'false' });
+  check(
+    unconfirmed.status !== 0 && fs.readFileSync(log, 'utf8') === '',
+    'replication refuses to run until provider-side append-only access is explicitly confirmed',
+    `${unconfirmed.status} ${unconfirmed.stderr}`,
+  );
+
+  fs.writeFileSync(log, '');
+  const maintained = maintain();
+  const maintenanceCalls = fs.readFileSync(log, 'utf8').trim().split('\n');
+  check(maintained.status === 0, 'the trusted maintenance workflow completes', `${maintained.status} ${maintained.stderr}`);
+  check(
+    maintenanceCalls[0] === 'check' &&
+      maintenanceCalls[1]?.includes('forget') &&
+      maintenanceCalls[1].includes('--group-by host,tags') &&
+      maintenanceCalls[1].includes('--keep-daily 14') &&
+      maintenanceCalls[1].includes('--prune') &&
+      maintenanceCalls[2] === 'check' &&
+      maintenanceCalls[3] === 'cache --cleanup',
+    'only the separate maintenance workflow checks and prunes retention',
+    maintenanceCalls.join(' | '),
   );
 
   fs.writeFileSync(`${archive}.sha256`, `${'0'.repeat(64)}  ${path.basename(archive)}\n`);

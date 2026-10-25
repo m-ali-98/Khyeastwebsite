@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly validated online Khyeast backup
+Description=Nightly validated Khyeast backup
 
 [Timer]
 OnCalendar=*-*-* 03:15:00 UTC

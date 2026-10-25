@@ -1,0 +1,5 @@
+# Keep production operations scripts and units on Linux-safe line endings.
+ops/** text eol=lf
+*.sh text eol=lf
+*.service text eol=lf
+*.timer text eol=lf

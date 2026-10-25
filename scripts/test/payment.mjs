@@ -16,6 +16,8 @@
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+import vm from 'node:vm';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -305,9 +307,11 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     JSON.stringify(transports),
   );
 
-  const { retryablePaymentVerificationResponse } = await import(
-    pathToFileURL(path.join(ROOT, 'server', 'shop.js')).href
-  );
+  const {
+    PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT,
+    paymentVerificationRetryPlan,
+    retryablePaymentVerificationResponse,
+  } = await import(pathToFileURL(path.join(ROOT, 'server', 'shop.js')).href);
   const headers = {};
   const retry = { code: 0, type: '', body: '', released: 0, logs: 0 };
   const response = {
@@ -316,10 +320,14 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     type(value) { retry.type = value; return this; },
     send(value) { retry.body = String(value); return this; },
   };
+  const retryPlan = paymentVerificationRetryPlan(
+    '/api/shop-pay/zarinpal/callback?code=KY-1&Authority=A123&Status=OK',
+  );
   retryablePaymentVerificationResponse(response, {
     releaseReservation: () => { retry.released += 1; },
     error: new Error('simulated gateway timeout'),
     logger: { error() { retry.logs += 1; } },
+    retryPlan,
   });
   check(
     retry.code === 503 &&
@@ -329,11 +337,97 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
       headers['retry-after'] === '5' &&
       headers['cache-control']?.includes('no-store') &&
       !('location' in headers) &&
-      /http-equiv="refresh" content="5"/.test(retry.body) &&
-      !/content="5;\s*url=/i.test(retry.body) &&
+      /http-equiv="refresh" content="5;url=/.test(retry.body) &&
+      retry.body.includes('Authority=A123') &&
+      retry.body.includes('_kyVerifyRetry=1') &&
       retry.body.includes('دوباره پرداخت نکنید'),
-    'callback: an ambiguous verification transport failure releases capacity and retries the unchanged URL',
-    JSON.stringify({ retry, headers }),
+    'callback: an ambiguous verification timeout releases capacity and retries the same authority',
+    JSON.stringify({ retry, headers, retryPlan }),
+  );
+
+  const terminalHeaders = {};
+  const terminal = { code: 0, body: '' };
+  const terminalResponse = {
+    setHeader(name, value) { terminalHeaders[name.toLowerCase()] = String(value); },
+    status(code) { terminal.code = code; return this; },
+    type() { return this; },
+    send(value) { terminal.body = String(value); return this; },
+  };
+  const terminalPlan = paymentVerificationRetryPlan(
+    `/api/shop-pay/zarinpal/callback?code=KY-1&Authority=A123&Status=OK&_kyVerifyRetry=${PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT}`,
+  );
+  retryablePaymentVerificationResponse(terminalResponse, {
+    logger: { error() {} },
+    retryPlan: terminalPlan,
+  });
+  check(
+    terminal.code === 503 &&
+      !terminal.body.includes('http-equiv="refresh"') &&
+      !('retry-after' in terminalHeaders) &&
+      terminal.body.includes('بررسی خودکار') &&
+      terminal.body.includes('متوقف شد') &&
+      terminal.body.includes('بررسی دوباره همین پرداخت') &&
+      !terminalPlan.manualUrl.includes('_kyVerifyRetry'),
+    'callback: automatic verification retries stop at a finite limit and leave a manual action',
+    JSON.stringify({ terminal, terminalHeaders, terminalPlan }),
+  );
+
+  const fallbackHtml = fs.readFileSync(path.join(ROOT, 'ops', 'payment-callback-unavailable.html'), 'utf8');
+  const fallbackScript = fallbackHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  const fallbackHash = `sha256-${crypto.createHash('sha256').update(fallbackScript).digest('base64')}`;
+  const deploymentGuide = fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
+  check(
+    !fallbackHtml.includes('http-equiv="refresh"') &&
+      fallbackScript.includes('const limit = 6') &&
+      fallbackScript.includes('sessionStorage') &&
+      fallbackScript.includes('location.reload()') &&
+      fallbackHtml.includes('بررسی دوباره همین پرداخت'),
+    'callback: the Nginx outage page also bounds automatic retries and exposes a manual action',
+  );
+  const runFallbackScript = ({ stored = null, failWrite = false } = {}) => {
+    const timers = [];
+    const writes = [];
+    const status = { textContent: '' };
+    const retryLink = { hidden: true, addEventListener() {} };
+    const location = { pathname: '/api/shop-pay/zarinpal/callback', search: '?Authority=A123', reload() {} };
+    vm.runInNewContext(fallbackScript, {
+      location,
+      document: { getElementById: (id) => (id === 'retry-status' ? status : retryLink) },
+      sessionStorage: {
+        getItem: () => (stored ? JSON.stringify(stored) : null),
+        setItem: (_key, value) => {
+          if (failWrite) throw new Error('storage denied');
+          writes.push(JSON.parse(value));
+        },
+        removeItem() {},
+      },
+      window: { setTimeout: (_callback, delay) => timers.push(delay) },
+    });
+    return { timers, writes, status, retryLink };
+  };
+  const fallbackFirst = runFallbackScript();
+  check(
+    fallbackFirst.timers.join() === '5000' &&
+      fallbackFirst.writes[0]?.attempt === 1 &&
+      fallbackFirst.retryLink.hidden === true,
+    'callback: the static fallback schedules exactly one counted retry per response',
+  );
+  const fallbackTerminal = runFallbackScript({ stored: { attempt: 6, at: Date.now() } });
+  check(
+    fallbackTerminal.timers.length === 0 &&
+      fallbackTerminal.retryLink.hidden === false &&
+      fallbackTerminal.status.textContent.includes('متوقف شد'),
+    'callback: the static fallback stops after six retries',
+  );
+  const fallbackNoStorage = runFallbackScript({ failWrite: true });
+  check(
+    fallbackNoStorage.timers.length === 0 && fallbackNoStorage.retryLink.hidden === false,
+    'callback: unavailable session storage fails safe to the manual action',
+  );
+  check(
+    deploymentGuide.includes(fallbackHash),
+    'callback: the deployment CSP permits only the exact reviewed fallback script hash',
+    fallbackHash,
   );
 }
 

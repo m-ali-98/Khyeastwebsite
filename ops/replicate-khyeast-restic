@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# Replicate the newest completed local archive to an encrypted Restic
-# repository. Configure repository/provider credentials only in the root-owned
-# EnvironmentFile used by khyeast-offsite.service; never expose them to Node.
+# Append-only replication of the newest completed local archive to an encrypted
+# Restic repository. The VPS credential must be unable to forget, prune,
+# overwrite, or delete existing repository objects. Retention and repository
+# checks belong to ops/maintain-khyeast-restic on a separate trusted machine.
 set -Eeuo pipefail
 umask 077
 
 BACKUP_DEST=${BACKUP_DEST:-/var/backups/khyeast}
 RESTIC_TAG=${RESTIC_TAG:-khyeast-validated-archive}
-RESTIC_KEEP_DAILY=${RESTIC_KEEP_DAILY:-14}
-RESTIC_KEEP_WEEKLY=${RESTIC_KEEP_WEEKLY:-8}
-RESTIC_KEEP_MONTHLY=${RESTIC_KEEP_MONTHLY:-12}
 MAX_LOCAL_BACKUP_AGE_HOURS=${MAX_LOCAL_BACKUP_AGE_HOURS:-30}
 
 fail() {
@@ -22,10 +20,8 @@ for command in restic sha256sum flock find sort stat date; do
 done
 [[ -n ${RESTIC_REPOSITORY:-} ]] || fail 'RESTIC_REPOSITORY is not configured'
 [[ -n ${RESTIC_PASSWORD_FILE:-} && -r $RESTIC_PASSWORD_FILE ]] || fail 'RESTIC_PASSWORD_FILE is missing or unreadable'
-for value in "$RESTIC_KEEP_DAILY" "$RESTIC_KEEP_WEEKLY" "$RESTIC_KEEP_MONTHLY"; do
-  [[ $value =~ ^(0|[1-9][0-9]*)$ ]] || fail 'Restic retention values must be non-negative integers'
-done
-(( RESTIC_KEEP_DAILY >= 1 )) || fail 'RESTIC_KEEP_DAILY must retain at least one recovery point'
+[[ ${RESTIC_APPEND_ONLY:-} == true ]] || fail \
+  'RESTIC_APPEND_ONLY=true is required after provider-side append-only access has been verified'
 [[ $MAX_LOCAL_BACKUP_AGE_HOURS =~ ^[0-9]+$ ]] && (( MAX_LOCAL_BACKUP_AGE_HOURS >= 1 )) || fail 'MAX_LOCAL_BACKUP_AGE_HOURS must be a positive integer'
 [[ -d $BACKUP_DEST ]] || fail "local backup directory not found: $BACKUP_DEST"
 
@@ -50,18 +46,9 @@ verify_local_archive() {
 }
 verify_local_archive
 
-# Restic encrypts and authenticates repository data. Recheck local immutability
-# after transfer, then check repository metadata before applying remote policy.
+# This host intentionally performs one repository operation: append a snapshot.
+# A compromised VPS must not possess a credential capable of expiring history.
 restic backup --tag "$RESTIC_TAG" -- "$archive" "$checksum"
 verify_local_archive
-restic check
-restic forget \
-  --tag "$RESTIC_TAG" \
-  --group-by host,tags \
-  --keep-daily "$RESTIC_KEEP_DAILY" \
-  --keep-weekly "$RESTIC_KEEP_WEEKLY" \
-  --keep-monthly "$RESTIC_KEEP_MONTHLY" \
-  --prune
-restic cache --cleanup
 
-printf 'replicate-khyeast-restic: verified offsite snapshot for %s\n' "$(basename "$archive")"
+printf 'replicate-khyeast-restic: uploaded append-only snapshot for %s\n' "$(basename "$archive")"

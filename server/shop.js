@@ -78,22 +78,54 @@ export { SHOP_SEED } from './seed.js';
 const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancelled'];
 const rand = (n) => crypto.randomBytes(n).toString('hex');
 
+export const PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT = 6;
+const PAYMENT_VERIFICATION_RETRY_PARAM = '_kyVerifyRetry';
+const htmlAttribute = (value) => String(value || '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('"', '&quot;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;');
+
+/** Preserve the order code, authority and gateway status while carrying one
+ * private retry counter. Returning only path + search prevents a hostile Host
+ * or absolute-looking input from becoming an off-site refresh destination. */
+export function paymentVerificationRetryPlan(originalUrl = '/') {
+  const parsed = new URL(String(originalUrl || '/'), 'http://internal.invalid');
+  const supplied = Number.parseInt(parsed.searchParams.get(PAYMENT_VERIFICATION_RETRY_PARAM) || '0', 10);
+  const attempt = Number.isSafeInteger(supplied) && supplied >= 0 ? supplied : 0;
+  parsed.searchParams.delete(PAYMENT_VERIFICATION_RETRY_PARAM);
+  const manualUrl = `${parsed.pathname}${parsed.search}`;
+  if (attempt >= PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT) {
+    return { attempt, autoUrl: '', manualUrl };
+  }
+  parsed.searchParams.set(PAYMENT_VERIFICATION_RETRY_PARAM, String(attempt + 1));
+  return { attempt, autoUrl: `${parsed.pathname}${parsed.search}`, manualUrl };
+}
+
 /** An upstream verification timeout is ambiguous: the customer may already be
- * charged. Release callback capacity and keep the browser on the exact same URL
- * so idempotent verification can retry; never redirect this case to failure. */
+ * charged. Release callback capacity and retry the same authority a bounded
+ * number of times; never call a timeout a failed payment or refresh forever. */
 export function retryablePaymentVerificationResponse(res, {
   releaseReservation = () => {},
   error = null,
   logger = console,
+  retryPlan = { attempt: PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT, autoUrl: '', manualUrl: '/shop/account' },
 } = {}) {
   releaseReservation();
   logger.error?.('[shop] verify error:', error?.message || error || 'gateway transport failed');
-  res.setHeader('Retry-After', '5');
+  const autoRetry = Boolean(retryPlan.autoUrl) && retryPlan.attempt < PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT;
+  if (autoRetry) res.setHeader('Retry-After', '5');
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  const refresh = autoRetry
+    ? `<meta http-equiv="refresh" content="5;url=${htmlAttribute(retryPlan.autoUrl)}">`
+    : '';
+  const detail = autoRetry
+    ? `<p>تلاش خودکار ${retryPlan.attempt + 1} از ${PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT} تا پنج ثانیه دیگر انجام می‌شود.</p>`
+    : `<p>بررسی خودکار پس از ${PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT} تلاش متوقف شد. اتصال یا وضعیت سفارش را بررسی کنید و سپس فقط نتیجه همین پرداخت را دوباره بررسی کنید.</p>`;
   return res.status(503).type('html').send(`<!doctype html>
-<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5"><title>در حال بررسی پرداخت</title></head>
-<body><main><h1>در حال بررسی نتیجه پرداخت</h1><p>ارتباط با درگاه موقتاً کامل نشد. این صفحه نتیجه را دوباره بررسی می‌کند.</p><p><strong>لطفاً دوباره پرداخت نکنید و این صفحه را نبندید.</strong></p></main></body></html>`);
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${refresh}<title>در حال بررسی پرداخت</title></head>
+<body><main><h1>در حال بررسی نتیجه پرداخت</h1><p>ارتباط با درگاه موقتاً کامل نشد.</p>${detail}<p><strong>لطفاً دوباره پرداخت نکنید.</strong></p><p><a href="${htmlAttribute(retryPlan.manualUrl)}">بررسی دوباره همین پرداخت</a> · <a href="/shop/account">مشاهده سفارش‌ها</a></p></main></body></html>`);
 }
 const orderCode = () => `KY-${Date.now().toString(36).slice(-5).toUpperCase()}${rand(2).toUpperCase()}`;
 
@@ -230,9 +262,9 @@ export function createShopRouter({
       });
   }
 
-  /** Send the «order registered» message only after this request has atomically
-   * moved a gateway-verified order to `paid`. Callers deliberately exclude
-   * order creation, manual status edits and idempotent callback refreshes. */
+  /** Send the «order registered» message only after this request has confirmed
+   * payment: either an atomic gateway settlement or the first Admin-confirmed
+   * `paidAt` on an offline order. Creation and idempotent saves stay silent. */
   function dispatchPaidOrderSms(order, req) {
     const sms = smsCfg();
     if (!sms.onOrder || !order?.paidAt || !['paid', 'shipped', 'delivered'].includes(order.status)) return;
@@ -761,6 +793,7 @@ export function createShopRouter({
       return retryablePaymentVerificationResponse(res, {
         releaseReservation: () => callbackLimit.finish(false),
         error: e,
+        retryPlan: paymentVerificationRetryPlan(req.originalUrl),
       });
     }
     if (ok) {
@@ -1091,9 +1124,21 @@ export function createShopRouter({
       });
     }
 
-    /* The payment-confirmed order SMS is the first customer message. The only
-       later milestone worth another message is a real transition into `shipped` —
-       paid, delivered, cancelled, note edits, and repeated saves stay quiet. */
+    /* Online payment sends this message from the verified callback. Offline
+       payment has no callback, so the first deliberate Admin transition that
+       sets `paidAt` is its proof of payment and must provide the same tracking
+       link. A later status cycle cannot resend because `paidAt` is durable. */
+    const firstOfflinePayment = Boolean(
+      updated &&
+      order.provider === 'offline' &&
+      !order.paidAt &&
+      patch.status === 'paid' &&
+      patch.paidAt,
+    );
+    if (firstOfflinePayment) dispatchPaidOrderSms(db.getOrderById(D, order.id), req);
+
+    /* The separate status follow-up remains shipped-only. Paid, delivered,
+       cancelled, note edits, and repeated shipped saves do not trigger it. */
     const sms = smsCfg();
     if (updated && shouldSendShipmentSms(order.status, patch.status, sms)) {
       dispatchSms({

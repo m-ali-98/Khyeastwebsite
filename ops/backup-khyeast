@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Online, staged backup for the Khyeast single-host deployment.
+# Validated, staged backup for the Khyeast single-host deployment.
 #
-# SQLite's backup API supplies a transactionally consistent database while the
-# app remains online. Two upload passes around the metadata snapshot produce a
-# conservative superset without archiving the changing live tree. Quarantine
-# is intentionally excluded: it is a 30-day local recycle bin, not production
-# state or disaster-recovery data.
+# While the app is active, SQLite's backup API supplies a transactionally
+# consistent online snapshot. If systemd confirms the app is inactive, the
+# stable database (plus WAL sidecars after an unclean stop) is first copied to
+# writable staging so a read-only source mount cannot make emergency backups
+# fail. Two upload passes produce a conservative superset. Quarantine remains a
+# 30-day local recycle bin and is intentionally excluded from disaster recovery.
 set -Eeuo pipefail
 umask 077
 
@@ -16,7 +17,9 @@ UPLOAD_DIR=${UPLOAD_DIR:-$STATE_ROOT/uploads}
 DB_FILE=${DB_FILE:-$DATA_DIR/khyeast.db}
 CONTENT_FILE=${CONTENT_FILE:-$DATA_DIR/content.json}
 RELEASE_DIR=${RELEASE_DIR:-/srv/khyeast/current}
+APP_SERVICE=${APP_SERVICE:-khyeast.service}
 LOCAL_RETENTION_DAYS=${LOCAL_RETENTION_DAYS:-14}
+BACKUP_MIN_FREE_BYTES=${BACKUP_MIN_FREE_BYTES:-1073741824}
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 ARCHIVE=$DEST/khyeast-$STAMP.tar
 ARCHIVE_TMP=$DEST/.khyeast-$STAMP-$$.tar.tmp
@@ -35,10 +38,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command in sqlite3 rsync node tar sha256sum flock nice ionice cp cmp grep find install mktemp stat sync; do
+for command in sqlite3 rsync node tar sha256sum flock nice ionice cp cmp grep find install mktemp stat sync du df awk systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 [[ $LOCAL_RETENTION_DAYS =~ ^(0|[1-9][0-9]*)$ ]] || fail 'LOCAL_RETENTION_DAYS must be a non-negative integer'
+[[ $BACKUP_MIN_FREE_BYTES =~ ^(0|[1-9][0-9]*)$ ]] || fail 'BACKUP_MIN_FREE_BYTES must be a non-negative integer'
+[[ -n $APP_SERVICE && $APP_SERVICE != *$'\n'* ]] || fail 'APP_SERVICE is invalid'
 [[ -f $DB_FILE ]] || fail "database not found: $DB_FILE"
 [[ -f $CONTENT_FILE ]] || fail "content file not found: $CONTENT_FILE"
 [[ -d $UPLOAD_DIR ]] || fail "upload directory not found: $UPLOAD_DIR"
@@ -47,6 +52,21 @@ install -d -m 0700 "$DEST"
 exec 9>"$DEST/.backup.lock"
 flock -n 9 || fail 'another backup is already running'
 [[ ! -e $ARCHIVE && ! -e $CHECKSUM ]] || fail "archive already exists for timestamp $STAMP"
+
+# Staging and the uncompressed tar coexist on BACKUP_DEST, so budget roughly
+# twice the current live payload plus a fixed reserve. This is a preflight—not
+# a quota—and later write errors still fail closed without publishing a name.
+upload_bytes=$(du -sb --exclude='.quarantine' -- "$UPLOAD_DIR" | awk 'NR == 1 { print $1 }')
+[[ $upload_bytes =~ ^[0-9]+$ ]] || fail 'could not measure live upload size'
+source_bytes=$(( $(stat -c %s "$DB_FILE") + $(stat -c %s "$CONTENT_FILE") + upload_bytes ))
+for sidecar in "$DB_FILE-wal" "$DB_FILE-shm"; do
+  if [[ -f $sidecar ]]; then source_bytes=$(( source_bytes + $(stat -c %s "$sidecar") )); fi
+done
+required_free=$(( source_bytes * 2 + BACKUP_MIN_FREE_BYTES ))
+available_free=$(df -PB1 "$DEST" | awk 'NR == 2 { print $4 }')
+[[ $available_free =~ ^[0-9]+$ ]] || fail "could not read free space for $DEST"
+(( available_free >= required_free )) || fail \
+  "insufficient free space on backup filesystem: need ${required_free} bytes, have ${available_free}"
 
 STAGE=$(mktemp -d "$DEST/.stage-$STAMP.XXXXXX")
 install -d -m 0700 "$STAGE/khyeast/data" "$STAGE/khyeast/uploads"
@@ -85,12 +105,25 @@ NODE
 # while deleting a file named by the metadata snapshot would break a restore.
 rsync -a --exclude='/.quarantine/' -- "$UPLOAD_DIR/" "$STAGE/khyeast/uploads/"
 
+app_service_state() {
+  local state
+  state=$(systemctl is-active "$APP_SERVICE" 2>/dev/null || true)
+  case "$state" in
+    active|activating|reloading) printf 'active\n' ;;
+    inactive|failed) printf 'inactive\n' ;;
+    deactivating) printf 'transitioning\n' ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
 snapshot_ok=0
+database_snapshot_mode=
 for attempt in 1 2 3; do
   before=$STAGE/content.before.json
   after=$STAGE/content.after.json
   database=$STAGE/khyeast.db.pending
-  rm -f -- "$before" "$after" "$database"
+  offline_source=$STAGE/offline-db-source
+  rm -rf -- "$before" "$after" "$database" "$offline_source"
 
   if ! cp -- "$CONTENT_FILE" "$before" || ! validate_content "$before"; then
     printf 'backup-khyeast: content snapshot attempt %s was unreadable; retrying\n' "$attempt" >&2
@@ -98,13 +131,67 @@ for attempt in 1 2 3; do
     continue
   fi
 
-  if ! sqlite3 -readonly "$DB_FILE" <<SQL
+  database_copied=0
+  candidate_mode=
+  service_state=$(app_service_state)
+  if [[ $service_state == active ]]; then
+    if sqlite3 -readonly "$DB_FILE" <<SQL
 .bail on
 .timeout 10000
 .backup '$database'
 SQL
-  then
-    printf 'backup-khyeast: SQLite backup attempt %s failed; retrying\n' "$attempt" >&2
+    then
+      database_copied=1
+      candidate_mode=online-sqlite-backup
+    fi
+  elif [[ $service_state == inactive ]]; then
+    # The read-only systemd sandbox prevents SQLite from creating journal
+    # sidecars beside a clean, stopped database. Copy the stable source first;
+    # if a WAL survived an unclean stop, consolidate that copied set in staging.
+    install -d -m 0700 "$offline_source"
+    for suffix in '' '-wal' '-shm'; do
+      source_file=$DB_FILE$suffix
+      if [[ -f $source_file ]]; then
+        install -m 0600 -- "$source_file" "$offline_source/khyeast.db$suffix"
+      fi
+    done
+
+    stable_offline=1
+    [[ $(app_service_state) == inactive ]] || stable_offline=0
+    for suffix in '' '-wal' '-shm'; do
+      source_file=$DB_FILE$suffix
+      copied_file=$offline_source/khyeast.db$suffix
+      if [[ -f $source_file || -f $copied_file ]]; then
+        if [[ ! -f $source_file || ! -f $copied_file ]] || ! cmp -s -- "$source_file" "$copied_file"; then
+          stable_offline=0
+        fi
+      fi
+    done
+
+    if [[ $stable_offline -eq 1 ]]; then
+      if [[ -f $offline_source/khyeast.db-wal ]]; then
+        if sqlite3 "$offline_source/khyeast.db" <<SQL
+.bail on
+.timeout 10000
+.backup '$database'
+SQL
+        then
+          database_copied=1
+          candidate_mode=offline-wal-copy
+        fi
+      elif cp -- "$offline_source/khyeast.db" "$database"; then
+        database_copied=1
+        candidate_mode=offline-clean-copy
+      fi
+    fi
+  elif [[ $service_state == transitioning ]]; then
+    printf 'backup-khyeast: %s is stopping; retrying a stable snapshot\n' "$APP_SERVICE" >&2
+  else
+    fail "cannot determine whether $APP_SERVICE is active; refusing an unsafe database copy"
+  fi
+
+  if [[ $database_copied -ne 1 ]]; then
+    printf 'backup-khyeast: SQLite backup attempt %s failed in %s service state; retrying\n' "$attempt" "$service_state" >&2
     sleep 1
     continue
   fi
@@ -131,6 +218,7 @@ SQL
   mv -- "$after" "$STAGE/khyeast/data/content.json"
   mv -- "$database" "$STAGE/khyeast/data/khyeast.db"
   rm -f -- "$before"
+  database_snapshot_mode=$candidate_mode
   snapshot_ok=1
   break
 done
@@ -147,14 +235,15 @@ if [[ -e $RELEASE_DIR/.git ]]; then
 fi
 content_sha=$(sha256sum "$STAGE/khyeast/data/content.json" | awk '{print $1}')
 database_sha=$(sha256sum "$STAGE/khyeast/data/khyeast.db" | awk '{print $1}')
-node - "$STAGE/khyeast/backup-manifest.json" "$STAMP" "$commit" "$content_sha" "$database_sha" <<'NODE'
+node - "$STAGE/khyeast/backup-manifest.json" "$STAMP" "$commit" "$content_sha" "$database_sha" "$database_snapshot_mode" <<'NODE'
 const fs = require('node:fs');
-const [file, createdAt, commit, contentSha256, databaseSha256] = process.argv.slice(2);
+const [file, createdAt, commit, contentSha256, databaseSha256, databaseSnapshotMode] = process.argv.slice(2);
 fs.writeFileSync(file, JSON.stringify({
   format: 1,
   createdAt,
   commit,
-  online: true,
+  online: databaseSnapshotMode === 'online-sqlite-backup',
+  databaseSnapshotMode,
   quarantineExcluded: true,
   contentSha256,
   databaseSha256,

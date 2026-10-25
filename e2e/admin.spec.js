@@ -605,17 +605,30 @@ test('the admin shell uses an accessible drawer on a narrow screen @mobile', asy
   await loginAdmin(page);
 
   const toggle = page.getByRole('button', { name: 'باز کردن فهرست پنل' });
+  const toggleElement = page.locator('.admin__menu-toggle');
+  const mobilebar = page.locator('.admin__mobilebar');
+  const main = page.locator('.admin__main');
   const side = page.locator('.admin__side');
   await expect(toggle).toBeVisible();
   await expect(side).not.toBeVisible();
   await expect(page.locator('.admin__mobile-current')).toContainText('محصولات');
 
   await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggleElement).toHaveAttribute('aria-expanded', 'true');
   await expect(side).toBeVisible();
+  await expect(side).toHaveAttribute('role', 'dialog');
+  await expect(side).toHaveAttribute('aria-modal', 'true');
+  await expect(mobilebar).toHaveAttribute('inert', '');
+  await expect(mobilebar).toHaveAttribute('aria-hidden', 'true');
+  await expect(main).toHaveAttribute('inert', '');
+  await expect(main).toHaveAttribute('aria-hidden', 'true');
 
   await page.keyboard.press('Escape');
   await expect(side).not.toBeVisible();
+  await expect(mobilebar).not.toHaveAttribute('inert', '');
+  await expect(mobilebar).not.toHaveAttribute('aria-hidden', 'true');
+  await expect(main).not.toHaveAttribute('inert', '');
+  await expect(main).not.toHaveAttribute('aria-hidden', 'true');
   await expect(toggle).toBeFocused();
 
   const labels = [
