@@ -464,7 +464,7 @@ export const MEDIA = {
 };
 
 export const LINKS = {
-  'sales.tel': 'tel:02122582977',
+  'sales.tel': 'tel:+982122582977',
   'sales.whatsapp': 'https://wa.me/989912214091',
   'sales.telegram': 'https://t.me/+989912214091',
   'social.facebook': 'https://www.facebook.com/khuzestannyeast/',
@@ -492,8 +492,8 @@ export const COLLECTIONS = {
       title: 'دفتر مرکزی (تهران)',
       address: 'تهران، پاسداران، خیابان اسلامی، خیابان مومن‌نژاد (گلستان یکم)، پلاک ۵۵',
       phones: [
-        { fa: '۰۲۱-۲۲۵۷۸۲۴۲', tel: '02122578242' },
-        { fa: '۰۲۱-۲۲۵۸۲۹۷۷', tel: '02122582977' },
+        { fa: '۰۲۱-۲۲۵۷۸۲۴۲', tel: '+982122578242' },
+        { fa: '۰۲۱-۲۲۵۸۲۹۷۷', tel: '+982122582977' },
       ],
     },
     {
@@ -501,14 +501,14 @@ export const COLLECTIONS = {
       icon: 'factory',
       title: 'کارخانه خمیر مایه خوزستان (دزفول)',
       address: 'استان خوزستان، کیلومتر ۱۲ جاده دزفول به شوشتر، شهرک صنعتی شماره یک',
-      phones: [{ fa: '۰۶۱-۴۲۴۴۴۴۴۱', tel: '06142444441' }],
+      phones: [{ fa: '۰۶۱-۴۲۴۴۴۴۴۱', tel: '+986142444441' }],
     },
     {
       id: 'kermanshah',
       icon: 'factory',
       title: 'کارخانه خمیر مایه برتر (کرمانشاه)',
       address: 'استان کرمانشاه، شهرک صنعتی فرامان، فاز توسعه بیوتکنولوژی غذایی',
-      phones: [{ fa: '۰۸۳-۳۴۲۷۷۰۰۰', tel: '08334277000' }],
+      phones: [{ fa: '۰۸۳-۳۴۲۷۷۰۰۰', tel: '+988334277000' }],
     },
   ],
   homeStats: [

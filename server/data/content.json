@@ -203,7 +203,7 @@
     "contact.hero.img": "/assets/img/hero-wheat.webp"
   },
   "links": {
-    "sales.tel": "tel:02122582977",
+    "sales.tel": "tel:+982122582977",
     "sales.whatsapp": "https://wa.me/989912214091",
     "sales.telegram": "https://t.me/+989912214091",
     "social.facebook": "https://www.facebook.com/khuzestannyeast/",
@@ -249,11 +249,11 @@
         "phones": [
           {
             "fa": "۰۲۱-۲۲۵۷۸۲۴۲",
-            "tel": "02122578242"
+            "tel": "+982122578242"
           },
           {
             "fa": "۰۲۱-۲۲۵۸۲۹۷۷",
-            "tel": "02122582977"
+            "tel": "+982122582977"
           }
         ]
       },
@@ -265,7 +265,7 @@
         "phones": [
           {
             "fa": "۰۶۱-۴۲۴۴۴۴۴۱",
-            "tel": "06142444441"
+            "tel": "+986142444441"
           }
         ]
       },
@@ -277,7 +277,7 @@
         "phones": [
           {
             "fa": "۰۸۳-۳۴۲۷۷۰۰۰",
-            "tel": "08334277000"
+            "tel": "+988334277000"
           }
         ]
       }

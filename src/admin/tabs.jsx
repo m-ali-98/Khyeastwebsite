@@ -1018,7 +1018,7 @@ export function ContactTab() {
                 <input
                   value={ph.tel}
                   dir="ltr"
-                  placeholder="tel: 021..."
+                  placeholder="+9821..."
                   onChange={(e) => setOffice(o.id, { phones: o.phones.map((x, idx) => (idx === i ? { ...x, tel: e.target.value } : x)) })}
                   style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '9px 12px', fontSize: 13.5 }}
                 />

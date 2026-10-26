@@ -199,6 +199,29 @@ test('the header, footer and logo render on every locale @mobile', async ({ page
   }
 });
 
+test('contact phone numbers use local Persian and international EN/AR formats @mobile', async ({ page }) => {
+  const cases = [
+    ['/contact', '۰۲۱-۲۲۵۷۸۲۴۲'],
+    ['/en/contact', '+98 21 2257 8242'],
+    ['/ar/contact', '+٩٨ ٢١ ٢٢٥٧ ٨٢٤٢'],
+  ];
+  for (const [url, firstNumber] of cases) {
+    await gotoReady(page, url);
+    const phones = page.locator('.contact-directory .contact-card__links a[href^="tel:"]');
+    await expect(phones).toHaveCount(4);
+    await expect(phones.first()).toHaveAttribute('href', 'tel:+982122578242');
+    await expect(phones.first().locator('bdi')).toHaveText(firstNumber);
+    await expect(phones.first().locator('bdi')).toHaveAttribute('dir', 'ltr');
+    const hrefs = await phones.evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+    expect(hrefs.every((href) => /^tel:\+98\d{10}$/.test(href))).toBe(true);
+    if (url !== '/contact') {
+      const labels = await phones.locator('bdi').allTextContents();
+      expect(labels.join('')).not.toMatch(/[۰-۹]/);
+      expect(labels.every((label) => label.startsWith(url.startsWith('/ar') ? '+٩٨ ' : '+98 '))).toBe(true);
+    }
+  }
+});
+
 test('html lang and dir follow the locale @mobile', async ({ page }) => {
   const cases = [
     ['/', 'fa', 'rtl'],
