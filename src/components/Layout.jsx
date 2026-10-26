@@ -191,7 +191,7 @@ function Navbar() {
               </a>
               <a className="nav__topbar-phone" href={l('sales.tel')}>
                 <Icons.phone size={15} />
-                {t('global.sales.phone.fa')}
+                <bdi dir="ltr">{t('global.sales.phone.fa')}</bdi>
               </a>
               <LangSwitch />
               <ThemeToggle />
@@ -447,7 +447,7 @@ function Footer() {
               <li>
                 <a href={l('sales.tel')}>
                   <Icons.phone size={15} />
-                  {t('footer.sales')} {t('global.sales.phone.fa')}
+                  <span>{t('footer.sales')} <bdi dir="ltr">{t('global.sales.phone.fa')}</bdi></span>
                 </a>
               </li>
               <li style={{ lineHeight: 1.9 }}>

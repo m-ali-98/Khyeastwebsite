@@ -192,6 +192,10 @@ test('the header, footer and logo render on every locale @mobile', async ({ page
     await gotoReady(page, base);
     await expect(page.locator('nav.nav .nav__logo svg, nav.nav .nav__logo img')).toBeVisible();
     await expect(page.locator('footer')).toBeVisible();
+    /* Phone digits must keep their natural 021→… order inside Persian and
+       Arabic RTL chrome rather than being reordered by the bidi algorithm. */
+    await expect(page.locator('.nav__topbar-phone bdi')).toHaveAttribute('dir', 'ltr');
+    await expect(page.locator('footer a[href^="tel:"] bdi')).toHaveAttribute('dir', 'ltr');
   }
 });
 

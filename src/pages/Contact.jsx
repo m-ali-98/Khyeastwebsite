@@ -17,7 +17,7 @@ function OfficeCard({ office, index }) {
           {(office.phones || []).map((ph) => (
             <a key={ph.tel} href={`tel:${ph.tel}`}>
               <Icons.phone size={14} />
-              {ph.fa}
+              <bdi dir="ltr">{ph.fa}</bdi>
             </a>
           ))}
         </p>
