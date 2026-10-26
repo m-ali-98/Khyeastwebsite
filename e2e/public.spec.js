@@ -203,7 +203,7 @@ test('contact phone numbers use local Persian and international EN/AR formats @m
   const cases = [
     ['/contact', '۰۲۱-۲۲۵۷۸۲۴۲'],
     ['/en/contact', '+98 21 2257 8242'],
-    ['/ar/contact', '+٩٨ ٢١ ٢٢٥٧ ٨٢٤٢'],
+    ['/ar/contact', '+٩٨٢١٢٢٥٧٨٢٤٢'],
   ];
   for (const [url, firstNumber] of cases) {
     await gotoReady(page, url);
@@ -217,7 +217,8 @@ test('contact phone numbers use local Persian and international EN/AR formats @m
     if (url !== '/contact') {
       const labels = await phones.locator('bdi').allTextContents();
       expect(labels.join('')).not.toMatch(/[۰-۹]/);
-      expect(labels.every((label) => label.startsWith(url.startsWith('/ar') ? '+٩٨ ' : '+98 '))).toBe(true);
+      expect(labels.every((label) => label.startsWith(url.startsWith('/ar') ? '+٩٨' : '+98 '))).toBe(true);
+      if (url.startsWith('/ar')) expect(labels.every((label) => /^\+٩٨[٠-٩]{10}$/.test(label))).toBe(true);
     }
   }
 });

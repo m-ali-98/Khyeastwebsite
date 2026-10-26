@@ -32,6 +32,8 @@ export function internationalPhoneDisplay(value, locale = 'en') {
   const groups = national.startsWith('9')
     ? [national.slice(0, 3), national.slice(3, 6), national.slice(6)]
     : [national.slice(0, 2), national.slice(2, 6), national.slice(6)];
-  const display = `+98 ${groups.join(' ')}`;
-  return locale === 'ar' ? toArabicDigits(display) : display;
+  /* Keep Arabic numbers as one uninterrupted bidi sequence: spaces split the
+     number into directional runs and can move the leading plus in RTL UI. */
+  if (locale === 'ar') return toArabicDigits(`+98${national}`);
+  return `+98 ${groups.join(' ')}`;
 }
