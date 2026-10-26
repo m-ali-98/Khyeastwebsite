@@ -12,7 +12,7 @@ export const TEXTS = {
   'global.slogan': 'من قلب القمح؛ إلى أول شريحة خبز',
   'global.slogan.en': 'From the heart of wheat; to the first slice of bread',
   'global.email': 'info@khuzestanyeast-co.com',
-  'global.sales.phone.fa': '‎+٩٨ ٢١ ٢٢٥٨ ٢٩٧٧',
+  'global.sales.phone.fa': '+٩٨٢١٢٢٥٨٢٩٧٧',
   'seo.home.title': 'خميرة خوزستان | مُصنّع الخميرة الجافة الفورية',
 
   /* ---------- home ---------- */

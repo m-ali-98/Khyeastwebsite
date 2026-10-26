@@ -188,14 +188,24 @@ test('about mission labels are localized rather than embedded Persian @mobile', 
 });
 
 test('the header, footer and logo render on every locale @mobile', async ({ page }) => {
-  for (const base of ['/', '/en', '/ar']) {
+  const cases = [
+    ['/', '۰۲۱-۲۲۵۸۲۹۷۷'],
+    ['/en', '+98 21 2258 2977'],
+    ['/ar', '+٩٨٢١٢٢٥٨٢٩٧٧'],
+  ];
+  for (const [base, phone] of cases) {
     await gotoReady(page, base);
     await expect(page.locator('nav.nav .nav__logo svg, nav.nav .nav__logo img')).toBeVisible();
     await expect(page.locator('footer')).toBeVisible();
-    /* Phone digits must keep their natural 021→… order inside Persian and
-       Arabic RTL chrome rather than being reordered by the bidi algorithm. */
-    await expect(page.locator('.nav__topbar-phone bdi')).toHaveAttribute('dir', 'ltr');
-    await expect(page.locator('footer a[href^="tel:"] bdi')).toHaveAttribute('dir', 'ltr');
+    /* Phone digits must remain one natural LTR run inside RTL chrome. */
+    const headerPhone = page.locator('.nav__topbar-phone');
+    const footerPhone = page.locator('footer a[href^="tel:"]');
+    await expect(headerPhone).toHaveAttribute('href', 'tel:+982122582977');
+    await expect(footerPhone).toHaveAttribute('href', 'tel:+982122582977');
+    await expect(headerPhone.locator('bdi')).toHaveAttribute('dir', 'ltr');
+    await expect(footerPhone.locator('bdi')).toHaveAttribute('dir', 'ltr');
+    await expect(headerPhone.locator('bdi')).toHaveText(phone);
+    await expect(footerPhone.locator('bdi')).toHaveText(phone);
   }
 });
 
