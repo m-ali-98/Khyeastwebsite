@@ -5,11 +5,21 @@ import { Icons, Reveal, PageHero, faNum, faId } from '../components/ui';
 import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useShop, orderTokenSave } from '../shop/ShopContext';
+import CartAvailabilityNotice from '../shop/CartAvailabilityNotice';
 import { useAccount } from '../shop/AccountContext';
 
 export default function ShopCheckout() {
   const { t } = useContent();
-  const { rows, subtotal, shipping, total, money, clear, paymentProvider } = useShop();
+  const {
+    rows,
+    subtotal,
+    shipping,
+    total,
+    money,
+    clear,
+    paymentProvider,
+    refreshCartAvailability,
+  } = useShop();
   const account = useAccount();
   const navigate = useNavigate();
 
@@ -42,11 +52,20 @@ export default function ShopCheckout() {
 
     setBusy(true);
     try {
+      /* Route navigation already revalidates content, but inventory can move
+         while this form remains open. Recheck immediately before posting and
+         use rows from that exact response rather than this render's closure. */
+      const current = await refreshCartAvailability();
+      if (current.changed || !current.rows.length) {
+        navigate('/shop/cart', { replace: true });
+        return;
+      }
+
       const res = await fetch('/api/shop-public/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: rows.map((r) => ({ slug: r.product.slug, qty: r.qty })),
+          items: current.rows.map((r) => ({ slug: r.product.slug, qty: r.qty })),
           /* The address is identified, not re-typed: the server copies the
              saved one into the order, so what ships is what the customer
              saw and chose. */
@@ -59,6 +78,23 @@ export default function ShopCheckout() {
           navigate('/shop/login?next=/shop/checkout');
           return;
         }
+
+        /* The server's atomic reservation remains authoritative. A product can
+           sell out after the preflight response and before this POST. On that
+           race, fetch inventory again so affected lines are explained and
+           repaired instead of leaving the customer at a generic dead end. */
+        if (res.status === 409 || res.status === 400) {
+          try {
+            const afterConflict = await refreshCartAvailability();
+            if (afterConflict.changed || !afterConflict.rows.length) {
+              navigate('/shop/cart', { replace: true });
+              return;
+            }
+          } catch {
+            // Preserve the order response below if the explanatory refresh fails.
+          }
+        }
+
         const msg =
           res.status === 409
             ? t('shop.checkout.errStock')
@@ -97,6 +133,7 @@ export default function ShopCheckout() {
     return (
       <section className="section">
         <div className="container">
+          <CartAvailabilityNotice />
           <Reveal className="cart-empty">
             <span className="ico">
               <Icons.cart size={40} />
@@ -118,6 +155,7 @@ export default function ShopCheckout() {
 
       <section className="section">
         <div className="container">
+          <CartAvailabilityNotice />
           <div className="checkout-grid">
             <Reveal>
               <form className="checkout-form" onSubmit={submit}>

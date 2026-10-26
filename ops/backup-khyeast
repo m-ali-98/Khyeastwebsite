@@ -6,7 +6,8 @@
 # stable database (plus WAL sidecars after an unclean stop) is first copied to
 # writable staging so a read-only source mount cannot make emergency backups
 # fail. Two upload passes produce a conservative superset. Quarantine remains a
-# 30-day local recycle bin and is intentionally excluded from disaster recovery.
+# 30-day local recycle bin, and multipart .incoming files are transient; both
+# are intentionally excluded from disaster recovery.
 set -Eeuo pipefail
 umask 077
 
@@ -56,7 +57,7 @@ flock -n 9 || fail 'another backup is already running'
 # Staging and the uncompressed tar coexist on BACKUP_DEST, so budget roughly
 # twice the current live payload plus a fixed reserve. This is a preflight—not
 # a quota—and later write errors still fail closed without publishing a name.
-upload_bytes=$(du -sb --exclude='.quarantine' -- "$UPLOAD_DIR" | awk 'NR == 1 { print $1 }')
+upload_bytes=$(du -sb --exclude='.quarantine' --exclude='.incoming' -- "$UPLOAD_DIR" | awk 'NR == 1 { print $1 }')
 [[ $upload_bytes =~ ^[0-9]+$ ]] || fail 'could not measure live upload size'
 source_bytes=$(( $(stat -c %s "$DB_FILE") + $(stat -c %s "$CONTENT_FILE") + upload_bytes ))
 for sidecar in "$DB_FILE-wal" "$DB_FILE-shm"; do
@@ -101,9 +102,10 @@ NODE
 }
 
 # First pass captures files that could be unreferenced and moved to quarantine
-# after this point. Never use --delete: a conservative extra file is harmless,
-# while deleting a file named by the metadata snapshot would break a restore.
-rsync -a --exclude='/.quarantine/' -- "$UPLOAD_DIR/" "$STAGE/khyeast/uploads/"
+# after this point. In-progress multipart bodies are never recovery data.
+# Never use --delete: a conservative extra live file is harmless, while deleting
+# a file named by the metadata snapshot would break a restore.
+rsync -a --exclude='/.quarantine/' --exclude='/.incoming/' -- "$UPLOAD_DIR/" "$STAGE/khyeast/uploads/"
 
 app_service_state() {
   local state
@@ -225,9 +227,10 @@ done
 [[ $snapshot_ok -eq 1 ]] || fail 'could not obtain a stable content/database snapshot after three attempts'
 
 # Second pass captures uploads completed while content and SQLite were copied.
-# Any rsync warning is a failed backup, not a successful-but-incomplete archive.
-rsync -a --exclude='/.quarantine/' -- "$UPLOAD_DIR/" "$STAGE/khyeast/uploads/"
+# Any rsync warning is a failed backup, not a partial success.
+rsync -a --exclude='/.quarantine/' --exclude='/.incoming/' -- "$UPLOAD_DIR/" "$STAGE/khyeast/uploads/"
 [[ ! -e $STAGE/khyeast/uploads/.quarantine ]] || fail 'quarantine exclusion failed'
+[[ ! -e $STAGE/khyeast/uploads/.incoming ]] || fail 'incoming-upload exclusion failed'
 
 commit=unknown
 if [[ -e $RELEASE_DIR/.git ]]; then
@@ -245,6 +248,7 @@ fs.writeFileSync(file, JSON.stringify({
   online: databaseSnapshotMode === 'online-sqlite-backup',
   databaseSnapshotMode,
   quarantineExcluded: true,
+  incomingUploadsExcluded: true,
   contentSha256,
   databaseSha256,
 }, null, 2), { mode: 0o600 });
@@ -260,6 +264,7 @@ grep -Fxq 'khyeast/data/content.json' "$list" || fail 'archive is missing conten
 grep -Fxq 'khyeast/data/khyeast.db' "$list" || fail 'archive is missing the SQLite snapshot'
 grep -Fxq 'khyeast/backup-manifest.json' "$list" || fail 'archive is missing its manifest'
 if grep -Fq '/.quarantine/' "$list"; then fail 'archive unexpectedly contains quarantine'; fi
+if grep -Fq '/.incoming/' "$list"; then fail 'archive unexpectedly contains in-progress uploads'; fi
 
 archive_hash=$(sha256sum "$ARCHIVE_TMP" | awk '{print $1}')
 printf '%s  %s\n' "$archive_hash" "$(basename "$ARCHIVE")" >"$CHECKSUM_TMP"

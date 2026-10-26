@@ -26,7 +26,7 @@
 - سفارش‌ها، مشتریان، موجودی، پرداخت و پیامک
 - تنظیمات محدودیت نرخ و تشخیص IP پشت پراکسی
 
-HTML نوشته‌شده توسط مدیر پیش از ذخیره در سرور پاک‌سازی می‌شود. فایل‌های بارگذاری‌شده با امضای واقعی فایل بررسی می‌شوند؛ SVG پذیرفته نمی‌شود و تصاویر، در صورت در دسترس‌بودن Sharp، به WebP و اندازه‌های واکنش‌گرا تبدیل می‌شوند.
+HTML نوشته‌شده توسط مدیر پیش از ذخیره در سرور پاک‌سازی می‌شود. فایل‌های بارگذاری‌شده به‌جای Buffer حافظه، ابتدا به‌صورت stream در `UPLOAD_DIR/.incoming` نوشته می‌شوند؛ هر process فقط یک upload را هم‌زمان می‌پذیرد، امضای واقعی فایل از روی چند بایت نخست بررسی می‌شود، SVG پذیرفته نمی‌شود و تصاویر، در صورت در دسترس‌بودن Sharp، مستقیماً از فایل staging به WebP و اندازه‌های واکنش‌گرا تبدیل می‌شوند.
 
 ### فروشگاه و حساب مشتری
 
@@ -159,7 +159,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | --- | --- |
 | `PORT` | `8787`؛ در cPanel معمولاً خود میزبان تعیین می‌کند |
 | `DATA_DIR` | `server/data` |
-| `UPLOAD_DIR` | `server/uploads` |
+| `UPLOAD_DIR` | `server/uploads`؛ فایل‌های multipart موقت در زیرپوشهٔ خصوصی `.incoming` همین filesystem قرار می‌گیرند |
 | `DB_FILE` | `<DATA_DIR>/khyeast.db` |
 | `TRUSTED_HOSTS` | allowlist میزبان‌ها و aliasهای معتبر کنار `PUBLIC_ORIGIN` |
 | `TRUST_PROXY` | پیش‌فرض امن: `loopback, linklocal, uniquelocal` |
@@ -430,13 +430,14 @@ HTTPS برای کوکی `__Host-` پنل تولید ضروری است و login �
 
 دادهٔ عملیاتی شامل `DATA_DIR/content.json`، snapshot معتبر SQLite و فایل‌های زندهٔ `UPLOAD_DIR` است. برای SQLite فعال در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` ابتدا فضای آزاد لازم را بررسی می‌کند و بدون توقف Node snapshot آنلاین می‌گیرد. اگر systemd تأیید کند `khyeast.service` متوقف است، فایل پایدار SQLite (و در توقف ناپاک مجموعهٔ WAL) ابتدا به staging قابل‌نوشتن کپی و همان‌جا یکپارچه و اعتبارسنجی می‌شود؛ بنابراین sandbox فقط‌خواندنی backup اضطراری را خراب نمی‌کند. دو نسخهٔ یکسان از `content.json` و دو گذر upload اعتبارسنجی می‌شوند و فقط staging ثابت archive می‌شود. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
 
-پوشهٔ زیر عمداً در backup محلی و offsite قرار نمی‌گیرد:
+پوشه‌های زیر عمداً در backup محلی و offsite قرار نمی‌گیرند:
 
 ```text
-UPLOAD_DIR/.quarantine/
+UPLOAD_DIR/.quarantine/  # recycle bin محلی
+UPLOAD_DIR/.incoming/    # بدنهٔ موقت و هنوز منتشرنشدهٔ multipart
 ```
 
-قرنطینه recycle bin محلی ۳۰روزه است، نه دادهٔ production یا disaster recovery؛ بنابراین خرابی کامل دیسک، فایل‌های قرنطینه‌شده را نیز از بین می‌برد. این حذف عمدی مانع نگهداری نامحدود فایل‌های حذف‌شده در backupها می‌شود. `npm run uploads:purge-quarantine` فقط batchهای timestampدارِ منقضی را پاک می‌کند و باید روزانه با timer مستقل systemd (templateهای `ops/systemd/`) یا cron میزبان اجرا شود. نام‌های ناشناخته دست‌نخورده باقی می‌مانند.
+ویدیو و تصویرِ بدون بهینه‌سازی پس از موفقیت با rename اتمیک از `.incoming` منتشر می‌شوند؛ Sharp تصویر بهینه را مستقیماً از staging می‌خواند و master را پس از variantها می‌نویسد. پاسخ upload فقط پس از پاک‌شدن staging و آزادشدن slot تک‌پردازشی ارسال می‌شود، بنابراین انتخاب چند عکسِ پشت‌سرهم پاسخ 503 کاذب نمی‌گیرد. فایل موقت در همهٔ مسیرهای خطا پاک می‌شود و باقی‌ماندهٔ crash قدیمی‌تر از ۲۴ ساعت نیز هنگام startup و سپس هر ساعت purge می‌شود. قرنطینه recycle bin محلی ۳۰روزه است، نه دادهٔ production یا disaster recovery؛ بنابراین خرابی کامل دیسک، فایل‌های قرنطینه‌شده را نیز از بین می‌برد. این حذف عمدی مانع نگهداری نامحدود فایل‌های حذف‌شده در backupها می‌شود. `npm run uploads:purge-quarantine` فقط batchهای timestampدارِ منقضی را پاک می‌کند و باید روزانه با timer مستقل systemd (templateهای `ops/systemd/`) یا cron میزبان اجرا شود. نام‌های ناشناخته دست‌نخورده باقی می‌مانند.
 
 پیش از نخستین استفاده از «فایل‌های استفاده‌نشده» در پنل یک backup تأییدشده بگیرید. فایل انتخاب‌شده فوراً حذف نمی‌شود؛ از مسیر عمومی به `.quarantine/` منتقل می‌شود، ساختار `images/` یا `videos/` و manifest بازیابی را نگه می‌دارد و حداقل ۳۰ روز قابل بازگردانی است. برای بازیابی، پیش از پایان این مهلت فایل را با همان نام به زیرپوشهٔ اصلی برگردانید و مالکیت service account را حفظ کنید.
 
@@ -452,7 +453,7 @@ UPLOAD_DIR/.quarantine/
 6. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان authority را حداکثر شش بار خودکار دوباره بررسی کند و سپس با اقدام دستی متوقف شود؛ مشتری نباید دوباره پرداخت کند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
 7. health، ورود Admin و یک callback تکراری پرداخت را بررسی کنید و در صورت شکست symlink را به release قبلی برگردانید.
 
-جزئیات نصب timerها، backup آنلاین/متوقف، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` روی VPS فقط checksum محلی را دوباره بررسی و با credential واقعاً append-only snapshot جدید را اضافه می‌کند؛ این credential نباید اجازهٔ overwrite، forget، prune یا delete داشته باشد. `restic check` و retention فقط با `ops/maintain-khyeast-restic` و credential کامل روی یک ماشین مورداعتماد جدا اجرا می‌شوند. URL و credentialهای VPS فقط در `/etc/khyeast/restic.env` می‌مانند و credential نگهداری هرگز روی VPS قرار نمی‌گیرد. یک restore واقعی را تمرین کنید.
+جزئیات نصب timerها، backup آنلاین/متوقف، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` روی VPS فقط checksum محلی را دوباره بررسی و snapshot جدید را اضافه می‌کند. Restic upstream گزینهٔ سراسری `--no-lock` را برای `backup` می‌پذیرد ولی اجرا نمی‌کند ([issue #1544](https://github.com/restic/restic/issues/1544))؛ backup همچنان lock می‌سازد و در پایان حذف می‌کند. بنابراین endpoint محدود باید حذف history را منع کند ولی فقط حذف `locks/*` را مجاز بداند (مانند `rest-server --append-only`). اگر provider چنین scopeی ندارد، credential آن را مستقیم به Restic ندهید و یک endpoint واقعاً append-only سازگار با lock جلوی آن قرار دهید. پیش از production، همان credential محدود را یک بار روی مخزن disposable آزمایش کنید: backup عادی باید همراه cleanup lock موفق و `forget` باید ناموفق باشد؛ سپس با credential کامل ماشین نگهداری تأیید کنید snapshot آزمایشی هنوز وجود دارد، قابل restore است و lock باقیمانده‌ای ندارد. `RESTIC_APPEND_ONLY=true` و تست mock جای این آزمون provider-side را نمی‌گیرند. `restic check` و retention فقط با `ops/maintain-khyeast-restic` و credential کامل روی یک ماشین مورداعتماد جدا اجرا می‌شوند. URL و credentialهای VPS فقط در `/etc/khyeast/restic.env` می‌مانند و credential نگهداری هرگز روی VPS قرار نمی‌گیرد. یک restore واقعی را تمرین کنید.
 
 ## مجوز
 

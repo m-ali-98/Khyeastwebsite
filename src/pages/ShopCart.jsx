@@ -3,6 +3,7 @@ import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, faNum } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
+import CartAvailabilityNotice from '../shop/CartAvailabilityNotice';
 import { QtyStepper } from '../shop/parts';
 import { imgProps, SIZES } from '../lib/img';
 
@@ -19,6 +20,7 @@ export default function ShopCart() {
 
       <section className="section">
         <div className="container">
+          <CartAvailabilityNotice />
           {rows.length === 0 ? (
             <Reveal className="cart-empty">
               <span className="ico">
@@ -64,7 +66,7 @@ export default function ShopCart() {
                           <QtyStepper
                             value={r.qty}
                             onChange={(v) => setQty(r.product.slug, v)}
-                            max={Number(r.product.stock) > 0 ? Number(r.product.stock) : 999}
+                            max={r.limit}
                             min={0}
                           />
                         </div>

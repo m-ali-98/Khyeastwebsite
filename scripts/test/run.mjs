@@ -203,7 +203,7 @@ console.log('\nPersistence lifecycle — authoritative files and active requests
 for (const [file, label] of [
   ['json-file.mjs', 'atomic JSON replacement'],
   ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
-  ['backup-script.mjs', 'validated staged backup and quarantine exclusion'],
+  ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],
 ]) {
   const name = file.replace('.mjs', '');
@@ -324,6 +324,19 @@ console.log('\nProduct images — legacy media, ordered galleries and SQLite per
   const ok = !crashed && Boolean(m) && m[1] === m[2];
   record(ok, 'product-images', (leaks.join('; ') || err).slice(0, 300));
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} gallery compatibility and persistence checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
+console.log('\nCart availability — persisted lines follow the live catalogue');
+{
+  const { stdout, crashed, err } = await suite('cart-availability.mjs', 10000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'cart-availability', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} deletion, deactivation and stock-change checks`);
   leaks.forEach((entry) => console.log('       ' + entry));
   if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
 }

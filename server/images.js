@@ -14,11 +14,11 @@
 
      1. It never fails the request. Every path that cannot produce a better
         file — sharp missing, an animated GIF, a corrupt or exotic image, an
-        encode that came out larger than the original — returns the original
-        bytes with `optimised: false`, and the caller stores those instead.
-     2. It is pure. It reads and writes no files and knows nothing about
-        Express; it takes a Buffer and returns Buffers. That is what makes
-        scripts/test/images.mjs able to cover the awkward cases directly.
+        encode that came out larger than the original — returns
+        `optimised: false`, and the caller stores the untouched source instead.
+     2. It never writes or removes files and knows nothing about Express. It
+        accepts either a Buffer in unit tests or a staged file path in the
+        server, so large compressed uploads do not need a second heap copy.
      3. The name is the contract. The caller may only use the -w<width>.webp
         name after every buffer in the set is safely on disk, so the suffix
         the browser reads can never promise a file that is missing.
@@ -61,11 +61,12 @@ export async function optimiserAvailable() {
 const isAnimated = (meta) => Number(meta?.pages) > 1;
 
 /**
- * @param {Buffer} buf   the uploaded bytes, already validated by the caller
+ * @param {Buffer|string} source validated bytes or an absolute staged path
  * @param {string} ext   the (lowercased, dot-prefixed) original extension
+ * @param {number} [sourceBytes] size of a path source; ignored for Buffers
  * @returns {Promise<{
  *   optimised: boolean,
- *   buffer: Buffer,          // what to store as the master
+ *   buffer: Buffer|null,     // optimized master, or original Buffer in tests
  *   ext: string,             // the extension that master must be given
  *   width: number|null,      // intrinsic width of the master, when known
  *   variants: {width:number, buffer:Buffer}[],
@@ -73,24 +74,27 @@ const isAnimated = (meta) => Number(meta?.pages) > 1;
  *   originalBytes: number,
  * }>}
  */
-export async function optimizeImage(buf, ext) {
+export async function optimizeImage(source, ext, sourceBytes = 0) {
+  const bufferInput = Buffer.isBuffer(source);
+  const pathInput = typeof source === 'string' && source.length > 0;
+  const originalBytes = bufferInput ? source.length : Number(sourceBytes) || 0;
   const untouched = (reason) => ({
     optimised: false,
-    buffer: buf,
+    buffer: bufferInput ? source : null,
     ext,
     width: null,
     variants: [],
     reason,
-    originalBytes: buf?.length || 0,
+    originalBytes,
   });
 
-  if (!Buffer.isBuffer(buf) || buf.length === 0) return untouched('empty');
+  if ((!bufferInput && !pathInput) || originalBytes <= 0) return untouched('empty');
 
   const sharp = await loadSharp();
   if (!sharp) return untouched('sharp unavailable');
 
   try {
-    const open = () => sharp(buf, { limitInputPixels: MAX_PIXELS, failOn: 'error' });
+    const open = () => sharp(source, { limitInputPixels: MAX_PIXELS, failOn: 'error' });
 
     const meta = await open().metadata();
     if (!meta?.width || !meta?.height) return untouched('unreadable');
@@ -108,7 +112,7 @@ export async function optimizeImage(buf, ext) {
 
     /* An already-small, already-efficient file can come out bigger. Storing
        that would make the site slower in the name of making it faster. */
-    if (master.length >= buf.length && meta.width <= UPLOAD_MAX_WIDTH) {
+    if (master.length >= originalBytes && meta.width <= UPLOAD_MAX_WIDTH) {
       return untouched('already small');
     }
 
@@ -131,7 +135,7 @@ export async function optimizeImage(buf, ext) {
       width: realWidth,
       variants,
       reason: 'ok',
-      originalBytes: buf.length,
+      originalBytes,
     };
   } catch (err) {
     /* Corrupt, truncated, an unsupported colour space, a format this build of

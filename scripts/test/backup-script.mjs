@@ -30,6 +30,7 @@ fs.mkdirSync(bin, { recursive: true });
 fs.mkdirSync(data, { recursive: true });
 fs.mkdirSync(path.join(uploads, 'images'), { recursive: true });
 fs.mkdirSync(path.join(uploads, '.quarantine', '1000000000000-old', 'images'), { recursive: true });
+fs.mkdirSync(path.join(uploads, '.incoming'), { recursive: true });
 
 const executable = (name, body) => {
   const file = path.join(bin, name);
@@ -69,7 +70,8 @@ source=\${@: -2:1}
 destination=\${@: -1}
 mkdir -p -- "$destination"
 cp -a -- "$source"/. "$destination"/
-rm -rf -- "$destination/.quarantine"
+if [[ " $* " == *" --exclude=/.quarantine/ "* ]]; then rm -rf -- "$destination/.quarantine"; fi
+if [[ " $* " == *" --exclude=/.incoming/ "* ]]; then rm -rf -- "$destination/.incoming"; fi
 `);
 
 const content = {
@@ -79,6 +81,7 @@ fs.writeFileSync(path.join(data, 'content.json'), JSON.stringify(content));
 fs.writeFileSync(path.join(data, 'khyeast.db'), 'test sqlite snapshot bytes');
 fs.writeFileSync(path.join(uploads, 'images', 'live.webp'), 'live');
 fs.writeFileSync(path.join(uploads, '.quarantine', '1000000000000-old', 'images', 'retired.webp'), 'retired');
+fs.writeFileSync(path.join(uploads, '.incoming', 'upload-staged.part'), 'partial multipart body');
 fs.mkdirSync(destination, { recursive: true });
 const expiredArchive = path.join(destination, 'khyeast-20000101T000000Z.tar');
 fs.writeFileSync(expiredArchive, 'expired');
@@ -127,13 +130,21 @@ try {
     'the archive contains validated content, SQLite and live uploads',
     listing.stderr,
   );
-  check(!listing.stdout.includes('.quarantine') && !listing.stdout.includes('retired.webp'), 'backup archives deliberately exclude quarantine');
+  check(
+    !listing.stdout.includes('.quarantine') &&
+      !listing.stdout.includes('retired.webp') &&
+      !listing.stdout.includes('.incoming') &&
+      !listing.stdout.includes('upload-staged.part'),
+    'backup archives deliberately exclude quarantine and in-progress uploads',
+  );
   const checksum = spawnSync('sha256sum', ['-c', `${archives[0]}.sha256`], { cwd: destination, encoding: 'utf8' });
   check(checksum.status === 0, 'the published SHA-256 sidecar verifies', checksum.stderr);
   const onlineManifestResult = spawnSync('tar', ['-xOf', archive, 'khyeast/backup-manifest.json'], { encoding: 'utf8' });
   const onlineManifest = JSON.parse(onlineManifestResult.stdout || '{}');
   check(
-    onlineManifest.online === true && onlineManifest.databaseSnapshotMode === 'online-sqlite-backup',
+    onlineManifest.online === true &&
+      onlineManifest.databaseSnapshotMode === 'online-sqlite-backup' &&
+      onlineManifest.incomingUploadsExcluded === true,
     'the manifest records an online SQLite snapshot',
     onlineManifestResult.stdout,
   );
