@@ -62,7 +62,7 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
 
   const labels = [
     'محصولات', 'وبلاگ', 'فروشگاه — محصولات', 'سفارش‌ها', 'دیدگاه‌ها',
-    'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'متون سایت',
+    'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'گالری', 'متون سایت',
     'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
   ];
   for (const label of labels) {
@@ -71,6 +71,75 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
     await expect(page.locator('.admin__panel h1').first()).not.toBeEmpty();
   }
   expect(errors, 'console errors while touring the panel').toEqual([]);
+});
+
+test('gallery manager publishes ordered media and locale-specific modal copy', async ({ page }) => {
+  const original = await (await page.request.get('/api/content')).json();
+  await loginAdmin(page);
+
+  try {
+    await adminTab(page, 'گالری').first().click();
+    const manager = page.getByTestId('admin-gallery-manager');
+    await expect(manager).toBeVisible();
+    const initialCount = await manager.getByTestId('admin-gallery-item').count();
+
+    await manager.getByRole('button', { name: 'افزودن ویدئو' }).click();
+    const videoDraft = manager.getByTestId('admin-gallery-item').last();
+    await expect(videoDraft.getByText('تصویر کاور ویدئو')).toBeVisible();
+    await expect(videoDraft.getByRole('button', { name: 'بارگذاری کاور' })).toBeVisible();
+    await videoDraft.getByRole('button', { name: 'حذف رسانه' }).click();
+
+    await manager.getByRole('button', { name: 'افزودن تصویر' }).click();
+    const item = manager.getByTestId('admin-gallery-item').last();
+    const source = item.locator('.admin-gallery__field', { hasText: 'نشانی تصویر' }).locator('input[dir="ltr"]');
+    const caption = item.locator('.admin-gallery__field', { hasText: 'عنوان روی کارت' }).locator('input');
+    const description = item.locator('.admin-gallery__field', { hasText: 'متن زیر رسانه' }).locator('textarea');
+    await source.fill('https://untrusted.example/gallery.jpg');
+    await caption.fill('قاب تازه کارخانه');
+    await description.fill('متن تکمیلی فارسی برای پنجره بزرگ گالری.');
+    await manager.getByRole('button', { name: 'ذخیره و انتشار گالری' }).click();
+    await expect(manager.locator('.admin-gallery__notice.is-error')).toContainText('نشانی رسانه معتبر نیست');
+
+    await source.fill('/assets/img/factory.webp');
+    await item.getByRole('button', { name: 'انتقال به بالا' }).click();
+    const saveResponse = page.waitForResponse((response) => response.url().endsWith('/api/content') && response.request().method() === 'PUT');
+    await manager.getByRole('button', { name: 'ذخیره و انتشار گالری' }).click();
+    expect((await saveResponse).status()).toBe(200);
+    await expect(manager.locator('.admin-gallery__notice.is-success')).toBeVisible();
+    await expect(manager.getByTestId('admin-gallery-item')).toHaveCount(initialCount + 1);
+    const saved = await (await page.request.get('/api/content')).json();
+    expect(saved.gallery[initialCount - 1].caption).toBe('قاب تازه کارخانه');
+
+    await gotoReady(page, '/gallery');
+    const published = page.locator('.gallery-card', { hasText: 'قاب تازه کارخانه' });
+    await expect(published).toBeVisible();
+    await published.click();
+    await expect(page.getByRole('dialog')).toContainText('متن تکمیلی فارسی برای پنجره بزرگ گالری.');
+    await page.keyboard.press('Escape');
+
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.admin__side')).toBeVisible();
+    await adminTab(page, 'گالری').first().click();
+    await page.locator('.admin__langbtns').getByRole('button', { name: 'English' }).click();
+    const translations = page.getByTestId('admin-gallery-translations');
+    await expect(translations).toBeVisible();
+    const translatedItem = translations.locator('.admin-gallery__translation', { hasText: 'قاب تازه کارخانه' });
+    await translatedItem.locator('input').fill('A new view of the factory');
+    await translatedItem.locator('textarea').fill('Additional English copy shown beneath the enlarged gallery image.');
+    const transResponse = page.waitForResponse((response) => response.url().endsWith('/api/content') && response.request().method() === 'PUT');
+    await translations.getByRole('button', { name: 'ذخیره ترجمه‌های گالری' }).click();
+    expect((await transResponse).status()).toBe(200);
+    await expect(translations.locator('.admin-gallery__notice.is-success')).toBeVisible();
+
+    await gotoReady(page, '/en/gallery');
+    const englishCard = page.locator('.gallery-card', { hasText: 'A new view of the factory' });
+    await expect(englishCard).toBeVisible();
+    await englishCard.click();
+    await expect(page.getByRole('dialog')).toContainText('Additional English copy shown beneath the enlarged gallery image.');
+  } finally {
+    const restore = await page.request.put('/api/content', { data: original });
+    expect(restore.status(), 'gallery test restored the original content snapshot').toBe(200);
+  }
 });
 
 test('fallback content makes only content-authoring tabs read-only', async ({ page }, testInfo) => {
@@ -633,7 +702,7 @@ test('the admin shell uses an accessible drawer on a narrow screen @mobile', asy
 
   const labels = [
     'محصولات', 'وبلاگ', 'فروشگاه — محصولات', 'سفارش‌ها', 'دیدگاه‌ها',
-    'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'متون سایت',
+    'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'گالری', 'متون سایت',
     'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
   ];
   for (const label of labels) {

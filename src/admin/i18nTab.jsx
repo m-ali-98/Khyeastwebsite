@@ -33,6 +33,7 @@ const GROUPS = [
   ['export', 'صادرات'],
   ['quality', 'کیفیت'],
   ['blog', 'وبلاگ'],
+  ['gallery', 'گالری'],
   ['contact', 'تماس'],
   ['footer', 'فوتر'],
 ];

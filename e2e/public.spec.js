@@ -22,6 +22,7 @@ const ROUTES = [
   ['/export', 'main'],
   ['/quality', 'main'],
   ['/blog', 'main'],
+  ['/gallery', '.gallery-grid'],
   ['/contact', 'form'],
   ['/shop', '.sp-card, .shop-card, main'],
   ['/shop/dezmaye-gold-80', '.sp-buy'],
@@ -33,9 +34,11 @@ const ROUTES = [
   ['/en', 'main'],
   ['/en/about', 'main'],
   ['/en/products', '.product-card'],
+  ['/en/gallery', '.gallery-grid'],
   ['/en/contact', 'form'],
   ['/ar', 'main'],
   ['/ar/products', '.product-card'],
+  ['/ar/gallery', '.gallery-grid'],
   ['/nonexistent-page', 'main'],
 ];
 
@@ -63,6 +66,83 @@ test.describe('public routes', () => {
         : errors;
       expect(unexpectedErrors, `console errors on ${route}`).toEqual([]);
     });
+  }
+});
+
+test('gallery paginates nine at a time and its lightbox is keyboard-accessible @mobile', async ({ page }) => {
+  await page.route('**/api/content', async (route) => {
+    const response = await route.fetch();
+    const content = await response.json();
+    const image = content.gallery?.[0] || {
+      type: 'image',
+      src: '/assets/img/factory.webp',
+      poster: '',
+      caption: 'تصویر کارخانه',
+      description: 'توضیحات کارخانه',
+    };
+    content.gallery = Array.from({ length: 10 }, (_, index) => ({
+      ...image,
+      id: `gallery-e2e-${index + 1}`,
+      type: index === 0 ? 'video' : 'image',
+      src: index === 0 ? '/uploads/videos/gallery-e2e.mp4' : image.src,
+      poster: index === 0 ? '/assets/img/factory.webp' : '',
+      caption: `رسانه آزمایشی ${index + 1}`,
+      description: `متن تکمیلی رسانه ${index + 1}`,
+    }));
+    await route.fulfill({ response, json: content });
+  });
+  await page.route('**/uploads/videos/gallery-e2e.mp4', (route) => route.fulfill({
+    status: 200,
+    contentType: 'video/mp4',
+    body: Buffer.from(''),
+  }));
+
+  await gotoReady(page, '/gallery');
+  const cards = page.locator('.gallery-card');
+  await expect(cards).toHaveCount(9);
+  await expect(page.locator('.gallery-card__caption strong')).toHaveCount(9);
+  await expect(page.locator('.gallery-pagination [aria-current="page"]')).toHaveText('۱');
+
+  const videoOpener = cards.first();
+  await videoOpener.focus();
+  await videoOpener.click();
+  const dialog = page.getByRole('dialog', { name: 'نمایش رسانه گالری' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('video')).toHaveAttribute('controls', '');
+  await expect(dialog.locator('video')).toHaveAttribute('poster', '/assets/img/factory.webp');
+  await expect(dialog).toContainText('متن تکمیلی رسانه 1');
+  await expect(page.locator('#root')).toHaveAttribute('aria-hidden', 'true');
+  await expect.poll(() => page.locator('#root').evaluate((root) => root.inert)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe('hidden');
+
+  await page.keyboard.press('ArrowLeft');
+  await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('رسانه آزمایشی 2');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(videoOpener).toBeFocused();
+  await expect(page.locator('#root')).not.toHaveAttribute('aria-hidden', 'true');
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe('');
+
+  await page.getByRole('button', { name: 'صفحه ۲' }).click();
+  await expect(page).toHaveURL(/\/gallery\?page=2$/);
+  await expect(cards).toHaveCount(1);
+  await expect(page.locator('.gallery-pagination [aria-current="page"]')).toHaveText('۲');
+  await expect(cards).toContainText('رسانه آزمایشی 10');
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/gallery$/);
+  await expect(cards).toHaveCount(9);
+  await expect(page.locator('.gallery-pagination [aria-current="page"]')).toHaveText('۱');
+});
+
+test('gallery captions are localized in all three public languages @mobile', async ({ page }) => {
+  for (const [url, caption] of [
+    ['/gallery', 'قلب تولید در دزفول'],
+    ['/en/gallery', 'The heart of production in Dezful'],
+    ['/ar/gallery', 'قلب الإنتاج في دزفول'],
+  ]) {
+    await gotoReady(page, url);
+    await expect(page.locator('.gallery-card__caption strong').first()).toHaveText(caption);
   }
 });
 
@@ -111,6 +191,7 @@ test('the cleaned inner pages keep their primary layout inside narrow screens @m
     ['/export', '.export-story__panel'],
     ['/quality', '.quality-lab__layout'],
     ['/blog', '.featured-post'],
+    ['/gallery', '.gallery-grid'],
     ['/contact', '.contact-layout'],
     ['/products/dezmaye-gold-80', '.catalog-detail__layout'],
     ['/shop/dezmaye-gold-80', '.shop-product-page .sp-detail'],
@@ -305,6 +386,28 @@ test('About groups company overview and quality while Export stays directly reac
     await expect(submenu).toBeHidden();
     await expect(trigger).toBeFocused();
   }
+});
+
+test('Gallery is a localized top-level link in desktop and mobile navigation @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  for (const [url, prefix, label] of [
+    ['/', '', 'گالری'],
+    ['/en', '/en', 'Gallery'],
+    ['/ar', '/ar', 'المعرض'],
+  ]) {
+    await gotoReady(page, url);
+    const link = page.locator(`.nav__links > a[href="${prefix}/gallery"]`);
+    await expect(link).toHaveText(label);
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoReady(page, '/');
+  await page.getByRole('button', { name: 'منوی سایت' }).click();
+  const mobileLink = page.locator('#mobile-navigation .m-link[href="/gallery"]');
+  await expect(mobileLink).toHaveText('گالری');
+  await mobileLink.click();
+  await expect(page).toHaveURL(/\/gallery$/);
+  await expect(page.locator('#mobile-navigation')).toHaveCount(0);
 });
 
 test('Contact is the crimson header action rather than a primary navigation link', async ({ page }) => {

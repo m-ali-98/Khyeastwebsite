@@ -205,6 +205,26 @@ export const TEXTS = {
   'contact.form.errSend': 'تعذر إرسال الرسالة؛ يرجى المحاولة مجددًا أو الاتصال بنا هاتفيًا.',
   'form.errRateLimited': 'عدد الطلبات من هذا الاتصال كبير جدًا؛ يرجى الانتظار بضع دقائق ثم المحاولة مرة أخرى.',
 
+  /* ---------- gallery ---------- */
+  'gallery.hero.title': 'معرض خميرة خوزستان',
+  'gallery.hero.sub': 'حكاية بصرية عن مصنعنا ومختبرنا ومنتجاتنا ورحلة خميرة خوزستان إلى الأسواق العالمية.',
+  'gallery.eyebrow': 'في إطار خميرة خوزستان',
+  'gallery.title': 'مشاهد من [[الجودة والإنتاج والثقة]]',
+  'gallery.intro': 'اختاروا أي إطار لعرض الصورة بحجم أكبر أو تشغيل الفيديو.',
+  'gallery.empty.title': 'يجري إعداد المعرض',
+  'gallery.empty.text': 'سننشر هنا قريبًا صورًا ومقاطع فيديو جديدة من خميرة خوزستان.',
+  'gallery.open': 'فتح {caption}',
+  'gallery.video': 'فيديو',
+  'gallery.close': 'إغلاق النافذة',
+  'gallery.previous': 'الوسائط السابقة',
+  'gallery.next': 'الوسائط التالية',
+  'gallery.dialogLabel': 'عارض وسائط المعرض',
+  'gallery.position': '{current} من {total}',
+  'gallery.pagination': 'صفحات المعرض',
+  'gallery.page': 'الصفحة {page}',
+  'gallery.previousPage': 'الصفحة السابقة',
+  'gallery.nextPage': 'الصفحة التالية',
+
   /* ---------- footer / 404 / nav ---------- */
   'footer.about':
     'منتجة الخميرة الجافة الفورية بعلامات دزمايه وشتاب وإكس باور ونان مايه؛ بخبرة تتجاوز ثلاثة عقود وتصدير إلى أكثر من ٥٠ دولة.',
@@ -231,6 +251,7 @@ export const TEXTS = {
   'nav.export': 'التصدير',
   'nav.quality': 'الجودة والشهادات',
   'nav.blog': 'المدونة',
+  'nav.gallery': 'المعرض',
   'nav.contact': 'اتصل بنا',
   'nav.main': 'التنقل الرئيسي',
   'nav.mobile': 'التنقل عبر الهاتف',
@@ -586,6 +607,29 @@ export const PRODUCTS = {
     usage: USAGE,
     analysis: ANALYSIS,
     storage: STORAGE,
+  },
+};
+
+export const GALLERY = {
+  'factory-production': {
+    caption: 'قلب الإنتاج في دزفول',
+    description: 'مصنع خميرة خوزستان في مدينة دزفول الصناعية، حيث تلتقي التقنية الحيوية بالخبرة الصناعية في عملية إنتاج مستقرة.',
+  },
+  'quality-laboratory': {
+    caption: 'رقابة مستمرة على الجودة',
+    description: 'يراقب مختبر ضبط الجودة كل مرحلة بدقة، من اختيار المواد الأولية إلى المنتج النهائي.',
+  },
+  'wheat-origin': {
+    caption: 'من قلب القمح',
+    description: 'تبدأ حكاية الخبز بمكوّن حي وطبيعي؛ خميرة طُوّرت لمنح الخبز قوامًا ورائحة ونكهة مميزة.',
+  },
+  'bread-craft': {
+    caption: 'إلى أول شريحة خبز',
+    description: 'تمنح قوة التخمير المنتظمة الخبز حجمًا مثاليًا وقوامًا طريًا وجودة قابلة للتكرار.',
+  },
+  'global-export': {
+    caption: 'إلى الأسواق العالمية',
+    description: 'تصل منتجات خميرة خوزستان إلى الأسواق الدولية بعبوات تصديرية ورقابة مستمرة على الجودة.',
   },
 };
 

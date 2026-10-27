@@ -49,7 +49,9 @@ try {
   put('images', 'rich.jpg');
   put('images', 'seal.png');
   put('images', 'shop.jpg');
+  put('images', 'gallery-poster.webp');
   put('videos', 'story.mp4');
+  put('videos', 'gallery-film.webm');
 
   const content = {
     products: [{ images: ['/uploads/images/gallery-w1600.webp'] }],
@@ -57,11 +59,13 @@ try {
     media: { hero: '/uploads/images/page.jpg' },
     posts: [{ body: '<figure><img src="/uploads/images/rich.jpg?width=900"></figure>' }],
     sections: [{ video: '/uploads/videos/story.mp4#t=1' }],
+    gallery: [{ src: '/uploads/videos/gallery-film.webm', poster: '/uploads/images/gallery-poster.webp' }],
     collections: { trustSeals: [{ image: 'https://site.test/uploads/images/seal.png' }] },
   };
   const references = collectUploadReferences(content);
   check(references.has('images/gallery-w1600.webp') && references.has('videos/story.mp4'), 'nested arrays, rich text and videos are scanned');
   check(references.has('images/seal.png') && references.has('images/shop.jpg'), 'trust seals and store galleries are scanned');
+  check(references.has('videos/gallery-film.webm') && references.has('images/gallery-poster.webp'), 'public gallery videos and posters are scanned');
   check(
     collectUploadReferences('<img src="&#47;uploads&#47;images&#47;rich&period;jpg">').has('images/rich.jpg'),
     'HTML-entity encoded rich-text paths are still treated as references',

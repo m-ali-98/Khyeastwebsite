@@ -605,6 +605,67 @@ try {
   await setStock(10);
   const snapshot = await (await fetch(`${BASE}/api/content`)).json();
 
+  /* Gallery media is a same-origin structural collection. Direct API clients
+     must not bypass the Admin UI with mixed-content or locale-specific media.
+     Old complete snapshots did not have this optional key and remain valid. */
+  const legacyWithoutGallery = JSON.parse(JSON.stringify(snapshot));
+  delete legacyWithoutGallery.gallery;
+  const legacyGalleryPut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(legacyWithoutGallery),
+  });
+  const afterLegacyGallerySave = await (await fetch(`${BASE}/api/content`)).json();
+  check(
+    legacyGalleryPut.ok && afterLegacyGallerySave.gallery?.length === snapshot.gallery?.length,
+    'a legacy content save preserves the optional gallery collection',
+    `got ${legacyGalleryPut.status}`,
+  );
+
+  const unsafeGallery = JSON.parse(JSON.stringify(snapshot));
+  unsafeGallery.gallery[0].src = 'https://untrusted.example/factory.webp';
+  const unsafeGalleryPut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(unsafeGallery),
+  });
+  check(unsafeGalleryPut.status === 400, 'external gallery media is refused at the persistence boundary', `got ${unsafeGalleryPut.status}`);
+
+  const translatedGallery = JSON.parse(JSON.stringify(snapshot));
+  const galleryId = translatedGallery.gallery[0].id;
+  translatedGallery.i18n.en = {
+    ...(translatedGallery.i18n.en || {}),
+    gallery: {
+      [galleryId]: {
+        caption: 'Translated gallery caption',
+        description: 'Translated gallery description',
+        src: 'https://untrusted.example/locale-only.webp',
+        poster: '/uploads/images/locale-only.webp',
+        type: 'video',
+      },
+    },
+  };
+  const translatedGalleryPut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(translatedGallery),
+  });
+  check(translatedGalleryPut.ok, 'gallery copy translations are accepted', `got ${translatedGalleryPut.status}`);
+  const translatedGallerySaved = await (await fetch(`${BASE}/api/content`)).json();
+  const savedGalleryOverride = translatedGallerySaved.i18n?.en?.gallery?.[galleryId] || {};
+  check(
+    savedGalleryOverride.caption === 'Translated gallery caption' &&
+      !('src' in savedGalleryOverride) && !('poster' in savedGalleryOverride) && !('type' in savedGalleryOverride),
+    'gallery translation save strips structural media fields',
+  );
+
+  const galleryRestore = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(snapshot),
+  });
+  check(galleryRestore.ok, 'gallery validation fixture restores the original content');
+
   /* Footer trust seals are admin-authored external resources. Valid HTTPS
      providers expand img-src for the rendered document; unsafe schemes and a
      fifth seal must be refused before they can reach either HTML or CSP. */

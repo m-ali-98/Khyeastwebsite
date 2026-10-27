@@ -56,7 +56,7 @@ async function uploadAdminAsset(file) {
   return api('/api/upload', { method: 'POST', formData: fd, auth: true });
 }
 
-export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/webm', label = 'بارگذاری فایل', icon = 'upload', small = false }) {
+export function UploadButton({ onUploaded, onBusyChange, disabled = false, accept = 'image/*,video/mp4,video/webm', label = 'بارگذاری فایل', icon = 'upload', small = false }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const UploadIcon = Icons[icon] || Icons.upload;
@@ -64,7 +64,9 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
   const [note, setNote] = useState('');
 
   const pick = async (file) => {
+    if (disabled || busy) return;
     setBusy(true);
+    onBusyChange?.(true);
     setErr('');
     setNote('');
     try {
@@ -82,6 +84,7 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
       setErr('بارگذاری ممکن نشد');
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
       if (ref.current) ref.current.value = '';
     }
   };
@@ -93,9 +96,10 @@ export function UploadButton({ onUploaded, accept = 'image/*,video/mp4,video/web
         type="file"
         accept={accept}
         style={{ display: 'none' }}
+        disabled={disabled || busy}
         onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])}
       />
-      <button type="button" className={`btn btn--outline ${small ? 'btn--sm' : ''}`} onClick={() => ref.current?.click()} disabled={busy}>
+      <button type="button" className={`btn btn--outline ${small ? 'btn--sm' : ''}`} onClick={() => ref.current?.click()} disabled={disabled || busy}>
         <UploadIcon size={16} />
         {busy ? 'در حال بارگذاری…' : label}
       </button>

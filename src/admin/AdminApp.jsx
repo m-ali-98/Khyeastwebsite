@@ -5,13 +5,23 @@ import Logo from '../components/Logo';
 import { Icons, PasswordInput } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, TrustSealsTab, ContactTab, MessagesTab } from './tabs';
+import { UploadButton } from './editors';
 import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab, AdminSecurityTab } from './shopTabs';
 import { TranslationsTab } from './i18nTab';
 import { ProductsTransTab, PostsTransTab } from './entityTrans';
 import { AdminLocaleProvider, useAdminLocale } from './adminLocale';
 import { useLocale } from '../i18n/LocaleContext';
 import useLoadingGate from '../hooks/useLoadingGate';
-import { loadAllPacks } from '../../shared/i18n/index.js';
+import { getPack, loadAllPacks } from '../../shared/i18n/index.js';
+import {
+  GALLERY_CAPTION_MAX,
+  GALLERY_DESCRIPTION_MAX,
+  MAX_GALLERY_ITEMS,
+  cleanGalleryAssetUrl,
+  galleryItemsProblem,
+  normalizeGalleryItems,
+  stripGalleryMediaOverrides,
+} from '../../shared/gallery.js';
 import './admin.scss';
 
 /* `base: true` = tab edits the Persian source content. When the admin is
@@ -19,12 +29,13 @@ import './admin.scss';
    editor, while the language-neutral tabs (images, links, orders, messages)
    stay available. */
 const CONTENT_WRITE_TABS = new Set([
-  'products', 'posts', 'shop', 'texts', 'translations', 'media', 'links', 'trust', 'contact',
+  'products', 'posts', 'gallery', 'shop', 'texts', 'translations', 'media', 'links', 'trust', 'contact',
 ]);
 
 const TABS = [
   { id: 'products', label: 'محصولات', icon: 'pack', group: 'content' },
   { id: 'posts', label: 'وبلاگ', icon: 'posts', group: 'content' },
+  { id: 'gallery', label: 'گالری', icon: 'media', group: 'content' },
   { id: 'texts', label: 'متون سایت', icon: 'text', base: true, group: 'content' },
   { id: 'translations', label: 'متون و فهرست‌ها', icon: 'translations', transOnly: true, group: 'content' },
   { id: 'media', label: 'تصاویر صفحات', icon: 'media', group: 'content' },
@@ -359,6 +370,323 @@ function Login({ onDone }) {
   );
 }
 
+const GALLERY_PROBLEM_MESSAGES = {
+  'gallery-not-array': 'ساختار گالری معتبر نیست.',
+  'gallery-too-many': `حداکثر ${MAX_GALLERY_ITEMS.toLocaleString('fa-IR')} رسانه مجاز است.`,
+  'gallery-item-invalid': 'یکی از ردیف‌های گالری معتبر نیست.',
+  'gallery-id-invalid': 'شناسه پایدار یکی از رسانه‌ها معتبر نیست.',
+  'gallery-id-duplicate': 'شناسه دو رسانه یکسان است.',
+  'gallery-type-invalid': 'نوع رسانه باید تصویر یا ویدئو باشد.',
+  'gallery-src-invalid': 'نشانی رسانه معتبر نیست؛ فقط تصویر داخلی یا ویدئوی MP4/WebM بارگذاری‌شده مجاز است.',
+  'gallery-image-poster-invalid': 'تصویر ثابت فقط برای ویدئو قابل استفاده است.',
+  'gallery-poster-invalid': 'نشانی تصویر کاور معتبر نیست.',
+  'gallery-caption-invalid': `عنوان هر رسانه الزامی و حداکثر ${GALLERY_CAPTION_MAX.toLocaleString('fa-IR')} نویسه است.`,
+  'gallery-description-invalid': `توضیحات هر رسانه حداکثر ${GALLERY_DESCRIPTION_MAX.toLocaleString('fa-IR')} نویسه است.`,
+};
+
+const galleryClone = (value) => JSON.parse(JSON.stringify(normalizeGalleryItems(value)));
+const newGalleryId = () => `gallery-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+function GalleryPreview({ item, caption }) {
+  const preview = cleanGalleryAssetUrl(item.type === 'video' ? item.poster : item.src, 'image');
+  const PlaceholderIcon = item.type === 'video' ? Icons.video : Icons.image;
+  return (
+    <div className="admin-gallery__preview">
+      {preview ? <img src={preview} alt="" /> : <PlaceholderIcon size={34} />}
+      {item.type === 'video' && <span><Icons.video size={13} /> ویدئو</span>}
+      <small>{caption || 'بدون عنوان'}</small>
+    </div>
+  );
+}
+
+function BaseGalleryTab() {
+  const { state, save } = useContent();
+  const sourceKey = JSON.stringify(state.gallery || []);
+  const [items, setItems] = useState(() => galleryClone(state.gallery));
+  const [saving, setSaving] = useState(false);
+  const [uploadCount, setUploadCount] = useState(0);
+  const [notice, setNotice] = useState({ type: '', text: '' });
+  const uploadBusy = uploadCount > 0;
+  const controlsDisabled = saving || uploadBusy;
+
+  useEffect(() => {
+    setItems(galleryClone(state.gallery));
+  }, [sourceKey]);
+
+  const trackUpload = useCallback((active) => {
+    setUploadCount((count) => Math.max(0, count + (active ? 1 : -1)));
+  }, []);
+
+  const update = (index, key, value) => {
+    setNotice({ type: '', text: '' });
+    setItems((current) => current.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      if (key === 'type') {
+        const src = cleanGalleryAssetUrl(item.src, value);
+        return { ...item, type: value, src, poster: value === 'video' ? item.poster : '' };
+      }
+      return { ...item, [key]: value };
+    }));
+  };
+
+  const add = (type) => {
+    if (items.length >= MAX_GALLERY_ITEMS) return;
+    setItems((current) => [...current, {
+      id: newGalleryId(),
+      type,
+      src: '',
+      poster: '',
+      caption: '',
+      description: '',
+    }]);
+    setNotice({ type: '', text: '' });
+  };
+
+  const move = (index, delta) => {
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= items.length) return;
+    setNotice({ type: '', text: '' });
+    setItems((current) => {
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
+
+  const remove = (index) => {
+    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setNotice({ type: '', text: '' });
+  };
+
+  const publish = async () => {
+    const problem = galleryItemsProblem(items);
+    if (problem) {
+      setNotice({ type: 'error', text: GALLERY_PROBLEM_MESSAGES[problem] || 'اطلاعات گالری کامل نیست.' });
+      return;
+    }
+    const clean = normalizeGalleryItems(items);
+    const liveIds = new Set(clean.map((item) => item.id));
+    const i18n = Object.fromEntries(Object.entries(state.i18n || {}).map(([locale, data]) => {
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return [locale, data];
+      const translated = stripGalleryMediaOverrides(data.gallery);
+      const gallery = Object.fromEntries(Object.entries(translated).filter(([id]) => liveIds.has(id)));
+      return [locale, { ...data, gallery }];
+    }));
+
+    setSaving(true);
+    setNotice({ type: '', text: '' });
+    try {
+      await save({ ...state, gallery: clean, i18n }, { optimistic: false });
+      setNotice({ type: 'success', text: 'گالری با موفقیت منتشر شد.' });
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        text: error?.problem ? (GALLERY_PROBLEM_MESSAGES[error.problem] || error.message) : (error?.message || 'ذخیره گالری ممکن نشد.'),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="admin__panel admin-gallery" data-testid="admin-gallery-manager">
+      <div className="admin__head admin-gallery__head">
+        <div>
+          <h1>مدیریت گالری</h1>
+          <p>تصویر و ویدئو را بارگذاری کنید، کاور و متن بنویسید و با جابه‌جایی ردیف‌ها ترتیب نمایش عمومی را تعیین کنید.</p>
+        </div>
+        <span className="admin-gallery__count">{items.length.toLocaleString('fa-IR')} / {MAX_GALLERY_ITEMS.toLocaleString('fa-IR')}</span>
+      </div>
+
+      <div className="admin-gallery__add">
+        <button type="button" className="btn btn--primary" onClick={() => add('image')} disabled={controlsDisabled || items.length >= MAX_GALLERY_ITEMS}>
+          <Icons.image size={17} /> افزودن تصویر
+        </button>
+        <button type="button" className="btn btn--outline" onClick={() => add('video')} disabled={controlsDisabled || items.length >= MAX_GALLERY_ITEMS}>
+          <Icons.video size={17} /> افزودن ویدئو
+        </button>
+      </div>
+
+      {items.length ? (
+        <ol className="admin-gallery__list">
+          {items.map((item, index) => (
+            <li className="admin-gallery__item" key={item.id} data-testid="admin-gallery-item">
+              <div className="admin-gallery__item-top">
+                <GalleryPreview item={item} caption={item.caption} />
+                <div className="admin-gallery__identity">
+                  <span className="admin__badge">رسانه {Number(index + 1).toLocaleString('fa-IR')}</span>
+                  <code>{item.id}</code>
+                  <div className="admin-gallery__type" role="group" aria-label={`نوع رسانه ${index + 1}`}>
+                    <button type="button" className={item.type === 'image' ? 'is-active' : ''} onClick={() => update(index, 'type', 'image')} disabled={controlsDisabled}>تصویر</button>
+                    <button type="button" className={item.type === 'video' ? 'is-active' : ''} onClick={() => update(index, 'type', 'video')} disabled={controlsDisabled}>ویدئو</button>
+                  </div>
+                </div>
+                <div className="admin-gallery__order">
+                  <button type="button" className="admin__iconbtn" onClick={() => move(index, -1)} disabled={controlsDisabled || index === 0} aria-label="انتقال به بالا"><Icons.chevron size={17} /></button>
+                  <button type="button" className="admin__iconbtn admin-gallery__down" onClick={() => move(index, 1)} disabled={controlsDisabled || index === items.length - 1} aria-label="انتقال به پایین"><Icons.chevron size={17} /></button>
+                  <button type="button" className="admin__iconbtn danger" onClick={() => remove(index)} disabled={controlsDisabled} aria-label="حذف رسانه"><Icons.trash size={17} /></button>
+                </div>
+              </div>
+
+              <div className="admin-gallery__fields">
+                <label className="admin-gallery__field admin-gallery__field--wide">
+                  <span>نشانی {item.type === 'video' ? 'ویدئو' : 'تصویر'} *</span>
+                  <div className="admin-gallery__upload-row">
+                    <input dir="ltr" value={item.src} onChange={(event) => update(index, 'src', event.target.value)} placeholder={item.type === 'video' ? '/uploads/videos/…mp4' : '/uploads/images/…webp'} disabled={controlsDisabled} />
+                    <UploadButton
+                      small
+                      disabled={controlsDisabled}
+                      onBusyChange={trackUpload}
+                      accept={item.type === 'video' ? 'video/mp4,video/webm' : 'image/jpeg,image/png,image/webp,image/gif,image/avif'}
+                      label={item.type === 'video' ? 'بارگذاری ویدئو' : 'بارگذاری تصویر'}
+                      icon={item.type === 'video' ? 'video' : 'upload'}
+                      onUploaded={(url) => update(index, 'src', url)}
+                    />
+                  </div>
+                </label>
+
+                {item.type === 'video' && (
+                  <label className="admin-gallery__field admin-gallery__field--wide">
+                    <span>تصویر کاور ویدئو (اختیاری)</span>
+                    <div className="admin-gallery__upload-row">
+                      <input dir="ltr" value={item.poster} onChange={(event) => update(index, 'poster', event.target.value)} placeholder="/uploads/images/…webp" disabled={controlsDisabled} />
+                      <UploadButton small disabled={controlsDisabled} onBusyChange={trackUpload} accept="image/jpeg,image/png,image/webp,image/gif,image/avif" label="بارگذاری کاور" onUploaded={(url) => update(index, 'poster', url)} />
+                    </div>
+                  </label>
+                )}
+
+                <label className="admin-gallery__field">
+                  <span>عنوان روی کارت *</span>
+                  <input value={item.caption} maxLength={GALLERY_CAPTION_MAX} onChange={(event) => update(index, 'caption', event.target.value)} disabled={controlsDisabled} />
+                  <small>{item.caption.length.toLocaleString('fa-IR')} / {GALLERY_CAPTION_MAX.toLocaleString('fa-IR')}</small>
+                </label>
+                <label className="admin-gallery__field">
+                  <span>متن زیر رسانه در پنجره بزرگ</span>
+                  <textarea value={item.description} maxLength={GALLERY_DESCRIPTION_MAX} rows="4" onChange={(event) => update(index, 'description', event.target.value)} disabled={controlsDisabled} />
+                  <small>{item.description.length.toLocaleString('fa-IR')} / {GALLERY_DESCRIPTION_MAX.toLocaleString('fa-IR')}</small>
+                </label>
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="admin-empty admin-gallery__empty">
+          <span className="admin-empty__icon"><Icons.media size={25} /></span>
+          <strong>هنوز رسانه‌ای در گالری نیست</strong>
+          <span>با دکمه‌های بالا نخستین تصویر یا ویدئو را اضافه کنید.</span>
+        </div>
+      )}
+
+      {uploadBusy && <p className="admin-gallery__upload-notice" role="status">بارگذاری در حال انجام است؛ انتشار و جابه‌جایی تا پایان بارگذاری غیرفعال می‌ماند.</p>}
+      {notice.text && <p className={`admin-gallery__notice is-${notice.type}`} role="status">{notice.text}</p>}
+      <div className="admin-gallery__savebar">
+        <p>رسانه‌های حذف‌شده فوراً از فضای ذخیره‌سازی پاک نمی‌شوند؛ فایل‌های بدون استفاده را از بخش «تصاویر صفحات» بازبینی و پاک‌سازی کنید.</p>
+        <button type="button" className="btn btn--primary" onClick={publish} disabled={controlsDisabled}>
+          {saving ? 'در حال انتشار…' : 'ذخیره و انتشار گالری'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GalleryTranslationsTab() {
+  const { state, save } = useContent();
+  const { locale } = useAdminLocale();
+  const sourceKey = JSON.stringify(state.i18n?.[locale]?.gallery || {});
+  const baseItems = normalizeGalleryItems(state.gallery);
+  const [draft, setDraft] = useState(() => stripGalleryMediaOverrides(state.i18n?.[locale]?.gallery));
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState({ type: '', text: '' });
+  const shipped = getPack(locale)?.gallery || {};
+  const direction = locale === 'en' ? 'ltr' : 'rtl';
+
+  useEffect(() => {
+    setDraft(stripGalleryMediaOverrides(state.i18n?.[locale]?.gallery));
+  }, [locale, sourceKey]);
+
+  const update = (id, key, value) => {
+    setDraft((current) => ({ ...current, [id]: { ...(current[id] || {}), [key]: value } }));
+    setNotice({ type: '', text: '' });
+  };
+
+  const publish = async () => {
+    const gallery = {};
+    for (const item of baseItems) {
+      const row = draft[item.id] || {};
+      const caption = String(row.caption || '').trim();
+      const description = String(row.description || '').trim();
+      if (caption.length > GALLERY_CAPTION_MAX || description.length > GALLERY_DESCRIPTION_MAX) {
+        setNotice({ type: 'error', text: 'یکی از ترجمه‌ها از محدودیت طول مجاز بیشتر است.' });
+        return;
+      }
+      if (caption || description) gallery[item.id] = { ...(caption ? { caption } : {}), ...(description ? { description } : {}) };
+    }
+
+    setSaving(true);
+    try {
+      const i18n = {
+        ...(state.i18n || {}),
+        [locale]: { ...(state.i18n?.[locale] || {}), gallery },
+      };
+      await save({ ...state, i18n }, { optimistic: false });
+      setNotice({ type: 'success', text: 'ترجمه‌های گالری ذخیره شد.' });
+    } catch (error) {
+      setNotice({ type: 'error', text: error?.message || 'ذخیره ترجمه‌ها ممکن نشد.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="admin__panel admin-gallery admin-gallery--translations" data-testid="admin-gallery-translations">
+      <div className="admin__head">
+        <div>
+          <h1>ترجمه گالری — {locale === 'en' ? 'English' : 'العربية'}</h1>
+          <p>عنوان کارت و متن زیر رسانه را ترجمه کنید. فایل، نوع و ترتیب رسانه‌ها از نسخه فارسی مشترک است.</p>
+        </div>
+      </div>
+
+      {baseItems.length ? (
+        <div className="admin-gallery__translation-list">
+          {baseItems.map((item, index) => {
+            const row = draft[item.id] || {};
+            const fallback = shipped[item.id] || item;
+            return (
+              <section className="admin-gallery__translation" key={item.id}>
+                <GalleryPreview item={item} caption={row.caption || fallback.caption} />
+                <div className="admin-gallery__translation-fields" dir={direction}>
+                  <b>{Number(index + 1).toLocaleString('fa-IR')}. {item.caption}</b>
+                  <label className="admin-gallery__field">
+                    <span>عنوان ترجمه‌شده</span>
+                    <input dir={direction} value={row.caption || ''} maxLength={GALLERY_CAPTION_MAX} placeholder={fallback.caption || item.caption} onChange={(event) => update(item.id, 'caption', event.target.value)} disabled={saving} />
+                  </label>
+                  <label className="admin-gallery__field">
+                    <span>متن ترجمه‌شده زیر رسانه</span>
+                    <textarea dir={direction} value={row.description || ''} maxLength={GALLERY_DESCRIPTION_MAX} rows="4" placeholder={fallback.description || item.description} onChange={(event) => update(item.id, 'description', event.target.value)} disabled={saving} />
+                  </label>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="admin-empty"><strong>رسانه‌ای برای ترجمه وجود ندارد.</strong></div>
+      )}
+
+      {notice.text && <p className={`admin-gallery__notice is-${notice.type}`} role="status">{notice.text}</p>}
+      <div className="admin-gallery__savebar">
+        <p>خالی گذاشتن هر فیلد، ترجمه آماده سایت و سپس متن فارسی را به‌عنوان جایگزین نمایش می‌دهد.</p>
+        <button type="button" className="btn btn--primary" onClick={publish} disabled={saving}>{saving ? 'در حال ذخیره…' : 'ذخیره ترجمه‌های گالری'}</button>
+      </div>
+    </div>
+  );
+}
+
+function GalleryTab() {
+  const { isBase } = useAdminLocale();
+  return isBase ? <BaseGalleryTab /> : <GalleryTranslationsTab />;
+}
+
 function AdminShell() {
   const { backend, contentAvailable, t } = useContent();
   const { locale, isBase } = useAdminLocale();
@@ -510,6 +838,7 @@ function AdminShell() {
   const Tab = {
     products: isBase ? ProductsTab : ProductsTransTab,
     posts: isBase ? PostsTab : PostsTransTab,
+    gallery: GalleryTab,
     translations: TranslationsTab,
     shop: ShopProductsTab,
     orders: ShopOrdersTab,

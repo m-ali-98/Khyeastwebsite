@@ -72,6 +72,14 @@ const STATIC_ROUTES = {
     bodyKeys: ['blog.hero.sub'],
     listing: 'posts',
   },
+  '/gallery': {
+    kind: 'collection',
+    titleKey: 'gallery.hero.title',
+    descriptionKey: 'gallery.hero.sub',
+    imageKey: 'gallery.hero.img',
+    bodyKeys: ['gallery.intro'],
+    listing: 'gallery',
+  },
   '/contact': {
     titleKey: 'contact.hero.title',
     descriptionKey: 'contact.hero.sub',
@@ -280,6 +288,13 @@ function pageLinks(view, locale, route, listing) {
       label: plainText(item?.title),
       href: localePath(locale, '/contact'),
       text: plainText(item?.address),
+    }));
+  }
+  if (listing === 'gallery') {
+    return asArray(view.gallery).filter((item) => validSlug(item?.id)).map((item) => ({
+      label: plainText(item.caption),
+      href: `${localePath(locale, '/gallery')}#${item.id}`,
+      text: plainText(item.description),
     }));
   }
   return route.links || [];
@@ -727,11 +742,11 @@ export function renderSeoHead(meta, options = {}) {
 function fallbackNavigation(meta) {
   const locale = meta.locale;
   const labels = {
-    fa: ['خانه', 'درباره ما', 'محصولات', 'صادرات', 'کیفیت', 'وبلاگ', 'تماس با ما'],
-    en: ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Contact'],
-    ar: ['الرئيسية', 'من نحن', 'المنتجات', 'التصدير', 'الجودة', 'المدونة', 'اتصل بنا'],
-  }[locale] || ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Contact'];
-  const entries = ['/', '/about', '/products', '/export', '/quality', '/blog', '/contact']
+    fa: ['خانه', 'درباره ما', 'محصولات', 'صادرات', 'کیفیت', 'وبلاگ', 'گالری', 'تماس با ما'],
+    en: ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Gallery', 'Contact'],
+    ar: ['الرئيسية', 'من نحن', 'المنتجات', 'التصدير', 'الجودة', 'المدونة', 'المعرض', 'اتصل بنا'],
+  }[locale] || ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Gallery', 'Contact'];
+  const entries = ['/', '/about', '/products', '/export', '/quality', '/blog', '/gallery', '/contact']
     .map((path, index) => ({ path, label: labels[index] }));
   if (meta.shopAvailable) entries.splice(3, 0, { path: '/shop', label: 'فروشگاه' });
   return `<nav aria-label="${escapeHtml(locale === 'fa' ? 'پیوندهای اصلی' : locale === 'ar' ? 'الروابط الرئيسية' : 'Primary links')}"><ul>${entries

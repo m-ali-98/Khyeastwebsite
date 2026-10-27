@@ -33,6 +33,7 @@ const enAbout = resolveSeo('/en/about', DEFAULT_STATE, ORIGIN);
 const arQuality = resolveSeo('/ar/quality', DEFAULT_STATE, ORIGIN);
 const product = resolveSeo('/products/dezmaye-gold-80', DEFAULT_STATE, ORIGIN);
 const article = resolveSeo('/blog/reduce-bread-production-costs', DEFAULT_STATE, ORIGIN);
+const gallery = resolveSeo('/en/gallery', DEFAULT_STATE, ORIGIN);
 const shopProduct = resolveSeo('/shop/dezmaye-gold-80', DEFAULT_STATE, ORIGIN);
 const shop = resolveSeo('/shop', DEFAULT_STATE, ORIGIN);
 const account = resolveSeo('/shop/account', DEFAULT_STATE, ORIGIN);
@@ -55,6 +56,9 @@ check(article.schema?.['@graph']?.some((item) => item['@type'] === 'BlogPosting'
 const catalogueGraph = resolveSeo('/products', DEFAULT_STATE, ORIGIN).schema?.['@graph'] || [];
 check(catalogueGraph.some((item) => item['@type'] === 'CollectionPage'), 'catalogue CollectionPage JSON-LD');
 check(catalogueGraph.some((item) => item['@type'] === 'ItemList'), 'catalogue ItemList JSON-LD');
+check(gallery.kind === 'collection' && gallery.links.length === DEFAULT_STATE.gallery.length, 'gallery is a localized collection');
+check(gallery.schema?.['@graph']?.some((item) => item['@type'] === 'ItemList' && item.itemListElement.length === DEFAULT_STATE.gallery.length), 'gallery ItemList JSON-LD');
+check(gallery.links.every((item) => item.href.startsWith('/en/gallery#')), 'gallery fallback links address localized media cards');
 check(shopProduct.canonical === `${ORIGIN}/products/dezmaye-gold-80`, 'shop duplicate consolidates into catalogue URL');
 check(shopProduct.alternates.length === 0, 'shop duplicate does not emit misleading hreflang');
 const standaloneState = structuredClone(DEFAULT_STATE);
@@ -97,12 +101,12 @@ check(redirectPath('/fa/products') === '/products', 'default locale prefix targe
 check(redirectPath('/index.html') === '/', 'index file canonical target');
 
 const paths = listIndexablePaths(DEFAULT_STATE);
-check(paths.length === 55, 'all current public locale routes enumerated', String(paths.length));
+check(paths.length === 58, 'all current public locale routes enumerated', String(paths.length));
 check(new Set(paths).size === paths.length, 'route enumeration has no duplicates');
 check(!paths.some((entry) => entry.includes('/shop/')), 'transaction/product duplicates excluded from sitemap list');
 check(paths.includes('/shop') && !paths.includes('/en/shop') && !paths.includes('/ar/shop'), 'shop listed in Persian only');
 const routable = listRoutablePaths(DEFAULT_STATE);
-check(routable.length === 62, 'catalogue plus seven customer-facing shop products are rendered');
+check(routable.length === 65, 'catalogue, gallery and seven customer-facing shop products are rendered');
 check(routable.includes('/shop/dezmaye-gold-80'), 'canonicalized shop product remains routable');
 const allMeta = paths.map((route) => resolveSeo(route, DEFAULT_STATE, ORIGIN));
 check(new Set(allMeta.map((meta) => meta.title)).size === allMeta.length, 'every sitemap page has a unique title');
@@ -133,6 +137,7 @@ check(robots.includes('Disallow: /api/'), 'robots excludes APIs');
 
 const builtIndex = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 const builtEnAbout = fs.readFileSync(path.join(DIST, 'seo-pages', 'en--about.html'), 'utf8');
+const builtEnGallery = fs.readFileSync(path.join(DIST, 'seo-pages', 'en--gallery.html'), 'utf8');
 const builtProduct = fs.readFileSync(path.join(DIST, 'seo-pages', 'products--dezmaye-gold-80.html'), 'utf8');
 const builtPrivate = fs.readFileSync(path.join(DIST, 'seo-pages', '_private.html'), 'utf8');
 const built404 = fs.readFileSync(path.join(DIST, '404.html'), 'utf8');
@@ -142,6 +147,7 @@ check(builtIndex.includes('application/ld+json'), 'root has structured data befo
 check(builtEnAbout.includes('<html lang="en" dir="ltr"'), 'built English document language');
 check(builtEnAbout.includes('<h1>About Khuzestan Yeast Co.</h1>'), 'built route-specific fallback heading');
 check(builtEnAbout.includes(`rel="canonical" href="${ORIGIN}/en/about"`), 'built route-specific canonical');
+check(builtEnGallery.includes('The heart of production in Dezful') && builtEnGallery.includes('gallery#factory-production'), 'built gallery exposes localized crawlable item links');
 check(builtProduct.includes('"@type":"Product"') && builtProduct.includes('"@type":"Offer"'), 'built product schema and offer');
 check(builtPrivate.includes('content="noindex, nofollow, noarchive"'), 'static private shell noindex');
 check(built404.includes('content="noindex, nofollow, noarchive"'), 'static 404 shell noindex');

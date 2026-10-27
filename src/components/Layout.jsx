@@ -16,6 +16,7 @@ export const NAV_LINKS = [
   { to: '/export', key: 'nav.export' },
   { to: '/quality', key: 'nav.quality' },
   { to: '/blog', key: 'nav.blog' },
+  { to: '/gallery', key: 'nav.gallery' },
   { to: '/contact', key: 'nav.contact' },
 ];
 
@@ -35,6 +36,7 @@ const HEADER_NAV_ITEMS = [
   { to: '/shop', key: 'nav.shop', shopOnly: true },
   { to: '/export', key: 'nav.export' },
   { to: '/blog', key: 'nav.blog' },
+  { to: '/gallery', key: 'nav.gallery' },
 ];
 
 /* ---------------------------------------------------------------------------

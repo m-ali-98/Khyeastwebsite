@@ -8,6 +8,7 @@
    record.
    ========================================================================== */
 
+import { normalizeGalleryItems } from './gallery.js';
 import { syncProductImages } from './productImages.js';
 
 const ENTITY_ARRAYS = ['products', 'posts', 'brands'];
@@ -31,6 +32,7 @@ export function mergeContentState(base, remote) {
     if (Array.isArray(out[key])) out[key] = out[key].filter(isPlainObject);
   }
   if (Array.isArray(out.products)) out.products = out.products.map(syncProductImages);
+  out.gallery = normalizeGalleryItems(remote.gallery, base.gallery);
   if (isPlainObject(out.shop)) {
     out.shop.display = isPlainObject(out.shop.display)
       ? { ...clone(base.shop?.display || {}), ...out.shop.display }

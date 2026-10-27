@@ -210,6 +210,26 @@ export const TEXTS = {
   'contact.form.errMessage': 'متن پیام الزامی است.',
   'contact.form.errSend': 'ارسال پیام ممکن نشد؛ لطفاً دوباره تلاش کنید یا تلفنی تماس بگیرید.',
 
+  /* ---------- gallery ---------- */
+  'gallery.hero.title': 'گالری خمیرمایه خوزستان',
+  'gallery.hero.sub': 'روایتی تصویری از کارخانه، آزمایشگاه، محصولات و مسیر جهانی خمیرمایه خوزستان.',
+  'gallery.eyebrow': 'در قاب خمیرمایه خوزستان',
+  'gallery.title': 'تصویرهایی از [[کیفیت، تولید و اعتماد]]',
+  'gallery.intro': 'برای دیدن تصویر بزرگ‌تر یا پخش ویدئو، یکی از قاب‌ها را انتخاب کنید.',
+  'gallery.empty.title': 'گالری در حال آماده‌سازی است',
+  'gallery.empty.text': 'به‌زودی تصویرها و ویدئوهای تازه‌ای از خمیرمایه خوزستان در این بخش منتشر می‌شود.',
+  'gallery.open': 'باز کردن {caption}',
+  'gallery.video': 'ویدئو',
+  'gallery.close': 'بستن پنجره',
+  'gallery.previous': 'رسانه قبلی',
+  'gallery.next': 'رسانه بعدی',
+  'gallery.dialogLabel': 'نمایش رسانه گالری',
+  'gallery.position': '{current} از {total}',
+  'gallery.pagination': 'صفحه‌بندی گالری',
+  'gallery.page': 'صفحه {page}',
+  'gallery.previousPage': 'صفحه قبل',
+  'gallery.nextPage': 'صفحه بعد',
+
   /* ---------- footer ---------- */
   'footer.about': 'تولیدکننده خمیرمایه خشک فوری با برندهای دزمایه، شتاب، ایکس پاور و نان مایه؛ با بیش از سه دهه سابقه و صادرات به بیش از ۵۰ کشور جهان.',
   'footer.quickTitle': 'دسترسی سریع',
@@ -239,6 +259,7 @@ export const TEXTS = {
   'nav.export': 'صادرات',
   'nav.quality': 'کیفیت و گواهینامه‌ها',
   'nav.blog': 'وبلاگ',
+  'nav.gallery': 'گالری',
   'nav.contact': 'تماس با ما',
   'nav.main': 'ناوبری اصلی',
   'nav.mobile': 'ناوبری موبایل',
@@ -462,6 +483,7 @@ export const MEDIA = {
   'products.hero.img': '/assets/img/bread-slicing.webp',
   'shop.hero.img': '/assets/img/bread-slicing.webp',
   'blog.hero.img': '/assets/img/bread-slicing.webp',
+  'gallery.hero.img': '/assets/img/factory.webp',
   'contact.hero.img': '/assets/img/hero-wheat.webp',
 };
 
@@ -475,6 +497,49 @@ export const LINKS = {
   'home.intro.quality': '/quality',
   'about.factory.btn': '/quality',
 };
+
+export const GALLERY = [
+  {
+    id: 'factory-production',
+    type: 'image',
+    src: '/assets/img/factory.webp',
+    poster: '',
+    caption: 'قلب تولید در دزفول',
+    description: 'کارخانه خمیرمایه خوزستان در شهرک صنعتی دزفول؛ جایی که دانش زیست‌فناوری و تجربه صنعتی در کنار هم به تولید پایدار می‌رسند.',
+  },
+  {
+    id: 'quality-laboratory',
+    type: 'image',
+    src: '/assets/img/laboratory.webp',
+    poster: '',
+    caption: 'پایش مستمر کیفیت',
+    description: 'آزمایشگاه کنترل کیفیت، هر مرحله از انتخاب مواد اولیه تا محصول نهایی را با آزمون‌های دقیق و مستمر زیر نظر دارد.',
+  },
+  {
+    id: 'wheat-origin',
+    type: 'image',
+    src: '/assets/img/hero-wheat.webp',
+    poster: '',
+    caption: 'از قلب گندم',
+    description: 'آغاز داستان نان با ماده‌ای زنده و طبیعی؛ خمیرمایه‌ای که برای بافت، عطر و طعم مطلوب نان پرورش یافته است.',
+  },
+  {
+    id: 'bread-craft',
+    type: 'image',
+    src: '/assets/img/bread-slicing.webp',
+    poster: '',
+    caption: 'تا نخستین برش نان',
+    description: 'قدرت تخمیر یکنواخت، به نان حجمی مطلوب، بافتی نرم و کیفیتی قابل تکرار می‌بخشد.',
+  },
+  {
+    id: 'global-export',
+    type: 'image',
+    src: '/assets/img/export.webp',
+    poster: '',
+    caption: 'همراه بازارهای جهانی',
+    description: 'محصولات خمیرمایه خوزستان با بسته‌بندی صادراتی و کنترل کیفی مستمر به بازارهای بین‌المللی راه پیدا می‌کنند.',
+  },
+];
 
 export const COLLECTIONS = {
   /* Empty until the company receives an eNamad or another verified seal.
@@ -991,6 +1056,7 @@ export const DEFAULT_STATE = {
   brands: BRANDS,
   products: PRODUCTS,
   posts: POSTS,
+  gallery: GALLERY,
   shop: SHOP,
   i18n: I18N,
 };

@@ -210,6 +210,26 @@ export const TEXTS = {
   'contact.form.errSend': 'The message could not be sent. Please try again or call us instead.',
   'form.errRateLimited': 'Too many requests from this connection. Please wait a few minutes and try again.',
 
+  /* ---------- gallery ---------- */
+  'gallery.hero.title': 'Khuzestan Yeast gallery',
+  'gallery.hero.sub': 'A visual story of our factory, laboratory, products and Khuzestan Yeast’s global journey.',
+  'gallery.eyebrow': 'Inside Khuzestan Yeast',
+  'gallery.title': 'Frames of [[quality, production and trust]]',
+  'gallery.intro': 'Choose any frame to see a larger image or play its video.',
+  'gallery.empty.title': 'Our gallery is being prepared',
+  'gallery.empty.text': 'New photographs and videos from Khuzestan Yeast will appear here soon.',
+  'gallery.open': 'Open {caption}',
+  'gallery.video': 'Video',
+  'gallery.close': 'Close window',
+  'gallery.previous': 'Previous media',
+  'gallery.next': 'Next media',
+  'gallery.dialogLabel': 'Gallery media viewer',
+  'gallery.position': '{current} of {total}',
+  'gallery.pagination': 'Gallery pagination',
+  'gallery.page': 'Page {page}',
+  'gallery.previousPage': 'Previous page',
+  'gallery.nextPage': 'Next page',
+
   /* ---------- footer / 404 / nav ---------- */
   'footer.about':
     'Producer of instant dry yeast under the Dezmaye, Shetab, X-Power and Nan Maye brands — over three decades of experience and exports to more than 50 countries.',
@@ -237,6 +257,7 @@ export const TEXTS = {
   'nav.export': 'Export',
   'nav.quality': 'Quality & certifications',
   'nav.blog': 'Blog',
+  'nav.gallery': 'Gallery',
   'nav.contact': 'Contact',
   'nav.main': 'Main navigation',
   'nav.mobile': 'Mobile navigation',
@@ -604,6 +625,29 @@ export const PRODUCTS = {
     usage: USAGE,
     analysis: ANALYSIS,
     storage: STORAGE,
+  },
+};
+
+export const GALLERY = {
+  'factory-production': {
+    caption: 'The heart of production in Dezful',
+    description: 'The Khuzestan Yeast plant in Dezful Industrial Estate, where biotechnology and industrial experience meet in a stable production process.',
+  },
+  'quality-laboratory': {
+    caption: 'Quality under constant watch',
+    description: 'Our quality-control laboratory closely monitors every stage, from raw-material selection to the finished product.',
+  },
+  'wheat-origin': {
+    caption: 'From the heart of wheat',
+    description: 'The story of bread begins with a living, natural ingredient: yeast cultivated for excellent texture, aroma and flavour.',
+  },
+  'bread-craft': {
+    caption: 'To the first slice of bread',
+    description: 'Consistent fermentation power gives bread dependable volume, a soft crumb and repeatable quality.',
+  },
+  'global-export': {
+    caption: 'Made for global markets',
+    description: 'Export-ready packaging and continuous quality control carry Khuzestan Yeast products to international markets.',
   },
 };
 

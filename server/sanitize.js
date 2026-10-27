@@ -8,6 +8,7 @@
    a typed error so an Admin save returns 400 and keeps the original content
    instead of silently persisting an empty field. */
 import { DOMParser } from 'linkedom';
+import { normalizeGalleryItems, stripGalleryMediaOverrides } from '../shared/gallery.js';
 import {
   sanitizeHtmlResultWithParser,
   MAX_HTML_INPUT_LENGTH,
@@ -111,6 +112,7 @@ export function sanitizeContentPayload(input) {
 
   if (Array.isArray(source.posts)) next.posts = sanitizePosts(source.posts);
   if (Array.isArray(source.products)) next.products = sanitizeProductList(source.products);
+  if (Array.isArray(source.gallery)) next.gallery = normalizeGalleryItems(source.gallery);
 
   if (source.i18n && typeof source.i18n === 'object' && !Array.isArray(source.i18n)) {
     next.i18n = Object.fromEntries(
@@ -120,6 +122,7 @@ export function sanitizeContentPayload(input) {
           ...data,
           products: sanitizeProductOverrides(data.products),
           posts: sanitizePostOverrides(data.posts, `i18n.${String(locale).slice(0, 20)}.posts`),
+          ...(Object.hasOwn(data, 'gallery') ? { gallery: stripGalleryMediaOverrides(data.gallery) } : {}),
         }];
       }),
     );

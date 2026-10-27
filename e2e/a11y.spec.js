@@ -107,6 +107,7 @@ const PAGES = [
   '/quality',
   '/blog',
   '/blog/reduce-bread-production-costs',
+  '/gallery',
   '/contact',
   '/shop',
   '/shop/dezmaye-gold-80',
@@ -132,6 +133,25 @@ for (const url of PAGES) {
   }
 }
 
+test('a11y the gallery lightbox and its focus loop', async ({ page }) => {
+  await gotoReady(page, '/gallery');
+  const opener = page.locator('.gallery-card').first();
+  await opener.focus();
+  await opener.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  const results = await audit(page);
+  expect(results.violations.length, `\n  gallery lightbox:\n  ${describe(results)}\n`).toBe(0);
+
+  await dialog.getByRole('button', { name: 'رسانه بعدی' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: 'بستن پنجره' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+});
+
 /* The pages behind a session were not audited at all, which is a gap worth
    closing rather than explaining: the account panel is a form-heavy page
    built after the rest of the site, and the admin tabs added with the shop
@@ -150,9 +170,9 @@ test('a11y the customer account panel', async ({ page }) => {
   }
 });
 
-test('a11y the admin tabs added with the shop', async ({ page }) => {
+test('a11y the key admin management tabs', async ({ page }) => {
   await loginAdmin(page);
-  for (const tab of ['سفارش‌ها', 'مشتریان', 'پیامک', 'درگاه پرداخت', 'امنیت و محدودیت‌ها']) {
+  for (const tab of ['گالری', 'سفارش‌ها', 'مشتریان', 'پیامک', 'درگاه پرداخت', 'امنیت و محدودیت‌ها']) {
     await page.locator('.admin__side button', { hasText: tab }).click();
     await expect(page.locator('.admin__panel h1')).toBeVisible();
     const results = await audit(page);

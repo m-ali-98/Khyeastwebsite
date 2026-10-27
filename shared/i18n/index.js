@@ -15,6 +15,8 @@
    a thin override layer on top of the shipped translation.
    ========================================================================== */
 
+import { stripGalleryMediaOverrides } from '../gallery.js';
+
 export const LOCALES = [
   { code: 'fa', label: 'فارسی', short: 'FA', dir: 'rtl', htmlLang: 'fa', prefix: '' },
   { code: 'en', label: 'English', short: 'EN', dir: 'ltr', htmlLang: 'en', prefix: '/en' },
@@ -46,6 +48,7 @@ const toPack = (ns) => ({
   brands: ns.BRANDS,
   products: ns.PRODUCTS,
   posts: ns.POSTS,
+  gallery: ns.GALLERY,
 });
 
 export async function loadPack(locale) {
@@ -184,6 +187,12 @@ export function localizeState(state, locale) {
       withoutProductMedia(a.products),
     ),
     posts: overlayEntities(state.posts, 'slug', p.posts, a.posts),
+    gallery: overlayEntities(
+      state.gallery,
+      'id',
+      stripGalleryMediaOverrides(p.gallery),
+      stripGalleryMediaOverrides(a.gallery),
+    ),
   };
 }
 

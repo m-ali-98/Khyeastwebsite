@@ -24,6 +24,7 @@ const Quality = lazy(() => import('./pages/Quality'));
 const Blog = lazy(() => import('./pages/Blog'));
 const PostDetail = lazy(() => import('./pages/PostDetail'));
 const Contact = lazy(() => import('./pages/Contact'));
+const Gallery = lazy(() => import('./pages/Gallery'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const Shop = lazy(() => import('./pages/Shop'));
 const ShopProduct = lazy(() => import('./pages/ShopProduct'));
@@ -75,6 +76,7 @@ function PublicRoutes() {
       <Route path="/quality" element={<Quality />} />
       <Route path="/blog" element={<Blog />} />
       <Route path="/blog/:slug" element={<PostDetail />} />
+      <Route path="/gallery" element={<Gallery />} />
       <Route path="/contact" element={<Contact />} />
       <Route path="/dezmaye" element={<Navigate to="/products/dezmaye-gold-80" replace />} />
       <Route path="/shetab" element={<Navigate to="/products/shetab-90" replace />} />
@@ -90,7 +92,14 @@ function NavigationRoutes() {
   const isAdmin = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
   const { locale } = useLocale();
   const { reload } = useContent();
-  const routeKey = `${location.key || 'route'}:${location.pathname}${location.search}`;
+  /* Gallery pagination changes only which nine records from the already-fresh
+     collection are visible. Keep that query-string navigation inside the
+     mounted route instead of re-fetching all content and flashing the global
+     navigation loader for every page button. */
+  const isGalleryCollection = /^\/(?:en\/|ar\/)?gallery$/.test(location.pathname);
+  const routeKey = isGalleryCollection
+    ? `gallery:${location.pathname}`
+    : `${location.key || 'route'}:${location.pathname}${location.search}`;
   const [freshKey, setFreshKey] = useState('');
   const [settledKey, setSettledKey] = useState('');
   const activeKey = useRef(routeKey);

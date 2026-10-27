@@ -33,6 +33,7 @@ export const api = async (path, { method = 'GET', body, auth: _auth = false, for
     throw Object.assign(new Error(payload?.error || `api error ${res.status}`), {
       status: res.status,
       code: payload?.code || '',
+      problem: payload?.problem || '',
       detail: payload?.detail || '',
       field: payload?.field || '',
       retryAfter: Number(payload?.retryAfter || res.headers.get('Retry-After') || 0),
@@ -163,6 +164,7 @@ export function ContentProvider({ children }) {
       col: (k) => view.collections?.[k] ?? fallback.collections[k] ?? [],
       products: view.products ?? [],
       posts: view.posts ?? [],
+      gallery: view.gallery ?? [],
       brands: view.brands ?? fallback.brands,
     }),
     [state, view, fallback, locale, ready, backend, contentAvailable, refreshing, save, reload]

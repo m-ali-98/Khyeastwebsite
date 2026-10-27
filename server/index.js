@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { mergeContentState } from '../shared/contentState.js';
 import { loadAllPacks } from '../shared/i18n/index.js';
+import { galleryItemsProblem, galleryOverridesProblem } from '../shared/gallery.js';
 import {
   normalizeOrigin,
   redirectPath,
@@ -1036,6 +1037,22 @@ app.put('/api/content', requireAuth, (req, res) => {
   const next = req.body;
   if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
   for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  /* Gallery was introduced after the original content schema. A legacy client
+     may still submit a complete old snapshot, so absence means “preserve the
+     current collection” rather than a rejected save or an accidental wipe. */
+  if (!Object.hasOwn(next, 'gallery')) {
+    next.gallery = Array.isArray(current.gallery) ? current.gallery : DEFAULT_STATE.gallery;
+  }
+  const galleryProblem = galleryItemsProblem(next.gallery);
+  if (galleryProblem) {
+    return res.status(400).json({ error: 'invalid gallery', problem: galleryProblem });
+  }
+  for (const [locale, localeData] of Object.entries(next.i18n || {})) {
+    const problem = galleryOverridesProblem(localeData?.gallery);
+    if (problem) {
+      return res.status(400).json({ error: `invalid ${locale} gallery translation`, problem });
+    }
+  }
   /* The slug is both the primary key and the URL for catalogue products and
      blog posts. A blank one produces /products/ (which collides with the index
      route) and a duplicate makes the second entity permanently unreachable,
