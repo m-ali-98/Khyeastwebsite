@@ -451,7 +451,7 @@ function Navbar() {
               className="m-controls"
             >
               <LangSwitch block />
-              <Link to="/contact" className="m-contact-cta">
+              <Link to="/contact" className="btn btn--primary m-contact-cta">
                 <Icons.mail size={15} aria-hidden="true" />
                 <span>{t('nav.contact')}</span>
               </Link>

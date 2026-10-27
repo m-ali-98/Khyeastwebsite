@@ -345,6 +345,7 @@ test('the mobile About disclosure opens its active section without hiding Export
   const contactAction = drawer.locator('.m-controls > .m-contact-cta');
   await expect(contactAction).toHaveAttribute('href', '/contact');
   await expect(contactAction).toHaveText('تماس با ما');
+  await expect(contactAction).toHaveClass(/btn--primary/);
 
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
