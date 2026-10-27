@@ -307,6 +307,24 @@ test('About groups company overview and quality while Export stays directly reac
   }
 });
 
+test('Contact is the crimson header action rather than a primary navigation link', async ({ page }) => {
+  const cases = [
+    ['/', '', 'تماس با ما'],
+    ['/en', '/en', 'Contact'],
+    ['/ar', '/ar', 'اتصل بنا'],
+  ];
+
+  for (const [url, prefix, label] of cases) {
+    await gotoReady(page, url);
+    const navigation = page.locator('.nav__links');
+    const action = page.locator('.nav__cta');
+    await expect(navigation.locator(`a[href="${prefix}/contact"]`)).toHaveCount(0);
+    await expect(action).toHaveAttribute('href', `${prefix}/contact`);
+    await expect(action).toHaveText(label);
+    await expect(action).toHaveClass(/btn--primary/);
+  }
+});
+
 test('the mobile About disclosure opens its active section without hiding Export @mobile', async ({ page }) => {
   await gotoReady(page, '/quality');
   await page.getByRole('button', { name: 'منوی سایت' }).click();
@@ -319,6 +337,9 @@ test('the mobile About disclosure opens its active section without hiding Export
   await expect(submenu.getByRole('link', { name: 'کیفیت و گواهینامه‌ها', exact: true })).toHaveClass(/active/);
   await expect(drawer.getByRole('link', { name: 'صادرات', exact: true })).toBeVisible();
   await expect(submenu.getByRole('link', { name: 'صادرات', exact: true })).toHaveCount(0);
+  await expect(drawer.locator('.m-link[href="/contact"]')).toHaveCount(0);
+  await expect(drawer.locator('.m-contact-cta')).toHaveAttribute('href', '/contact');
+  await expect(drawer.locator('.m-contact-cta')).toHaveText('تماس با ما');
 
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
@@ -669,7 +690,7 @@ test('a cold client-side route stays behind the navigation screen until it commi
 
   await gotoReady(page, '/');
   await expect(page.locator('#boot-splash')).toHaveCount(0);
-  await page.locator('.nav__links a[href="/contact"]').click();
+  await page.locator('.nav__cta[href="/contact"]').click();
 
   const loader = page.locator('.navigation-loader');
   await expect(loader).toBeVisible({ timeout: 2500 });

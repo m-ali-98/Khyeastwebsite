@@ -2346,9 +2346,9 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .nav__topbar-socials a span { display: none; }
 }
 
-/* The navigation collapses at 1100px, not 900. Eight Persian labels plus
-   the icons and the call to action stop fitting at about 1040px, and the
-   old breakpoint let the bar crowd and wrap for 200px before it gave up. */
+/* The navigation collapses at 1100px, not 900. The Persian labels plus the
+   icons and the call to action stop fitting at about 1040px, and the old
+   breakpoint let the bar crowd and wrap for 200px before it gave up. */
 @media (max-width: 1100px) {
   .nav__links, .nav__cta { display: none; }
   .nav__burger { display: grid; }
@@ -3065,6 +3065,18 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .theme-toggle__track,
   .theme-toggle__thumb { transition: none; }
 }
+
+/* Contact remains a strong action in the mobile drawer after leaving the
+   primary link list, mirroring the crimson desktop header button. */
+.m-contact-cta-wrap { margin-block-start: 18px; }
+.m-contact-cta {
+  width: 100%;
+  min-height: 50px;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 14px;
+}
+.m-contact-cta svg { flex: none; }
 
 /* inside the mobile menu */
 .m-controls {

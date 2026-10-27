@@ -35,7 +35,6 @@ const HEADER_NAV_ITEMS = [
   { to: '/shop', key: 'nav.shop', shopOnly: true },
   { to: '/export', key: 'nav.export' },
   { to: '/blog', key: 'nav.blog' },
-  { to: '/contact', key: 'nav.contact' },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -337,8 +336,8 @@ function Navbar() {
               </div>
             )}
 
-            <Link to={storefrontEnabled ? '/shop' : '/contact'} className="btn btn--primary btn--sm nav__cta">
-              {t(storefrontEnabled ? 'nav.shopCta' : 'nav.cta')}
+            <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
+              {t('nav.contact')}
             </Link>
 
             <button
@@ -429,6 +428,17 @@ function Navbar() {
                 </mo.div>
               );
             })}
+            <mo.div
+              className="m-contact-cta-wrap"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.08, duration: 0.18 }}
+            >
+              <Link to="/contact" className="btn btn--primary m-contact-cta">
+                {t('nav.contact')}
+                <Icons.arrow size={18} />
+              </Link>
+            </mo.div>
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

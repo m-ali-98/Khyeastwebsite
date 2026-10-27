@@ -238,8 +238,6 @@ export const TEXTS = {
   'nav.quality': 'Quality & certifications',
   'nav.blog': 'Blog',
   'nav.contact': 'Contact',
-  'nav.cta': 'Request a quote',
-  'nav.shopCta': 'Shop online',
   'nav.main': 'Main navigation',
   'nav.mobile': 'Mobile navigation',
   'nav.menu': 'Site menu',

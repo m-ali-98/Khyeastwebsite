@@ -232,8 +232,6 @@ export const TEXTS = {
   'nav.quality': 'الجودة والشهادات',
   'nav.blog': 'المدونة',
   'nav.contact': 'اتصل بنا',
-  'nav.cta': 'طلب عرض سعر',
-  'nav.shopCta': 'تسوق عبر الإنترنت',
   'nav.main': 'التنقل الرئيسي',
   'nav.mobile': 'التنقل عبر الهاتف',
   'nav.menu': 'قائمة الموقع',
