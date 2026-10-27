@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import DEFAULT_STATE from '../shared/contentDefaults.js';
+import { listIndexablePaths } from '../shared/seo.js';
 import { gotoReady, routeSettled, watchConsole } from './helpers.js';
 
 const jsonLd = (html) => {
@@ -18,7 +20,10 @@ test('robots and the multilingual sitemap are real protocol responses', async ({
   expect(sitemap.status()).toBe(200);
   expect(sitemap.headers()['content-type']).toContain('application/xml');
   const xml = await sitemap.text();
-  expect((xml.match(/<url>/g) || [])).toHaveLength(55);
+  expect((xml.match(/<url>/g) || [])).toHaveLength(listIndexablePaths(DEFAULT_STATE).length);
+  expect(xml).toContain(`${origin}/gallery`);
+  expect(xml).toContain(`${origin}/en/gallery`);
+  expect(xml).toContain(`${origin}/ar/gallery`);
   expect(xml).toContain('hreflang="fa"');
   expect(xml).toContain('hreflang="en"');
   expect(xml).toContain('hreflang="ar"');

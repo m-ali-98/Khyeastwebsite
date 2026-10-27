@@ -18,7 +18,7 @@ import { gotoReady } from './helpers.js';
    in a serial group: one intentional baseline change should report every
    affected page, not suppress the remaining visual coverage. */
 
-async function settle(page) {
+async function settle(page, { hideFixedChrome = false } = {}) {
   await page.evaluate(() => document.fonts.ready);
 
   /* A screenshot records the finished page, not whether IntersectionObserver
@@ -62,6 +62,22 @@ async function settle(page) {
     window.scrollTo(0, 0);
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
+
+  /* Counters are driven by requestAnimationFrame rather than CSS. The final
+     counter can enter the viewport on the last lazy-image scroll step, so
+     give it its declared 2.2s duration before recording the page. */
+  await page.waitForTimeout(2400);
+
+  if (hideFixedChrome) {
+    /* Chromium builds full-page captures in more than one viewport-sized
+       paint. A fixed nav/back-to-top control can otherwise be recorded in a
+       middle tile when those paints dispatch scroll events. Their visual
+       states have dedicated element snapshots below, so page snapshots keep
+       the document content and omit this duplicated, timing-sensitive chrome. */
+    await page.addStyleTag({
+      content: 'nav.nav, .to-top { visibility: hidden !important; }',
+    });
+  }
 }
 
 const PAGES = [
@@ -72,6 +88,7 @@ const PAGES = [
   ['export', '/export'],
   ['quality', '/quality'],
   ['blog', '/blog'],
+  ['gallery', '/gallery'],
   ['contact', '/contact'],
   ['shop', '/shop'],
   ['shop-product', '/shop/dezmaye-gold-80'],
@@ -82,9 +99,10 @@ const PAGES = [
 for (const [name, url] of PAGES) {
   for (const theme of ['light', 'dark']) {
     test(`${name} looks right (${theme})`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.addInitScript((t) => localStorage.setItem('ky_theme', t), theme);
       await gotoReady(page, url);
-      await settle(page);
+      await settle(page, { hideFixedChrome: true });
       await expect(page).toHaveScreenshot(`${name}-${theme}.png`, { fullPage: true });
     });
   }
@@ -93,11 +111,14 @@ for (const [name, url] of PAGES) {
 test('the navbar keeps its shape in both states', async ({ page }) => {
   await gotoReady(page, '/');
   await settle(page);
-  await expect(page.locator('nav.nav')).toHaveScreenshot('nav-top.png');
+  const nav = page.locator('nav.nav');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(nav).not.toHaveClass(/is-scrolled/);
+  await expect(nav).toHaveScreenshot('nav-top.png');
 
   await page.evaluate(() => window.scrollTo(0, 600));
-  await page.waitForTimeout(400);
-  await expect(page.locator('nav.nav')).toHaveScreenshot('nav-scrolled.png');
+  await expect(nav).toHaveClass(/is-scrolled/);
+  await expect(nav).toHaveScreenshot('nav-scrolled.png');
 });
 
 test('the admin login card looks right', async ({ page }) => {
