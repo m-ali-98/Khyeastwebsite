@@ -326,6 +326,10 @@ test('Contact is the crimson header action rather than a primary navigation link
 });
 
 test('the mobile About disclosure opens its active section without hiding Export @mobile', async ({ page }) => {
+  /* The desktop project also discovers tagged tests because it runs the
+     unfiltered suite, so make this test's mobile premise explicit rather than
+     relying on the project's default viewport. */
+  await page.setViewportSize({ width: 390, height: 844 });
   await gotoReady(page, '/quality');
   await page.getByRole('button', { name: 'منوی سایت' }).click();
 
@@ -348,6 +352,23 @@ test('the mobile About disclosure opens its active section without hiding Export
   await drawer.getByRole('link', { name: 'معرفی شرکت', exact: true }).click();
   await expect(page).toHaveURL(/\/about$/);
   await expect(drawer).toHaveCount(0);
+});
+
+test('the mobile drawer closes when the viewport crosses into desktop layout @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoReady(page, '/');
+  await page.getByRole('button', { name: 'منوی سایت' }).click();
+  await expect(page.locator('#mobile-navigation')).toBeVisible();
+  await expect(page.locator('body')).toHaveClass(/is-mobile-menu-open/);
+
+  /* Simulate a phone rotation, browser resize, or external-display move that
+     changes directly from the drawer layout to the desktop breakpoint. */
+  await page.setViewportSize({ width: 1200, height: 700 });
+  await expect(page.locator('#mobile-navigation')).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveClass(/is-mobile-menu-open/);
+  await expect(page.locator('.nav__links')).toBeVisible();
+  await expect(page.locator('.nav__burger')).toBeHidden();
+  expect(await page.locator('body').evaluate((body) => body.style.overflow)).toBe('');
 });
 
 test('contact phone numbers use local Persian and international EN/AR formats @mobile', async ({ page }) => {

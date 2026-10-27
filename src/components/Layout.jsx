@@ -171,6 +171,22 @@ function Navbar() {
     setMobileAboutOpen(false);
   }, [location.pathname]);
 
+  /* The drawer and the desktop navigation swap at the same CSS breakpoint.
+     Close an open drawer as soon as a resize or orientation change crosses
+     that boundary; otherwise its fixed overlay and body scroll lock can
+     survive after the desktop header has appeared. */
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1101px)');
+    const closeDrawerOnDesktop = (event) => {
+      if (!event.matches) return;
+      setOpen(false);
+      setMobileAboutOpen(false);
+    };
+    desktop.addEventListener('change', closeDrawerOnDesktop);
+    closeDrawerOnDesktop(desktop);
+    return () => desktop.removeEventListener('change', closeDrawerOnDesktop);
+  }, []);
+
   /* Re-open the corporate section when the drawer is launched from one of its
      child routes. Everywhere else it starts collapsed, keeping the top-level
      information architecture easy to scan. */
@@ -434,9 +450,14 @@ function Navbar() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.08, duration: 0.18 }}
             >
-              <Link to="/contact" className="btn btn--primary m-contact-cta">
-                {t('nav.contact')}
-                <Icons.arrow size={18} />
+              <Link to="/contact" className="m-contact-cta">
+                <span className="m-contact-cta__mark" aria-hidden="true">
+                  <Icons.mail size={17} />
+                </span>
+                <span className="m-contact-cta__label">{t('nav.contact')}</span>
+                <span className="m-contact-cta__arrow" aria-hidden="true">
+                  <Icons.arrow size={17} />
+                </span>
               </Link>
             </mo.div>
             <mo.div
