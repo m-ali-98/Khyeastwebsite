@@ -234,6 +234,12 @@ test('export destinations are presented only as continents in all locales @mobil
     await expect(markers).toHaveCount(4);
     await expect(map.locator('.feature-card')).toHaveCount(0);
 
+    if ((page.viewportSize()?.width || 0) > 900) {
+      const stageBox = await map.locator('.export-map__stage').boundingBox();
+      const detailBox = await map.locator('.export-map__detail').boundingBox();
+      expect(Math.abs(stageBox.height - detailBox.height), `${url} map and detail heights differ`).toBeLessThanOrEqual(1);
+    }
+
     await markers.first().focus();
     await page.keyboard.press('Tab');
     await expect(markers.nth(1)).toBeFocused();
