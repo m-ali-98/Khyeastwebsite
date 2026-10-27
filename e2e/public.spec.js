@@ -187,6 +187,52 @@ test('about mission labels are localized rather than embedded Persian @mobile', 
   }
 });
 
+test('about omits the leadership section and every plant-area presentation in all locales @mobile', async ({ page }) => {
+  const cases = [
+    ['/about', ['۶۵,۰۰۰', '۶۵٬۰۰۰', '۶۵۰۰۰', 'مدیران شرکت خمیر مایه خوزستان', 'امیر سالاری نسب']],
+    ['/en/about', ['65,000', '65000', 'The leadership of Khuzestan Yeast Co.', 'Amir Salari Nasab']],
+    ['/ar/about', ['٦٥٬٠٠٠', '٦٥,٠٠٠', '٦٥٠٠٠', 'إدارة شركة خميرة خوزستان', 'أمير سالاري نسب']],
+  ];
+
+  for (const [url, forbidden] of cases) {
+    await gotoReady(page, url);
+    await expect(page.locator('.about-team, .person-card')).toHaveCount(0);
+    await expect(page.locator('.about-stats .stat')).toHaveCount(3);
+    await expect(page.locator('.about-factory .badge-float')).toHaveCount(0);
+    await expect(page.locator('.about-factory .fact-item')).toHaveCount(5);
+
+    const text = await page.locator('main').innerText();
+    for (const phrase of forbidden) expect(text).not.toContain(phrase);
+  }
+});
+
+test('export destinations are presented only as continents in all locales @mobile', async ({ page }) => {
+  const cases = [
+    {
+      url: '/export',
+      continents: ['آسیا', 'اروپا', 'آفریقا', 'آمریکای جنوبی'],
+      forbidden: ['کشورهای همسایه', 'CIS', 'خاورمیانه', 'خلیج فارس', 'عراق', 'افغانستان', 'پاکستان', 'ترکیه', 'ارمنستان', 'آذربایجان', 'روسیه', 'قزاقستان', 'ازبکستان', 'ترکمنستان', 'قرقیزستان', 'تاجیکستان', 'مصر', 'نیجریه', 'کنیا', 'سودان', 'غنا', 'برزیل', 'ونزوئلا', 'کلمبیا', 'امارات', 'قطر', 'کویت', 'عمان'],
+    },
+    {
+      url: '/en/export',
+      continents: ['Asia', 'Europe', 'Africa', 'South America'],
+      forbidden: ['Neighbouring countries', 'CIS', 'Middle East', 'Gulf', 'Iraq', 'Afghanistan', 'Pakistan', 'Turkey', 'Armenia', 'Azerbaijan', 'Russia', 'Kazakhstan', 'Uzbekistan', 'Turkmenistan', 'Kyrgyzstan', 'Tajikistan', 'Egypt', 'Nigeria', 'Kenya', 'Sudan', 'Ghana', 'Brazil', 'Venezuela', 'Colombia', 'UAE', 'Qatar', 'Kuwait', 'Oman'],
+    },
+    {
+      url: '/ar/export',
+      continents: ['آسيا', 'أوروبا', 'أفريقيا', 'أمريكا الجنوبية'],
+      forbidden: ['دول الجوار', 'رابطة الدول المستقلة', 'الشرق الأوسط', 'الخليج', 'العراق', 'أفغانستان', 'باكستان', 'تركيا', 'أرمينيا', 'أذربيجان', 'روسيا', 'كازاخستان', 'أوزبكستان', 'تركمانستان', 'قيرغيزستان', 'طاجيكستان', 'مصر', 'نيجيريا', 'كينيا', 'السودان', 'غانا', 'البرازيل', 'فنزويلا', 'كولومبيا', 'الإمارات', 'قطر', 'الكويت', 'عُمان'],
+    },
+  ];
+
+  for (const { url, continents, forbidden } of cases) {
+    await gotoReady(page, url);
+    await expect(page.locator('.export-regions .feature-card h3')).toHaveText(continents);
+    const text = await page.locator('main').innerText();
+    for (const country of forbidden) expect(text).not.toContain(country);
+  }
+});
+
 test('the header, footer and logo render on every locale @mobile', async ({ page }) => {
   const cases = [
     ['/', '۰۲۱-۲۲۵۸۲۹۷۷'],

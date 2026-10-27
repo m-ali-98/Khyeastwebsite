@@ -1757,26 +1757,6 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .principle-card h3 { margin: 0 0 8px; font-size: 18px; font-weight: 800; }
 .principle-card p { margin: 0; color: var(--muted); font-size: 14.5px; }
 
-.person-card {
-  padding: 28px 24px;
-  text-align: start;
-  background: var(--surface-raised);
-  border-block-start: 3px solid var(--crimson);
-}
-.person-card__icon {
-  width: 52px; height: 52px;
-  margin-block-end: 16px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  background: var(--crimson-soft);
-  color: var(--crimson-ink);
-  transition: transform 0.28s var(--ease-soft);
-}
-.person-card:hover .person-card__icon { transform: translateY(-2px) scale(1.025); }
-.person-card h3 { margin: 0 0 5px; font-size: 16.5px; font-weight: 800; }
-.person-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
-
 /* ---------- Credential cards ---------- */
 .certs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--grid-gap); }
 .cert-card {

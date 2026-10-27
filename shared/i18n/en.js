@@ -20,7 +20,7 @@ export const TEXTS = {
   'home.hero.title':
     'Khuzestan Yeast Co. — producer of instant dry yeast under the Dezmaye, Shetab, X-Power and Nan Maye brands',
   'home.hero.desc':
-    'Our production lines were designed and commissioned by Frings of Austria using the latest European technology. More than half of our output is exported to neighbouring countries, the CIS, Africa, Europe and South America.',
+    'Our production lines were designed and commissioned by Frings of Austria using the latest European technology. More than half of our output is exported to markets across Asia, Europe, Africa and South America.',
   'home.hero.btnShop': 'Shop online',
   'home.hero.btnProducts': 'View products',
   'home.hero.btnWholesale': 'Wholesale enquiry',
@@ -99,12 +99,8 @@ export const TEXTS = {
     'To become the leading yeast producer in the Middle East and Central Asia by 2031, with an active presence in more than 70 countries, continuous development of innovative biotechnology products and quality standards raised to international level.',
   'about.timeline.overline': 'History and milestones',
   'about.timeline.title': 'A path of growth [[through the years]]',
-  'about.managers.overline': 'Management team',
-  'about.managers.title': 'The leadership of [[Khuzestan Yeast Co.]]',
-  'about.managers.sub': 'An experienced team in biotechnology and international trade',
   'about.factory.overline': 'Plant and infrastructure',
   'about.factory.title': 'Infrastructure worthy of [[a nation’s bread]]',
-  'about.factory.badge': '65,000 square metres',
   'about.factory.btn': 'Quality control system',
   'about.cta.title': 'We are ready to write the next chapter with you',
   'about.cta.text':
@@ -135,7 +131,7 @@ export const TEXTS = {
   /* ---------- export ---------- */
   'export.hero.title': 'Global exports',
   'export.hero.sub':
-    'A lasting presence for the Dezmaye, Shetab, X-Power and Nan Maye brands across the Middle East, CIS, Europe, Africa and South America.',
+    'A lasting presence for the Dezmaye, Shetab, X-Power and Nan Maye brands across Asia, Europe, Africa and South America.',
   'export.banner.title': 'For us, borders are only lines on a map',
   'export.banner.text': 'Every year more than half of our output leaves Iranian ports for five continents.',
   'export.regions.overline': 'Where we operate',
@@ -278,7 +274,6 @@ export const COLLECTIONS = {
     { label: 'Years in operation' },
     { label: 'Export markets' },
     { label: 'Active brands' },
-    { label: 'Square metres of plant area' },
   ],
   exportStats: [
     { label: 'Export destinations' },
@@ -297,7 +292,7 @@ export const COLLECTIONS = {
     },
     {
       title: 'Worldwide shipping',
-      text: 'Exports to neighbouring countries, the CIS, Africa, Europe and South America.',
+      text: 'Exports to markets across Asia, Europe, Africa and South America.',
     },
     {
       title: 'Competitive bulk pricing',
@@ -344,7 +339,7 @@ export const COLLECTIONS = {
     {
       year: '2001',
       title: 'Official opening of the plant',
-      text: 'The plant is officially inaugurated by the Minister of Industries and Mines on a 65,000 m² site in Dezful.',
+      text: 'The plant is officially inaugurated by the Minister of Industries and Mines in Dezful.',
     },
     {
       year: '2005',
@@ -359,14 +354,8 @@ export const COLLECTIONS = {
     {
       year: 'Today',
       title: 'Exports to more than 50 countries',
-      text: 'The Dezmaye, Shetab, X-Power and Nan Maye brands supply markets across the Middle East, the CIS, Europe, Africa and South America.',
+      text: 'The Dezmaye, Shetab, X-Power and Nan Maye brands supply markets across Asia, Europe, Africa and South America.',
     },
-  ],
-  managers: [
-    { name: 'Amir Salari Nasab', role: 'Chairman of the Board' },
-    { name: 'Seyed Mohammad Alavi', role: 'Chief Executive Officer' },
-    { name: 'Hesam Mahmoudi', role: 'Commercial Manager' },
-    { name: 'Seyed Abdolvahab Seyedan', role: 'Member of the Board' },
   ],
   certs: [
     { id: 'iso', title: 'BS EN ISO 9001:2015', text: 'Quality management standard, certified in Germany.' },
@@ -380,22 +369,16 @@ export const COLLECTIONS = {
   ],
   facts: [
     { title: 'Plant locations', text: 'Dezful, Khuzestan Province — Kermanshah (second unit)' },
-    { title: 'Area', text: '65,000 square metres of land at the Dezful plant' },
     { title: 'Machinery', text: 'Production lines designed by Frings of Austria' },
     { title: 'Laboratory', text: 'Quality control equipped with European instruments' },
     { title: 'Product type', text: 'Active Dry and Instant dry yeast' },
     { title: 'Production capacity', text: 'Supplying the Iranian market and exporting to over 50 countries' },
   ],
   regions: [
-    {
-      title: 'Neighbouring countries',
-      text: 'Iraq, Afghanistan, Pakistan, Turkey, Armenia and Azerbaijan — our first and most enduring markets.',
-    },
-    { title: 'The CIS region', text: 'Russia, Kazakhstan, Uzbekistan, Turkmenistan, Kyrgyzstan and Tajikistan.' },
-    { title: 'Africa', text: 'Egypt, Nigeria, Kenya, Sudan and Ghana — a growing presence in emerging markets.' },
-    { title: 'Europe', text: 'Eastern and Central Europe, meeting the most demanding quality standards.' },
-    { title: 'South America', text: 'Brazil, Venezuela and Colombia — a lasting place in the Latin American bread chain.' },
-    { title: 'The Gulf and the Middle East', text: 'The UAE, Qatar, Kuwait and Oman — supplying the region’s bakeries and industry.' },
+    { title: 'Asia', text: 'An established presence across Asian markets, supported by an export-ready supply chain.' },
+    { title: 'Europe', text: 'Supplying European markets while meeting demanding quality standards.' },
+    { title: 'Africa', text: 'A growing presence across African markets with products suited to the baking industry.' },
+    { title: 'South America', text: 'An established presence across South American markets and bakery supply chains.' },
   ],
   exportSteps: [
     {
