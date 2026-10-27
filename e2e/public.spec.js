@@ -227,7 +227,22 @@ test('export destinations are presented only as continents in all locales @mobil
 
   for (const { url, continents, forbidden } of cases) {
     await gotoReady(page, url);
-    await expect(page.locator('.export-regions .feature-card h3')).toHaveText(continents);
+    const map = page.locator('.export-map');
+    const markers = map.locator('.export-map__marker');
+    await expect(map.locator('.export-map__art')).toBeVisible();
+    await expect(markers).toHaveText(continents);
+    await expect(markers).toHaveCount(4);
+    await expect(map.locator('.feature-card')).toHaveCount(0);
+
+    await markers.first().focus();
+    await page.keyboard.press('Tab');
+    await expect(markers.nth(1)).toBeFocused();
+    await expect(map.locator('.export-map__detail h3')).toHaveText(continents[1]);
+
+    await markers.last().click();
+    await expect(markers.last()).toHaveAttribute('aria-pressed', 'true');
+    await expect(map.locator('.export-map__detail h3')).toHaveText(continents.at(-1));
+
     const text = await page.locator('main').innerText();
     for (const country of forbidden) expect(text).not.toContain(country);
   }
