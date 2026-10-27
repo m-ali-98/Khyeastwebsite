@@ -146,6 +146,35 @@ test('gallery captions are localized in all three public languages @mobile', asy
   }
 });
 
+test('portrait gallery media is centered in cards and fully contained in the lightbox @mobile', async ({ page }) => {
+  await gotoReady(page, '/gallery');
+  const preview = page.locator('.gallery-card__media img[src*="gallery-international-exhibition"]');
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate((image) => getComputedStyle(image).objectPosition)).toBe('50% 50%');
+
+  await preview.locator('xpath=ancestor::button[1]').click();
+  const image = page.getByRole('dialog').locator('.gallery-lightbox__stage img');
+  await expect(image).toBeVisible();
+  const media = await image.evaluate((element) => {
+    const imageRect = element.getBoundingClientRect();
+    const stageRect = element.parentElement.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      naturalWidth: element.naturalWidth,
+      naturalHeight: element.naturalHeight,
+      widthDelta: Math.abs(imageRect.width - stageRect.width),
+      heightDelta: Math.abs(imageRect.height - stageRect.height),
+      objectFit: style.objectFit,
+      objectPosition: style.objectPosition,
+    };
+  });
+  expect(media.naturalHeight).toBeGreaterThan(media.naturalWidth);
+  expect(media.widthDelta).toBeLessThan(1);
+  expect(media.heightDelta).toBeLessThan(1);
+  expect(media.objectFit).toBe('contain');
+  expect(media.objectPosition).toBe('50% 50%');
+});
+
 test('the 404 page uses localized CMS copy and keeps its recovery actions clear @mobile', async ({ page }) => {
   const cases = [
     {
