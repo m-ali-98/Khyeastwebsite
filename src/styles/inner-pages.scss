@@ -854,6 +854,11 @@
 .gallery-grid__cell:nth-child(7),
 .gallery-grid__cell:nth-child(8) { grid-column: span 4; }
 .gallery-grid__cell:nth-child(9) { grid-column: span 12; }
+/* With exactly six records, complete the third row as three balanced cards.
+   Otherwise item five's wide slot leaves item six stranded on a partial row. */
+@media (min-width: 901px) {
+  .gallery-grid__cell:nth-child(5):nth-last-child(2) { grid-column: span 4; }
+}
 
 .gallery-card {
   position: relative;

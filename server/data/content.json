@@ -1252,44 +1252,52 @@
   ],
   "gallery": [
     {
-      "id": "factory-production",
+      "id": "product-range",
       "type": "image",
-      "src": "/assets/img/factory.webp",
+      "src": "/assets/img/gallery-product-range.webp",
       "poster": "",
-      "caption": "قلب تولید در دزفول",
-      "description": "کارخانه خمیرمایه خوزستان در شهرک صنعتی دزفول؛ جایی که دانش زیست‌فناوری و تجربه صنعتی در کنار هم به تولید پایدار می‌رسند."
+      "caption": "نگاهی به محصولات خمیرمایه خوزستان",
+      "description": ""
     },
     {
-      "id": "quality-laboratory",
+      "id": "shetab-instant-yeast",
       "type": "image",
-      "src": "/assets/img/laboratory.webp",
+      "src": "/assets/img/gallery-shetab-instant-yeast.webp",
       "poster": "",
-      "caption": "پایش مستمر کیفیت",
-      "description": "آزمایشگاه کنترل کیفیت، هر مرحله از انتخاب مواد اولیه تا محصول نهایی را با آزمون‌های دقیق و مستمر زیر نظر دارد."
+      "caption": "خمیرمایه فوری شتاب مایه",
+      "description": ""
     },
     {
-      "id": "wheat-origin",
+      "id": "three-brands-one-quality",
       "type": "image",
-      "src": "/assets/img/hero-wheat.webp",
+      "src": "/assets/img/gallery-three-brands.webp",
       "poster": "",
-      "caption": "از قلب گندم",
-      "description": "آغاز داستان نان با ماده‌ای زنده و طبیعی؛ خمیرمایه‌ای که برای بافت، عطر و طعم مطلوب نان پرورش یافته است."
+      "caption": "سه برند مختلف، یک کیفیت واحد",
+      "description": ""
     },
     {
-      "id": "bread-craft",
+      "id": "wheat-to-bread",
       "type": "image",
-      "src": "/assets/img/bread-slicing.webp",
+      "src": "/assets/img/gallery-wheat-to-bread.webp",
       "poster": "",
-      "caption": "تا نخستین برش نان",
-      "description": "قدرت تخمیر یکنواخت، به نان حجمی مطلوب، بافتی نرم و کیفیتی قابل تکرار می‌بخشد."
+      "caption": "از مغز گندم؛ تا اولین برش نان",
+      "description": ""
     },
     {
-      "id": "global-export",
+      "id": "international-exhibition",
       "type": "image",
-      "src": "/assets/img/export.webp",
+      "src": "/assets/img/gallery-international-exhibition.webp",
       "poster": "",
-      "caption": "همراه بازارهای جهانی",
-      "description": "محصولات خمیرمایه خوزستان با بسته‌بندی صادراتی و کنترل کیفی مستمر به بازارهای بین‌المللی راه پیدا می‌کنند."
+      "caption": "خمیرمایه خوزستان در نمایشگاه بین المللی غلات، آرد و نان",
+      "description": ""
+    },
+    {
+      "id": "dezmayeh-instant-dry-yeast",
+      "type": "image",
+      "src": "/assets/img/gallery-dezmayeh-instant-yeast.webp",
+      "poster": "",
+      "caption": "خمیرمایه خشک فوری دزمایه",
+      "description": ""
     }
   ],
   "i18n": {

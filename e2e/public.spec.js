@@ -137,9 +137,9 @@ test('gallery paginates nine at a time and its lightbox is keyboard-accessible @
 
 test('gallery captions are localized in all three public languages @mobile', async ({ page }) => {
   for (const [url, caption] of [
-    ['/gallery', 'قلب تولید در دزفول'],
-    ['/en/gallery', 'The heart of production in Dezful'],
-    ['/ar/gallery', 'قلب الإنتاج في دزفول'],
+    ['/gallery', 'نگاهی به محصولات خمیرمایه خوزستان'],
+    ['/en/gallery', 'A Look at Khuzestan Yeast Products'],
+    ['/ar/gallery', 'نظرة على منتجات الخميرة في خوزستان'],
   ]) {
     await gotoReady(page, url);
     await expect(page.locator('.gallery-card__caption strong').first()).toHaveText(caption);

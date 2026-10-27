@@ -69,8 +69,8 @@ check(
 
 const en = localizeState(DEFAULT_STATE, 'en');
 const ar = localizeState(DEFAULT_STATE, 'ar');
-check(en.gallery[0].caption === 'The heart of production in Dezful', 'English gallery seed is localized');
-check(ar.gallery[0].caption === 'قلب الإنتاج في دزفول', 'Arabic gallery seed is localized');
+check(en.gallery[0].caption === 'A Look at Khuzestan Yeast Products', 'English gallery seed is localized');
+check(ar.gallery[0].caption === 'نظرة على منتجات الخميرة في خوزستان', 'Arabic gallery seed is localized');
 check(en.gallery[0].src === DEFAULT_STATE.gallery[0].src && ar.gallery[0].src === DEFAULT_STATE.gallery[0].src, 'all locales share one media source');
 
 for (const leak of leaks) console.log(leak);

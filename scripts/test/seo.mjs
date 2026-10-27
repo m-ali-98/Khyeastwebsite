@@ -147,7 +147,7 @@ check(builtIndex.includes('application/ld+json'), 'root has structured data befo
 check(builtEnAbout.includes('<html lang="en" dir="ltr"'), 'built English document language');
 check(builtEnAbout.includes('<h1>About Khuzestan Yeast Co.</h1>'), 'built route-specific fallback heading');
 check(builtEnAbout.includes(`rel="canonical" href="${ORIGIN}/en/about"`), 'built route-specific canonical');
-check(builtEnGallery.includes('The heart of production in Dezful') && builtEnGallery.includes('gallery#factory-production'), 'built gallery exposes localized crawlable item links');
+check(builtEnGallery.includes('A Look at Khuzestan Yeast Products') && builtEnGallery.includes('gallery#product-range'), 'built gallery exposes localized crawlable item links');
 check(builtProduct.includes('"@type":"Product"') && builtProduct.includes('"@type":"Offer"'), 'built product schema and offer');
 check(builtPrivate.includes('content="noindex, nofollow, noarchive"'), 'static private shell noindex');
 check(built404.includes('content="noindex, nofollow, noarchive"'), 'static 404 shell noindex');

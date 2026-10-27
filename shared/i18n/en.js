@@ -629,25 +629,23 @@ export const PRODUCTS = {
 };
 
 export const GALLERY = {
-  'factory-production': {
-    caption: 'The heart of production in Dezful',
-    description: 'The Khuzestan Yeast plant in Dezful Industrial Estate, where biotechnology and industrial experience meet in a stable production process.',
+  'product-range': {
+    caption: 'A Look at Khuzestan Yeast Products',
   },
-  'quality-laboratory': {
-    caption: 'Quality under constant watch',
-    description: 'Our quality-control laboratory closely monitors every stage, from raw-material selection to the finished product.',
+  'shetab-instant-yeast': {
+    caption: 'Shetab Mayeh Instant Yeast',
   },
-  'wheat-origin': {
-    caption: 'From the heart of wheat',
-    description: 'The story of bread begins with a living, natural ingredient: yeast cultivated for excellent texture, aroma and flavour.',
+  'three-brands-one-quality': {
+    caption: 'Three different brands, one consistent quality',
   },
-  'bread-craft': {
-    caption: 'To the first slice of bread',
-    description: 'Consistent fermentation power gives bread dependable volume, a soft crumb and repeatable quality.',
+  'wheat-to-bread': {
+    caption: 'From the wheat kernel to the first slice of bread',
   },
-  'global-export': {
-    caption: 'Made for global markets',
-    description: 'Export-ready packaging and continuous quality control carry Khuzestan Yeast products to international markets.',
+  'international-exhibition': {
+    caption: 'Khuzestan Yeast at the International Exhibition of Grains, Flour, and Bread',
+  },
+  'dezmayeh-instant-dry-yeast': {
+    caption: 'Dezmayeh Instant Dry Yeast',
   },
 };
 
