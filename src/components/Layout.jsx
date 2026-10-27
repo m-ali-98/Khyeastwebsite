@@ -445,28 +445,16 @@ function Navbar() {
               );
             })}
             <mo.div
-              className="m-contact-cta-wrap"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.08, duration: 0.18 }}
-            >
-              <Link to="/contact" className="m-contact-cta">
-                <span className="m-contact-cta__mark" aria-hidden="true">
-                  <Icons.mail size={17} />
-                </span>
-                <span className="m-contact-cta__label">{t('nav.contact')}</span>
-                <span className="m-contact-cta__arrow" aria-hidden="true">
-                  <Icons.arrow size={17} />
-                </span>
-              </Link>
-            </mo.div>
-            <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.18 }}
+              transition={{ delay: 0.08, duration: 0.18 }}
               className="m-controls"
             >
               <LangSwitch block />
+              <Link to="/contact" className="m-contact-cta">
+                <Icons.mail size={15} aria-hidden="true" />
+                <span>{t('nav.contact')}</span>
+              </Link>
               <ThemeToggle />
             </mo.div>
           </mo.nav>

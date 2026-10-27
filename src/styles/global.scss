@@ -3066,92 +3066,66 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .theme-toggle__thumb { transition: none; }
 }
 
-/* Contact remains a strong action in the mobile drawer after leaving the
-   primary link list. A compact glass row fits the drawer better than reusing
-   the wide desktop button while retaining the same crimson emphasis. */
-.m-contact-cta-wrap { margin-block-start: 16px; }
-.m-contact-cta {
-  position: relative;
+/* Drawer utilities share one anchored row: language at the inline start,
+   theme at the inline end, and Contact in the space that previously sat empty
+   between them. Logical grid flow keeps the order natural in both RTL/LTR. */
+.m-controls {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 32px;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
   align-items: center;
-  gap: 11px;
-  width: 100%;
-  min-height: 58px;
-  overflow: hidden;
-  padding: 8px 9px;
-  border: 1px solid rgba(244, 59, 94, 0.38);
-  border-radius: 17px;
-  background:
-    radial-gradient(circle at 12% 0%, rgba(244, 59, 94, 0.25), transparent 48%),
-    linear-gradient(135deg, rgba(220, 20, 60, 0.22), rgba(122, 8, 32, 0.12));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 18px 36px -28px rgba(220, 20, 60, 0.9);
+  gap: 8px;
+  margin-top: auto;
+  padding: 18px 4px 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.11);
+}
+.m-contact-cta {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid rgba(244, 59, 94, 0.52);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(220, 20, 60, 0.34), rgba(122, 8, 32, 0.2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 10px 24px -18px var(--crimson-glow);
   color: #fff;
+  font-size: 12.5px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
   transition: transform 0.22s var(--ease-soft), border-color 0.22s ease, background-color 0.22s ease;
 }
-.m-contact-cta::after {
-  content: '';
-  position: absolute;
-  inset-block: 12px;
-  inset-inline-start: 0;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--crimson-bright);
-  box-shadow: 0 0 14px var(--crimson-glow);
+.m-contact-cta svg {
+  flex: none;
+  color: #ff6f8a;
 }
 .m-contact-cta:hover {
-  border-color: rgba(255, 113, 139, 0.72);
+  border-color: rgba(255, 113, 139, 0.82);
+  background-color: rgba(220, 20, 60, 0.32);
   transform: translateY(-1px);
 }
 .m-contact-cta:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 3px;
 }
-.m-contact-cta__mark,
-.m-contact-cta__arrow {
-  display: grid;
-  place-items: center;
-  flex: none;
-}
-.m-contact-cta__mark {
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  background: var(--crimson-solid);
-  box-shadow: 0 8px 20px -12px rgba(220, 20, 60, 0.95);
-}
-.m-contact-cta__label {
-  min-width: 0;
-  font-size: 16.5px;
-  font-weight: 850;
-  text-align: start;
-}
-.m-contact-cta__arrow {
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.07);
-  color: rgba(255, 255, 255, 0.86);
-}
-
-/* inside the mobile menu */
-.m-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-top: auto;
-  padding: 18px 4px 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.11);
-}
 .lang-switch--block { gap: 4px; }
-.lang-switch--block .lang-switch__btn { padding: 7px 14px; font-size: 13px; }
+.lang-switch--block .lang-switch__btn { padding: 7px 6px; font-size: 13px; }
 .lang-switch--block .lang-switch__short { display: none; }
 .lang-switch--block .lang-switch__label { display: inline; }
+
+/* Full language names plus Contact fit at standard phone widths. On compact
+   phones, the existing FA/EN/AR labels preserve all three choices without
+   squeezing or hiding the localized Contact action. */
+@media (max-width: 380px) {
+  .m-controls { padding-inline: 0; }
+  .lang-switch--block { gap: 2px; }
+  .lang-switch--block .lang-switch__btn { padding-inline: 6px; }
+  .lang-switch--block .lang-switch__short { display: inline; }
+  .lang-switch--block .lang-switch__label { display: none; }
+}
 
 @media (max-width: 900px) {
   .nav__topbar .lang-switch,

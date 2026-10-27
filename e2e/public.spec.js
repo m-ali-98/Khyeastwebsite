@@ -342,8 +342,9 @@ test('the mobile About disclosure opens its active section without hiding Export
   await expect(drawer.getByRole('link', { name: 'صادرات', exact: true })).toBeVisible();
   await expect(submenu.getByRole('link', { name: 'صادرات', exact: true })).toHaveCount(0);
   await expect(drawer.locator('.m-link[href="/contact"]')).toHaveCount(0);
-  await expect(drawer.locator('.m-contact-cta')).toHaveAttribute('href', '/contact');
-  await expect(drawer.locator('.m-contact-cta')).toHaveText('تماس با ما');
+  const contactAction = drawer.locator('.m-controls > .m-contact-cta');
+  await expect(contactAction).toHaveAttribute('href', '/contact');
+  await expect(contactAction).toHaveText('تماس با ما');
 
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
