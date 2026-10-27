@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import Logo from './Logo';
@@ -15,6 +15,25 @@ export const NAV_LINKS = [
   { to: '/shop', key: 'nav.shop', shopOnly: true },
   { to: '/export', key: 'nav.export' },
   { to: '/quality', key: 'nav.quality' },
+  { to: '/blog', key: 'nav.blog' },
+  { to: '/contact', key: 'nav.contact' },
+];
+
+/* Quality is supporting corporate evidence, so it belongs beside the company
+   overview. Export remains top-level: international buyers should not have to
+   guess that a commercial destination is hidden beneath “About us”. */
+const HEADER_NAV_ITEMS = [
+  { to: '/', key: 'nav.home', end: true },
+  {
+    key: 'nav.about',
+    children: [
+      { to: '/about', key: 'nav.aboutOverview' },
+      { to: '/quality', key: 'nav.quality' },
+    ],
+  },
+  { to: '/products', key: 'nav.products' },
+  { to: '/shop', key: 'nav.shop', shopOnly: true },
+  { to: '/export', key: 'nav.export' },
   { to: '/blog', key: 'nav.blog' },
   { to: '/contact', key: 'nav.contact' },
 ];
@@ -73,12 +92,18 @@ function ThemeToggle() {
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [mobileAboutOpen, setMobileAboutOpen] = useState(false);
+  const aboutTriggerRef = useRef(null);
   const location = useLocation();
   const { t, l, col } = useContent();
   const { count, display } = useShop() || { count: 0, display: {} };
   const { shopEnabled, isRTL } = useLocale();
   const storefrontEnabled = shopEnabled && display.enabled !== false;
-  const navLinks = NAV_LINKS.filter((link) => !link.shopOnly || storefrontEnabled);
+  const navItems = HEADER_NAV_ITEMS.filter((item) => !item.shopOnly || storefrontEnabled);
+  const aboutIsActive = ['/about', '/quality'].some(
+    (path) => location.pathname === path || location.pathname.startsWith(`${path}/`),
+  );
   const menuOffset = isRTL ? 28 : -28;
 
   /* The scroll listener fires dozens of times a second, but the navbar only
@@ -141,7 +166,30 @@ function Navbar() {
     return () => observer?.disconnect();
   }, [location.pathname]);
 
-  useEffect(() => setOpen(false), [location.pathname]);
+  useEffect(() => {
+    setOpen(false);
+    setAboutOpen(false);
+    setMobileAboutOpen(false);
+  }, [location.pathname]);
+
+  /* Re-open the corporate section when the drawer is launched from one of its
+     child routes. Everywhere else it starts collapsed, keeping the top-level
+     information architecture easy to scan. */
+  useEffect(() => {
+    setMobileAboutOpen(open && aboutIsActive);
+  }, [open, aboutIsActive]);
+
+  useEffect(() => {
+    if (!aboutOpen) return undefined;
+    const closeDesktopAbout = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setAboutOpen(false);
+      aboutTriggerRef.current?.focus();
+    };
+    window.addEventListener('keydown', closeDesktopAbout);
+    return () => window.removeEventListener('keydown', closeDesktopAbout);
+  }, [aboutOpen]);
 
   /* Apply the modal page state before the browser paints the opened menu.
      The shop showcase keeps a large composited image track and several blur
@@ -209,16 +257,61 @@ function Navbar() {
           </Link>
 
           <div className="nav__links">
-            {navLinks.map((link) => (
-              <NavLink
-                key={link.to}
-                to={link.to}
-                end={link.end}
-                className={({ isActive }) => `nav__link ${isActive ? 'active' : ''}`}
-              >
-                {t(link.key)}
-              </NavLink>
-            ))}
+            {navItems.map((item) => {
+              if (item.children) {
+                return (
+                  <div
+                    className="nav__group"
+                    key={item.key}
+                    onBlurCapture={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) setAboutOpen(false);
+                    }}
+                  >
+                    <button
+                      ref={aboutTriggerRef}
+                      type="button"
+                      className={`nav__link nav__link--trigger ${aboutIsActive ? 'active' : ''}`}
+                      aria-expanded={aboutOpen}
+                      aria-controls="about-navigation"
+                      onClick={() => setAboutOpen((value) => !value)}
+                    >
+                      <span>{t(item.key)}</span>
+                      <Icons.chevron size={15} className={aboutOpen ? 'is-open' : ''} aria-hidden="true" />
+                    </button>
+                    <div
+                      id="about-navigation"
+                      className="nav__dropdown"
+                      role="group"
+                      aria-label={t(item.key)}
+                      hidden={!aboutOpen}
+                    >
+                      {item.children.map((child) => (
+                        <NavLink
+                          key={child.to}
+                          to={child.to}
+                          end
+                          className={({ isActive }) => `nav__dropdown-link ${isActive ? 'active' : ''}`}
+                          onClick={() => setAboutOpen(false)}
+                        >
+                          {t(child.key)}
+                          <Icons.arrow size={15} />
+                        </NavLink>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) => `nav__link ${isActive ? 'active' : ''}`}
+                >
+                  {t(item.key)}
+                </NavLink>
+              );
+            })}
           </div>
 
           {/* One cluster, so the bar is three regions — logo, links, actions
@@ -250,7 +343,10 @@ function Navbar() {
 
             <button
               className={`nav__burger ${open ? 'is-open' : ''}`}
-              onClick={() => setOpen((v) => !v)}
+              onClick={() => {
+                setAboutOpen(false);
+                setOpen((value) => !value);
+              }}
               aria-label={t(open ? 'nav.close' : 'nav.menu')}
               aria-expanded={open}
               aria-controls="mobile-navigation"
@@ -274,19 +370,65 @@ function Navbar() {
             exit={{ opacity: 0, x: menuOffset }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
-            {navLinks.map((link, i) => (
-              <mo.div
-                key={link.to}
-                initial={{ opacity: 0, x: menuOffset * 0.35 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.025 + Math.min(i, 4) * 0.018, duration: 0.2 }}
-              >
-                <NavLink to={link.to} end={link.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
-                  {t(link.key)}
-                  <Icons.arrow size={20} />
-                </NavLink>
-              </mo.div>
-            ))}
+            {navItems.map((item, i) => {
+              const motionProps = {
+                initial: { opacity: 0, x: menuOffset * 0.35 },
+                animate: { opacity: 1, x: 0 },
+                transition: { delay: 0.025 + Math.min(i, 4) * 0.018, duration: 0.2 },
+              };
+              if (item.children) {
+                return (
+                  <mo.div key={item.key} className="m-nav-group" {...motionProps}>
+                    <button
+                      type="button"
+                      className={`m-link m-link--group ${aboutIsActive ? 'active' : ''}`}
+                      aria-expanded={mobileAboutOpen}
+                      aria-controls="mobile-about-navigation"
+                      onClick={() => setMobileAboutOpen((value) => !value)}
+                    >
+                      {t(item.key)}
+                      <Icons.chevron size={20} className={mobileAboutOpen ? 'is-open' : ''} aria-hidden="true" />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {mobileAboutOpen && (
+                        <mo.div
+                          id="mobile-about-navigation"
+                          className="m-submenu"
+                          role="group"
+                          aria-label={t(item.key)}
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                        >
+                          <div className="m-submenu__inner">
+                            {item.children.map((child) => (
+                              <NavLink
+                                key={child.to}
+                                to={child.to}
+                                end
+                                className={({ isActive }) => `m-sublink ${isActive ? 'active' : ''}`}
+                              >
+                                {t(child.key)}
+                                <Icons.arrow size={17} />
+                              </NavLink>
+                            ))}
+                          </div>
+                        </mo.div>
+                      )}
+                    </AnimatePresence>
+                  </mo.div>
+                );
+              }
+              return (
+                <mo.div key={item.to} {...motionProps}>
+                  <NavLink to={item.to} end={item.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
+                    {t(item.key)}
+                    <Icons.arrow size={20} />
+                  </NavLink>
+                </mo.div>
+              );
+            })}
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

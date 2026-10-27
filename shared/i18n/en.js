@@ -227,6 +227,7 @@ export const TEXTS = {
   'nf.products': 'Browse products',
   'nav.home': 'Home',
   'nav.about': 'About us',
+  'nav.aboutOverview': 'Company overview',
   'nav.products': 'Products',
   'nav.shop': 'Shop',
   'nav.export': 'Export',

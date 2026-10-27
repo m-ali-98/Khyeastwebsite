@@ -221,6 +221,7 @@ export const TEXTS = {
   'nf.products': 'تصفح المنتجات',
   'nav.home': 'الرئيسية',
   'nav.about': 'من نحن',
+  'nav.aboutOverview': 'نبذة عن الشركة',
   'nav.products': 'المنتجات',
   'nav.shop': 'المتجر',
   'nav.export': 'التصدير',

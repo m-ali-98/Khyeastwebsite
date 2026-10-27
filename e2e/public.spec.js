@@ -209,6 +209,59 @@ test('the header, footer and logo render on every locale @mobile', async ({ page
   }
 });
 
+test('About groups company overview and quality while Export stays directly reachable', async ({ page }) => {
+  const cases = [
+    ['/', '', 'درباره ما', 'معرفی شرکت', 'کیفیت و گواهینامه‌ها', 'صادرات'],
+    ['/en', '/en', 'About us', 'Company overview', 'Quality & certifications', 'Export'],
+    ['/ar', '/ar', 'من نحن', 'نبذة عن الشركة', 'الجودة والشهادات', 'التصدير'],
+  ];
+
+  for (const [url, prefix, groupLabel, overviewLabel, qualityLabel, exportLabel] of cases) {
+    await gotoReady(page, url);
+    const navigation = page.locator('.nav__links');
+    const trigger = navigation.getByRole('button', { name: groupLabel, exact: true });
+    const submenu = navigation.locator('#about-navigation');
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(navigation.locator(`:scope > a[href="${prefix}/export"]`)).toHaveText(exportLabel);
+    await expect(navigation.locator(`:scope > a[href="${prefix}/quality"]`)).toHaveCount(0);
+
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(submenu).toBeVisible();
+    await expect(submenu.getByRole('link', { name: overviewLabel, exact: true })).toHaveAttribute('href', `${prefix}/about`);
+    await expect(submenu.getByRole('link', { name: qualityLabel, exact: true })).toHaveAttribute('href', `${prefix}/quality`);
+    await expect(submenu.getByRole('link', { name: exportLabel, exact: true })).toHaveCount(0);
+
+    await page.keyboard.press('Escape');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(submenu).toBeHidden();
+    await expect(trigger).toBeFocused();
+  }
+});
+
+test('the mobile About disclosure opens its active section without hiding Export @mobile', async ({ page }) => {
+  await gotoReady(page, '/quality');
+  await page.getByRole('button', { name: 'منوی سایت' }).click();
+
+  const drawer = page.locator('#mobile-navigation');
+  const trigger = drawer.getByRole('button', { name: 'درباره ما', exact: true });
+  const submenu = drawer.locator('#mobile-about-navigation');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await expect(submenu).toBeVisible();
+  await expect(submenu.getByRole('link', { name: 'کیفیت و گواهینامه‌ها', exact: true })).toHaveClass(/active/);
+  await expect(drawer.getByRole('link', { name: 'صادرات', exact: true })).toBeVisible();
+  await expect(submenu.getByRole('link', { name: 'صادرات', exact: true })).toHaveCount(0);
+
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(submenu).toHaveCount(0);
+  await trigger.click();
+  await drawer.getByRole('link', { name: 'معرفی شرکت', exact: true }).click();
+  await expect(page).toHaveURL(/\/about$/);
+  await expect(drawer).toHaveCount(0);
+});
+
 test('contact phone numbers use local Persian and international EN/AR formats @mobile', async ({ page }) => {
   const cases = [
     ['/contact', '۰۲۱-۲۲۵۷۸۲۴۲'],

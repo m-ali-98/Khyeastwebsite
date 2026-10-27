@@ -642,6 +642,77 @@ input, select, textarea { font-family: inherit; }
 .nav__link:focus-visible { outline: 2px solid var(--crimson-bright); outline-offset: 1px; }
 .nav__link.active::after { transform: scaleX(1); opacity: 1; }
 .nav.is-scrolled .nav__link.active::after { background: var(--crimson); }
+
+/* Corporate disclosure: company overview and quality evidence share one clear
+   group, while Export remains a direct commercial destination. */
+.nav__group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.nav__link--trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: inherit;
+  cursor: pointer;
+}
+.nav__link--trigger > svg {
+  flex: none;
+  transition: transform 0.22s var(--ease-soft);
+}
+.nav__link--trigger > svg.is-open { transform: rotate(180deg); }
+.nav__dropdown {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 3;
+  width: max-content;
+  min-width: 238px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  animation: nav-dropdown-in 0.18s var(--ease-out) both;
+}
+.nav__dropdown-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 43px;
+  padding: 9px 11px;
+  border-inline-start: 3px solid transparent;
+  border-radius: 10px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color 0.2s ease, background-color 0.2s ease, padding-inline 0.2s var(--ease-soft);
+}
+.nav__dropdown-link:hover,
+.nav__dropdown-link:focus-visible,
+.nav__dropdown-link.active {
+  padding-inline: 14px 10px;
+  color: var(--crimson-ink);
+  background: var(--crimson-soft);
+}
+.nav__dropdown-link:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: -2px;
+}
+.nav__dropdown-link.active { border-inline-start-color: var(--crimson); }
+@keyframes nav-dropdown-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .nav__cta { flex: none; white-space: nowrap; }
 
 /* Header controls share one geometry and one state model. Previously the
@@ -784,32 +855,38 @@ input, select, textarea { font-family: inherit; }
 .nav.is-scrolled + .mobile-menu {
   padding-block-start: calc(var(--nav-h) + 16px);
 }
-.mobile-menu a.m-link {
+.mobile-menu .m-link {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   min-height: 52px;
   padding: 9px 4px;
+  border: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.11);
+  background: transparent;
   color: rgba(255, 255, 255, 0.88);
+  font: inherit;
   font-size: 18.5px;
   font-weight: 700;
+  text-align: start;
+  cursor: pointer;
   touch-action: manipulation;
   transition: color 0.2s ease, padding-inline 0.25s var(--ease-soft);
 }
-.mobile-menu a.m-link:hover,
-.mobile-menu a.m-link:focus-visible {
+.mobile-menu .m-link:hover,
+.mobile-menu .m-link:focus-visible {
   padding-inline: 8px;
   color: #fff;
 }
-.mobile-menu a.m-link:focus-visible {
+.mobile-menu .m-link:focus-visible {
   border-radius: 8px;
   outline: 2px solid var(--crimson-bright);
   outline-offset: -2px;
 }
-.mobile-menu a.m-link.active { color: var(--crimson-bright); }
-.mobile-menu a.m-link.active::before {
+.mobile-menu .m-link.active { color: var(--crimson-bright); }
+.mobile-menu .m-link.active::before {
   content: '';
   position: absolute;
   inset-block: 14px;
@@ -817,6 +894,45 @@ input, select, textarea { font-family: inherit; }
   width: 3px;
   border-radius: 999px;
   background: var(--crimson-bright);
+}
+.m-link--group > svg {
+  flex: none;
+  transition: transform 0.22s var(--ease-soft);
+}
+.m-link--group > svg.is-open { transform: rotate(180deg); }
+.m-submenu { overflow: hidden; }
+.m-submenu__inner {
+  display: grid;
+  gap: 3px;
+  margin: 5px 7px 9px;
+  padding: 3px 10px 3px 12px;
+  border-inline-start: 1px solid rgba(244, 59, 94, 0.4);
+}
+.m-sublink {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 43px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
+  font-weight: 650;
+  transition: color 0.2s ease, background-color 0.2s ease, padding-inline 0.2s var(--ease-soft);
+}
+.m-sublink:hover,
+.m-sublink:focus-visible,
+.m-sublink.active {
+  padding-inline: 13px 9px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+}
+.m-sublink.active { color: var(--crimson-bright); }
+.m-sublink:focus-visible {
+  outline: 2px solid var(--crimson-bright);
+  outline-offset: -2px;
 }
 /* ---------- Hero (home) ---------- */
 .hero {

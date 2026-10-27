@@ -230,6 +230,7 @@ export const TEXTS = {
   /* ---------- nav ---------- */
   'nav.home': 'خانه',
   'nav.about': 'درباره ما',
+  'nav.aboutOverview': 'معرفی شرکت',
   'nav.products': 'محصولات',
   'nav.shop': 'فروشگاه',
   'nav.export': 'صادرات',
