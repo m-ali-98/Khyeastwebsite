@@ -37,6 +37,11 @@ check(/class="boot-splash"[\s\S]*role="status"[\s\S]*aria-busy="true"/.test(html
 check(/boot-splash__mark[\s\S]*\/assets\/brand\/logo\.webp/.test(html), 'boot splash does not use the official logo');
 check(/boot-splash__content" aria-hidden="true"/.test(html), 'visual loader content is exposed as meaningless accessibility noise');
 check(/boot-splash__orbit/.test(html) && !/boot-splash__bar/.test(html), 'boot screen is not using the textless orbital system');
+check(/boot-splash__halo[\s\S]*boot-splash__orbit"><i><\/i><i><\/i>[\s\S]*boot-splash__mark/.test(html), 'boot and navigation loaders no longer share halo/orbit/particle/mark structure');
+check(/\.boot-splash__content\s*\{[\s\S]{0,160}width:\s*clamp\(148px,\s*19vw,\s*184px\)/.test(html)
+  && /\.navigation-loader__stage\s*\{[\s\S]{0,160}width:\s*clamp\(148px,\s*19vw,\s*184px\)/.test(css), 'boot and navigation loader stage geometry diverged');
+check(/\.boot-splash__mark\s*\{[\s\S]{0,180}width:\s*104px;[\s\S]{0,40}height:\s*104px/.test(html)
+  && /\.navigation-loader__mark\s*\{[\s\S]{0,180}width:\s*104px;[\s\S]{0,40}height:\s*104px/.test(css), 'boot and navigation loader logo-disc geometry diverged');
 check(!/boot-splash__(?:slogan|eyebrow|status|signature)/.test(html), 'visible copy returned to the text-free boot screen');
 check(/boot-splash__a11y[\s\S]*Loading[\s\S]*جارٍ التحميل/.test(html), 'text-free boot screen lost its localized accessible label');
 check(/html\[lang='en'\] \.boot-i18n > \[lang='en'\]/.test(html), 'localized accessible copy waits until DOM ready');
