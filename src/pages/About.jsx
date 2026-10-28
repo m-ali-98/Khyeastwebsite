@@ -4,6 +4,7 @@ import { useContent } from '../content/ContentContext';
 import { imgProps, SIZES } from '../lib/img';
 
 const PLANT_OFFICE_IDS = new Set(['dezful', 'kermanshah']);
+const withoutTrailingLocation = (title = '') => title.replace(/\s*\([^()]*\)\s*$/, '');
 
 function Mission() {
   const { t } = useContent();
@@ -45,13 +46,15 @@ export default function About() {
 
   /* The Contact directory is the single source of truth for plant names and
      addresses. Replace the old one-line location summary in `facts` with one
-     card per plant so an Admin edit cannot leave the About page out of sync. */
+     card per plant so an Admin edit cannot leave the About page out of sync.
+     The city is already stated in each full address, so this compact section
+     omits Contact's trailing parenthetical city label from the card title. */
   const infrastructureFacts = [
     ...(plantOffices.length
       ? plantOffices.map((office) => ({
           id: `plant-${office.id}`,
           icon: office.icon || 'factory',
-          title: office.title,
+          title: withoutTrailingLocation(office.title),
           text: office.address,
         }))
       : facts.slice(0, 1)),

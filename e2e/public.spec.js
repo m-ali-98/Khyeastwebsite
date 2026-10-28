@@ -312,7 +312,9 @@ test('about infrastructure reuses both plant addresses from the Contact director
 
     await gotoReady(page, `${prefix}/about`);
     const plantFacts = page.locator('.about-factory .fact-item:nth-child(-n+2)');
-    await expect(plantFacts.locator('strong')).toHaveText(contactPlants.map((plant) => plant.title));
+    await expect(plantFacts.locator('strong')).toHaveText(
+      contactPlants.map((plant) => plant.title.replace(/\s*\([^()]*\)\s*$/, '')),
+    );
     await expect(plantFacts.locator('p')).toHaveText(contactPlants.map((plant) => plant.address));
   }
 });
