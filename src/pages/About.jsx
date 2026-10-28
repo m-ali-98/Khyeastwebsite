@@ -3,6 +3,8 @@ import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl } from '../c
 import { useContent } from '../content/ContentContext';
 import { imgProps, SIZES } from '../lib/img';
 
+const PLANT_OFFICE_IDS = new Set(['dezful', 'kermanshah']);
+
 function Mission() {
   const { t } = useContent();
   const cards = [
@@ -39,6 +41,22 @@ export default function About() {
   const timeline = col('timeline');
   const facts = col('facts');
   const stats = col('stats');
+  const plantOffices = col('offices').filter((office) => PLANT_OFFICE_IDS.has(office.id));
+
+  /* The Contact directory is the single source of truth for plant names and
+     addresses. Replace the old one-line location summary in `facts` with one
+     card per plant so an Admin edit cannot leave the About page out of sync. */
+  const infrastructureFacts = [
+    ...(plantOffices.length
+      ? plantOffices.map((office) => ({
+          id: `plant-${office.id}`,
+          icon: office.icon || 'factory',
+          title: office.title,
+          text: office.address,
+        }))
+      : facts.slice(0, 1)),
+    ...facts.slice(1),
+  ];
 
   return (
     <>
@@ -125,10 +143,10 @@ export default function About() {
               <span className="overline">{t('about.factory.overline')}</span>
               <h2 className="section-title">{hl(t('about.factory.title'))}</h2>
               <div className="fact-grid">
-                {facts.map((f) => {
+                {infrastructureFacts.map((f, index) => {
                   const Ic = Icons[f.icon] || Icons.factory;
                   return (
-                    <div key={f.title} className="fact-item">
+                    <div key={f.id || `${index}-${f.title}`} className="fact-item">
                       <div className="icon-badge">
                         <Ic size={20} />
                       </div>

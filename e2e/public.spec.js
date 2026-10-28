@@ -297,6 +297,26 @@ test('about mission labels are localized rather than embedded Persian @mobile', 
   }
 });
 
+test('about infrastructure reuses both plant addresses from the Contact directory @mobile', async ({ page }) => {
+  for (const prefix of ['', '/en', '/ar']) {
+    await gotoReady(page, `${prefix}/contact`);
+    const contactPlants = await page
+      .locator('.contact-directory > .contact-card:not(.contact-card--quick)')
+      .evaluateAll((cards) =>
+        cards.slice(1).map((card) => ({
+          title: card.querySelector('h2')?.textContent?.trim() || '',
+          address: card.querySelector('p')?.textContent?.trim() || '',
+        })),
+      );
+    expect(contactPlants).toHaveLength(2);
+
+    await gotoReady(page, `${prefix}/about`);
+    const plantFacts = page.locator('.about-factory .fact-item:nth-child(-n+2)');
+    await expect(plantFacts.locator('strong')).toHaveText(contactPlants.map((plant) => plant.title));
+    await expect(plantFacts.locator('p')).toHaveText(contactPlants.map((plant) => plant.address));
+  }
+});
+
 test('about omits the leadership section and every plant-area presentation in all locales @mobile', async ({ page }) => {
   const cases = [
     ['/about', ['۶۵,۰۰۰', '۶۵٬۰۰۰', '۶۵۰۰۰', 'مدیران شرکت خمیر مایه خوزستان', 'امیر سالاری نسب']],
@@ -309,7 +329,7 @@ test('about omits the leadership section and every plant-area presentation in al
     await expect(page.locator('.about-team, .person-card')).toHaveCount(0);
     await expect(page.locator('.about-stats .stat')).toHaveCount(3);
     await expect(page.locator('.about-factory .badge-float')).toHaveCount(0);
-    await expect(page.locator('.about-factory .fact-item')).toHaveCount(5);
+    await expect(page.locator('.about-factory .fact-item')).toHaveCount(6);
 
     const text = await page.locator('main').innerText();
     for (const phrase of forbidden) expect(text).not.toContain(phrase);
