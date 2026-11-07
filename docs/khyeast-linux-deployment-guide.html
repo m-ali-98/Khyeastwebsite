@@ -217,11 +217,10 @@
   <h3>Data that must survive every code update</h3>
   <ul>
     <li><code>khyeast.db</code> plus its WAL state — revisioned Admin content, products, stock, customers, addresses, orders, sessions, OTP records, messages, comments, payment history, SMS and settings.</li>
-    <li><code>content.json.legacy-imported-*</code> — optional migration evidence only; never the current authority and never a substitute for a database backup.</li>
     <li><code>uploads/</code> — images, videos, and responsive image variants.</li>
     <li><code>ADMIN_SECRET</code> and the rest of the production environment — never lose the stable secret.</li>
   </ul>
-  <p>This guide keeps mutable state in <code>/var/lib/khyeast</code>, outside the Git checkout. Git contains only immutable code/defaults, so an Admin save cannot conflict with <code>git pull</code>. On the first upgraded start, a valid legacy <code>content.json</code> is imported transactionally, then archived as <code>content.json.legacy-imported-*</code> after operational migration succeeds. Defaults initialize only a demonstrably fresh deployment.</p>
+  <p>This guide keeps mutable state in <code>/var/lib/khyeast</code>, outside the Git checkout. Git contains only immutable code/defaults, so an Admin save cannot conflict with <code>git pull</code>. On a demonstrably fresh persistent tree, the application initializes all nine editorial sections directly from immutable <code>DEFAULT_STATE</code>. An established missing or corrupt database is never silently reseeded.</p>
 
   <h3>What this guide deliberately uses</h3>
   <div class="card-grid">
@@ -428,7 +427,7 @@ sudo install -d -m 0700 -o root -g root /etc/khyeast</pre>
     <tbody>
       <tr><td><code>/srv/khyeast/releases/*</code></td><td>Deployment user</td><td>Immutable tested release directories</td></tr>
       <tr><td><code>/srv/khyeast/current</code></td><td>Deployment user</td><td>Symlink to the release systemd currently starts</td></tr>
-      <tr><td><code>/var/lib/khyeast/data</code></td><td><code>khyeast</code></td><td>Authoritative SQLite database and one-time legacy migration archive</td></tr>
+      <tr><td><code>/var/lib/khyeast/data</code></td><td><code>khyeast</code></td><td>Authoritative SQLite database and its runtime sidecars</td></tr>
       <tr><td><code>/var/lib/khyeast/uploads</code></td><td><code>khyeast</code></td><td>Uploaded images, videos, and image variants</td></tr>
       <tr><td><code>/etc/khyeast/khyeast.env</code></td><td>root, mode 600</td><td>Production secrets and runtime configuration</td></tr>
     </tbody>
@@ -486,18 +485,17 @@ test -f dist/sitemap.xml
 test -f dist/robots.txt
 ls -lah dist | head</pre>
 
-  <h3>Initialize or migrate content exactly once</h3>
-  <p>Do not copy a seed JSON from the release: none is shipped. On a genuinely empty persistent tree, the application initializes all nine editorial sections in SQLite from its immutable <code>DEFAULT_STATE</code>. An existing pre-upgrade site keeps its legacy input in the persistent data directory for the guarded first start:</p>
-  <pre><span class="comment"># Upgrade only: preserve the old persistent input before cutover.</span>
-sudo test -f /var/lib/khyeast/data/content.json &amp;&amp; \
-  sudo cp -a /var/lib/khyeast/data/content.json \
-    "/secure/pre-sqlite-content-$(date -u +%Y%m%dT%H%M%SZ).json"
+  <h3>Initialize content once on fresh storage</h3>
+  <p>No seed JSON is shipped or required. Before the first service start, confirm that the configured database does not exist and that the persistent data and upload trees contain no files. The application then initializes all nine editorial sections in SQLite directly from immutable <code>DEFAULT_STATE</code>:</p>
+  <pre><span class="comment"># First installation only: these commands must print nothing.</span>
+sudo test ! -e /var/lib/khyeast/data/khyeast.db
+sudo find /var/lib/khyeast/data /var/lib/khyeast/uploads \
+  -mindepth 1 ! -type d -print
 
-<span class="comment"># After the upgraded service starts and /api/content reports persisted:</span>
-sudo test ! -e /var/lib/khyeast/data/content.json
-sudo find /var/lib/khyeast/data -maxdepth 1 \
-  -name 'content.json.legacy-imported-*' -print</pre>
-  <div class="callout danger"><b class="label">Do not manufacture freshness</b>If SQLite content is missing while any established database/upload state exists, startup serves a marked public fallback but refuses Admin writes and destructive upload cleanup. Restore a verified whole-database backup; never copy defaults or rename the legacy archive back merely to clear the error.</div>
+<span class="comment"># After the first service start, authority must be persisted.</span>
+curl -fsSI https://example.com/api/content | \
+  grep -i 'x-khyeast-content-status: persisted'</pre>
+  <div class="callout danger"><b class="label">Do not manufacture freshness</b>If SQLite content is missing while any established database/upload state exists, startup serves a marked public fallback but refuses Admin writes and destructive upload cleanup. Restore a verified whole-database backup; never copy defaults into the database merely to clear the error.</div>
 
   <pre><span class="comment"># Give the locked service account read access to the finished release.</span>
 release=$(readlink -f /srv/khyeast/current)
@@ -941,7 +939,6 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
     <thead><tr><th>Item</th><th>Policy</th><th>Reason</th></tr></thead>
     <tbody>
       <tr><td>SQLite format 2 snapshot</td><td>Required; active: <code>.backup</code>; stopped: stable staged copy; integrity, foreign-key, nine-section and revision-fence checks</td><td>CMS revisions plus orders, payment attempts, stock, accounts and settings</td></tr>
-      <tr><td>Legacy <code>content.json*</code></td><td>Excluded after migration</td><td>Migration input/archive, not current authority</td></tr>
       <tr><td>Live <code>uploads/</code></td><td>Required; copy into staging twice</td><td>Files referenced by content and products</td></tr>
       <tr><td><code>uploads/.incoming/</code></td><td><strong>Exclude locally and offsite</strong></td><td>Incomplete multipart staging; never live recovery state</td></tr>
       <tr><td><code>uploads/.quarantine/</code></td><td><strong>Exclude locally and offsite</strong></td><td>30-day local recycle bin, not production state</td></tr>
@@ -987,7 +984,6 @@ test -n "$latest"
 tar -tf "$latest" | sed -n '1,30p'
 tar -xOf "$latest" khyeast/backup-manifest.json | grep -F '"format": 2'
 if tar -tf "$latest" | grep -E '/\.(quarantine|incoming)/'; then exit 1; fi
-if tar -tf "$latest" | grep -F 'content.json'; then exit 1; fi
 
 <span class="comment"># Required one-time VPS test: cleanly stop the app, then prove the same</span>
 <span class="comment"># read-only backup unit takes the stable no-WAL path. The EXIT trap restarts</span>
@@ -1143,7 +1139,7 @@ archive=/secure/path/khyeast-YYYYMMDDTHHMMSSZ.tar
 (cd "$(dirname "$archive")" &amp;&amp; sha256sum -c "$(basename "$archive").sha256")
 tar -xOf "$archive" khyeast/backup-manifest.json | grep -F '"format": 2'
 tar -tf "$archive" | grep -Fx 'khyeast/data/khyeast.db'</pre>
-  <p>Recover the <strong>whole database</strong> from one verified archive. Do not mix editorial rows from one date with order/payment rows from another, and do not rename <code>content.json.legacy-imported-*</code> back into place: that file is only the stale pre-migration snapshot. Continue with the full restore procedure below and reconcile payments before reopening checkout.</p>
+  <p>Recover the <strong>whole database</strong> from one verified archive. Do not mix editorial rows from one date with order/payment rows from another, and do not synthesize missing rows from defaults or partial files. Continue with the full restore procedure below and reconcile payments before reopening checkout.</p>
 
   <h3>Restore procedure</h3>
   <ol class="steps">
@@ -1224,9 +1220,7 @@ sudo chown -R "$USER":khyeast "$release"
 sudo chmod -R o-rwx "$release"
 sudo chmod -R g+rX "$release"
 
-<span class="comment"># Snapshot live state without stopping Node. On the first JSON→SQLite</span>
-<span class="comment"># upgrade, this MUST still be the old installed backup tool so the legacy</span>
-<span class="comment"># content.json is captured before migration.</span>
+<span class="comment"># Snapshot live SQLite and uploads without stopping Node.</span>
 sudo systemctl start khyeast-backup.service
 sudo systemctl show khyeast-backup.service -p Result --value | grep -Fx success
 sudo journalctl -u khyeast-backup.service -n 30 --no-pager
@@ -1251,9 +1245,6 @@ readlink -f /srv/khyeast/current
 curl -fsS https://example.com/api/health
 curl -fsSI https://example.com/api/content | grep -i 'x-khyeast-content-status: persisted'
 git -C /srv/khyeast/current log -1 --oneline
-<span class="comment"># First migration only: source is archived after both migrations commit.</span>
-sudo test ! -e /var/lib/khyeast/data/content.json
-sudo find /var/lib/khyeast/data -maxdepth 1 -name 'content.json.legacy-imported-*' -print
 
 <span class="comment"># After health passes, publish reviewed format-2 operations templates for future runs.</span>
 sudo install -m 0700 -o root -g root ops/backup-khyeast /usr/local/sbin/backup-khyeast
@@ -1271,7 +1262,7 @@ sudo systemctl daemon-reload</pre>
   <ul class="checklist">
     <li>Health, home, one product, one uploaded image, sitemap and a genuine 404 work.</li>
     <li>Admin login on the real HTTPS hostname works and Security reports the correct protocol and client IP.</li>
-    <li>Content reports <code>X-Khyeast-Content-Status: persisted</code>, not <code>fallback</code>; the first migration archived and removed the live legacy input.</li>
+    <li>Content reports <code>X-Khyeast-Content-Status: persisted</code>, not <code>fallback</code>.</li>
     <li>Stock, recent orders and payment-attempt history are intact.</li>
     <li>A safely repeatable settled callback URL still produces the settled result rather than a new attempt.</li>
     <li>Application, Nginx, backup and quarantine-timer logs contain no new error.</li>
@@ -1287,7 +1278,7 @@ sudo mv -Tf /srv/khyeast/current.rollback /srv/khyeast/current
 sudo systemctl restart khyeast
 curl -fsS https://example.com/api/health
 readlink -f /srv/khyeast/current</pre>
-  <div class="callout danger"><b class="label">Code rollback is not always a data rollback</b>Startup may already have imported editorial content and archived the legacy source. Old code is not automatically compatible, and renaming that stale archive back loses every post-migration Admin edit. For a migration incident, stop the service, assess orders/payments accepted since the snapshot, and restore one coherent whole-database backup only when the reconciliation plan is explicit.</div>
+  <div class="callout danger"><b class="label">Code rollback is not a data rollback</b>The newer release may already have changed SQLite schema or mutable state. Previous code is not automatically compatible. Stop the service, assess orders and payments accepted since the snapshot, and restore one coherent whole-database backup only when the reconciliation plan is explicit.</div>
 
   <h3>When a restart gap is still unacceptable</h3>
   <p>A graceful single process protects requests already in flight but cannot accept a new connection while the next process starts. True continuous service needs two ports or hosts: start and health-check the new release, switch the Nginx upstream, then drain the old release. Use that blue/green pattern only when database migrations are backward-compatible with both versions and shared SQLite write load has been tested. The static callback retry page remains useful defense in depth.</p>
@@ -1380,8 +1371,8 @@ sudo apt upgrade
       <tr><td>Upload returns 415</td><td>Unsupported extension or file signature mismatch</td><td>Use JPEG/PNG/WebP/GIF/AVIF or supported MP4/WebM; SVG is intentionally rejected</td></tr>
       <tr><td>SQLite readonly / EACCES</td><td>Wrong owner or path</td><td><code>namei -l /var/lib/khyeast/data/khyeast.db</code>; owner must be service user</td></tr>
       <tr><td><code>SQLITE_BUSY</code></td><td>Disk latency, flood, external file access, excess workers</td><td>Local SSD, one app process, logs, edge limits; never edit live DB directly</td></tr>
-      <tr><td>Content vanished after update</td><td>Wrong persistent DB path, incomplete migration, or database loss</td><td><code>DATA_DIR</code>/<code>DB_FILE</code>; preserve DB/WAL; restore one verified format-2 backup; never reseed defaults</td></tr>
-      <tr><td>Admin save returns 503</td><td>Missing, corrupt, or incomplete SQLite content sections</td><td>Check the content-status header and logs; stop and restore the whole verified database—never rename the stale legacy archive into service</td></tr>
+      <tr><td>Content vanished after update</td><td>Wrong persistent DB path or database loss</td><td><code>DATA_DIR</code>/<code>DB_FILE</code>; preserve DB/WAL; restore one verified format-2 backup; never reseed defaults</td></tr>
+      <tr><td>Admin save returns 503</td><td>Missing, corrupt, or incomplete SQLite content sections</td><td>Check the content-status header and logs; stop and restore the whole verified database—never reseed defaults into established state</td></tr>
       <tr><td>Quarantine keeps growing</td><td>Daily purge timer disabled or failing</td><td><code>systemctl status khyeast-quarantine-purge.timer</code> and service journal</td></tr>
       <tr><td>Images missing after update</td><td>Uploads not persistent or wrong permissions</td><td><code>UPLOAD_DIR</code>; backup/restore; static request status</td></tr>
       <tr><td>External gallery image blocked</td><td>Origin not in CSP trusted set or URL is HTTP</td><td>Upload locally or use an approved HTTPS trusted origin; do not weaken CSP globally</td></tr>
@@ -1518,7 +1509,7 @@ https://example.com/admin</pre>
   <ul class="checklist">
     <li>Real-host Admin login works and uses <code>__Host-ky_admin</code>.</li>
     <li>Content status is <code>persisted</code>; missing/corrupt SQLite sections make Admin/direct-shop writes and destructive cleanup fail with 503.</li>
-    <li>On a first migration, the legacy source was archived only after import and the old live filename no longer exists.</li>
+    <li>On a first installation, the empty persistent tree initialized all nine sections directly from immutable defaults.</li>
     <li>Security tab shows effective HTTPS and real visitor IP.</li>
     <li>Rate limits are enabled with reviewed values.</li>
     <li>FA/EN/AR public pages, 404, canonical, sitemap, and robots are correct.</li>

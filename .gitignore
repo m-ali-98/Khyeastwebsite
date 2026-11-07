@@ -59,7 +59,3 @@ server/data/*.db
 server/data/*.db-wal
 server/data/*.db-shm
 server/data/*.db-journal
-
-# Legacy CMS JSON is a one-time migration input only; never track mutable state.
-server/data/content.json
-server/data/content.json.*

@@ -1,6 +1,6 @@
-/* Editorial SQLite lifecycle: defaults are fresh-install-only, legacy JSON is a
-   guarded one-time input, corrupt established state fails closed, and section
-   revisions invalidate every worker without rewriting unrelated buckets. */
+/* Editorial SQLite lifecycle: defaults are fresh-install-only, established
+   missing/corrupt state fails closed, and section revisions invalidate every
+   worker without rewriting unrelated buckets. */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,15 +17,13 @@ const check = (ok, name, detail = '') => {
     console.log(`LEAK ${name}${detail ? ` — ${detail}` : ''}`);
   }
 };
-const clone = (value) => JSON.parse(JSON.stringify(value));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-content-store-'));
-const missing = path.join(root, 'missing.json');
 
 try {
   /* 1: DEFAULT_STATE may become mutable state only for a proven fresh tree. */
   {
     const db = await store.openDB(path.join(root, 'fresh.db'));
-    const result = store.initializeContentStore(db, { LEGACY_CONTENT_FILE: missing, freshInstall: true });
+    const result = store.initializeContentStore(db, { freshInstall: true });
     const state = store.readContentSections(db);
     check(
       result.status === 'initialized' &&
@@ -41,7 +39,7 @@ try {
   /* 2: an empty but established deployment is recovery work, not a fresh app. */
   {
     const db = await store.openDB(path.join(root, 'established-empty.db'));
-    const result = store.initializeContentStore(db, { LEGACY_CONTENT_FILE: missing, freshInstall: false });
+    const result = store.initializeContentStore(db, { freshInstall: false });
     const rows = db.prepare('SELECT COUNT(*) AS count FROM content_sections').get().count;
     check(
       result.status === 'unavailable' && Number(rows) === 0,
@@ -51,80 +49,45 @@ try {
     db.close();
   }
 
-  /* 3: import exact legacy arrays, including media today's editor rejects. */
-  const migrationDir = path.join(root, 'migration');
-  fs.mkdirSync(migrationDir);
-  const legacyFile = path.join(migrationDir, 'content.json');
-  const legacy = clone(DEFAULT_STATE);
-  legacy.texts = { 'legacy.only': 'preserved' };
-  legacy.products = [{
-    slug: 'legacy-product',
-    title: 'Legacy',
-    image: 'http://old.example/product.jpg',
-    images: ['http://old.example/product.jpg', 'javascript:old', 'http://old.example/product.jpg'],
-    custom: { untouched: true },
-  }];
-  legacy.shop = { products: clone(DEFAULT_STATE.shop.products), display: { enabled: false } };
-  fs.writeFileSync(legacyFile, JSON.stringify(legacy, null, 2));
+  /* 3: a second worker sees the committed initialization and never resets it. */
   {
-    const db = await store.openDB(path.join(migrationDir, 'khyeast.db'));
-    const result = store.initializeContentStore(db, { LEGACY_CONTENT_FILE: legacyFile, freshInstall: false });
-    const imported = store.readContentSections(db);
+    const file = path.join(root, 'idempotent.db');
+    const first = await store.openDB(file);
+    const initialized = store.initializeContentStore(first, { freshInstall: true });
+    const changed = store.readContentSections(first);
+    changed.texts['test.persisted'] = 'kept';
+    store.replaceContentSections(first, { texts: changed.texts }, { expectedRevision: 1 });
+    const second = await store.openDB(file);
+    const ready = store.initializeContentStore(second, { freshInstall: true });
     check(
-      result.status === 'initialized' &&
-        result.source === 'legacy-content-json' &&
-        isDeepStrictEqual(imported.products, legacy.products) &&
-        imported.texts['legacy.only'] === 'preserved' &&
-        Object.keys(imported.texts).length > 1 &&
-        fs.existsSync(legacyFile),
-      'legacy content imports transactionally without normalizing invalid historical product rows',
-      JSON.stringify(imported.products),
+      initialized.status === 'initialized' && ready.status === 'ready' &&
+        ready.revision === 2 && store.readContentSections(second).texts['test.persisted'] === 'kept',
+      'repeat initialization preserves committed Admin content',
+      JSON.stringify(ready),
     );
-
-    /* 4: archive only after operational migration, tolerate a worker race, and
-       prove loss of the DB cannot re-import that stale snapshot. */
-    store.seedFromLegacy(db, {
-      LEGACY_CONTENT_FILE: legacyFile,
-      SHOP_FILE: path.join(migrationDir, 'missing-shop.json'),
-      MESSAGES_FILE: path.join(migrationDir, 'missing-messages.json'),
-    });
-    const firstArchive = store.archiveImportedLegacyContent(db, legacyFile);
-    const secondArchive = store.archiveImportedLegacyContent(db, legacyFile);
-    db.close();
-    const archiveExists = firstArchive.file && fs.existsSync(firstArchive.file);
-    fs.rmSync(path.join(migrationDir, 'khyeast.db'), { force: true });
-    fs.rmSync(path.join(migrationDir, 'khyeast.db-wal'), { force: true });
-    fs.rmSync(path.join(migrationDir, 'khyeast.db-shm'), { force: true });
-    const lost = await store.openDB(path.join(migrationDir, 'khyeast.db'));
-    const afterLoss = store.initializeContentStore(lost, { LEGACY_CONTENT_FILE: legacyFile, freshInstall: false });
-    lost.close();
-    check(
-      firstArchive.status === 'archived' &&
-        secondArchive.status === 'already-archived' &&
-        archiveExists &&
-        !fs.existsSync(legacyFile) &&
-        afterLoss.status === 'unavailable',
-      'successful migration archives its source and prevents stale re-import after database loss',
-      JSON.stringify({ firstArchive, secondArchive, afterLoss }),
-    );
+    second.close();
+    first.close();
   }
 
-  /* 5: malformed migration input remains untouched for operator recovery. */
+  /* 4: missing established rows are never recreated, even with freshInstall. */
   {
-    const corruptLegacy = path.join(root, 'corrupt-content.json');
-    const bytes = '{ definitely not JSON';
-    fs.writeFileSync(corruptLegacy, bytes);
-    const db = await store.openDB(path.join(root, 'corrupt-legacy.db'));
-    const result = store.initializeContentStore(db, { LEGACY_CONTENT_FILE: corruptLegacy, freshInstall: true });
+    const file = path.join(root, 'missing-established.db');
+    const db = await store.openDB(file);
+    store.initializeContentStore(db, { freshInstall: true });
+    db.prepare("DELETE FROM content_sections WHERE section = 'products'").run();
+    const second = store.initializeContentStore(db, { freshInstall: true });
+    const rows = Number(db.prepare(
+      "SELECT COUNT(*) AS count FROM content_sections WHERE section = 'products'",
+    ).get().count);
     check(
-      result.status === 'unavailable' && fs.readFileSync(corruptLegacy, 'utf8') === bytes,
-      'a corrupt legacy source is preserved and blocks default initialization',
-      JSON.stringify(result),
+      second.status === 'unavailable' && rows === 0,
+      'a missing established section remains unavailable until verified recovery',
+      JSON.stringify(second),
     );
     db.close();
   }
 
-  /* 6: corruption after initialization is never overwritten by bootstrap. */
+  /* 5: wrong-type JSON after initialization is preserved and rejected. */
   {
     const file = path.join(root, 'corrupt-established.db');
     const db = await store.openDB(file);
@@ -142,7 +105,7 @@ try {
     db.close();
   }
 
-  /* 7 + 8: only a changed bucket advances, and another connection sees both
+  /* 6 + 7: only a changed bucket advances, and another connection sees both
      the revision and PRAGMA data_version transition. */
   {
     const file = path.join(root, 'revisions.db');

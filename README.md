@@ -206,7 +206,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 `/api/content` با `no-store` پاسخ می‌دهد. در هر ناوبری، محتوای تازه و chunk واقعی مسیر باید آماده شوند؛ تنها در صورت انتظار واقعی، نشانگر بارگذاری نمایش داده می‌شود.
 
-محتوای قابل‌ویرایش دیگر فایل tracked نیست. Git فقط کد، ترجمه و defaultهای immutable را نگه می‌دارد؛ بنابراین ذخیرهٔ Admin با `git pull` تعارض نمی‌سازد. در نخستین اجرای نسخهٔ جدید، `DATA_DIR/content.json` قدیمیِ معتبر در یک تراکنش به ۹ بخش SQLite وارد می‌شود. پس از تکمیل migration عملیاتی، همان ورودی به `content.json.legacy-imported-*` تغییرنام می‌دهد تا حذف احتمالی دیتابیس هرگز snapshot قدیمی را بی‌صدا دوباره وارد نکند. این archive فقط مدرک migration است و authority جاری نیست.
+محتوای قابل‌ویرایش فقط در SQLite نگه‌داری می‌شود و فایل tracked نیست. Git فقط کد، ترجمه و defaultهای immutable را نگه می‌دارد؛ بنابراین ذخیرهٔ Admin با `git pull` تعارض نمی‌سازد. برنامه تنها وقتی کل درخت ماندگار را واقعاً تازه تشخیص دهد، هر ۹ بخش را مستقیماً از `DEFAULT_STATE` مقداردهی می‌کند. اگر دیتابیس یک نصب established ناقص یا خراب باشد، startup هرگز آن را با defaultها بازنویسی نمی‌کند: public fallback علامت‌دار می‌ماند و writeهای Admin و پاک‌سازی upload تا بازیابی معتبر fail closed هستند.
 
 ### SQLite
 
@@ -218,7 +218,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - جدول `order_payments` همه authorityهای صادرشده را نگه می‌دارد؛ کلید اصلی authority اتصال آن به بیش از یک سفارش را در سطح دیتابیس ناممکن می‌کند.
 - جدول `rate_limit_hits` شمارنده‌های کوتاه‌عمر و reservationهای در حال اجرا را بین همه workerهای Passenger مشترک می‌کند؛ شناسه bucket با `ADMIN_SECRET` و HMAC-SHA-256 کلیدگذاری می‌شود تا IP یا موبایل کم‌دامنه از روی snapshot دیتابیس قابل brute-force نباشد.
 - `orders.pay_authority` فقط اشاره‌گر تلاش جاری یا تلاش تسویه‌شده است و تاریخچه پرداخت را جایگزین نمی‌کند.
-- فایل‌های قدیمی `content.json`، `shop.json` و `messages.json` در صورت وجود فقط یک‌بار و با guard وارد SQLite می‌شوند؛ ورودی محتوای خراب دست‌نخورده می‌ماند و startup آن را با default جایگزین نمی‌کند.
+- JSONهای عملیاتی `shop.json` و `messages.json` در صورت وجود با guard فقط یک‌بار وارد SQLite می‌شوند؛ محتوای editorial هیچ مسیر import فایلی ندارد.
 
 ## پرداخت و موجودی
 
@@ -401,8 +401,8 @@ Baselineهای تصویری فعلی platform-specific هستند. `npm run test
 4. متغیرهای تولید را مطابق `.env.example` تنظیم کنید.
 5. startup file را `server/index.js` قرار دهید.
 6. `DATA_DIR`/`DB_FILE` و `UPLOAD_DIR` را روی دیسک ماندگار و بیرون checkout هر release نگه دارید؛ Git نباید فایل mutable را deploy یا merge کند.
-7. پیش از نخستین ارتقا از نسخهٔ JSON، backup شامل `content.json` قدیمی، SQLite و uploads را جداگانه تأیید کنید.
-8. برنامه را restart کنید و پس از health، persisted بودن `/api/content` و ایجاد `content.json.legacy-imported-*` را بررسی کنید.
+7. در نخستین نصب، فقط یک درخت ماندگار واقعاً خالی را در اختیار برنامه بگذارید؛ همان اجرا ۹ بخش CMS را مستقیماً از `DEFAULT_STATE` در SQLite مقداردهی می‌کند.
+8. برنامه را start کنید و پس از health، header برابر `persisted` برای `/api/content`، revision اولیه و یک backup کامل SQLite به‌همراه uploads را بررسی کنید.
 
 در cPanel/Passenger، `PORT` را معمولاً نباید دستی تنظیم کرد؛ میزبان آن را تزریق می‌کند. پس از استقرار این نشانی‌ها را بررسی کنید:
 
@@ -431,7 +431,7 @@ HTTPS برای کوکی `__Host-` پنل تولید ضروری است و login �
 
 ## پشتیبان‌گیری، قرنطینه و ارتقا
 
-دادهٔ عملیاتی شامل snapshot معتبر **کل SQLite** و فایل‌های زندهٔ `UPLOAD_DIR` است؛ `content.json` بخشی از backup format 2 نیست. برای SQLite فعال در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` ابتدا فضای آزاد لازم را بررسی می‌کند و بدون توقف Node snapshot آنلاین می‌گیرد. اگر systemd تأیید کند `khyeast.service` متوقف است، فایل پایدار SQLite (و در توقف ناپاک مجموعهٔ WAL) ابتدا به staging قابل‌نوشتن کپی و همان‌جا یکپارچه و اعتبارسنجی می‌شود؛ بنابراین sandbox فقط‌خواندنی backup اضطراری را خراب نمی‌کند. هر snapshot باید `integrity_check`، `foreign_key_check`، وجود و نوع هر ۹ بخش CMS و برابری revision پیش/داخل/پس از snapshot را بگذراند. دو گذر upload یک superset محافظه‌کار می‌سازند و فقط staging ثابت archive می‌شود. manifest format 2 شامل checksum دیتابیس و revision محتواست. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
+دادهٔ عملیاتی شامل snapshot معتبر **کل SQLite** و فایل‌های زندهٔ `UPLOAD_DIR` است. برای SQLite فعال در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` ابتدا فضای آزاد لازم را بررسی می‌کند و بدون توقف Node snapshot آنلاین می‌گیرد. اگر systemd تأیید کند `khyeast.service` متوقف است، فایل پایدار SQLite (و در توقف ناپاک مجموعهٔ WAL) ابتدا به staging قابل‌نوشتن کپی و همان‌جا یکپارچه و اعتبارسنجی می‌شود؛ بنابراین sandbox فقط‌خواندنی backup اضطراری را خراب نمی‌کند. هر snapshot باید `integrity_check`، `foreign_key_check`، وجود و نوع هر ۹ بخش CMS و برابری revision پیش/داخل/پس از snapshot را بگذراند. دو گذر upload یک superset محافظه‌کار می‌سازند و فقط staging ثابت archive می‌شود. manifest format 2 شامل checksum دیتابیس و revision محتواست. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
 
 پوشه‌های زیر عمداً در backup محلی و offsite قرار نمی‌گیرند:
 
@@ -454,8 +454,8 @@ UPLOAD_DIR/.incoming/    # بدنهٔ موقت و هنوز منتشرنشدهٔ 
 4. `server/data/` و `server/uploads/` را جایگزین یا پاک نکنید؛ state تولید باید بیرون checkout باشد.
 5. SIGTERM ابتدا پذیرش request جدید را می‌بندد و تا ۹۰ ثانیه به callbackهای فعال فرصت پایان می‌دهد؛ unit تولید باید `TimeoutStopSec=120s` داشته باشد.
 6. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان authority را حداکثر شش بار خودکار دوباره بررسی کند و سپس با اقدام دستی متوقف شود؛ مشتری نباید دوباره پرداخت کند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
-7. health، ورود Admin، header محتوای `persisted` و یک callback تکراری پرداخت را بررسی کنید. در ارتقای نخست، archive ورودی legacy را نیز ثبت کنید.
-8. rollback کد به‌تنهایی schema/state را برنمی‌گرداند؛ پیش از rollback ناسازگار، سرویس را متوقف و snapshot کامل SQLite همان نقطه را بازیابی کنید. archive `legacy-imported` را به‌عنوان محتوای زنده کپی نکنید.
+7. health، ورود Admin، header محتوای `persisted` و یک callback تکراری پرداخت را بررسی کنید.
+8. rollback کد به‌تنهایی schema/state را برنمی‌گرداند؛ پیش از rollback ناسازگار، سرویس را متوقف و فقط با برنامهٔ reconciliation صریح یک snapshot کامل و سازگار SQLite را بازیابی کنید.
 
 جزئیات نصب timerها، backup آنلاین/متوقف، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` روی VPS فقط checksum محلی را دوباره بررسی و snapshot جدید را اضافه می‌کند. Restic upstream گزینهٔ سراسری `--no-lock` را برای `backup` می‌پذیرد ولی اجرا نمی‌کند ([issue #1544](https://github.com/restic/restic/issues/1544))؛ backup همچنان lock می‌سازد و در پایان حذف می‌کند. بنابراین endpoint محدود باید حذف history را منع کند ولی فقط حذف `locks/*` را مجاز بداند (مانند `rest-server --append-only`). اگر provider چنین scopeی ندارد، credential آن را مستقیم به Restic ندهید و یک endpoint واقعاً append-only سازگار با lock جلوی آن قرار دهید. پیش از production، همان credential محدود را یک بار روی مخزن disposable آزمایش کنید: backup عادی باید همراه cleanup lock موفق و `forget` باید ناموفق باشد؛ سپس با credential کامل ماشین نگهداری تأیید کنید snapshot آزمایشی هنوز وجود دارد، قابل restore است و lock باقیمانده‌ای ندارد. `RESTIC_APPEND_ONLY=true` و تست mock جای این آزمون provider-side را نمی‌گیرند. `restic check` و retention فقط با `ops/maintain-khyeast-restic` و credential کامل روی یک ماشین مورداعتماد جدا اجرا می‌شوند. URL و credentialهای VPS فقط در `/etc/khyeast/restic.env` می‌مانند و credential نگهداری هرگز روی VPS قرار نمی‌گیرد. یک restore واقعی را تمرین کنید.
 

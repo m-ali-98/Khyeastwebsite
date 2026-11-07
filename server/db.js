@@ -6,8 +6,7 @@
    Stored here : editorial CMS sections and revisions; shop products/display;
                  payment credentials; orders + order items; product comments;
                  contact messages and other operational state.
-   Stored as files: server/uploads/* (admin media). A legacy content.json is
-                 accepted once as a guarded migration input, then archived.
+   Stored as files: server/uploads/* (admin media).
 
    The public/admin HTTP contract remains unchanged: normalized SQLite rows are
    rebuilt into the same content object clients already consume.
@@ -385,7 +384,6 @@ export const CONTENT_SECTIONS = Object.freeze([
   'gallery',
 ]);
 const CONTENT_OBJECT_SECTIONS = new Set(['texts', 'media', 'links', 'collections', 'i18n']);
-const LEGACY_REQUIRED_SECTIONS = new Set(['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts']);
 const record = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const cloneJson = (value) => JSON.parse(JSON.stringify(value));
 const sectionValueValid = (section, value) => (
@@ -403,31 +401,15 @@ export function withImmediateTransaction(db, operation) {
   return db.immediateTransaction(operation)();
 }
 
-/** Convert a legacy JSON document to the canonical nine-section shape.
- *
- * Older files may predate gallery/i18n, and object buckets may predate newer
- * shipped keys, so those additions come from DEFAULT_STATE. Existing arrays
- * and rows remain byte-for-byte equivalent after JSON round-tripping: in
- * particular, no legacy product gallery URL is normalized or discarded during
- * migration merely because today's editor would refuse that URL on a change. */
-export function canonicalizeLegacyContent(value) {
-  if (!record(value)) throw editorialError('legacy content root is not an object');
-  const canonical = {};
-  for (const section of CONTENT_SECTIONS) {
-    const supplied = Object.hasOwn(value, section);
-    if (!supplied && LEGACY_REQUIRED_SECTIONS.has(section)) {
-      throw editorialError(`legacy content is missing section: ${section}`);
-    }
-    const candidate = supplied ? value[section] : DEFAULT_STATE[section];
-    if (!sectionValueValid(section, candidate)) {
-      throw editorialError(`legacy content section has the wrong type: ${section}`);
-    }
-    canonical[section] = CONTENT_OBJECT_SECTIONS.has(section)
-      ? { ...cloneJson(DEFAULT_STATE[section] || {}), ...cloneJson(candidate) }
-      : cloneJson(candidate);
-  }
-  return canonical;
+export function validContentState(value) {
+  return record(value) && CONTENT_SECTIONS.every(
+    (section) => Object.hasOwn(value, section) && sectionValueValid(section, value[section]),
+  );
 }
+
+const freshDefaultContent = () => Object.fromEntries(
+  CONTENT_SECTIONS.map((section) => [section, cloneJson(DEFAULT_STATE[section])]),
+);
 
 const contentMeta = (db) => db.prepare(
   `SELECT revision, initialized_at, updated_at, source,
@@ -511,10 +493,10 @@ const persistInitialContent = (db, state, source) => {
   }
 };
 
-/** Initialize exactly once. A valid legacy content.json wins; otherwise
- * defaults may be persisted only when the caller proved the whole deployment
- * tree was genuinely fresh before opening SQLite created the database file. */
-export function initializeContentStore(db, { LEGACY_CONTENT_FILE, freshInstall = false } = {}) {
+/** Initialize exactly once. Defaults may be persisted only when the caller
+ * proved the whole deployment tree was genuinely fresh before opening SQLite
+ * created the database file. Established missing/corrupt state fails closed. */
+export function initializeContentStore(db, { freshInstall = false } = {}) {
   return withImmediateTransaction(db, () => {
     try {
       const state = readContentSections(db);
@@ -528,26 +510,14 @@ export function initializeContentStore(db, { LEGACY_CONTENT_FILE, freshInstall =
       }
     }
 
-    if (LEGACY_CONTENT_FILE && fs.existsSync(LEGACY_CONTENT_FILE)) {
-      let candidate;
-      try {
-        candidate = JSON.parse(fs.readFileSync(LEGACY_CONTENT_FILE, 'utf8'));
-        candidate = canonicalizeLegacyContent(candidate);
-      } catch (error) {
-        return { status: 'unavailable', reason: `legacy content import refused: ${error.message}` };
-      }
-      persistInitialContent(db, candidate, 'legacy-content-json');
-      return { status: 'initialized', source: 'legacy-content-json', revision: 1, state: candidate };
-    }
-
     if (!freshInstall) {
       return {
         status: 'unavailable',
-        reason: 'no authoritative editorial rows or valid legacy migration source exist',
+        reason: 'no authoritative editorial rows exist in an established state tree',
       };
     }
 
-    const initial = canonicalizeLegacyContent(DEFAULT_STATE);
+    const initial = freshDefaultContent();
     persistInitialContent(db, initial, 'defaults-fresh-install');
     return { status: 'initialized', source: 'defaults-fresh-install', revision: 1, state: initial };
   });
@@ -600,50 +570,6 @@ export function replaceContentSections(db, changes, { expectedRevision } = {}) {
     }
     return { revision, changedSections, state: current };
   });
-}
-
-/** Once both editorial and operational migration have committed, move the
- * source aside. Database loss can then never silently re-import the stale
- * pre-migration snapshot. Multiple startup workers may race this rename. */
-export function archiveImportedLegacyContent(db, legacyFile) {
-  const meta = getContentMeta(db);
-  if (meta.source !== 'legacy-content-json') return { status: 'not-imported' };
-  if (!getSetting(db, 'seeded')) return { status: 'operational-migration-pending' };
-
-  const directory = path.dirname(legacyFile);
-  const base = path.basename(legacyFile);
-  const archived = () => {
-    try {
-      return fs.readdirSync(directory).find((name) => name.startsWith(`${base}.legacy-imported-`));
-    } catch {
-      return null;
-    }
-  };
-  if (!fs.existsSync(legacyFile)) {
-    const existing = archived();
-    return existing
-      ? { status: 'already-archived', file: path.join(directory, existing) }
-      : { status: 'source-missing' };
-  }
-
-  const stamp = new Date().toISOString().replace(/[-:.]/g, '');
-  const target = `${legacyFile}.legacy-imported-${stamp}-${process.pid}`;
-  try {
-    fs.renameSync(legacyFile, target);
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      const existing = archived();
-      if (existing) return { status: 'already-archived', file: path.join(directory, existing) };
-    }
-    throw error;
-  }
-  try {
-    const descriptor = fs.openSync(directory, 'r');
-    try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
-  } catch {
-    /* Directory fsync is unavailable on some filesystems; rename still won. */
-  }
-  return { status: 'archived', file: target };
 }
 
 /* ============================================================== settings */
@@ -1611,7 +1537,7 @@ export function deleteMessage(db, id) {
  * First operational migration: pull shop/orders/messages from legacy JSON
  * when present, otherwise from shipped defaults. Runs once (settings.seeded).
  */
-export function seedFromLegacy(db, { LEGACY_CONTENT_FILE, SHOP_FILE, MESSAGES_FILE }) {
+export function seedFromLegacy(db, { SHOP_FILE, MESSAGES_FILE }) {
   return withImmediateTransaction(db, () => {
     if (getSetting(db, 'seeded')) return { skipped: true };
     const report = { products: 0, orders: 0, comments: 0, messages: 0, from: [] };
@@ -1624,13 +1550,11 @@ export function seedFromLegacy(db, { LEGACY_CONTENT_FILE, SHOP_FILE, MESSAGES_FI
       }
     };
 
-    /* --- shop products + display settings (legacy content.json → DB) --- */
-    const content = readJSON(LEGACY_CONTENT_FILE);
-    const shop = record(content?.shop) ? content.shop : DEFAULT_STATE.shop;
-    replaceProducts(db, Array.isArray(shop?.products) ? shop.products : DEFAULT_STATE.shop.products);
-    setSetting(db, 'shop.display', { ...DEFAULT_STATE.shop.display, ...(record(shop?.display) ? shop.display : {}) });
+    /* --- fresh shop products + display settings --- */
+    const shop = DEFAULT_STATE.shop;
+    replaceProducts(db, shop.products);
+    setSetting(db, 'shop.display', cloneJson(shop.display));
     report.products = Number(db.prepare('SELECT COUNT(*) AS n FROM products').get().n);
-    if (record(content?.shop)) report.from.push('content.json');
 
     /* --- orders, comments, payment (shop.json → DB) --- */
     const legacyShopFile = readJSON(SHOP_FILE);

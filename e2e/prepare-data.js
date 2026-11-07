@@ -66,7 +66,6 @@ if (!['initialized', 'ready'].includes(initialized.status)) {
   throw new Error(`[e2e] could not initialize SQLite content: ${initialized.reason || initialized.status}`);
 }
 store.seedFromLegacy(database, {
-  LEGACY_CONTENT_FILE: path.join(dataDir, 'does-not-exist-content.json'),
   SHOP_FILE: path.join(dataDir, 'does-not-exist-shop.json'),
   MESSAGES_FILE: path.join(dataDir, 'does-not-exist-messages.json'),
 });

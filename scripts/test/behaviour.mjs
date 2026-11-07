@@ -37,7 +37,6 @@ const DB = path.join(DATA_DIR, 'behaviour.db');
 const fixtureDatabase = await dbStore.openDB(DB);
 dbStore.initializeContentStore(fixtureDatabase, { freshInstall: true });
 dbStore.seedFromLegacy(fixtureDatabase, {
-  LEGACY_CONTENT_FILE: path.join(DATA_DIR, 'missing-content.json'),
   SHOP_FILE: path.join(DATA_DIR, 'missing-shop.json'),
   MESSAGES_FILE: path.join(DATA_DIR, 'missing-messages.json'),
 });
@@ -751,7 +750,7 @@ try {
   const afterLegacyGallerySave = await (await fetch(`${BASE}/api/content`)).json();
   check(
     legacyGalleryPut.ok && afterLegacyGallerySave.gallery?.length === snapshot.gallery?.length,
-    'a legacy content save preserves the optional gallery collection',
+    'an older content client preserves the optional gallery collection',
     `got ${legacyGalleryPut.status}`,
   );
 

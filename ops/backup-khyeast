@@ -273,7 +273,6 @@ nice -n 10 ionice -c 3 tar --numeric-owner -C "$STAGE" -cf "$ARCHIVE_TMP" khyeas
 list=$STAGE/archive.list
 tar -tf "$ARCHIVE_TMP" >"$list"
 grep -Fxq 'khyeast/data/khyeast.db' "$list" || fail 'archive is missing the SQLite snapshot'
-if grep -Fq 'content.json' "$list"; then fail 'archive unexpectedly contains obsolete mutable JSON content'; fi
 grep -Fxq 'khyeast/backup-manifest.json' "$list" || fail 'archive is missing its manifest'
 if grep -Fq '/.quarantine/' "$list"; then fail 'archive unexpectedly contains quarantine'; fi
 if grep -Fq '/.incoming/' "$list"; then fail 'archive unexpectedly contains in-progress uploads'; fi

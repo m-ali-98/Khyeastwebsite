@@ -194,7 +194,7 @@ try {
     ['/package.json', /"dependencies"/],
     ['/server/index.js', /require|import |app\.use/],
     ['/.git/config', /\[core\]|remote "origin"/],
-    ['/server/data/content.json', /"texts"|"products"/],
+    ['/server/data/khyeast.db', /SQLite format 3|content_sections/],
     ['/vite.config.js', /defineConfig/],
     ['/node_modules/express/package.json', /"name":\s*"express"/],
   ];

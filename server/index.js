@@ -77,7 +77,6 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR)
    keeps a 200 MB video out of the JavaScript heap and lets publication use an
    atomic rename. The private directory is neither served nor backed up. */
 const UPLOAD_INCOMING_DIR = path.join(UPLOAD_DIR, '.incoming');
-const LEGACY_CONTENT_FILE = path.join(DATA_DIR, 'content.json'); // guarded one-time upgrade source
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
 const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
 const DB_FILE = process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : path.join(DATA_DIR, 'khyeast.db');
@@ -185,14 +184,10 @@ const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Arra
 /* ---------------- database ---------------- */
 const db = await store.openDB(DB_FILE);
 const contentInitialization = store.initializeContentStore(db, {
-  LEGACY_CONTENT_FILE,
   freshInstall: installationWasFresh,
 });
 if (contentInitialization.status === 'initialized') {
-  const source = contentInitialization.source === 'legacy-content-json'
-    ? `imported once from ${path.relative(process.cwd(), LEGACY_CONTENT_FILE)}`
-    : 'seeded from immutable defaults for a fresh installation';
-  console.log(`[db] editorial content revision 1 — ${source}`);
+  console.log('[db] editorial content revision 1 — seeded from immutable defaults for a fresh installation');
 }
 if (contentInitialization.status === 'unavailable') {
   console.error(
@@ -202,13 +197,10 @@ if (contentInitialization.status === 'unavailable') {
   );
 }
 
-/* Operational JSON imports are independent but must finish before an imported
-   content source is archived: legacy content.json may still carry the old shop
-   bucket. Do not mutate a new/empty operational store when editorial migration
-   itself failed validation. */
+/* Do not initialize operational state while editorial authority is invalid. */
 let seedReport = { skipped: true };
 if (contentInitialization.status !== 'unavailable') {
-  seedReport = store.seedFromLegacy(db, { LEGACY_CONTENT_FILE, SHOP_FILE, MESSAGES_FILE });
+  seedReport = store.seedFromLegacy(db, { SHOP_FILE, MESSAGES_FILE });
   if (!seedReport.skipped) {
     console.log(
       `[db] initialised ${path.relative(process.cwd(), DB_FILE)} — ` +
@@ -216,10 +208,6 @@ if (contentInitialization.status !== 'unavailable') {
         `comments: ${seedReport.comments}, messages: ${seedReport.messages}` +
         (seedReport.from.length ? ` (imported from ${seedReport.from.join(', ')})` : ' (from defaults)'),
     );
-  }
-  const legacyArchive = store.archiveImportedLegacyContent(db, LEGACY_CONTENT_FILE);
-  if (legacyArchive.status === 'archived') {
-    console.log(`[db] archived one-time migration source as ${path.basename(legacyArchive.file)}`);
   }
 }
 
@@ -1056,24 +1044,20 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
     next = { ...req.body };
     for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
   }
-  /* Never let a legacy payload without translations wipe the stored ones. */
+  /* Never let an older payload without translations wipe the stored ones. */
   if (!next.i18n || typeof next.i18n !== 'object' || Array.isArray(next.i18n)) {
     next.i18n = current.i18n || {};
   }
 
-  const { shop: nextShop, ...persistedCandidate } = next;
-  try {
-    store.canonicalizeLegacyContent(persistedCandidate);
-  } catch {
-    return res.status(400).json({ error: 'invalid content structure' });
-  }
-  if (!isRecord(nextShop)) return res.status(400).json({ error: 'invalid content structure' });
-
-  /* Gallery was introduced after the original content schema. A legacy client
-     may still submit a complete old snapshot, so absence means “preserve the
-     current collection” rather than a rejected save or an accidental wipe. */
+  /* An older client may omit Gallery, so preserve the authoritative section
+     rather than rejecting or accidentally wiping it. */
   if (!Object.hasOwn(next, 'gallery')) {
     next.gallery = Array.isArray(current.gallery) ? current.gallery : DEFAULT_STATE.gallery;
+  }
+
+  const { shop: nextShop, ...persistedCandidate } = next;
+  if (!store.validContentState(persistedCandidate) || !isRecord(nextShop)) {
+    return res.status(400).json({ error: 'invalid content structure' });
   }
   const galleryProblem = galleryItemsProblem(next.gallery);
   if (galleryProblem) {

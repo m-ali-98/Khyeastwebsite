@@ -151,7 +151,7 @@ try {
 
   const shared = { a: '/uploads/images/page.jpg', b: '/uploads/images/page.jpg' };
   check(isUploadReferenced('/uploads/images/page.jpg', shared), 'a file shared by multiple fields remains in use');
-  check(!parseUploadUrl('/uploads/images/../content.json') && !parseUploadUrl('https://evil.test/uploads/images/a.jpg'), 'cleanup accepts only exact safe local upload URLs');
+  check(!parseUploadUrl('/uploads/images/../khyeast.db') && !parseUploadUrl('https://evil.test/uploads/images/a.jpg'), 'cleanup accepts only exact safe local upload URLs');
 
   const cyclic = {};
   cyclic.self = cyclic;

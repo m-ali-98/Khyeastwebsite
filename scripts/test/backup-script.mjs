@@ -125,10 +125,9 @@ try {
   const listing = spawnSync('tar', ['-tf', archive], { encoding: 'utf8' });
   check(
     listing.status === 0 &&
-      !listing.stdout.includes('content.json') &&
       listing.stdout.includes('khyeast/data/khyeast.db') &&
       listing.stdout.includes('khyeast/uploads/images/live.webp'),
-    'the archive contains validated SQLite and live uploads without mutable JSON',
+    'the archive contains validated SQLite and live uploads',
     listing.stderr,
   );
   check(
@@ -147,8 +146,7 @@ try {
       onlineManifest.online === true &&
       onlineManifest.databaseSnapshotMode === 'online-sqlite-backup' &&
       onlineManifest.contentRevision === 7 &&
-      onlineManifest.incomingUploadsExcluded === true &&
-      !Object.hasOwn(onlineManifest, 'contentSha256'),
+      onlineManifest.incomingUploadsExcluded === true,
     'the manifest records one revision-fenced SQLite snapshot',
     onlineManifestResult.stdout,
   );
