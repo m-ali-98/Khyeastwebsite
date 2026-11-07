@@ -1168,6 +1168,16 @@
     gap: var(--grid-gap-wide);
     align-items: start;
   }
+
+  &__more {
+    display: flex;
+    margin: 8px auto 0;
+  }
+
+  &__load-error {
+    text-align: center;
+    margin-bottom: 14px;
+  }
 }
 
 .comment {

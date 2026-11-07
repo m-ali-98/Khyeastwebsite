@@ -579,6 +579,12 @@ try {
       body: JSON.stringify(corruptFallback),
     });
     const corruptSaveBody = await corruptSaveResponse.json().catch(() => ({}));
+    const corruptPatchResponse = await fetch(`${BASE}/api/content`, {
+      method: 'PATCH',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ changes: { links: corruptFallback.links } }),
+    });
+    const corruptPatchBody = await corruptPatchResponse.json().catch(() => ({}));
     check(
       corruptPublicResponse.status === 200 &&
         corruptPublicResponse.headers.get('x-khyeast-content-status') === 'fallback',
@@ -588,9 +594,11 @@ try {
     check(
       corruptSaveResponse.status === 503 &&
         corruptSaveBody.code === 'content-unavailable' &&
+        corruptPatchResponse.status === 503 &&
+        corruptPatchBody.code === 'content-unavailable' &&
         fs.readFileSync(contentFile, 'utf8') === corruptBytes,
-      'an ordinary Admin save cannot replace corrupt persisted content with defaults',
-      `${corruptSaveResponse.status} ${JSON.stringify(corruptSaveBody)}`,
+      'neither full nor partial Admin saves can replace corrupt persisted content with defaults',
+      `${corruptSaveResponse.status}/${corruptPatchResponse.status} ${JSON.stringify({ corruptSaveBody, corruptPatchBody })}`,
     );
     const shopAfterRefusedSave = (await (await fetch(`${BASE}/api/content`)).json()).shop;
     check(

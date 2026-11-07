@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { mergeContentState } from '../shared/contentState.js';
 import { loadAllPacks } from '../shared/i18n/index.js';
@@ -50,7 +51,7 @@ import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
 import { sanitizeContentPayload, isRichTextValidationError } from './sanitize.js';
-import { writeJsonAtomicSync } from './jsonFile.js';
+import { writeJsonAtomic, writeJsonAtomicSync } from './jsonFile.js';
 import { createGracefulShutdown } from './gracefulShutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -200,7 +201,7 @@ if (!fs.existsSync(CONTENT_FILE)) {
 }
 
 const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
-const writeJSON = (f, v) => writeJsonAtomicSync(f, v);
+const writeJSONSync = (f, v) => writeJsonAtomicSync(f, v);
 const PERSISTED_CONTENT_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const validPersistedContent = (value) => (
@@ -233,7 +234,7 @@ try {
      untouched for explicit operator repair. */
   if (validPersistedContent(c) && c.shop) {
     delete c.shop;
-    writeJSON(CONTENT_FILE, c);
+    writeJSONSync(CONTENT_FILE, c);
     console.log('[db] moved "shop" section out of content.json into the database');
   }
 } catch {}
@@ -247,11 +248,64 @@ const contentUnavailable = (cause) => Object.assign(
 
 /** Destructive upload accounting must never substitute defaults. A missing,
  * corrupt, or structurally incomplete file may be the only copy that names a
- * live upload, so cleanup must stop rather than infer that the upload is free. */
-const readContentStrict = () => {
+ * live upload, so cleanup must stop rather than infer that the upload is free.
+ *
+ * Cache both successful parses and strict failures by file identity. Every
+ * request still performs a non-blocking stat, so an operator replacing the
+ * file outside this process is detected immediately, while unchanged public
+ * and SEO requests avoid synchronous reads and repeated JSON parsing. */
+let contentFileCache = null;
+const contentFileSignature = (stat) => [
+  stat.dev,
+  stat.ino,
+  stat.size,
+  stat.mtimeNs,
+  stat.ctimeNs,
+].map(String).join(':');
+const missingContentSignature = (error) => `error:${error?.code || 'UNKNOWN'}`;
+const invalidateContentFileCache = () => { contentFileCache = null; };
+
+const readPersistedContentStrict = async () => {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let before;
+    try {
+      before = await fs.promises.stat(CONTENT_FILE, { bigint: true });
+    } catch (error) {
+      const signature = missingContentSignature(error);
+      if (contentFileCache?.signature === signature && contentFileCache.error) {
+        throw contentFileCache.error;
+      }
+      contentFileCache = { signature, value: null, error };
+      throw error;
+    }
+
+    const signature = contentFileSignature(before);
+    if (contentFileCache?.signature === signature) {
+      if (contentFileCache.error) throw contentFileCache.error;
+      return contentFileCache.value;
+    }
+
+    try {
+      const text = await fs.promises.readFile(CONTENT_FILE, 'utf8');
+      const after = await fs.promises.stat(CONTENT_FILE, { bigint: true });
+      if (contentFileSignature(after) !== signature) continue;
+      const value = JSON.parse(text);
+      if (!validPersistedContent(value)) throw new Error('content.json has an invalid structure');
+      contentFileCache = { signature, value, error: null };
+      return value;
+    } catch (error) {
+      /* A rename between read and the second stat is retried above. A stable
+         parse/validation failure is cached until metadata changes. */
+      contentFileCache = { signature, value: null, error };
+      throw error;
+    }
+  }
+  throw new Error('content.json changed while it was being read');
+};
+
+const readContentStrict = async () => {
   try {
-    const base = readJSON(CONTENT_FILE);
-    if (!validPersistedContent(base)) throw new Error('content.json has an invalid structure');
+    const base = await readPersistedContentStrict();
     return {
       ...base,
       i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
@@ -282,17 +336,17 @@ const fallbackContent = () => {
   };
 };
 
-const readContent = () => {
+const readContent = async () => {
   try {
-    return readContentStrict();
+    return await readContentStrict();
   } catch {
     return fallbackContent();
   }
 };
 
-const strictContentForResponse = (res, operation, scope = 'content') => {
+const strictContentForResponse = async (res, operation, scope = 'content') => {
   try {
-    return readContentStrict();
+    return await readContentStrict();
   } catch (error) {
     console.error(`[${scope}] ${operation} refused:`, error?.cause?.message || error?.message || error);
     res.setHeader('Retry-After', '60');
@@ -317,7 +371,7 @@ const strictContentForResponse = (res, operation, scope = 'content') => {
  *  dedicated compare-and-set endpoint after this content save, so an explicit
  *  edit is applied only if the live value still matches what the admin saw.
  *  A genuinely new product keeps the initial stock carried by this payload. */
-const writeContent = (next, previous = null) => {
+const writeContent = async (next, previous = null) => {
   /* The panel sanitizes for immediate preview, but only this server-side pass
      protects direct API callers and future clients. Store only canonical safe
      HTML in both content.json and the shop database. */
@@ -344,26 +398,57 @@ const writeContent = (next, previous = null) => {
   }
 
   const { shop, ...rest } = sanitized;
-  if (shop && typeof shop === 'object') {
-    if (Array.isArray(shop.products)) {
-      const oldProducts = Array.isArray(previous?.shop?.products) ? previous.shop.products : null;
-      const oldBySlug = new Map((oldProducts || []).map((product) => [product.slug, product]));
-      const productsChanged = !oldProducts ||
-        shop.products.length !== oldProducts.length ||
-        shop.products.some((product, index) => (
-          product?.slug !== oldProducts[index]?.slug ||
-          productNeedsImageValidation(product, oldBySlug.get(product?.slug), { ignore: ['stock'] })
-        ));
-      if (productsChanged) store.replaceProducts(db, shop.products, { preserveStock: true });
-    }
-    if (shop.display && typeof shop.display === 'object')
-      store.setSetting(db, 'shop.display', {
-        ...DEFAULT_STATE.shop.display,
-        ...(store.getSetting(db, 'shop.display') || {}),
-        ...shop.display,
-      });
+  const { shop: _previousShop, ...previousRest } = previous || {};
+  /* Sanitizers may carry an own property whose value is undefined; JSON does
+     not persist that property. Fall back to the actual serialized form before
+     deciding such an in-memory-only distinction requires an fsync. */
+  const fileChanged = !previous || (
+    !isDeepStrictEqual(rest, previousRest) &&
+    JSON.stringify(rest) !== JSON.stringify(previousRest)
+  );
+
+  let productsChanged = false;
+  if (shop && typeof shop === 'object' && Array.isArray(shop.products)) {
+    const oldProducts = Array.isArray(previous?.shop?.products) ? previous.shop.products : null;
+    const oldBySlug = new Map((oldProducts || []).map((product) => [product.slug, product]));
+    productsChanged = !oldProducts ||
+      shop.products.length !== oldProducts.length ||
+      shop.products.some((product, index) => (
+        product?.slug !== oldProducts[index]?.slug ||
+        productNeedsImageValidation(product, oldBySlug.get(product?.slug), { ignore: ['stock'] })
+      ));
   }
-  writeJSON(CONTENT_FILE, rest);
+
+  const currentDisplay = {
+    ...DEFAULT_STATE.shop.display,
+    ...(store.getSetting(db, 'shop.display') || {}),
+  };
+  const nextDisplay = shop?.display && typeof shop.display === 'object'
+    ? { ...currentDisplay, ...shop.display }
+    : currentDisplay;
+  const displayChanged = !isDeepStrictEqual(nextDisplay, currentDisplay);
+
+  /* Do not fsync content.json or touch SQLite for an unchanged domain. In the
+     common PATCH path a phone/link edit now performs one file replacement and
+     a shop edit performs only its required database transaction. */
+  if (fileChanged) {
+    await writeJsonAtomic(CONTENT_FILE, rest);
+    invalidateContentFileCache();
+  }
+  if (productsChanged) store.replaceProducts(db, shop.products, { preserveStock: true });
+  if (displayChanged) store.setSetting(db, 'shop.display', nextDisplay);
+
+  return { fileChanged, productsChanged, displayChanged };
+};
+
+/* Content publication and guarded upload retirement share one mutation lane.
+   A cleanup operation therefore cannot classify a file as unused and move it
+   while a concurrent PATCH is adding that file to content (or vice versa). */
+let contentMutationTail = Promise.resolve();
+const runContentMutation = (operation) => {
+  const current = contentMutationTail.then(operation, operation);
+  contentMutationTail = current.catch(() => {});
+  return current;
 };
 
 /* ---------------- auth ---------------- */
@@ -845,14 +930,14 @@ app.get('/api/health', async (_req, res) =>
   res.json({ ok: true, db: 'sqlite', imageOptimiser: await optimiserAvailable() }),
 );
 
-app.get('/api/content', (_req, res) => {
+app.get('/api/content', async (_req, res) => {
   /* Public copy is edited while visitors may already have the SPA open. A
      cached JSON response would make route-level revalidation meaningless, so
      neither the browser nor an intermediary may store this snapshot. */
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   try {
-    const content = readContentStrict();
+    const content = await readContentStrict();
     res.setHeader('X-Khyeast-Content-Status', 'persisted');
     res.json(content);
   } catch {
@@ -1027,16 +1112,38 @@ app.put('/api/admin/security', requireAuth, (req, res) => {
 
 /* ---------------- admin: content ---------------- */
 const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts', 'shop'];
-app.put('/api/content', requireAuth, (req, res) => {
+const PATCHABLE_CONTENT_KEYS = new Set([...REQUIRED_KEYS, 'gallery', 'i18n']);
+const saveContentRequest = async (req, res, { partial = false } = {}) => {
   /* A public GET may deliberately serve shipped defaults during a restore
      incident. Never let an ordinary Admin save turn that availability fallback
      into the new authoritative file: all writes begin from a strict read. */
-  const current = strictContentForResponse(res, 'content save');
+  const current = await strictContentForResponse(res, 'content save');
   if (!current) return;
 
-  const next = req.body;
-  if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
-  for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  let next;
+  if (partial) {
+    const changes = req.body?.changes;
+    if (!isRecord(changes)) return res.status(400).json({ error: 'invalid content patch' });
+    const keys = Object.keys(changes);
+    const unknown = keys.find((key) => !PATCHABLE_CONTENT_KEYS.has(key));
+    if (unknown) return res.status(400).json({ error: `unknown content key: ${unknown}` });
+    if (!keys.length) return res.json({ ok: true, unchanged: true });
+    next = { ...current, ...changes };
+  } else {
+    if (!isRecord(req.body)) return res.status(400).json({ error: 'invalid payload' });
+    next = { ...req.body };
+    for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  }
+  /* Never let a legacy payload without translations wipe the stored ones. */
+  if (!next.i18n || typeof next.i18n !== 'object' || Array.isArray(next.i18n)) {
+    next.i18n = current.i18n || {};
+  }
+
+  const { shop: nextShop, ...persistedCandidate } = next;
+  if (!validPersistedContent(persistedCandidate) || !isRecord(nextShop)) {
+    return res.status(400).json({ error: 'invalid content structure' });
+  }
+
   /* Gallery was introduced after the original content schema. A legacy client
      may still submit a complete old snapshot, so absence means “preserve the
      current collection” rather than a rejected save or an accidental wipe. */
@@ -1128,10 +1235,8 @@ app.put('/api/content', requireAuth, (req, res) => {
     }
   }
 
-  /* never let a payload without translations wipe the stored ones */
-  if (!next.i18n || typeof next.i18n !== 'object') next.i18n = current.i18n || {};
   try {
-    writeContent(next, current);
+    await writeContent(next, current);
   } catch (error) {
     if (isRichTextValidationError(error)) {
       return res.status(400).json({
@@ -1144,7 +1249,13 @@ app.put('/api/content', requireAuth, (req, res) => {
     throw error;
   }
   res.json({ ok: true });
-});
+};
+
+const contentWriteRoute = (partial) => (req, res, next) => {
+  runContentMutation(() => saveContentRequest(req, res, { partial })).catch(next);
+};
+app.put('/api/content', requireAuth, contentWriteRoute(false));
+app.patch('/api/content', requireAuth, contentWriteRoute(true));
 
 /* ---------------- admin: messages ---------------- */
 app.get('/api/messages', requireAuth, (_req, res) => res.json(store.listMessages(db)));
@@ -1161,21 +1272,24 @@ app.delete('/api/messages/:id', requireAuth, (req, res) => {
 });
 
 /* ---------------- admin: uploads ---------------- */
-app.get('/api/uploads/unused', requireAuth, (_req, res) => {
-  const content = strictContentForResponse(res, 'unused-file preview', 'uploads');
+app.get('/api/uploads/unused', requireAuth, async (_req, res) => {
+  const content = await strictContentForResponse(res, 'unused-file preview', 'uploads');
   if (!content) return;
   res.json(listUnusedUploads(UPLOAD_DIR, content));
 });
 
-app.delete('/api/uploads/unused', requireAuth, (req, res) => {
+app.delete('/api/uploads/unused', requireAuth, (req, res, next) => {
   if (!Array.isArray(req.body?.urls)) return res.status(400).json({ error: 'urls must be an array' });
-  /* The content tree is read again here rather than trusting the preview. If a
-     file became referenced while the confirmation dialog was open, it is no
-     longer a candidate and will be reported as skipped. */
-  const content = strictContentForResponse(res, 'unused-file cleanup', 'uploads');
-  if (!content) return;
-  const result = deleteUnusedUploads(UPLOAD_DIR, content, req.body.urls);
-  res.json({ ok: true, ...result });
+  return runContentMutation(async () => {
+    /* The content tree is read again here rather than trusting the preview. If
+       a file became referenced while the confirmation dialog was open, it is
+       no longer a candidate and will be reported as skipped. The shared queue
+       keeps this read and the quarantine move atomic relative to content saves. */
+    const content = await strictContentForResponse(res, 'unused-file cleanup', 'uploads');
+    if (!content) return;
+    const result = deleteUnusedUploads(UPLOAD_DIR, content, req.body.urls);
+    res.json({ ok: true, ...result });
+  }).catch(next);
 });
 
 app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), async (req, res) => {
@@ -1197,7 +1311,7 @@ app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), a
       }
 
       const dir = path.join(UPLOAD_DIR, `${kind}s`);
-      fs.mkdirSync(dir, { recursive: true });
+      await fs.promises.mkdir(dir, { recursive: true });
       const stem = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
       /* Videos never need to enter the JavaScript heap: after the signature
@@ -1241,18 +1355,24 @@ app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), a
       const written = [];
       let name = opt.variants.length ? `${stem}-w${opt.width}.webp` : `${stem}${opt.ext}`;
       try {
-        for (const variant of opt.variants) {
+        const variantWrites = opt.variants.map((variant) => {
           const file = path.join(dir, `${stem}-${variant.width}.webp`);
           written.push(file);
-          fs.writeFileSync(file, variant.buffer);
-        }
+          return fs.promises.writeFile(file, variant.buffer);
+        });
+        /* Wait for every parallel variant operation to settle before cleanup;
+           Promise.all would reject early while another write could still be
+           racing the fallback removal. The master remains last as the public
+           completion marker for an optimized family. */
+        const settled = await Promise.allSettled(variantWrites);
+        const failed = settled.find((result) => result.status === 'rejected');
+        if (failed) throw failed.reason;
+
         const master = path.join(dir, name);
         written.push(master);
-        fs.writeFileSync(master, opt.buffer);
+        await fs.promises.writeFile(master, opt.buffer);
       } catch {
-        for (const file of written) {
-          try { fs.unlinkSync(file); } catch { /* best effort */ }
-        }
+        await Promise.allSettled(written.map((file) => fs.promises.rm(file, { force: true })));
         name = `${stem}${ext}`;
         await fs.promises.rename(staged, path.join(dir, name));
         return {
@@ -1295,31 +1415,31 @@ app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), a
   }
 });
 
-app.delete('/api/upload', requireAuth, (req, res) => {
+app.delete('/api/upload', requireAuth, (req, res, next) => {
   const url = String(req.body?.url || '');
   /* This lower-level endpoint remains for existing integrations, but it may no
      longer remove a file used by another product or page. Gallery removal in
      the Admin intentionally removes only the reference; the unused-files
      cleanup is the normal retirement path. */
   if (!parseUploadUrl(url)) return res.status(400).json({ error: 'invalid url' });
-  const content = strictContentForResponse(res, 'guarded upload removal', 'uploads');
-  if (!content) return;
-  if (isUploadReferenced(url, content)) {
-    return res.status(409).json({ error: 'upload is still referenced' });
-  }
-  /* The reference check and quarantine move are synchronous, so no request in
-     this process can save content in between. */
-  const result = quarantineUploadSet(UPLOAD_DIR, url);
-  res.json({
-    ok: true,
-    stuck: result.stuck,
-    removed: result.moved,
-    quarantined: result.moved,
-    bytes: result.bytes,
-    batch: result.batch,
-    restoreUntil: result.restoreUntil,
-    quarantineDays: Math.round(UPLOAD_QUARANTINE_RETENTION_MS / (24 * 60 * 60 * 1000)),
-  });
+  return runContentMutation(async () => {
+    const content = await strictContentForResponse(res, 'guarded upload removal', 'uploads');
+    if (!content) return;
+    if (isUploadReferenced(url, content)) {
+      return res.status(409).json({ error: 'upload is still referenced' });
+    }
+    const result = quarantineUploadSet(UPLOAD_DIR, url);
+    res.json({
+      ok: true,
+      stuck: result.stuck,
+      removed: result.moved,
+      quarantined: result.moved,
+      bytes: result.bytes,
+      batch: result.batch,
+      restoreUntil: result.restoreUntil,
+      quarantineDays: Math.round(UPLOAD_QUARANTINE_RETENTION_MS / (24 * 60 * 60 * 1000)),
+    });
+  }).catch(next);
 });
 
 /* Defence in depth for anything already on disk (including files uploaded
@@ -1343,7 +1463,7 @@ const shopRouter = createShopRouter({
   database: db,
   requireAuth,
   rateLimiter,
-  trustedImageOrigins: () => trustSealImageOrigins(readContent().collections?.trustSeals),
+  trustedImageOrigins: async () => trustSealImageOrigins((await readContent()).collections?.trustSeals),
 });
 app.use(shopRouter);
 
@@ -1384,9 +1504,9 @@ if (fs.existsSync(DIST)) {
     if (canonicalProductionOrigin) return canonicalProductionOrigin;
     return normalizeOrigin(`${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`);
   };
-  const seoState = () => {
+  const seoState = async () => {
     try {
-      return mergeContentState(DEFAULT_STATE, readContent());
+      return mergeContentState(DEFAULT_STATE, await readContent());
     } catch {
       return mergeContentState(DEFAULT_STATE, {});
     }
@@ -1406,9 +1526,9 @@ if (fs.existsSync(DIST)) {
     res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600');
     res.send(renderRobots(requestOrigin(req)));
   });
-  app.get('/sitemap.xml', (req, res) => {
+  app.get('/sitemap.xml', async (req, res) => {
     res.type('application/xml').setHeader('Cache-Control', 'no-cache');
-    res.send(renderSitemap(seoState(), requestOrigin(req)));
+    res.send(renderSitemap(await seoState(), requestOrigin(req)));
   });
   app.get('/index.html', (_req, res) => res.redirect(301, '/'));
   const sendStatic404 = (res) => {
@@ -1447,14 +1567,14 @@ if (fs.existsSync(DIST)) {
     }),
   );
 
-  app.get(/^\/(?!api|uploads).*/, (req, res) => {
+  app.get(/^\/(?!api|uploads).*/, async (req, res) => {
     const origin = requestOrigin(req);
     const queryAt = req.originalUrl.indexOf('?');
     const query = queryAt >= 0 ? req.originalUrl.slice(queryAt) : '';
     const redirect = redirectPath(req.path);
     if (redirect) return res.redirect(301, `${redirect}${query}`);
 
-    const state = seoState();
+    const state = await seoState();
     const meta = resolveSeo(req.path, state, origin);
     let html;
     try {

@@ -18,6 +18,7 @@ export default function ShopCheckout() {
     money,
     clear,
     paymentProvider,
+    loadPaymentProvider,
     refreshCartAvailability,
   } = useShop();
   const account = useAccount();
@@ -29,6 +30,10 @@ export default function ShopCheckout() {
   useEffect(() => {
     if (account.status === 'out') navigate('/shop/login?next=/shop/checkout', { replace: true });
   }, [account.status, navigate]);
+
+  useEffect(() => {
+    loadPaymentProvider();
+  }, [loadPaymentProvider]);
 
   /* The default address, preselected: most people have one and should not
      have to choose anything. */
@@ -42,7 +47,7 @@ export default function ShopCheckout() {
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  const online = paymentProvider !== 'offline';
+  const online = paymentProvider !== null && paymentProvider !== 'offline';
 
   const submit = async (e) => {
     e.preventDefault();

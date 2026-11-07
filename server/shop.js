@@ -77,6 +77,26 @@ export { SHOP_SEED } from './seed.js';
 
 const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancelled'];
 const rand = (n) => crypto.randomBytes(n).toString('hex');
+const PUBLIC_COMMENT_PAGE_SIZE = 8;
+const PUBLIC_COMMENT_PAGE_MAX = 20;
+
+const encodeCommentCursor = (comment) => Buffer.from(
+  JSON.stringify([comment.at, comment.id]),
+  'utf8',
+).toString('base64url');
+
+const decodeCommentCursor = (raw) => {
+  const value = String(raw || '');
+  if (!value) return null;
+  if (value.length > 500) throw new Error('invalid cursor');
+  const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  if (
+    !Array.isArray(parsed) || parsed.length !== 2 ||
+    typeof parsed[0] !== 'string' || parsed[0].length > 40 || Number.isNaN(Date.parse(parsed[0])) ||
+    typeof parsed[1] !== 'string' || !parsed[1] || parsed[1].length > 160
+  ) throw new Error('invalid cursor');
+  return { at: parsed[0], id: parsed[1] };
+};
 
 export const PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT = 6;
 const PAYMENT_VERIFICATION_RETRY_PARAM = '_kyVerifyRetry';
@@ -401,11 +421,50 @@ export function createShopRouter({
   }
 
   /* ---------------- public ---------------- */
+  /* Backward-compatible lightweight bootstrap. Product comments and payment
+     metadata have route-local endpoints below and are no longer shipped at
+     application boot. */
   r.get('/api/shop-public', (_req, res) => {
-    res.json({
-      display: display(),
-      paymentProvider: payment().provider,
-      comments: db.listApprovedComments(D),
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.json({ display: display() });
+  });
+
+  r.get('/api/shop-public/payment', (_req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.json({ paymentProvider: payment().provider });
+  });
+
+  r.get('/api/shop-public/comments', (req, res) => {
+    const slug = String(req.query.slug || '').trim();
+    if (!slug || slug.length > 120) return res.status(400).json({ error: 'valid slug required' });
+    const product = db.getProduct(D, slug);
+    if (!product || !product.active) return res.status(404).json({ error: 'product not found' });
+
+    const suppliedLimit = req.query.limit;
+    const parsedLimit = suppliedLimit == null || suppliedLimit === ''
+      ? PUBLIC_COMMENT_PAGE_SIZE
+      : Number(suppliedLimit);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+      return res.status(400).json({ error: 'invalid limit' });
+    }
+    const limit = Math.min(parsedLimit, PUBLIC_COMMENT_PAGE_MAX);
+
+    let cursor;
+    try {
+      cursor = decodeCommentCursor(req.query.cursor);
+    } catch {
+      return res.status(400).json({ error: 'invalid cursor', code: 'invalid-cursor' });
+    }
+
+    const rows = db.listApprovedCommentsPage(D, slug, { limit: limit + 1, cursor });
+    const comments = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    return res.json({
+      comments,
+      hasMore,
+      nextCursor: hasMore && comments.length ? encodeCommentCursor(comments.at(-1)) : null,
+      limit,
     });
   });
 
@@ -963,7 +1022,7 @@ export function createShopRouter({
     res.json({ products: db.listProducts(D), display: display() });
   });
 
-  r.put('/api/shop-admin/products', requireAuth, (req, res) => {
+  r.put('/api/shop-admin/products', requireAuth, async (req, res) => {
     const b = req.body || {};
     if (Array.isArray(b.products)) {
       const previousProducts = db.listProducts(D);
@@ -983,7 +1042,7 @@ export function createShopRouter({
            was not edited cannot block an unrelated product or display save. */
         const problems = shopProductProblems(b.products);
         if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
-        const imageOrigins = trustedImageOrigins();
+        const imageOrigins = await trustedImageOrigins();
         for (let index = 0; index < b.products.length; index += 1) {
           const product = b.products[index];
           if (!productNeedsImageValidation(product, previousBySlug.get(product?.slug), { ignore: ['stock'] })) continue;

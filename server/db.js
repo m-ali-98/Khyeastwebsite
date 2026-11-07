@@ -140,6 +140,8 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_comments_slug ON comments(slug);
     CREATE INDEX IF NOT EXISTS idx_comments_at ON comments(at DESC);
+    CREATE INDEX IF NOT EXISTS idx_comments_public_page
+      ON comments(slug, approved, at DESC, id DESC);
 
     CREATE TABLE IF NOT EXISTS messages (
       id      TEXT PRIMARY KEY,
@@ -1221,11 +1223,34 @@ const commentOut = (r) => ({
 export function listComments(db) {
   return db.prepare('SELECT * FROM comments ORDER BY at DESC').all().map(commentOut);
 }
-export function listApprovedComments(db) {
-  return db
-    .prepare('SELECT id, slug, name, text, at, reply, reply_at FROM comments WHERE approved = 1 ORDER BY at DESC')
-    .all()
-    .map((r) => ({ id: r.id, slug: r.slug, name: r.name, text: r.text, at: r.at, reply: r.reply, replyAt: r.reply_at }));
+export function listApprovedCommentsPage(db, slug, { limit = 8, cursor = null } = {}) {
+  const boundedLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 8)));
+  const fields = 'id, slug, name, text, at, reply, reply_at';
+  const rows = cursor
+    ? db.prepare(`
+        SELECT ${fields}
+          FROM comments
+         WHERE slug = ? AND approved = 1
+           AND (at < ? OR (at = ? AND id < ?))
+         ORDER BY at DESC, id DESC
+         LIMIT ?
+      `).all(String(slug), cursor.at, cursor.at, cursor.id, boundedLimit)
+    : db.prepare(`
+        SELECT ${fields}
+          FROM comments
+         WHERE slug = ? AND approved = 1
+         ORDER BY at DESC, id DESC
+         LIMIT ?
+      `).all(String(slug), boundedLimit);
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    text: r.text,
+    at: r.at,
+    reply: r.reply,
+    replyAt: r.reply_at,
+  }));
 }
 export function insertComment(db, c) {
   db.prepare(`

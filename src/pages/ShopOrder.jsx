@@ -12,7 +12,7 @@ export default function ShopOrder() {
   const { code } = useParams();
   const [params] = useSearchParams();
   const { t } = useContent();
-  const { money, paymentProvider } = useShop();
+  const { money, paymentProvider, loadPaymentProvider } = useShop();
   const [order, setOrder] = useState(null);
   const [state, setState] = useState('loading'); // loading | notfound | ok
   const [busy, setBusy] = useState(false);
@@ -20,6 +20,10 @@ export default function ShopOrder() {
   const token = orderTokenGet(code) || params.get('token') || '';
   const pay = params.get('pay');
   const isNew = params.get('new') === '1';
+
+  useEffect(() => {
+    loadPaymentProvider();
+  }, [loadPaymentProvider]);
 
   useEffect(() => {
     let alive = true;
@@ -91,7 +95,7 @@ export default function ShopOrder() {
 
             {pay === 'ok' && <div className="order-banner ok">{t('shop.order.payOk')}</div>}
             {pay === 'fail' && <div className="order-banner fail">{t('shop.order.payFail')}</div>}
-            {!pay && order.status === 'pending_payment' && paymentProvider !== 'offline' && (
+            {!pay && order.status === 'pending_payment' && paymentProvider && paymentProvider !== 'offline' && (
               <div className="order-banner fail">{t('shop.order.awaitPay')}</div>
             )}
 
@@ -198,7 +202,7 @@ export default function ShopOrder() {
             </div>
 
             <div className="order-actions">
-              {order.status === 'pending_payment' && paymentProvider !== 'offline' && (
+              {order.status === 'pending_payment' && paymentProvider && paymentProvider !== 'offline' && (
                 <mo.button className="btn btn--primary" onClick={payNow} disabled={busy} whileTap={{ scale: 0.97 }}>
                   <Icons.shield size={18} />
                   {busy ? '…' : t('shop.order.payNow')}

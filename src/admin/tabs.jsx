@@ -696,8 +696,11 @@ function UnusedUploads() {
 }
 
 export function MediaTab() {
-  const { state, save } = useContent();
-  const set = (k, v) => save({ ...state, media: { ...state.media, [k]: v } });
+  const { state, save, autosave } = useContent();
+  const set = (k, v, { immediate = false } = {}) => {
+    const request = (immediate ? save : autosave)({ ...state, media: { ...state.media, [k]: v } });
+    request.catch(() => {});
+  };
   return (
     <div className="admin__panel">
       <div className="admin__head">
@@ -720,7 +723,7 @@ export function MediaTab() {
                 onChange={(e) => set(k, e.target.value)}
               />
             </div>
-            <UploadButton accept="image/*" small label="بارگذاری" onUploaded={(url) => set(k, url)} />
+            <UploadButton accept="image/*" small label="بارگذاری" onUploaded={(url) => set(k, url, { immediate: true })} />
           </div>
         ))}
       </div>
@@ -731,8 +734,10 @@ export function MediaTab() {
 
 /* ================= links ================= */
 export function LinksTab() {
-  const { state, save } = useContent();
-  const set = (k, v) => save({ ...state, links: { ...state.links, [k]: v } });
+  const { state, autosave } = useContent();
+  const set = (k, v) => {
+    autosave({ ...state, links: { ...state.links, [k]: v } }).catch(() => {});
+  };
   return (
     <div className="admin__panel">
       <div className="admin__head">
@@ -961,23 +966,38 @@ export function TrustSealsTab() {
 
 /* ================= contact info ================= */
 export function ContactTab() {
-  const { state, save } = useContent();
+  const { state, save, autosave } = useContent();
   const c = state.collections;
 
-  const patchCollections = (next) => save({ ...state, collections: next });
-  const setText = (k, v) => save({ ...state, texts: { ...state.texts, [k]: v } });
-  const setLink = (k, v) => save({ ...state, links: { ...state.links, [k]: v } });
+  const quiet = (request) => request.catch(() => {});
+  const patchCollections = (next, { immediate = false } = {}) => quiet(
+    (immediate ? save : autosave)({ ...state, collections: next }),
+  );
+  const setText = (k, v) => quiet(autosave({ ...state, texts: { ...state.texts, [k]: v } }));
+  const setLink = (k, v) => quiet(autosave({ ...state, links: { ...state.links, [k]: v } }));
 
   const setOffice = (id, patch) =>
     patchCollections({ ...c, offices: c.offices.map((o) => (o.id === id ? { ...o, ...patch } : o)) });
   const addOffice = () =>
-    patchCollections({ ...c, offices: [...c.offices, { id: `office-${Date.now()}`, icon: 'pin', title: 'دفتر جدید', address: '', phones: [] }] });
-  const removeOffice = (id) => window.confirm('این دفتر/کارخانه حذف شود؟') && patchCollections({ ...c, offices: c.offices.filter((o) => o.id !== id) });
+    patchCollections(
+      { ...c, offices: [...c.offices, { id: `office-${Date.now()}`, icon: 'pin', title: 'دفتر جدید', address: '', phones: [] }] },
+      { immediate: true },
+    );
+  const removeOffice = (id) => window.confirm('این دفتر/کارخانه حذف شود؟') && patchCollections(
+    { ...c, offices: c.offices.filter((o) => o.id !== id) },
+    { immediate: true },
+  );
 
   const setSocial = (id, patch) =>
     patchCollections({ ...c, socials: c.socials.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
-  const addSocial = () => patchCollections({ ...c, socials: [...c.socials, { id: `social-${Date.now()}`, label: 'شبکه جدید', href: 'https://' }] });
-  const removeSocial = (id) => patchCollections({ ...c, socials: c.socials.filter((s) => s.id !== id) });
+  const addSocial = () => patchCollections(
+    { ...c, socials: [...c.socials, { id: `social-${Date.now()}`, label: 'شبکه جدید', href: 'https://' }] },
+    { immediate: true },
+  );
+  const removeSocial = (id) => patchCollections(
+    { ...c, socials: c.socials.filter((s) => s.id !== id) },
+    { immediate: true },
+  );
 
   return (
     <div className="admin__panel">

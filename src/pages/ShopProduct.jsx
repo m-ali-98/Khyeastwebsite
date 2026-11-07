@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, faNum, hl } from '../components/ui';
@@ -7,6 +7,31 @@ import { sanitizeHtml } from '../content/sanitize';
 import { useShop } from '../shop/ShopContext';
 import { ShopCard, QtyStepper } from '../shop/parts';
 import ProductGallery from '../components/ProductGallery';
+
+/* React StrictMode intentionally remounts effects in development. Share only
+   in-flight page requests (never completed data) so that safety check does not
+   issue two identical comment queries while production freshness is unchanged. */
+const pendingCommentPages = new Map();
+const fetchCommentPage = (query) => {
+  const key = String(query);
+  if (pendingCommentPages.has(key)) return pendingCommentPages.get(key);
+  const request = fetch(`/api/shop-public/comments?${key}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`comments api ${response.status}`);
+      const payload = await response.json();
+      if (!Array.isArray(payload.comments)) throw new Error('invalid comments payload');
+      return payload;
+    })
+    .finally(() => {
+      if (pendingCommentPages.get(key) === request) pendingCommentPages.delete(key);
+    });
+  pendingCommentPages.set(key, request);
+  return request;
+};
 
 function CommentForm({ slug, onDone }) {
   const { t } = useContent();
@@ -77,12 +102,40 @@ function CommentForm({ slug, onDone }) {
 
 function Comments({ product }) {
   const { t } = useContent();
-  const { comments, reloadComments, display } = useShop();
-  const list = useMemo(
-    () => comments.filter((c) => c.slug === product.slug).sort((a, b) => (a.at < b.at ? 1 : -1)),
-    [comments, product.slug]
-  );
+  const { display } = useShop();
+  const [list, setList] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const requestSequence = useRef(0);
   const open = display.commentsEnabled !== false && !product.commentsLocked;
+
+  const loadPage = useCallback(async (cursor = '', append = false) => {
+    const sequence = ++requestSequence.current;
+    setLoading(true);
+    setLoadFailed(false);
+    try {
+      const query = new URLSearchParams({ slug: product.slug, limit: '8' });
+      if (cursor) query.set('cursor', cursor);
+      const payload = await fetchCommentPage(query);
+      if (sequence !== requestSequence.current) return;
+      setList((current) => {
+        if (!append) return payload.comments;
+        const known = new Set(current.map((comment) => comment.id));
+        return [...current, ...payload.comments.filter((comment) => !known.has(comment.id))];
+      });
+      setNextCursor(typeof payload.nextCursor === 'string' && payload.nextCursor ? payload.nextCursor : null);
+    } catch {
+      if (sequence === requestSequence.current) setLoadFailed(true);
+    } finally {
+      if (sequence === requestSequence.current) setLoading(false);
+    }
+  }, [product.slug]);
+
+  useEffect(() => {
+    loadPage();
+    return () => { requestSequence.current += 1; };
+  }, [loadPage]);
 
   return (
     <section className="section section--soft shop-product-comments">
@@ -93,11 +146,22 @@ function Comments({ product }) {
         </Reveal>
 
         <div className="shop-comments__grid">
-          <div>
-            {list.length === 0 && <p className="shop-comments__empty">{t('shop.comments.empty')}</p>}
+          <div aria-live="polite">
+            {loading && list.length === 0 && <p className="shop-comments__empty">{t('shop.comments.loading')}</p>}
+            {loadFailed && list.length === 0 && (
+              <div className="shop-comments__load-error">
+                <p className="shop-comments__empty">{t('shop.comments.loadError')}</p>
+                <button type="button" className="btn btn--outline btn--sm" onClick={() => loadPage()}>
+                  {t('shop.comments.retry')}
+                </button>
+              </div>
+            )}
+            {!loading && !loadFailed && list.length === 0 && (
+              <p className="shop-comments__empty">{t('shop.comments.empty')}</p>
+            )}
             <AnimatePresence>
               {list.map((c, i) => (
-                <Reveal className="comment" key={c.id} y={20} delay={i * 0.06}>
+                <Reveal className="comment" key={c.id} y={20} delay={Math.min(i, 8) * 0.06}>
                   <div className="comment__head">
                     <span className="avatar">{c.name.trim().charAt(0)}</span>
                     <div>
@@ -105,7 +169,6 @@ function Comments({ product }) {
                       <br />
                       <small>{new Date(c.at).toLocaleDateString('fa-IR')}</small>
                     </div>
-                    {!c.approved && <span className="awaiting">{t('shop.comments.awaiting')}</span>}
                   </div>
                   <p className="comment__text">{c.text}</p>
                   {c.reply && (
@@ -120,10 +183,21 @@ function Comments({ product }) {
                 </Reveal>
               ))}
             </AnimatePresence>
+            {loadFailed && list.length > 0 && <p className="shop-comments__empty">{t('shop.comments.loadError')}</p>}
+            {nextCursor && (
+              <button
+                type="button"
+                className="btn btn--outline btn--sm shop-comments__more"
+                disabled={loading}
+                onClick={() => loadPage(nextCursor, true)}
+              >
+                {loading ? t('shop.comments.loading') : t('shop.comments.more')}
+              </button>
+            )}
           </div>
           <div>
             {open ? (
-              <CommentForm slug={product.slug} onDone={() => reloadComments()} />
+              <CommentForm slug={product.slug} onDone={() => loadPage()} />
             ) : (
               <Reveal className="shop-comments__locked">
                 {product.commentsLocked ? t('shop.comments.locked') : t('shop.comments.disabled')}

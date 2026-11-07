@@ -73,6 +73,40 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
   expect(errors, 'console errors while touring the panel').toEqual([]);
 });
 
+test('controlled CMS fields coalesce keystrokes into one bucket-only patch', async ({ page }) => {
+  await loginAdmin(page);
+  await adminTab(page, 'پیوندها').first().click();
+  const input = page.locator('.admin__text-row input').first();
+  const original = await input.inputValue();
+  const patches = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/content' && request.method() === 'PATCH') {
+      patches.push(request.postDataJSON());
+    }
+  });
+
+  try {
+    const saved = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await input.fill(`${original}?autosave=`);
+    await input.pressSequentially('coalesced', { delay: 25 });
+    await expect(input).toHaveValue(`${original}?autosave=coalesced`);
+    expect((await saved).status()).toBe(200);
+    await page.waitForTimeout(850);
+
+    expect(patches).toHaveLength(1);
+    expect(Object.keys(patches[0]?.changes || {})).toEqual(['links']);
+    expect(patches[0].changes.links).toBeTruthy();
+  } finally {
+    const restored = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await input.fill(original);
+    expect((await restored).status()).toBe(200);
+  }
+});
+
 test('gallery manager publishes ordered media and locale-specific modal copy', async ({ page }) => {
   const original = await (await page.request.get('/api/content')).json();
   await loginAdmin(page);
@@ -102,7 +136,7 @@ test('gallery manager publishes ordered media and locale-specific modal copy', a
 
     await source.fill('/assets/img/factory.webp');
     await item.getByRole('button', { name: 'انتقال به بالا' }).click();
-    const saveResponse = page.waitForResponse((response) => response.url().endsWith('/api/content') && response.request().method() === 'PUT');
+    const saveResponse = page.waitForResponse((response) => response.url().endsWith('/api/content') && response.request().method() === 'PATCH');
     await manager.getByRole('button', { name: 'ذخیره و انتشار گالری' }).click();
     expect((await saveResponse).status()).toBe(200);
     await expect(manager.locator('.admin-gallery__notice.is-success')).toBeVisible();
@@ -126,7 +160,7 @@ test('gallery manager publishes ordered media and locale-specific modal copy', a
     const translatedItem = translations.locator('.admin-gallery__translation', { hasText: 'قاب تازه کارخانه' });
     await translatedItem.locator('input').fill('A new view of the factory');
     await translatedItem.locator('textarea').fill('Additional English copy shown beneath the enlarged gallery image.');
-    const transResponse = page.waitForResponse((response) => response.url().endsWith('/api/content') && response.request().method() === 'PUT');
+    const transResponse = page.waitForResponse((response) => response.url().endsWith('/api/content') && response.request().method() === 'PATCH');
     await translations.getByRole('button', { name: 'ذخیره ترجمه‌های گالری' }).click();
     expect((await transResponse).status()).toBe(200);
     await expect(translations.locator('.admin-gallery__notice.is-success')).toBeVisible();

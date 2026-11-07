@@ -70,9 +70,9 @@ export function ShopProvider({ children }) {
   const [cartStorageRevision, setCartStorageRevision] = useState(0);
   const [availabilityNotice, setAvailabilityNotice] = useState(null);
   const [availabilityRefreshing, setAvailabilityRefreshing] = useState(false);
-  const [comments, setComments] = useState([]);
-  const [paymentProvider, setPaymentProvider] = useState('offline');
-  const [shopReady, setShopReady] = useState(false);
+  const [paymentProvider, setPaymentProvider] = useState(null);
+  const paymentProviderRef = useRef(null);
+  const paymentProviderRequest = useRef(null);
   const lastAutoReconciledProducts = useRef(null);
 
   useEffect(() => {
@@ -112,21 +112,31 @@ export function ShopProvider({ children }) {
     return () => window.removeEventListener('storage', syncCartFromStorage);
   }, []);
 
-  const loadComments = useCallback(() => (
-    fetch('/api/shop-public', { cache: 'no-store' })
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('shop api'))))
-      .then((payload) => {
-        setComments(Array.isArray(payload.comments) ? payload.comments : []);
-        setPaymentProvider(payload.paymentProvider || 'offline');
-        return payload;
-      })
-      .catch(() => null)
-      .finally(() => setShopReady(true))
-  ), []);
+  /* Payment identity is needed only by checkout and order retry screens. Those
+     routes call this lazy loader; ordinary pages no longer fetch shop metadata
+     (or the former global comments table) during application bootstrap. */
+  const loadPaymentProvider = useCallback(() => {
+    if (paymentProviderRef.current !== null) {
+      return Promise.resolve(paymentProviderRef.current);
+    }
+    if (paymentProviderRequest.current) return paymentProviderRequest.current;
 
-  useEffect(() => {
-    loadComments();
-  }, [loadComments]);
+    paymentProviderRequest.current = fetch('/api/shop-public/payment', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('shop payment api'))))
+      .then((payload) => payload?.paymentProvider || 'offline')
+      .catch(() => 'offline')
+      .then((provider) => {
+        paymentProviderRef.current = provider;
+        setPaymentProvider(provider);
+        return provider;
+      })
+      .finally(() => { paymentProviderRequest.current = null; });
+    return paymentProviderRequest.current;
+  }, []);
 
   const persist = useCallback((next) => {
     setCart(next);
@@ -293,14 +303,13 @@ export function ShopProvider({ children }) {
   const money = useCallback((rial, withLabel = true) => formatMoney(rial, unit, withLabel), [unit]);
 
   const value = useMemo(() => ({
-    ready: contentReady && shopReady,
+    ready: contentReady,
     display,
     products,
     unit,
     money,
     paymentProvider,
-    comments,
-    reloadComments: loadComments,
+    loadPaymentProvider,
     bySlug,
     cart: effectiveCart,
     cartHydrated,
@@ -319,14 +328,12 @@ export function ShopProvider({ children }) {
     refreshCartAvailability,
   }), [
     contentReady,
-    shopReady,
     display,
     products,
     unit,
     money,
     paymentProvider,
-    comments,
-    loadComments,
+    loadPaymentProvider,
     bySlug,
     effectiveCart,
     cartHydrated,

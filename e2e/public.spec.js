@@ -212,6 +212,26 @@ test('the 404 page uses localized CMS copy and keeps its recovery actions clear 
   }
 });
 
+test('shop metadata loads only on the public route that consumes it', async ({ page }) => {
+  const requests = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith('/api/shop-public')) requests.push(url);
+  });
+
+  await gotoReady(page, '/');
+  await gotoReady(page, '/shop/dezmaye-gold-80');
+  await expect.poll(() => requests.filter((url) => url.pathname === '/api/shop-public/comments').length).toBeGreaterThan(0);
+
+  const commentsRequests = requests.filter((url) => url.pathname === '/api/shop-public/comments');
+  for (const commentsRequest of commentsRequests) {
+    expect(commentsRequest.searchParams.get('slug')).toBe('dezmaye-gold-80');
+    expect(commentsRequest.searchParams.get('limit')).toBe('8');
+  }
+  expect(requests.filter((url) => url.pathname === '/api/shop-public')).toHaveLength(0);
+  expect(requests.filter((url) => url.pathname === '/api/shop-public/payment')).toHaveLength(0);
+});
+
 test('the cleaned inner pages keep their primary layout inside narrow screens @mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 });
   const cases = [

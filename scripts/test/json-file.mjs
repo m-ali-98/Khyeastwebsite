@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { writeJsonAtomicSync } from '../../server/jsonFile.js';
+import { writeJsonAtomic, writeJsonAtomicSync } from '../../server/jsonFile.js';
 
 let pass = 0;
 let fail = 0;
@@ -32,6 +32,17 @@ try {
     fs.readdirSync(root).join(' '),
   );
 
+  await writeJsonAtomic(file, { version: 3, async: true });
+  const asyncWritten = JSON.parse(await fs.promises.readFile(file, 'utf8'));
+  check(asyncWritten.version === 3 && asyncWritten.async === true, 'the asynchronous writer atomically replaces the old document');
+  if (process.platform !== 'win32') {
+    check((fs.statSync(file).mode & 0o777) === 0o640, 'the asynchronous replacement also preserves file mode');
+  }
+  check(
+    !fs.readdirSync(root).some((name) => name.includes('.tmp-')),
+    'the asynchronous writer leaves no temporary sibling behind',
+  );
+
   const before = fs.readFileSync(file, 'utf8');
   const circular = {};
   circular.self = circular;
@@ -43,6 +54,15 @@ try {
   }
   check(refused, 'an unserializable value is refused');
   check(fs.readFileSync(file, 'utf8') === before, 'a refused write leaves the authoritative file byte-for-byte intact');
+
+  let asyncRefused = false;
+  try {
+    await writeJsonAtomic(file, circular);
+  } catch {
+    asyncRefused = true;
+  }
+  check(asyncRefused, 'the asynchronous writer also refuses an unserializable value');
+  check(fs.readFileSync(file, 'utf8') === before, 'an asynchronous refusal also preserves the authoritative file');
   check(
     !fs.readdirSync(root).some((name) => name.includes('.tmp-')),
     'a refused write leaves no temporary sibling behind',

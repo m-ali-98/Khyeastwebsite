@@ -490,8 +490,65 @@ try {
   const savedSms = await smsSettings.json();
   check(smsSettings.ok && savedSms.sms?.statusTemplateId === 24680, 'shipment SMS template id saves through the admin API');
 
+  /* Public bootstrap stays bounded: route-specific payment metadata and
+     product-scoped comments are fetched only where they are consumed. */
+  const publicBootstrap = await (await fetch(`${BASE}/api/shop-public`)).json();
+  check(
+    Boolean(publicBootstrap.display) && !Object.hasOwn(publicBootstrap, 'comments') && !Object.hasOwn(publicBootstrap, 'paymentProvider'),
+    'shop bootstrap does not ship comments or payment metadata globally',
+    JSON.stringify(Object.keys(publicBootstrap)),
+  );
+  const publicPayment = await (await fetch(`${BASE}/api/shop-public/payment`)).json();
+  check(typeof publicPayment.paymentProvider === 'string', 'checkout payment identity has a route-local endpoint');
+
   /* Duplicate slugs are one inventory claim, not independent lines. */
   await setStock(5);
+
+  const commentsDb = await dbStore.openDB(DB);
+  for (let index = 0; index < 7; index += 1) {
+    dbStore.insertComment(commentsDb, {
+      id: `page-${index}`,
+      slug: RL_SLUG,
+      name: `کاربر ${index}`,
+      text: `دیدگاه صفحه‌بندی ${index}`,
+      at: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      approved: true,
+    });
+  }
+  dbStore.insertComment(commentsDb, {
+    id: 'page-hidden', slug: RL_SLUG, name: 'پنهان', text: 'تأیید نشده',
+    at: new Date(Date.UTC(2026, 0, 2)).toISOString(), approved: false,
+  });
+  dbStore.insertComment(commentsDb, {
+    id: 'page-other', slug: SLUG, name: 'محصول دیگر', text: 'نباید نشت کند',
+    at: new Date(Date.UTC(2026, 0, 3)).toISOString(), approved: true,
+  });
+  const publicCommentIndex = commentsDb.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_comments_public_page'",
+  ).get();
+  commentsDb.close();
+  check(Boolean(publicCommentIndex), 'public comments have a composite slug/approval/cursor index');
+
+  const commentPage = async (cursor = '') => {
+    const query = new URLSearchParams({ slug: RL_SLUG, limit: '3' });
+    if (cursor) query.set('cursor', cursor);
+    const response = await fetch(`${BASE}/api/shop-public/comments?${query}`);
+    return { response, body: await response.json() };
+  };
+  const pageOne = await commentPage();
+  const pageTwo = await commentPage(pageOne.body.nextCursor);
+  const pageThree = await commentPage(pageTwo.body.nextCursor);
+  const pagedIds = [pageOne, pageTwo, pageThree].flatMap((page) => page.body.comments || []).map((comment) => comment.id);
+  check(
+    pageOne.response.ok && pageTwo.response.ok && pageThree.response.ok &&
+      JSON.stringify(pagedIds) === JSON.stringify(['page-6', 'page-5', 'page-4', 'page-3', 'page-2', 'page-1', 'page-0']) &&
+      pageOne.body.nextCursor && pageTwo.body.nextCursor && pageThree.body.nextCursor === null,
+    'approved comments paginate by one product with a stable bounded cursor',
+    JSON.stringify({ pagedIds, cursors: [pageOne.body.nextCursor, pageTwo.body.nextCursor, pageThree.body.nextCursor] }),
+  );
+  const invalidCommentCursor = await fetch(`${BASE}/api/shop-public/comments?slug=${RL_SLUG}&cursor=not-a-cursor`);
+  check(invalidCommentCursor.status === 400, 'malformed public comment cursors are refused');
+
   const duplicateOversell = await jpost('/api/shop-public/orders', {
     items: [{ slug: SLUG, qty: 5 }, { slug: SLUG, qty: 5 }],
     customer: CUSTOMER,
@@ -604,6 +661,71 @@ try {
      customer's order simply vanished from inventory. */
   await setStock(10);
   const snapshot = await (await fetch(`${BASE}/api/content`)).json();
+
+  const writeProbeDb = await dbStore.openDB(DB);
+  writeProbeDb.exec(`
+    CREATE TABLE content_write_probe (kind TEXT NOT NULL);
+    CREATE TRIGGER content_write_probe_insert AFTER INSERT ON settings
+      WHEN NEW.key = 'shop.display'
+      BEGIN INSERT INTO content_write_probe(kind) VALUES ('insert'); END;
+    CREATE TRIGGER content_write_probe_update AFTER UPDATE ON settings
+      WHEN NEW.key = 'shop.display'
+      BEGIN INSERT INTO content_write_probe(kind) VALUES ('update'); END;
+  `);
+
+  const patchedLinks = { ...snapshot.links, 'home.cta.primary': '/about?partial=1' };
+  const contentPatch = await fetch(`${BASE}/api/content`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ changes: { links: patchedLinks } }),
+  });
+  const afterContentPatch = await (await fetch(`${BASE}/api/content`)).json();
+  check(
+    contentPatch.ok &&
+      afterContentPatch.links['home.cta.primary'] === '/about?partial=1' &&
+      afterContentPatch.texts['global.company.name'] === snapshot.texts['global.company.name'] &&
+      (await stockOf()) === 10 &&
+      Number(writeProbeDb.prepare('SELECT COUNT(*) AS count FROM content_write_probe').get().count) === 0,
+    'a top-level content PATCH persists one bucket without touching copy, stock, or shop settings',
+    `got ${contentPatch.status}`,
+  );
+
+  const contentPath = path.join(DATA_DIR, 'content.json');
+  const contentMtimeBeforeShopNoop = fs.statSync(contentPath, { bigint: true }).mtimeNs;
+  const unchangedShopPatch = await fetch(`${BASE}/api/content`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ changes: { shop: afterContentPatch.shop } }),
+  });
+  const contentMtimeAfterShopNoop = fs.statSync(contentPath, { bigint: true }).mtimeNs;
+  const probedShopWrites = Number(
+    writeProbeDb.prepare('SELECT COUNT(*) AS count FROM content_write_probe').get().count,
+  );
+  check(
+    unchangedShopPatch.ok &&
+      contentMtimeAfterShopNoop === contentMtimeBeforeShopNoop &&
+      probedShopWrites === 0,
+    'an unchanged shop bucket causes neither a content-file fsync nor a settings write',
+    JSON.stringify({
+      status: unchangedShopPatch.status,
+      fileRewritten: contentMtimeAfterShopNoop !== contentMtimeBeforeShopNoop,
+      probedShopWrites,
+    }),
+  );
+
+  writeProbeDb.exec(`
+    DROP TRIGGER content_write_probe_insert;
+    DROP TRIGGER content_write_probe_update;
+    DROP TABLE content_write_probe;
+  `);
+  writeProbeDb.close();
+
+  const unknownPatch = await fetch(`${BASE}/api/content`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ changes: { executable: 'no' } }),
+  });
+  check(unknownPatch.status === 400, 'content PATCH refuses unknown top-level buckets');
 
   /* Gallery media is a same-origin structural collection. Direct API clients
      must not bypass the Admin UI with mixed-content or locale-specific media.
