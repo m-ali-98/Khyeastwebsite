@@ -199,9 +199,9 @@ try {
   console.log('  FAIL hardening harness error');
 }
 
-console.log('\nPersistence lifecycle — authoritative files and active requests survive failures');
+console.log('\nPersistence lifecycle — authoritative state and active requests survive failures');
 for (const [file, label] of [
-  ['json-file.mjs', 'atomic JSON replacement'],
+  ['content-store.mjs', 'SQLite CMS initialization, migration and worker revisions'],
   ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
   ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],

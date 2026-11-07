@@ -188,6 +188,8 @@ export function createShopRouter({
   requireAuth,
   rateLimiter,
   trustedImageOrigins = () => [],
+  contentMutation = (operation) => Promise.resolve().then(operation),
+  assertContentAvailable = () => {},
   paymentVerifier = verifyPayment,
 }) {
   /* Set by index.js once the account router exists. The two routers need
@@ -1022,61 +1024,76 @@ export function createShopRouter({
     res.json({ products: db.listProducts(D), display: display() });
   });
 
-  r.put('/api/shop-admin/products', requireAuth, async (req, res) => {
-    const b = req.body || {};
-    if (Array.isArray(b.products)) {
-      const previousProducts = db.listProducts(D);
-      const previousBySlug = new Map(previousProducts.map((product) => [product.slug, product]));
-      /* Whole-list clients also send stale operational stock. Ignore that field
-         when deciding whether editorial data changed; order still matters
-         because replaceProducts persists list position. */
-      const productsChanged = b.products.length !== previousProducts.length ||
-        b.products.some((product, index) => (
-          product?.slug !== previousProducts[index]?.slug ||
-          productNeedsImageValidation(product, previousBySlug.get(product?.slug), { ignore: ['stock'] })
-        ));
+  r.put('/api/shop-admin/products', requireAuth, (req, res, next) => {
+    return contentMutation(() => {
+      /* Shop galleries are part of upload-reference accounting. Refuse this
+         Admin write too when authoritative CMS sections cannot be read. */
+      assertContentAvailable();
+      const b = req.body || {};
+      if (Array.isArray(b.products)) {
+        const previousProducts = db.listProducts(D);
+        const previousBySlug = new Map(previousProducts.map((product) => [product.slug, product]));
+        /* Whole-list clients also send stale operational stock. Ignore that field
+           when deciding whether editorial data changed; order still matters
+           because replaceProducts persists list position. */
+        const productsChanged = b.products.length !== previousProducts.length ||
+          b.products.some((product, index) => (
+            product?.slug !== previousProducts[index]?.slug ||
+            productNeedsImageValidation(product, previousBySlug.get(product?.slug), { ignore: ['stock'] })
+          ));
 
-      if (productsChanged) {
-        /* Validate list-wide identity/price invariants before replaceProducts
-           deletes/re-inserts it. Gallery policy is narrower: a legacy row that
-           was not edited cannot block an unrelated product or display save. */
-        const problems = shopProductProblems(b.products);
-        if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
-        const imageOrigins = await trustedImageOrigins();
-        for (let index = 0; index < b.products.length; index += 1) {
-          const product = b.products[index];
-          if (!productNeedsImageValidation(product, previousBySlug.get(product?.slug), { ignore: ['stock'] })) continue;
-          const problem = productImagesProblem(product, imageOrigins);
-          if (!problem) continue;
-          const usesGallery = Array.isArray(product?.images) && product.images.length > 0;
-          const imageField = problem.index >= 0
-            ? (usesGallery ? `.images[${problem.index}]` : '.image')
-            : '';
-          return res.status(400).json({
-            error: 'invalid product gallery',
-            code: problem.code,
-            field: `products[${index}]${imageField}`,
-            detail: productImagesProblemMessage(problem),
-          });
-        }
-        try {
-          db.replaceProducts(D, b.products, { preserveStock: true });
-        } catch (error) {
-          if (isRichTextValidationError(error)) {
+        if (productsChanged) {
+          /* Validate list-wide identity/price invariants before replaceProducts
+             deletes/re-inserts it. Gallery policy is narrower: a legacy row that
+             was not edited cannot block an unrelated product or display save. */
+          const problems = shopProductProblems(b.products);
+          if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
+          const imageOrigins = trustedImageOrigins();
+          for (let index = 0; index < b.products.length; index += 1) {
+            const product = b.products[index];
+            if (!productNeedsImageValidation(product, previousBySlug.get(product?.slug), { ignore: ['stock'] })) continue;
+            const problem = productImagesProblem(product, imageOrigins);
+            if (!problem) continue;
+            const usesGallery = Array.isArray(product?.images) && product.images.length > 0;
+            const imageField = problem.index >= 0
+              ? (usesGallery ? `.images[${problem.index}]` : '.image')
+              : '';
             return res.status(400).json({
-              error: error.message,
-              code: error.code,
-              field: error.field,
-              limit: error.limit,
+              error: 'invalid product gallery',
+              code: problem.code,
+              field: `products[${index}]${imageField}`,
+              detail: productImagesProblemMessage(problem),
             });
           }
-          throw error;
+          try {
+            db.replaceProducts(D, b.products, { preserveStock: true });
+          } catch (error) {
+            if (isRichTextValidationError(error)) {
+              return res.status(400).json({
+                error: error.message,
+                code: error.code,
+                field: error.field,
+                limit: error.limit,
+              });
+            }
+            throw error;
+          }
         }
       }
-    }
-    if (b.display && typeof b.display === 'object')
-      db.setSetting(D, 'shop.display', { ...display(), ...b.display });
-    res.json({ ok: true, products: db.listProducts(D), display: display() });
+      if (b.display && typeof b.display === 'object') {
+        db.setSetting(D, 'shop.display', { ...display(), ...b.display });
+      }
+      return res.json({ ok: true, products: db.listProducts(D), display: display() });
+    }).catch((error) => {
+      if (error?.code === 'CONTENT_UNAVAILABLE') {
+        res.setHeader('Retry-After', '60');
+        return res.status(503).json({
+          error: 'persisted SQLite content is unavailable; restore a verified database backup before writing',
+          code: 'content-unavailable',
+        });
+      }
+      return next(error);
+    });
   });
 
   /* Existing inventory is an operational value, not ordinary page content.

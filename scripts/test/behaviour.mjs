@@ -32,11 +32,16 @@ const PORT = 8977;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-behaviour-test-'));
 const DB = path.join(DATA_DIR, 'behaviour.db');
-/* This suite creates a second SQLite fixture before starting the server. Seed
-   content explicitly so the production failed-restore guard correctly sees a
-   complete installation instead of manufacturing defaults beside existing
-   state. */
-fs.copyFileSync(path.join(ROOT, 'server', 'data', 'content.json'), path.join(DATA_DIR, 'content.json'));
+/* Initialize through the production SQLite APIs. The server will therefore
+   see an established, complete store without any mutable JSON fixture. */
+const fixtureDatabase = await dbStore.openDB(DB);
+dbStore.initializeContentStore(fixtureDatabase, { freshInstall: true });
+dbStore.seedFromLegacy(fixtureDatabase, {
+  LEGACY_CONTENT_FILE: path.join(DATA_DIR, 'missing-content.json'),
+  SHOP_FILE: path.join(DATA_DIR, 'missing-shop.json'),
+  MESSAGES_FILE: path.join(DATA_DIR, 'missing-messages.json'),
+});
+fixtureDatabase.close();
 
 let pass = 0;
 let fail = 0;
@@ -674,41 +679,47 @@ try {
   `);
 
   const patchedLinks = { ...snapshot.links, 'home.cta.primary': '/about?partial=1' };
+  const revisionsBeforePatch = dbStore.getContentSectionRevisions(writeProbeDb);
   const contentPatch = await fetch(`${BASE}/api/content`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...auth },
     body: JSON.stringify({ changes: { links: patchedLinks } }),
   });
   const afterContentPatch = await (await fetch(`${BASE}/api/content`)).json();
+  const revisionsAfterPatch = dbStore.getContentSectionRevisions(writeProbeDb);
+  const revisedSections = dbStore.CONTENT_SECTIONS.filter(
+    (section) => revisionsAfterPatch[section] !== revisionsBeforePatch[section],
+  );
   check(
     contentPatch.ok &&
       afterContentPatch.links['home.cta.primary'] === '/about?partial=1' &&
       afterContentPatch.texts['global.company.name'] === snapshot.texts['global.company.name'] &&
       (await stockOf()) === 10 &&
+      revisedSections.length === 1 && revisedSections[0] === 'links' &&
       Number(writeProbeDb.prepare('SELECT COUNT(*) AS count FROM content_write_probe').get().count) === 0,
-    'a top-level content PATCH persists one bucket without touching copy, stock, or shop settings',
+    'a top-level content PATCH advances only its SQLite section without touching copy, stock, or shop settings',
     `got ${contentPatch.status}`,
   );
 
-  const contentPath = path.join(DATA_DIR, 'content.json');
-  const contentMtimeBeforeShopNoop = fs.statSync(contentPath, { bigint: true }).mtimeNs;
+  const revisionBeforeShopNoop = dbStore.getContentMeta(writeProbeDb).revision;
   const unchangedShopPatch = await fetch(`${BASE}/api/content`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...auth },
     body: JSON.stringify({ changes: { shop: afterContentPatch.shop } }),
   });
-  const contentMtimeAfterShopNoop = fs.statSync(contentPath, { bigint: true }).mtimeNs;
+  const revisionAfterShopNoop = dbStore.getContentMeta(writeProbeDb).revision;
   const probedShopWrites = Number(
     writeProbeDb.prepare('SELECT COUNT(*) AS count FROM content_write_probe').get().count,
   );
   check(
     unchangedShopPatch.ok &&
-      contentMtimeAfterShopNoop === contentMtimeBeforeShopNoop &&
+      revisionAfterShopNoop === revisionBeforeShopNoop &&
       probedShopWrites === 0,
-    'an unchanged shop bucket causes neither a content-file fsync nor a settings write',
+    'an unchanged shop bucket causes neither an editorial revision nor a settings write',
     JSON.stringify({
       status: unchangedShopPatch.status,
-      fileRewritten: contentMtimeAfterShopNoop !== contentMtimeBeforeShopNoop,
+      revisionBeforeShopNoop,
+      revisionAfterShopNoop,
       probedShopWrites,
     }),
   );

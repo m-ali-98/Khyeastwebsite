@@ -1,9 +1,9 @@
 /* Boot a route against a malformed /api/content payload.
 
-   content.json is hand-editable and written by the admin panel, so a row of
-   the wrong shape is reachable without an attacker. Components dereference
-   entity fields directly (card.slug, card.featured), so one bad row used to
-   throw during render and blank the whole site. */
+   CMS values are editable through Admin and persisted in SQLite, so a legacy
+   row of the wrong shape remains reachable without an attacker. Components
+   dereference entity fields directly (card.slug, card.featured), so one bad row
+   used to throw during render and blank the whole site. */
 import { boot } from './dom.mjs';
 const CASES = {
   'texts is string':    { texts: 'nope', media:{}, links:{}, products:[], posts:[] },

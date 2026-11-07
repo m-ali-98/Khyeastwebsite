@@ -199,7 +199,7 @@ test('fallback content makes only content-authoring tabs read-only', async ({ pa
   });
 
   await loginAdmin(page);
-  await expect(page.getByText(/content\.json گم‌شده، خراب یا ناقص است/)).toBeVisible();
+  await expect(page.getByText(/محتوای SQLite گم‌شده، خراب یا ناقص است/)).toBeVisible();
   const boundary = page.locator('.admin__content-boundary');
   await expect(boundary).toHaveAttribute('disabled', '');
   await expect(boundary).toHaveAttribute('inert', '');
@@ -840,7 +840,7 @@ test('editing a site text autosaves and shows up on the home page', async ({ pag
   await gotoReady(page, '/');
   await expect(page.locator('main')).toContainText(NEW);
 
-  /* put it back so the scratch content file stays representative */
+  /* put it back so the scratch SQLite content stays representative */
   await loginAdmin(page);
   await adminTab(page, 'متون سایت').first().click();
   await page.locator('.admin__search input').fill('home.hero.badge');

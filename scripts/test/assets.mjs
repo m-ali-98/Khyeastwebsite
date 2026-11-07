@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { UPLOAD_LADDER } from '../../shared/uploadSizes.js';
+import { createDatabase } from '../../server/sqlite.js';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -40,7 +41,6 @@ const addFile = (p) => {
     /* optional file */
   }
 };
-addFile(path.join(ROOT, 'server/data/content.json'));
 addFile(path.join(ROOT, 'shared/contentDefaults.js'));
 addFile(path.join(ROOT, 'index.html'));
 
@@ -165,34 +165,53 @@ for (const [url, widths] of Object.entries(variants)) {
 }
 check(notSmaller.length === 0, 'every variant is smaller than its original', notSmaller.join(' '));
 
-/* ---- uploaded images referenced by the live content --------------------
-   content.json points at files under server/uploads/ that are not in git.
-   A reference whose file has been deleted renders a broken image, and an
-   optimised upload advertises its smaller copies in its own name — so one
-   stale entry now produces a 404 for every width the browser tries. The
-   browser suite catches this too, but five minutes later. */
-const liveContent = path.join(ROOT, 'server/data/content.json');
-const uploadRoot = path.join(ROOT, 'server/uploads');
-if (fs.existsSync(liveContent) && fs.existsSync(uploadRoot)) {
-  const raw = fs.readFileSync(liveContent, 'utf8');
-  const urls = [...new Set(raw.match(/\/uploads\/(?:images|videos)\/[\w.-]+/g) || [])];
+/* ---- optionally validate uploads referenced by a live SQLite store -------
+   Builds intentionally never open mutable production data. Operators that want
+   a deployment check can opt in explicitly with both paths below; the ordinary
+   repository suite remains deterministic and validates immutable defaults. */
+const liveDbFile = process.env.KHYEAST_ASSET_DB_FILE
+  ? path.resolve(process.env.KHYEAST_ASSET_DB_FILE)
+  : '';
+const liveUploadRoot = process.env.KHYEAST_ASSET_UPLOAD_DIR
+  ? path.resolve(process.env.KHYEAST_ASSET_UPLOAD_DIR)
+  : '';
+if (liveDbFile && liveUploadRoot) {
   const gone = [];
-  for (const url of urls) {
-    const file = path.join(ROOT, 'server', url.replace(/^\//, ''));
-    if (!fs.existsSync(file)) {
-      gone.push(url);
-      continue;
+  try {
+    if (!fs.existsSync(liveDbFile)) throw new Error(`database not found: ${liveDbFile}`);
+    const liveDatabase = await createDatabase(liveDbFile);
+    const blobs = liveDatabase.prepare('SELECT value_json AS value FROM content_sections').all()
+      .map((row) => row.value);
+    for (const product of liveDatabase.prepare('SELECT image, images FROM products').all()) {
+      blobs.push(String(product.image || ''), String(product.images || ''));
     }
-    const w = Number((url.match(/-w(\d+)\.webp$/) || [])[1]);
-    if (!w) continue;
-    const stem = file.replace(/-w\d+\.webp$/, '');
-    for (const v of UPLOAD_LADDER.filter((x) => x <= w * 0.85)) {
-      if (!fs.existsSync(`${stem}-${v}.webp`)) gone.push(`${url} @${v}`);
+    liveDatabase.close();
+    const urls = [...new Set(
+      blobs.flatMap((raw) => String(raw).match(/\/uploads\/(?:images|videos)\/[\w.-]+/g) || []),
+    )];
+    for (const url of urls) {
+      const file = path.join(liveUploadRoot, url.replace(/^\/uploads\//, ''));
+      if (!fs.existsSync(file)) {
+        gone.push(url);
+        continue;
+      }
+      const width = Number((url.match(/-w(\d+)\.webp$/) || [])[1]);
+      if (!width) continue;
+      const stem = file.replace(/-w\d+\.webp$/, '');
+      for (const variant of UPLOAD_LADDER.filter((item) => item <= width * 0.85)) {
+        if (!fs.existsSync(`${stem}-${variant}.webp`)) gone.push(`${url} @${variant}`);
+      }
     }
+  } catch (error) {
+    gone.push(error.message);
   }
-  check(gone.length === 0, 'every uploaded image the content references is on disk', gone.join(' '));
+  check(gone.length === 0, 'every live SQLite upload reference exists', gone.join(' '));
 } else {
-  check(true, 'every uploaded image the content references is on disk (none to check)');
+  check(
+    !liveDbFile && !liveUploadRoot,
+    'live SQLite upload references (explicit check not requested)',
+    'set both KHYEAST_ASSET_DB_FILE and KHYEAST_ASSET_UPLOAD_DIR',
+  );
 }
 
 /* ---- no speculative route cache -----------------------------------------

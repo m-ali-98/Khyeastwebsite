@@ -2,7 +2,7 @@
 
    Browser sanitizing is useful feedback, not a security boundary: a caller can
    bypass the panel and send JSON directly. Node therefore runs the same shared
-   whitelist with linkedom before HTML reaches content.json or SQLite.
+   whitelist with linkedom before HTML reaches authoritative SQLite rows.
 
    A safety limit is a validation refusal, not valid empty HTML. Callers receive
    a typed error so an Admin save returns 400 and keeps the original content

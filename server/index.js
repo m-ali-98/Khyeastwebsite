@@ -2,11 +2,9 @@
    Khuzestan Yeast Co. — content & shop API server
    --------------------------------------------------------------------------
    Database : server/data/khyeast.db  (SQLite / WAL — transactional)
-              → shop products, shop settings, payment credentials,
-                orders + order items, product comments, contact messages
-   File     : server/data/content.json
-              → site texts, media, links, brands, catalog products, blog posts
-   Uploads  : server/uploads  (served at /uploads/*)
+              → revisioned CMS sections, shop/settings, orders, payments,
+                comments, contact messages and other mutable application state
+   Uploads  : server/uploads  (served at /uploads/*; persistent filesystem)
 
    The admin can only change content values — never code or styling.
    ========================================================================== */
@@ -51,7 +49,6 @@ import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
 import { sanitizeContentPayload, isRichTextValidationError } from './sanitize.js';
-import { writeJsonAtomic, writeJsonAtomicSync } from './jsonFile.js';
 import { createGracefulShutdown } from './gracefulShutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -80,7 +77,7 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR)
    keeps a 200 MB video out of the JavaScript heap and lets publication use an
    atomic rename. The private directory is neither served nor backed up. */
 const UPLOAD_INCOMING_DIR = path.join(UPLOAD_DIR, '.incoming');
-const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
+const LEGACY_CONTENT_FILE = path.join(DATA_DIR, 'content.json'); // guarded one-time upgrade source
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
 const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
 const DB_FILE = process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : path.join(DATA_DIR, 'khyeast.db');
@@ -155,160 +152,100 @@ if (IS_PROD) {
 
 const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12h
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(CONTENT_FILE)) {
-  /* Some test/cPanel layouts put UPLOAD_DIR beneath DATA_DIR. The directory we
-     just created is not evidence of an earlier installation, but anything
-     actually stored below it is. */
-  const uploadRelativeToData = path.relative(DATA_DIR, UPLOAD_DIR);
-  const nestedUploadName = uploadRelativeToData &&
-    !uploadRelativeToData.startsWith(`..${path.sep}`) &&
-    uploadRelativeToData !== '..' &&
-    !path.isAbsolute(uploadRelativeToData)
-    ? uploadRelativeToData.split(path.sep)[0]
-    : '';
-  const otherData = fs.readdirSync(DATA_DIR).filter((name) => (
-    name !== path.basename(CONTENT_FILE) && name !== nestedUploadName && name !== '.gitkeep'
-  ));
-  const uploadStack = [UPLOAD_DIR];
-  let existingUploads = false;
-  while (uploadStack.length && !existingUploads) {
-    const directory = uploadStack.pop();
+/* Determine freshness before opening SQLite creates a database file. Empty
+   directories and abandoned multipart staging are not state; any real file in
+   the data/upload trees is. Defaults may be persisted only when this check can
+   prove there is no earlier installation to recover. */
+const treeHasPersistentFiles = (root) => {
+  if (!fs.existsSync(root)) return false;
+  const stack = [root];
+  while (stack.length) {
+    const directory = stack.pop();
     let entries = [];
-    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return true; }
     for (const entry of entries) {
       if (entry.name === '.gitkeep') continue;
-      /* An abandoned multipart body is transient, not evidence that this is an
-         established content installation. It will be purged below. */
-      if (directory === UPLOAD_DIR && entry.name === '.incoming' && entry.isDirectory()) continue;
-      if (entry.isDirectory()) uploadStack.push(path.join(directory, entry.name));
-      else {
-        existingUploads = true;
-        break;
-      }
+      const target = path.join(directory, entry.name);
+      if (path.resolve(target) === path.resolve(UPLOAD_INCOMING_DIR) && entry.isDirectory()) continue;
+      if (entry.isDirectory()) stack.push(target);
+      else return true;
     }
   }
-  /* Bootstrap only a genuinely empty installation. If a database, legacy data
-     or uploads already exist, a missing content file is much more likely to be
-     a failed restore. Keeping it missing makes strict cleanup return 503
-     instead of manufacturing a default tree that marks old media unused. */
-  if (!otherData.length && !existingUploads) {
-    writeJsonAtomicSync(CONTENT_FILE, DEFAULT_STATE);
-  } else {
-    console.error('[content] content.json is missing while other persistent state exists; content writes and upload cleanup are disabled');
-  }
-}
+  return false;
+};
+const installationWasFresh = !fs.existsSync(DB_FILE) &&
+  !treeHasPersistentFiles(DATA_DIR) &&
+  !treeHasPersistentFiles(UPLOAD_DIR);
 
-const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
-const writeJSONSync = (f, v) => writeJsonAtomicSync(f, v);
-const PERSISTED_CONTENT_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const validPersistedContent = (value) => (
-  isRecord(value) &&
-  PERSISTED_CONTENT_KEYS.every((key) => Object.hasOwn(value, key)) &&
-  ['texts', 'media', 'links', 'collections'].every((key) => isRecord(value[key])) &&
-  ['brands', 'products', 'posts'].every((key) => Array.isArray(value[key])) &&
-  (!Object.hasOwn(value, 'i18n') || isRecord(value.i18n))
-);
 
 /* ---------------- database ---------------- */
 const db = await store.openDB(DB_FILE);
-const seedReport = store.seedFromLegacy(db, { CONTENT_FILE, SHOP_FILE, MESSAGES_FILE });
-if (!seedReport.skipped) {
-  console.log(
-    `[db] initialised ${path.relative(process.cwd(), DB_FILE)} — ` +
-      `products: ${seedReport.products}, orders: ${seedReport.orders}, ` +
-      `comments: ${seedReport.comments}, messages: ${seedReport.messages}` +
-      (seedReport.from.length ? ` (imported from ${seedReport.from.join(', ')})` : ' (from defaults)'),
+const contentInitialization = store.initializeContentStore(db, {
+  LEGACY_CONTENT_FILE,
+  freshInstall: installationWasFresh,
+});
+if (contentInitialization.status === 'initialized') {
+  const source = contentInitialization.source === 'legacy-content-json'
+    ? `imported once from ${path.relative(process.cwd(), LEGACY_CONTENT_FILE)}`
+    : 'seeded from immutable defaults for a fresh installation';
+  console.log(`[db] editorial content revision 1 — ${source}`);
+}
+if (contentInitialization.status === 'unavailable') {
+  console.error(
+    '[content] authoritative SQLite editorial content is unavailable; public reads will use shipped fallback, ' +
+    'while Admin writes and upload cleanup remain disabled until a verified database restore: ' +
+    contentInitialization.reason,
   );
+}
+
+/* Operational JSON imports are independent but must finish before an imported
+   content source is archived: legacy content.json may still carry the old shop
+   bucket. Do not mutate a new/empty operational store when editorial migration
+   itself failed validation. */
+let seedReport = { skipped: true };
+if (contentInitialization.status !== 'unavailable') {
+  seedReport = store.seedFromLegacy(db, { LEGACY_CONTENT_FILE, SHOP_FILE, MESSAGES_FILE });
+  if (!seedReport.skipped) {
+    console.log(
+      `[db] initialised ${path.relative(process.cwd(), DB_FILE)} — ` +
+        `products: ${seedReport.products}, orders: ${seedReport.orders}, ` +
+        `comments: ${seedReport.comments}, messages: ${seedReport.messages}` +
+        (seedReport.from.length ? ` (imported from ${seedReport.from.join(', ')})` : ' (from defaults)'),
+    );
+  }
+  const legacyArchive = store.archiveImportedLegacyContent(db, LEGACY_CONTENT_FILE);
+  if (legacyArchive.status === 'archived') {
+    console.log(`[db] archived one-time migration source as ${path.basename(legacyArchive.file)}`);
+  }
 }
 
 const rateLimiter = createRateLimiter({ database: db, store, hashSecret: SECRET });
 
-/* content.json no longer stores the shop section — the DB does. */
-try {
-  const c = readJSON(CONTENT_FILE);
-  /* A legacy shop section may be removed only from an otherwise authoritative
-     content tree. An incomplete recovery artifact must remain byte-for-byte
-     untouched for explicit operator repair. */
-  if (validPersistedContent(c) && c.shop) {
-    delete c.shop;
-    writeJSONSync(CONTENT_FILE, c);
-    console.log('[db] moved "shop" section out of content.json into the database');
-  }
-} catch {}
-
-/** Site content = JSON file + shop section rebuilt from the database. */
-
+/** Site content = revisioned SQLite editorial sections + normalized shop rows. */
 const contentUnavailable = (cause) => Object.assign(
-  new Error('persisted content is missing, unreadable, or invalid'),
+  new Error('persisted SQLite content is missing, unreadable, or invalid'),
   { code: 'CONTENT_UNAVAILABLE', cause },
 );
 
-/** Destructive upload accounting must never substitute defaults. A missing,
- * corrupt, or structurally incomplete file may be the only copy that names a
- * live upload, so cleanup must stop rather than infer that the upload is free.
- *
- * Cache both successful parses and strict failures by file identity. Every
- * request still performs a non-blocking stat, so an operator replacing the
- * file outside this process is detected immediately, while unchanged public
- * and SEO requests avoid synchronous reads and repeated JSON parsing. */
-let contentFileCache = null;
-const contentFileSignature = (stat) => [
-  stat.dev,
-  stat.ino,
-  stat.size,
-  stat.mtimeNs,
-  stat.ctimeNs,
-].map(String).join(':');
-const missingContentSignature = (error) => `error:${error?.code || 'UNKNOWN'}`;
-const invalidateContentFileCache = () => { contentFileCache = null; };
-
-const readPersistedContentStrict = async () => {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let before;
-    try {
-      before = await fs.promises.stat(CONTENT_FILE, { bigint: true });
-    } catch (error) {
-      const signature = missingContentSignature(error);
-      if (contentFileCache?.signature === signature && contentFileCache.error) {
-        throw contentFileCache.error;
-      }
-      contentFileCache = { signature, value: null, error };
-      throw error;
-    }
-
-    const signature = contentFileSignature(before);
-    if (contentFileCache?.signature === signature) {
-      if (contentFileCache.error) throw contentFileCache.error;
-      return contentFileCache.value;
-    }
-
-    try {
-      const text = await fs.promises.readFile(CONTENT_FILE, 'utf8');
-      const after = await fs.promises.stat(CONTENT_FILE, { bigint: true });
-      if (contentFileSignature(after) !== signature) continue;
-      const value = JSON.parse(text);
-      if (!validPersistedContent(value)) throw new Error('content.json has an invalid structure');
-      contentFileCache = { signature, value, error: null };
-      return value;
-    } catch (error) {
-      /* A rename between read and the second stat is retried above. A stable
-         parse/validation failure is cached until metadata changes. */
-      contentFileCache = { signature, value: null, error };
-      throw error;
-    }
-  }
-  throw new Error('content.json changed while it was being read');
+let editorialCache = null;
+const invalidateEditorialCache = () => { editorialCache = null; };
+const readEditorialStrict = () => {
+  const token = store.getContentToken(db);
+  if (editorialCache?.key === token.key) return editorialCache.value;
+  const value = store.readContentSections(db);
+  editorialCache = { key: token.key, value };
+  return value;
 };
 
-const readContentStrict = async () => {
+const readContentStrict = () => {
   try {
-    const base = await readPersistedContentStrict();
+    const base = readEditorialStrict();
     return {
       ...base,
-      i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
       shop: {
         display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
         products: store.listProducts(db),
@@ -321,14 +258,12 @@ const readContentStrict = async () => {
 };
 
 /* Public reads retain the historical availability fallback, but callers can
-   now distinguish it through X-Khyeast-Content-Status. It must never be fed
-   back into a write as though it were the persisted tree. */
+   distinguish it through X-Khyeast-Content-Status. It must never be fed back
+   into a write as though it were persisted state. */
 const fallbackContent = () => {
-  const base = { ...DEFAULT_STATE };
-  delete base.shop;
+  const base = JSON.parse(JSON.stringify(DEFAULT_STATE));
   return {
     ...base,
-    i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
     shop: {
       display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
       products: store.listProducts(db),
@@ -336,52 +271,39 @@ const fallbackContent = () => {
   };
 };
 
-const readContent = async () => {
+const readContent = () => {
   try {
-    return await readContentStrict();
+    return readContentStrict();
   } catch {
     return fallbackContent();
   }
 };
 
-const strictContentForResponse = async (res, operation, scope = 'content') => {
+const strictContentForResponse = (res, operation, scope = 'content') => {
   try {
-    return await readContentStrict();
+    return readContentStrict();
   } catch (error) {
     console.error(`[${scope}] ${operation} refused:`, error?.cause?.message || error?.message || error);
     res.setHeader('Retry-After', '60');
     res.status(503).json({
-      error: 'persisted content is unavailable; restore or repair content.json before writing',
+      error: 'persisted SQLite content is unavailable; restore a verified database backup before writing',
       code: 'content-unavailable',
     });
     return null;
   }
 };
 
-/** Persist site content: shop → database, everything else → JSON file.
- *
- *  Stock is deliberately NOT taken from this payload. The admin panel loads
- *  /api/content once when it mounts and then holds that snapshot; meanwhile
- *  customer orders and order-status changes move stock in the database. Saving
- *  any unrelated edit (a price, a description) used to write the stale
- *  snapshot back over the live figures, silently undoing every sale made since
- *  the page was opened — a customer's order would vanish from inventory.
- *
- *  The shop editor does have an inventory field. Existing stock changes use a
- *  dedicated compare-and-set endpoint after this content save, so an explicit
- *  edit is applied only if the live value still matches what the admin saw.
- *  A genuinely new product keeps the initial stock carried by this payload. */
-const writeContent = async (next, previous = null) => {
-  /* The panel sanitizes for immediate preview, but only this server-side pass
-     protects direct API callers and future clients. Store only canonical safe
-     HTML in both content.json and the shop database. */
+/** Persist sanitized editorial sections and related shop changes inside the
+ * caller's one SQLite writer transaction. Existing stock is never copied from
+ * the Admin snapshot; the dedicated compare-and-set endpoint remains the only
+ * way to change an existing product's operational inventory. */
+const writeContent = (next, previous, requestedSections = store.CONTENT_SECTIONS) => {
   const sanitized = sanitizeContentPayload(next);
 
   /* Sanitization canonicalizes galleries. For an untouched legacy catalogue
-     row that the changed-only validator intentionally skipped, restore the
-     exact old media fields so an unrelated save cannot silently drop an HTTP,
-     duplicate, or formerly trusted URL. The row must be repaired when it is
-     actually edited. */
+     row that the changed-only validator intentionally skipped, restore exact
+     old media fields so an unrelated save cannot silently drop an HTTP,
+     duplicate, or formerly trusted URL. The row must be repaired when edited. */
   if (Array.isArray(sanitized.products) && Array.isArray(next.products) && Array.isArray(previous?.products)) {
     const previousBySlug = new Map(previous.products.map((product) => [product?.slug, product]));
     sanitized.products = sanitized.products.map((product, index) => {
@@ -397,16 +319,15 @@ const writeContent = async (next, previous = null) => {
     });
   }
 
-  const { shop, ...rest } = sanitized;
-  const { shop: _previousShop, ...previousRest } = previous || {};
-  /* Sanitizers may carry an own property whose value is undefined; JSON does
-     not persist that property. Fall back to the actual serialized form before
-     deciding such an in-memory-only distinction requires an fsync. */
-  const fileChanged = !previous || (
-    !isDeepStrictEqual(rest, previousRest) &&
-    JSON.stringify(rest) !== JSON.stringify(previousRest)
-  );
+  const editorialChanges = {};
+  for (const section of requestedSections) {
+    if (store.CONTENT_SECTIONS.includes(section)) editorialChanges[section] = sanitized[section];
+  }
+  const expectedRevision = store.getContentMeta(db).revision;
+  const editorialResult = store.replaceContentSections(db, editorialChanges, { expectedRevision });
+  if (editorialResult.changedSections.length) invalidateEditorialCache();
 
+  const shop = sanitized.shop;
   let productsChanged = false;
   if (shop && typeof shop === 'object' && Array.isArray(shop.products)) {
     const oldProducts = Array.isArray(previous?.shop?.products) ? previous.shop.products : null;
@@ -428,25 +349,23 @@ const writeContent = async (next, previous = null) => {
     : currentDisplay;
   const displayChanged = !isDeepStrictEqual(nextDisplay, currentDisplay);
 
-  /* Do not fsync content.json or touch SQLite for an unchanged domain. In the
-     common PATCH path a phone/link edit now performs one file replacement and
-     a shop edit performs only its required database transaction. */
-  if (fileChanged) {
-    await writeJsonAtomic(CONTENT_FILE, rest);
-    invalidateContentFileCache();
-  }
   if (productsChanged) store.replaceProducts(db, shop.products, { preserveStock: true });
   if (displayChanged) store.setSetting(db, 'shop.display', nextDisplay);
 
-  return { fileChanged, productsChanged, displayChanged };
+  return {
+    changedSections: editorialResult.changedSections,
+    productsChanged,
+    displayChanged,
+  };
 };
 
-/* Content publication and guarded upload retirement share one mutation lane.
-   A cleanup operation therefore cannot classify a file as unused and move it
-   while a concurrent PATCH is adding that file to content (or vice versa). */
+/* Content publication, shop-product saves and destructive upload accounting
+   share a process-local lane plus BEGIN IMMEDIATE. The queue orders requests in
+   this worker; SQLite provides the cross-worker writer boundary. */
 let contentMutationTail = Promise.resolve();
 const runContentMutation = (operation) => {
-  const current = contentMutationTail.then(operation, operation);
+  const execute = () => store.withImmediateTransaction(db, operation);
+  const current = contentMutationTail.then(execute, execute);
   contentMutationTail = current.catch(() => {});
   return current;
 };
@@ -1113,14 +1032,16 @@ app.put('/api/admin/security', requireAuth, (req, res) => {
 /* ---------------- admin: content ---------------- */
 const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts', 'shop'];
 const PATCHABLE_CONTENT_KEYS = new Set([...REQUIRED_KEYS, 'gallery', 'i18n']);
-const saveContentRequest = async (req, res, { partial = false } = {}) => {
+const saveContentRequest = (req, res, { partial = false } = {}) => {
   /* A public GET may deliberately serve shipped defaults during a restore
      incident. Never let an ordinary Admin save turn that availability fallback
-     into the new authoritative file: all writes begin from a strict read. */
-  const current = await strictContentForResponse(res, 'content save');
+     into the new authoritative database: all writes begin from a strict read
+     after this request owns SQLite's immediate writer transaction. */
+  const current = strictContentForResponse(res, 'content save');
   if (!current) return;
 
   let next;
+  let requestedSections = store.CONTENT_SECTIONS;
   if (partial) {
     const changes = req.body?.changes;
     if (!isRecord(changes)) return res.status(400).json({ error: 'invalid content patch' });
@@ -1128,6 +1049,7 @@ const saveContentRequest = async (req, res, { partial = false } = {}) => {
     const unknown = keys.find((key) => !PATCHABLE_CONTENT_KEYS.has(key));
     if (unknown) return res.status(400).json({ error: `unknown content key: ${unknown}` });
     if (!keys.length) return res.json({ ok: true, unchanged: true });
+    requestedSections = keys.filter((key) => store.CONTENT_SECTIONS.includes(key));
     next = { ...current, ...changes };
   } else {
     if (!isRecord(req.body)) return res.status(400).json({ error: 'invalid payload' });
@@ -1140,9 +1062,12 @@ const saveContentRequest = async (req, res, { partial = false } = {}) => {
   }
 
   const { shop: nextShop, ...persistedCandidate } = next;
-  if (!validPersistedContent(persistedCandidate) || !isRecord(nextShop)) {
+  try {
+    store.canonicalizeLegacyContent(persistedCandidate);
+  } catch {
     return res.status(400).json({ error: 'invalid content structure' });
   }
+  if (!isRecord(nextShop)) return res.status(400).json({ error: 'invalid content structure' });
 
   /* Gallery was introduced after the original content schema. A legacy client
      may still submit a complete old snapshot, so absence means “preserve the
@@ -1236,7 +1161,7 @@ const saveContentRequest = async (req, res, { partial = false } = {}) => {
   }
 
   try {
-    await writeContent(next, current);
+    writeContent(next, current, requestedSections);
   } catch (error) {
     if (isRichTextValidationError(error)) {
       return res.status(400).json({
@@ -1272,20 +1197,20 @@ app.delete('/api/messages/:id', requireAuth, (req, res) => {
 });
 
 /* ---------------- admin: uploads ---------------- */
-app.get('/api/uploads/unused', requireAuth, async (_req, res) => {
-  const content = await strictContentForResponse(res, 'unused-file preview', 'uploads');
+app.get('/api/uploads/unused', requireAuth, (_req, res) => {
+  const content = strictContentForResponse(res, 'unused-file preview', 'uploads');
   if (!content) return;
   res.json(listUnusedUploads(UPLOAD_DIR, content));
 });
 
 app.delete('/api/uploads/unused', requireAuth, (req, res, next) => {
   if (!Array.isArray(req.body?.urls)) return res.status(400).json({ error: 'urls must be an array' });
-  return runContentMutation(async () => {
+  return runContentMutation(() => {
     /* The content tree is read again here rather than trusting the preview. If
        a file became referenced while the confirmation dialog was open, it is
-       no longer a candidate and will be reported as skipped. The shared queue
-       keeps this read and the quarantine move atomic relative to content saves. */
-    const content = await strictContentForResponse(res, 'unused-file cleanup', 'uploads');
+       no longer a candidate and will be reported as skipped. The SQLite writer
+       boundary keeps this read and move atomic relative to every worker's save. */
+    const content = strictContentForResponse(res, 'unused-file cleanup', 'uploads');
     if (!content) return;
     const result = deleteUnusedUploads(UPLOAD_DIR, content, req.body.urls);
     res.json({ ok: true, ...result });
@@ -1422,8 +1347,8 @@ app.delete('/api/upload', requireAuth, (req, res, next) => {
      the Admin intentionally removes only the reference; the unused-files
      cleanup is the normal retirement path. */
   if (!parseUploadUrl(url)) return res.status(400).json({ error: 'invalid url' });
-  return runContentMutation(async () => {
-    const content = await strictContentForResponse(res, 'guarded upload removal', 'uploads');
+  return runContentMutation(() => {
+    const content = strictContentForResponse(res, 'guarded upload removal', 'uploads');
     if (!content) return;
     if (isUploadReferenced(url, content)) {
       return res.status(409).json({ error: 'upload is still referenced' });
@@ -1463,7 +1388,9 @@ const shopRouter = createShopRouter({
   database: db,
   requireAuth,
   rateLimiter,
-  trustedImageOrigins: async () => trustSealImageOrigins((await readContent()).collections?.trustSeals),
+  contentMutation: runContentMutation,
+  assertContentAvailable: () => readContentStrict(),
+  trustedImageOrigins: () => trustSealImageOrigins(readContentStrict().collections?.trustSeals),
 });
 app.use(shopRouter);
 

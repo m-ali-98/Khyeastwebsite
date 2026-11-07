@@ -129,7 +129,7 @@ function overlayEntities(base, keyName, ...overs) {
   /* Drop entries that are not usable objects. A null or primitive in this
      array reaches every consumer — cards read .slug, .featured, .image — and
      one bad row would otherwise blank the entire site rather than hide a
-     single product. content.json is editable by hand and by the admin panel,
+     single product. CMS values are editable through the Admin panel,
      so this is reachable without any attacker. */
   return base.filter(isObj).map((item) => {
     const id = item?.[keyName];

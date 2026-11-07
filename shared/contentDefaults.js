@@ -910,8 +910,8 @@ export const POSTS = [
 
 /* ==========================================================================
    Online shop — currency is IRR (ریال). Prices are stored in Rial; the
-   display unit (ریال/تومان) is a shop setting. Payment credentials live
-   server-side (shop.json), never in this public content file.
+   display unit (ریال/تومان) is a shop setting. Payment credentials live only
+   in server-side SQLite; this object is immutable fallback/initial data.
    ========================================================================== */
 export const SHOP = {
   display: {

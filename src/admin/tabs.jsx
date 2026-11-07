@@ -554,7 +554,7 @@ const formatUploadBytes = (value) => {
 function UnusedUploads() {
   const cleanupErrorText = (error, fallback) => (
     error?.code === 'content-unavailable'
-      ? 'فایل content.json در دسترس یا معتبر نیست؛ پاک‌سازی برای جلوگیری از حذف فایل‌های در حال استفاده متوقف شد. ابتدا backup را بررسی و محتوا را بازیابی کنید.'
+      ? 'محتوای SQLite در دسترس یا معتبر نیست؛ پاک‌سازی برای جلوگیری از حذف فایل‌های در حال استفاده متوقف شد. ابتدا backup تأییدشده را بررسی و پایگاه‌داده را بازیابی کنید.'
       : error?.message || fallback
   );
   const [report, setReport] = useState(null);

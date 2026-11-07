@@ -44,13 +44,19 @@ case "$*" in
   *"PRAGMA integrity_check"*) printf 'ok\\n'; exit 0 ;;
   *"PRAGMA foreign_key_check"*) exit 0 ;;
 esac
-readonly=0
-if [[ \${1:-} == -readonly ]]; then readonly=1; shift; fi
-source_db=$1
+source_db=
+for argument in "$@"; do
+  if [[ $argument != -* ]]; then source_db=$argument; break; fi
+done
 input=$(cat)
+if [[ $input == *"FROM content_meta"* ]]; then
+  if [[ \${INVALID_SQLITE_CONTENT:-0} == 1 ]]; then exit 0; fi
+  printf '%s\\n' "\${SQLITE_CONTENT_REVISION:-7}"
+  exit 0
+fi
 target=$(printf '%s\\n' "$input" | sed -n "s/^\\.backup '\\(.*\\)'$/\\1/p")
 test -n "$target"
-if [[ $readonly == 1 && \${FAIL_READONLY_SQLITE_BACKUP:-0} == 1 ]]; then
+if [[ \${FAIL_READONLY_SQLITE_BACKUP:-0} == 1 && " $* " == *" -readonly "* ]]; then
   printf 'attempt to write a readonly database\\n' >&2
   exit 8
 fi
@@ -74,10 +80,6 @@ if [[ " $* " == *" --exclude=/.quarantine/ "* ]]; then rm -rf -- "$destination/.
 if [[ " $* " == *" --exclude=/.incoming/ "* ]]; then rm -rf -- "$destination/.incoming"; fi
 `);
 
-const content = {
-  texts: {}, media: {}, links: {}, collections: {}, brands: [], products: [], posts: [],
-};
-fs.writeFileSync(path.join(data, 'content.json'), JSON.stringify(content));
 fs.writeFileSync(path.join(data, 'khyeast.db'), 'test sqlite snapshot bytes');
 fs.writeFileSync(path.join(uploads, 'images', 'live.webp'), 'live');
 fs.writeFileSync(path.join(uploads, '.quarantine', '1000000000000-old', 'images', 'retired.webp'), 'retired');
@@ -101,7 +103,6 @@ const run = (extra = {}) => spawnSync('bash', [path.join(ROOT, 'ops', 'backup-kh
     DATA_DIR: data,
     UPLOAD_DIR: uploads,
     DB_FILE: path.join(data, 'khyeast.db'),
-    CONTENT_FILE: path.join(data, 'content.json'),
     RELEASE_DIR: ROOT,
     BACKUP_MIN_FREE_BYTES: '0',
     APP_SERVICE_STATE: 'active',
@@ -124,10 +125,10 @@ try {
   const listing = spawnSync('tar', ['-tf', archive], { encoding: 'utf8' });
   check(
     listing.status === 0 &&
-      listing.stdout.includes('khyeast/data/content.json') &&
+      !listing.stdout.includes('content.json') &&
       listing.stdout.includes('khyeast/data/khyeast.db') &&
       listing.stdout.includes('khyeast/uploads/images/live.webp'),
-    'the archive contains validated content, SQLite and live uploads',
+    'the archive contains validated SQLite and live uploads without mutable JSON',
     listing.stderr,
   );
   check(
@@ -142,10 +143,13 @@ try {
   const onlineManifestResult = spawnSync('tar', ['-xOf', archive, 'khyeast/backup-manifest.json'], { encoding: 'utf8' });
   const onlineManifest = JSON.parse(onlineManifestResult.stdout || '{}');
   check(
-    onlineManifest.online === true &&
+    onlineManifest.format === 2 &&
+      onlineManifest.online === true &&
       onlineManifest.databaseSnapshotMode === 'online-sqlite-backup' &&
-      onlineManifest.incomingUploadsExcluded === true,
-    'the manifest records an online SQLite snapshot',
+      onlineManifest.contentRevision === 7 &&
+      onlineManifest.incomingUploadsExcluded === true &&
+      !Object.hasOwn(onlineManifest, 'contentSha256'),
+    'the manifest records one revision-fenced SQLite snapshot',
     onlineManifestResult.stdout,
   );
 
@@ -156,7 +160,6 @@ try {
   const offlineDestination = path.join(temp, 'offline-backups');
   fs.writeFileSync(sqliteLog, '');
   fs.chmodSync(path.join(data, 'khyeast.db'), 0o444);
-  fs.chmodSync(path.join(data, 'content.json'), 0o444);
   fs.chmodSync(data, 0o555);
   const offline = run({
     BACKUP_DEST: offlineDestination,
@@ -165,7 +168,6 @@ try {
   });
   fs.chmodSync(data, 0o755);
   fs.chmodSync(path.join(data, 'khyeast.db'), 0o644);
-  fs.chmodSync(path.join(data, 'content.json'), 0o644);
   const offlineArchiveName = fs.existsSync(offlineDestination)
     ? fs.readdirSync(offlineDestination).find((name) => /^khyeast-.*\.tar$/.test(name))
     : '';
@@ -213,8 +215,7 @@ try {
       DATA_DIR: data,
       UPLOAD_DIR: uploads,
       DB_FILE: path.join(data, 'khyeast.db'),
-      CONTENT_FILE: path.join(data, 'content.json'),
-      RELEASE_DIR: ROOT,
+        RELEASE_DIR: ROOT,
       BACKUP_MIN_FREE_BYTES: '0',
       APP_SERVICE_STATE: 'active',
       FAIL_RSYNC: '1',
@@ -226,19 +227,16 @@ try {
   check(failed.status !== 0 && failedArchives.length === 0, 'an rsync warning fails closed without publishing a partial archive', `${failed.status} ${failed.stdout} ${failed.stderr}`);
 
   const invalidDestination = path.join(temp, 'invalid-content-backups');
-  const contentFile = path.join(data, 'content.json');
-  const healthyContent = fs.readFileSync(contentFile);
-  fs.writeFileSync(contentFile, JSON.stringify({ texts: {} }));
-  const invalid = run({ BACKUP_DEST: invalidDestination });
-  fs.writeFileSync(contentFile, healthyContent);
+  const invalid = run({ BACKUP_DEST: invalidDestination, INVALID_SQLITE_CONTENT: '1' });
   const invalidArchives = fs.existsSync(invalidDestination)
     ? fs.readdirSync(invalidDestination).filter((name) => /^khyeast-.*\.tar$/.test(name))
     : [];
   check(
     invalid.status !== 0 && invalidArchives.length === 0,
-    'invalid authoritative content cannot produce a published backup',
+    'invalid authoritative SQLite sections cannot produce a published backup',
     `${invalid.status} ${invalid.stdout} ${invalid.stderr}`,
   );
+
 } catch (error) {
   check(false, 'backup script harness', error?.stack || String(error));
 } finally {

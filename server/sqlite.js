@@ -9,7 +9,8 @@
      db.exec(sql)
      db.pragma('journal_mode = WAL')
      db.prepare(sql).run(...) / .get(...) / .all(...)
-     db.transaction(fn)  -> callable, runs inside BEGIN/COMMIT/ROLLBACK
+     db.transaction(fn)          -> deferred outer transaction
+     db.immediateTransaction(fn) -> writer-reserving outer transaction
      db.close()
    ========================================================================== */
 
@@ -37,14 +38,17 @@ function wrapNodeSqlite(DatabaseSync, file) {
   /* Match better-sqlite3's nested transaction semantics. A nested operation
      gets a real SAVEPOINT, so a helper that catches its own exception cannot
      accidentally leave half of its writes inside the caller's outer commit. */
-  const transaction = (fn) =>
+  const transactionWithMode = (fn, begin) =>
     function (...args) {
       const outermost = depth === 0;
       const savepoint = `khyeast_nested_${++savepointSequence}`;
-      raw.exec(outermost ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+      raw.exec(outermost ? begin : `SAVEPOINT ${savepoint}`);
       depth += 1;
       try {
         const out = fn.apply(this, args);
+        if (out && typeof out.then === 'function') {
+          throw new TypeError('SQLite transaction callbacks must be synchronous');
+        }
         raw.exec(outermost ? 'COMMIT' : `RELEASE SAVEPOINT ${savepoint}`);
         return out;
       } catch (error) {
@@ -66,15 +70,17 @@ function wrapNodeSqlite(DatabaseSync, file) {
     exec: (sql) => raw.exec(sql),
     pragma: (str) => raw.exec(`PRAGMA ${str};`),
     prepare,
-    transaction,
+    transaction: (fn) => transactionWithMode(fn, 'BEGIN'),
+    immediateTransaction: (fn) => transactionWithMode(fn, 'BEGIN IMMEDIATE'),
     close: () => raw.close(),
   };
 }
 
-/** Wrap better-sqlite3 (already has this API; only `driver` is added). */
+/** Wrap better-sqlite3 and add the one adapter method it does not expose. */
 function wrapBetterSqlite(Database, file) {
   const raw = new Database(file);
   raw.driver = 'better-sqlite3';
+  raw.immediateTransaction = (fn) => raw.transaction(fn).immediate;
   return raw;
 }
 

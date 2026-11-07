@@ -26,7 +26,6 @@ import {
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DIST = path.join(ROOT, 'dist');
 const PAGES = path.join(DIST, 'seo-pages');
-const CONTENT = path.join(ROOT, 'server', 'data', 'content.json');
 
 /* npm builds often run outside the hosting control panel, so load the same
    ignored .env files the server understands. Real environment variables still
@@ -49,13 +48,10 @@ if (!fs.existsSync(path.join(DIST, 'index.html'))) {
 
 await loadAllPacks();
 
-let remote = {};
-try {
-  remote = JSON.parse(fs.readFileSync(CONTENT, 'utf8'));
-} catch {
-  console.warn('[seo] content.json could not be read; rendering from checked-in defaults');
-}
-const state = mergeContentState(DEFAULT_STATE, remote);
+/* Build artifacts are immutable and must not capture a production database or
+   an Admin-edited snapshot. Runtime Node rendering uses live SQLite; static
+   cPanel output is the shipped DEFAULT_STATE fallback. */
+const state = mergeContentState(DEFAULT_STATE, {});
 /* Keep generation idempotent: after the first pass dist/index.html already
    contains a crawlable root. The preserved empty-root template is the source
    for every later explicit `npm run seo:generate`. */

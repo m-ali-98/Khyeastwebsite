@@ -1,7 +1,7 @@
 /* The one description of how an optimised upload is named and sized.
  *
  * The server writes the files; the browser has to work out what exists from
- * the URL alone, because content.json stores a single string per image and
+ * the URL alone, because CMS content stores a single string per image and
  * nothing else travels with it. Both sides therefore derive everything from
  * these constants — if they ever disagreed, the browser would build a srcset
  * pointing at files that are not there, and a 404 inside a srcset is a broken

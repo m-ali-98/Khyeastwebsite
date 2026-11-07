@@ -3,19 +3,20 @@
    --------------------------------------------------------------------------
    Single file database: server/data/khyeast.db  (WAL mode, transactional)
 
-   Stored here : shop products, shop display settings, payment credentials,
-                 orders + order items, product comments, contact messages.
-   Stored as files (unchanged): server/data/content.json (site texts, media,
-                 links, brands, catalog products, blog posts) and
-                 server/uploads/* (admin uploads).
+   Stored here : editorial CMS sections and revisions; shop products/display;
+                 payment credentials; orders + order items; product comments;
+                 contact messages and other operational state.
+   Stored as files: server/uploads/* (admin media). A legacy content.json is
+                 accepted once as a guarded migration input, then archived.
 
-   The public/admin HTTP contract is IDENTICAL to the previous JSON storage —
-   objects are converted back to the same shapes on read.
+   The public/admin HTTP contract remains unchanged: normalized SQLite rows are
+   rebuilt into the same content object clients already consume.
    ========================================================================== */
 import { createDatabase } from './sqlite.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { SHOP_SEED } from './seed.js';
 import { sanitizeRichText } from './sanitize.js';
@@ -38,6 +39,25 @@ function migrate(db) {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    /* Mutable editorial content is revisioned by section. One global revision
+       identifies a coherent snapshot while per-section revisions let PATCH
+       update only the requested bucket and make unintended rewrites visible. */
+    CREATE TABLE IF NOT EXISTS content_meta (
+      id             INTEGER PRIMARY KEY CHECK (id = 1),
+      revision       INTEGER NOT NULL CHECK (revision >= 1),
+      initialized_at TEXT NOT NULL,
+      updated_at     TEXT NOT NULL,
+      source         TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS content_sections (
+      section    TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL CHECK (json_valid(value_json)),
+      revision   INTEGER NOT NULL CHECK (revision >= 1),
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_sections_revision
+      ON content_sections(revision);
 
     /* Short-lived abuse counters are shared through SQLite so several
        Passenger workers enforce one real ceiling instead of multiplying it by
@@ -351,6 +371,280 @@ const J = (v, fallback) => {
   }
 };
 const bool = (v) => (v ? 1 : 0);
+
+/* ==================================================== editorial content */
+export const CONTENT_SECTIONS = Object.freeze([
+  'texts',
+  'media',
+  'links',
+  'collections',
+  'brands',
+  'products',
+  'posts',
+  'i18n',
+  'gallery',
+]);
+const CONTENT_OBJECT_SECTIONS = new Set(['texts', 'media', 'links', 'collections', 'i18n']);
+const LEGACY_REQUIRED_SECTIONS = new Set(['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts']);
+const record = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const cloneJson = (value) => JSON.parse(JSON.stringify(value));
+const sectionValueValid = (section, value) => (
+  CONTENT_OBJECT_SECTIONS.has(section) ? record(value) : Array.isArray(value)
+);
+const editorialError = (message, code = 'CONTENT_UNAVAILABLE', cause) => Object.assign(
+  new Error(message, cause ? { cause } : undefined),
+  { code },
+);
+
+/** Acquire SQLite's writer reservation before reading the revision to prevent
+ * two Passenger workers from validating the same old state and overwriting one
+ * another. The adapter turns nested calls into SAVEPOINTs. */
+export function withImmediateTransaction(db, operation) {
+  return db.immediateTransaction(operation)();
+}
+
+/** Convert a legacy JSON document to the canonical nine-section shape.
+ *
+ * Older files may predate gallery/i18n, and object buckets may predate newer
+ * shipped keys, so those additions come from DEFAULT_STATE. Existing arrays
+ * and rows remain byte-for-byte equivalent after JSON round-tripping: in
+ * particular, no legacy product gallery URL is normalized or discarded during
+ * migration merely because today's editor would refuse that URL on a change. */
+export function canonicalizeLegacyContent(value) {
+  if (!record(value)) throw editorialError('legacy content root is not an object');
+  const canonical = {};
+  for (const section of CONTENT_SECTIONS) {
+    const supplied = Object.hasOwn(value, section);
+    if (!supplied && LEGACY_REQUIRED_SECTIONS.has(section)) {
+      throw editorialError(`legacy content is missing section: ${section}`);
+    }
+    const candidate = supplied ? value[section] : DEFAULT_STATE[section];
+    if (!sectionValueValid(section, candidate)) {
+      throw editorialError(`legacy content section has the wrong type: ${section}`);
+    }
+    canonical[section] = CONTENT_OBJECT_SECTIONS.has(section)
+      ? { ...cloneJson(DEFAULT_STATE[section] || {}), ...cloneJson(candidate) }
+      : cloneJson(candidate);
+  }
+  return canonical;
+}
+
+const contentMeta = (db) => db.prepare(
+  `SELECT revision, initialized_at, updated_at, source,
+          (SELECT COUNT(*) FROM content_meta) AS meta_count
+     FROM content_meta
+    WHERE id = 1`,
+).get();
+
+export function getContentMeta(db) {
+  const meta = contentMeta(db);
+  if (
+    !meta || Number(meta.meta_count) !== 1 ||
+    !Number.isSafeInteger(Number(meta.revision)) || Number(meta.revision) < 1
+  ) {
+    throw editorialError('SQLite editorial metadata is missing or invalid');
+  }
+  return {
+    revision: Number(meta.revision),
+    initializedAt: meta.initialized_at,
+    updatedAt: meta.updated_at,
+    source: meta.source,
+  };
+}
+
+/** A worker's PRAGMA data_version changes when another SQLite connection
+ * commits. Combining it with our global content revision invalidates both
+ * same-worker and cross-worker caches without polling files or sharing memory. */
+export function getContentToken(db) {
+  const meta = getContentMeta(db);
+  const versionRow = db.prepare('PRAGMA data_version').get();
+  const dataVersion = Number(versionRow?.data_version ?? Object.values(versionRow || {})[0] ?? 0);
+  return { ...meta, dataVersion, key: `${meta.revision}:${dataVersion}` };
+}
+
+/** Strict authority read. Defaults are deliberately not consulted here: a
+ * missing/corrupt established store must remain unavailable until recovery. */
+export function readContentSections(db) {
+  const meta = getContentMeta(db);
+  const rows = db.prepare(
+    'SELECT section, value_json, revision FROM content_sections',
+  ).all();
+  const byName = new Map(rows.map((row) => [row.section, row]));
+  const state = {};
+  for (const section of CONTENT_SECTIONS) {
+    const row = byName.get(section);
+    const revision = Number(row?.revision);
+    if (!row || !Number.isSafeInteger(revision) || revision < 1 || revision > meta.revision) {
+      throw editorialError(`SQLite editorial section is missing or has an invalid revision: ${section}`);
+    }
+    let value;
+    try {
+      value = JSON.parse(row.value_json);
+    } catch (cause) {
+      throw editorialError(`SQLite editorial section is not valid JSON: ${section}`, 'CONTENT_UNAVAILABLE', cause);
+    }
+    if (!sectionValueValid(section, value)) {
+      throw editorialError(`SQLite editorial section has the wrong type: ${section}`);
+    }
+    state[section] = value;
+  }
+  return state;
+}
+
+export function getContentSectionRevisions(db) {
+  const rows = db.prepare('SELECT section, revision FROM content_sections').all();
+  return Object.fromEntries(rows.map((row) => [row.section, Number(row.revision)]));
+}
+
+const persistInitialContent = (db, state, source) => {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO content_meta (id, revision, initialized_at, updated_at, source)
+     VALUES (1, 1, ?, ?, ?)`,
+  ).run(now, now, source);
+  const insert = db.prepare(
+    `INSERT INTO content_sections (section, value_json, revision, updated_at)
+     VALUES (?, ?, 1, ?)`,
+  );
+  for (const section of CONTENT_SECTIONS) {
+    insert.run(section, JSON.stringify(state[section]), now);
+  }
+};
+
+/** Initialize exactly once. A valid legacy content.json wins; otherwise
+ * defaults may be persisted only when the caller proved the whole deployment
+ * tree was genuinely fresh before opening SQLite created the database file. */
+export function initializeContentStore(db, { LEGACY_CONTENT_FILE, freshInstall = false } = {}) {
+  return withImmediateTransaction(db, () => {
+    try {
+      const state = readContentSections(db);
+      const meta = getContentMeta(db);
+      return { status: 'ready', source: meta.source, revision: meta.revision, state };
+    } catch (existingError) {
+      const metaRows = Number(db.prepare('SELECT COUNT(*) AS count FROM content_meta').get()?.count || 0);
+      const sectionRows = Number(db.prepare('SELECT COUNT(*) AS count FROM content_sections').get()?.count || 0);
+      if (metaRows || sectionRows) {
+        return { status: 'unavailable', reason: existingError.message };
+      }
+    }
+
+    if (LEGACY_CONTENT_FILE && fs.existsSync(LEGACY_CONTENT_FILE)) {
+      let candidate;
+      try {
+        candidate = JSON.parse(fs.readFileSync(LEGACY_CONTENT_FILE, 'utf8'));
+        candidate = canonicalizeLegacyContent(candidate);
+      } catch (error) {
+        return { status: 'unavailable', reason: `legacy content import refused: ${error.message}` };
+      }
+      persistInitialContent(db, candidate, 'legacy-content-json');
+      return { status: 'initialized', source: 'legacy-content-json', revision: 1, state: candidate };
+    }
+
+    if (!freshInstall) {
+      return {
+        status: 'unavailable',
+        reason: 'no authoritative editorial rows or valid legacy migration source exist',
+      };
+    }
+
+    const initial = canonicalizeLegacyContent(DEFAULT_STATE);
+    persistInitialContent(db, initial, 'defaults-fresh-install');
+    return { status: 'initialized', source: 'defaults-fresh-install', revision: 1, state: initial };
+  });
+}
+
+/** Replace only named sections and bump one coherent global revision. */
+export function replaceContentSections(db, changes, { expectedRevision } = {}) {
+  if (!record(changes)) throw editorialError('content changes must be an object', 'CONTENT_INVALID');
+  const unknown = Object.keys(changes).find((section) => !CONTENT_SECTIONS.includes(section));
+  if (unknown) throw editorialError(`unknown editorial section: ${unknown}`, 'CONTENT_INVALID');
+  for (const [section, value] of Object.entries(changes)) {
+    if (!sectionValueValid(section, value)) {
+      throw editorialError(`editorial section has the wrong type: ${section}`, 'CONTENT_INVALID');
+    }
+  }
+
+  return withImmediateTransaction(db, () => {
+    const current = readContentSections(db);
+    const meta = getContentMeta(db);
+    if (expectedRevision !== undefined && Number(expectedRevision) !== meta.revision) {
+      throw editorialError('editorial content changed in another worker', 'CONTENT_CONFLICT');
+    }
+    /* JSON omits own undefined values. Do not advance a revision for a purely
+       in-memory distinction that serializes to the exact persisted document. */
+    const changedSections = Object.keys(changes).filter((section) => (
+      !isDeepStrictEqual(changes[section], current[section]) &&
+      JSON.stringify(changes[section]) !== JSON.stringify(current[section])
+    ));
+    if (!changedSections.length) {
+      return { revision: meta.revision, changedSections, state: current };
+    }
+
+    const revision = meta.revision + 1;
+    const now = new Date().toISOString();
+    const update = db.prepare(
+      `UPDATE content_sections
+          SET value_json = ?, revision = ?, updated_at = ?
+        WHERE section = ?`,
+    );
+    for (const section of changedSections) {
+      const result = update.run(JSON.stringify(changes[section]), revision, now, section);
+      if (result.changes !== 1) throw editorialError(`could not update editorial section: ${section}`);
+      current[section] = cloneJson(changes[section]);
+    }
+    const result = db.prepare(
+      'UPDATE content_meta SET revision = ?, updated_at = ? WHERE id = 1 AND revision = ?',
+    ).run(revision, now, meta.revision);
+    if (result.changes !== 1) {
+      throw editorialError('editorial revision changed during save', 'CONTENT_CONFLICT');
+    }
+    return { revision, changedSections, state: current };
+  });
+}
+
+/** Once both editorial and operational migration have committed, move the
+ * source aside. Database loss can then never silently re-import the stale
+ * pre-migration snapshot. Multiple startup workers may race this rename. */
+export function archiveImportedLegacyContent(db, legacyFile) {
+  const meta = getContentMeta(db);
+  if (meta.source !== 'legacy-content-json') return { status: 'not-imported' };
+  if (!getSetting(db, 'seeded')) return { status: 'operational-migration-pending' };
+
+  const directory = path.dirname(legacyFile);
+  const base = path.basename(legacyFile);
+  const archived = () => {
+    try {
+      return fs.readdirSync(directory).find((name) => name.startsWith(`${base}.legacy-imported-`));
+    } catch {
+      return null;
+    }
+  };
+  if (!fs.existsSync(legacyFile)) {
+    const existing = archived();
+    return existing
+      ? { status: 'already-archived', file: path.join(directory, existing) }
+      : { status: 'source-missing' };
+  }
+
+  const stamp = new Date().toISOString().replace(/[-:.]/g, '');
+  const target = `${legacyFile}.legacy-imported-${stamp}-${process.pid}`;
+  try {
+    fs.renameSync(legacyFile, target);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      const existing = archived();
+      if (existing) return { status: 'already-archived', file: path.join(directory, existing) };
+    }
+    throw error;
+  }
+  try {
+    const descriptor = fs.openSync(directory, 'r');
+    try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+  } catch {
+    /* Directory fsync is unavailable on some filesystems; rename still won. */
+  }
+  return { status: 'archived', file: target };
+}
 
 /* ============================================================== settings */
 export function getSetting(db, key, fallback = null) {
@@ -1314,54 +1608,61 @@ export function deleteMessage(db, id) {
 
 /* ========================================================= seed & import */
 /**
- * First run / empty DB: pull data from the legacy JSON files when present,
- * otherwise from the shipped defaults. Runs only once (settings.seeded).
+ * First operational migration: pull shop/orders/messages from legacy JSON
+ * when present, otherwise from shipped defaults. Runs once (settings.seeded).
  */
-export function seedFromLegacy(db, { CONTENT_FILE, SHOP_FILE, MESSAGES_FILE }) {
-  if (getSetting(db, 'seeded')) return { skipped: true };
-  const report = { products: 0, orders: 0, comments: 0, messages: 0, from: [] };
+export function seedFromLegacy(db, { LEGACY_CONTENT_FILE, SHOP_FILE, MESSAGES_FILE }) {
+  return withImmediateTransaction(db, () => {
+    if (getSetting(db, 'seeded')) return { skipped: true };
+    const report = { products: 0, orders: 0, comments: 0, messages: 0, from: [] };
 
-  const readJSON = (f) => {
-    try {
-      return JSON.parse(fs.readFileSync(f, 'utf8'));
-    } catch {
-      return null;
+    const readJSON = (file) => {
+      try {
+        return JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch {
+        return null;
+      }
+    };
+
+    /* --- shop products + display settings (legacy content.json → DB) --- */
+    const content = readJSON(LEGACY_CONTENT_FILE);
+    const shop = record(content?.shop) ? content.shop : DEFAULT_STATE.shop;
+    replaceProducts(db, Array.isArray(shop?.products) ? shop.products : DEFAULT_STATE.shop.products);
+    setSetting(db, 'shop.display', { ...DEFAULT_STATE.shop.display, ...(record(shop?.display) ? shop.display : {}) });
+    report.products = Number(db.prepare('SELECT COUNT(*) AS n FROM products').get().n);
+    if (record(content?.shop)) report.from.push('content.json');
+
+    /* --- orders, comments, payment (shop.json → DB) --- */
+    const legacyShopFile = readJSON(SHOP_FILE);
+    const legacyShop = legacyShopFile || SHOP_SEED();
+    if (legacyShopFile) report.from.push('shop.json');
+    for (const order of legacyShop.orders || []) {
+      insertOrder(db, order);
+      report.orders += 1;
     }
-  };
-
-  /* --- shop products + display settings (content.json → DB) --- */
-  const content = readJSON(CONTENT_FILE);
-  const shop = content?.shop || DEFAULT_STATE.shop;
-  replaceProducts(db, shop.products || DEFAULT_STATE.shop.products);
-  setSetting(db, 'shop.display', { ...DEFAULT_STATE.shop.display, ...(shop.display || {}) });
-  report.products = db.prepare('SELECT COUNT(*) n FROM products').get().n;
-  if (content?.shop) report.from.push('content.json');
-
-  /* --- orders, comments, payment (shop.json → DB) --- */
-  const legacyShop = readJSON(SHOP_FILE) || SHOP_SEED();
-  if (readJSON(SHOP_FILE)) report.from.push('shop.json');
-  for (const o of legacyShop.orders || []) {
-    insertOrder(db, o);
-    report.orders++;
-  }
-  for (const c of legacyShop.comments || []) {
-    insertComment(db, c);
-    report.comments++;
-  }
-  setSetting(db, 'shop.payment', legacyShop.payment || SHOP_SEED().payment);
-
-  /* --- contact messages (messages.json → DB) --- */
-  const legacyMessages = readJSON(MESSAGES_FILE);
-  if (Array.isArray(legacyMessages)) {
-    report.from.push('messages.json');
-    for (const m of legacyMessages) {
-      insertMessage(db, { ...m, id: m.id || crypto.randomUUID(), at: m.at || new Date().toISOString() });
-      report.messages++;
+    for (const comment of legacyShop.comments || []) {
+      insertComment(db, comment);
+      report.comments += 1;
     }
-  }
+    setSetting(db, 'shop.payment', legacyShop.payment || SHOP_SEED().payment);
 
-  setSetting(db, 'seeded', new Date().toISOString());
-  return report;
+    /* --- contact messages (messages.json → DB) --- */
+    const legacyMessages = readJSON(MESSAGES_FILE);
+    if (Array.isArray(legacyMessages)) {
+      report.from.push('messages.json');
+      for (const message of legacyMessages) {
+        insertMessage(db, {
+          ...message,
+          id: message.id || crypto.randomUUID(),
+          at: message.at || new Date().toISOString(),
+        });
+        report.messages += 1;
+      }
+    }
+
+    setSetting(db, 'seeded', new Date().toISOString());
+    return report;
+  });
 }
 
 /* ------------------------------------------------------------------ sms */

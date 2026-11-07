@@ -18,6 +18,7 @@ import os from 'node:os';
 import { Readable } from 'node:stream';
 import sharp from 'sharp';
 import { UPLOAD_LADDER, UPLOAD_MAX_WIDTH, widthFromName, variantWidths } from '../../shared/uploadSizes.js';
+import * as dbStore from '../../server/db.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -55,8 +56,8 @@ const start = async () => {
   server = spawn('node', ['server/index.js'], {
     cwd: ROOT,
     /* DATA_DIR too, not just DB_FILE: without it the server falls back to the
-       real server/data and this suite would be reading the content.json you
-       actually ship. */
+       real server/data and this suite would be opening the production SQLite
+       database. */
     env: { ...process.env, PORT: String(PORT), DATA_DIR: TMP, DB_FILE: DB, UPLOAD_DIR: UPLOADS, NODE_ENV: 'development' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -132,6 +133,12 @@ const mp4Fixture = (fill = 7) => Buffer.concat([
 
 const onDisk = (url) => path.join(UPLOADS, url.replace(/^\/uploads\//, ''));
 const incomingFiles = () => (fs.existsSync(INCOMING) ? fs.readdirSync(INCOMING) : []);
+const withDatabase = async (operation) => {
+  const database = await dbStore.openDB(DB);
+  try { return operation(database); } finally { database.close(); }
+};
+const readEditorial = () => withDatabase((database) => dbStore.readContentSections(database));
+const writeEditorial = (changes) => withDatabase((database) => dbStore.replaceContentSections(database, changes));
 let keptImageUrl = '';
 let keptVideoUrl = '';
 
@@ -240,8 +247,7 @@ try {
     /* A pre-enforcement row must not make every future whole-page save
        impossible, nor may normalization silently erase it. It is validated as
        soon as that product itself is edited. */
-    const contentFile = path.join(TMP, 'content.json');
-    const legacy = JSON.parse(fs.readFileSync(contentFile, 'utf8'));
+    const legacy = await readEditorial();
     const legacyUrl = 'http://legacy.example/product.webp';
     legacy.products[0] = {
       ...legacy.products[0],
@@ -260,7 +266,7 @@ try {
       image: legacyDuplicateUrl,
       images: [legacyDuplicateUrl, legacyDuplicateUrl],
     };
-    fs.writeFileSync(contentFile, JSON.stringify(legacy, null, 2));
+    await writeEditorial({ products: legacy.products });
     const legacyPayload = await (await fetch(`${BASE}/api/content`)).json();
     /* ContentContext canonicalizes legacy media while loading it. Reproduce the
        actual Admin payload, not the raw file representation. */
@@ -272,7 +278,7 @@ try {
     };
     legacyPayload.texts = { ...legacyPayload.texts, __gallerySaveProbe: 'unrelated edit' };
     const unrelated = await put(legacyPayload);
-    const savedLegacyProducts = JSON.parse(fs.readFileSync(contentFile, 'utf8')).products;
+    const savedLegacyProducts = (await readEditorial()).products;
     const preservedLegacy = savedLegacyProducts[0];
     check(
       unrelated.status === 200 &&
@@ -524,14 +530,13 @@ try {
 
     /* A product gallery reference keeps its photo (and any responsive set),
        while an old video with no reference becomes a candidate. */
-    const contentFile = path.join(TMP, 'content.json');
-    const content = JSON.parse(fs.readFileSync(contentFile, 'utf8'));
+    const content = await readEditorial();
     content.products[0] = {
       ...content.products[0],
       image: keptImageUrl,
       images: [keptImageUrl],
     };
-    fs.writeFileSync(contentFile, JSON.stringify(content, null, 2));
+    await writeEditorial({ products: content.products });
 
     const orphanUrl = '/uploads/images/cleanup-w1600.webp';
     const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
@@ -554,12 +559,26 @@ try {
     });
     check(stillUsed.status === 409 && fs.existsSync(onDisk(keptImageUrl)), 'the legacy delete endpoint cannot remove referenced media', String(stillUsed.status));
 
-    /* Missing or corrupt persisted content must disable every path that can
-       retire an upload. Falling back to defaults here would classify live old
-       files as unused after a bad restore. */
-    const validContentText = fs.readFileSync(contentFile, 'utf8');
-    const corruptBytes = '{ this is not json';
-    fs.writeFileSync(contentFile, corruptBytes);
+    /* Missing or corrupt persisted SQLite sections must disable every path
+       that can retire an upload. Falling back to defaults here would classify
+       live old files as unused after a bad restore. */
+    const authoritativeRows = await withDatabase((database) => database.prepare(
+      'SELECT section, value_json, revision, updated_at FROM content_sections ORDER BY section',
+    ).all());
+    const restoreEditorialRows = () => withDatabase((database) => dbStore.withImmediateTransaction(database, () => {
+      database.prepare('DELETE FROM content_sections').run();
+      const insert = database.prepare(
+        'INSERT INTO content_sections(section, value_json, revision, updated_at) VALUES (?, ?, ?, ?)',
+      );
+      for (const row of authoritativeRows) {
+        insert.run(row.section, row.value_json, row.revision, row.updated_at);
+      }
+    }));
+
+    const corruptBytes = '"wrong section type"';
+    await withDatabase((database) => {
+      database.prepare("UPDATE content_sections SET value_json = ? WHERE section = 'texts'").run(corruptBytes);
+    });
     const corruptPublicResponse = await fetch(`${BASE}/api/content`);
     const corruptFallback = await corruptPublicResponse.json();
     const shopBeforeRefusedSave = JSON.stringify(corruptFallback.shop);
@@ -585,20 +604,34 @@ try {
       body: JSON.stringify({ changes: { links: corruptFallback.links } }),
     });
     const corruptPatchBody = await corruptPatchResponse.json().catch(() => ({}));
+    const corruptDirectShopResponse = await fetch(`${BASE}/api/shop-admin/products`, {
+      method: 'PUT',
+      headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({
+        products: corruptFallback.shop.products,
+        display: corruptFallback.shop.display,
+      }),
+    });
+    const corruptDirectShopBody = await corruptDirectShopResponse.json().catch(() => ({}));
     check(
       corruptPublicResponse.status === 200 &&
         corruptPublicResponse.headers.get('x-khyeast-content-status') === 'fallback',
-      'public reads identify shipped fallback content during a corrupt-file incident',
+      'public reads identify shipped fallback content during a corrupt-SQLite incident',
       String(corruptPublicResponse.headers.get('x-khyeast-content-status')),
     );
+    const rawCorruptValue = await withDatabase((database) => database.prepare(
+      "SELECT value_json FROM content_sections WHERE section = 'texts'",
+    ).get()?.value_json);
     check(
       corruptSaveResponse.status === 503 &&
         corruptSaveBody.code === 'content-unavailable' &&
         corruptPatchResponse.status === 503 &&
         corruptPatchBody.code === 'content-unavailable' &&
-        fs.readFileSync(contentFile, 'utf8') === corruptBytes,
-      'neither full nor partial Admin saves can replace corrupt persisted content with defaults',
-      `${corruptSaveResponse.status}/${corruptPatchResponse.status} ${JSON.stringify({ corruptSaveBody, corruptPatchBody })}`,
+        corruptDirectShopResponse.status === 503 &&
+        corruptDirectShopBody.code === 'content-unavailable' &&
+        rawCorruptValue === corruptBytes,
+      'full, partial and direct-shop Admin saves cannot replace corrupt SQLite content with defaults',
+      `${corruptSaveResponse.status}/${corruptPatchResponse.status}/${corruptDirectShopResponse.status} ${JSON.stringify({ corruptSaveBody, corruptPatchBody, corruptDirectShopBody })}`,
     );
     const shopAfterRefusedSave = (await (await fetch(`${BASE}/api/content`)).json()).shop;
     check(
@@ -629,7 +662,9 @@ try {
       fs.existsSync(onDisk(keptImageUrl)) && fs.existsSync(path.join(UPLOADS, 'images', 'cleanup-480.webp')),
       'no upload moves while corrupt content disables cleanup',
     );
-    fs.rmSync(contentFile);
+
+    await restoreEditorialRows();
+    await withDatabase((database) => database.prepare("DELETE FROM content_sections WHERE section = 'products'").run());
     const missingPublicResponse = await fetch(`${BASE}/api/content`);
     const missingFallback = await missingPublicResponse.json();
     const missingSaveResponse = await fetch(`${BASE}/api/content`, {
@@ -639,22 +674,25 @@ try {
     });
     const missingSaveBody = await missingSaveResponse.json().catch(() => ({}));
     const missingPreview = await scan();
+    const productRowsAfterSave = await withDatabase((database) => Number(database.prepare(
+      "SELECT COUNT(*) AS count FROM content_sections WHERE section = 'products'",
+    ).get().count));
     check(
       missingPreview.status === 503 && missingPreview.body.code === 'content-unavailable',
-      'missing content also disables cleanup with 503',
+      'a missing SQLite section also disables cleanup with 503',
       JSON.stringify(missingPreview),
     );
     check(
       missingPublicResponse.headers.get('x-khyeast-content-status') === 'fallback' &&
         missingSaveResponse.status === 503 &&
         missingSaveBody.code === 'content-unavailable' &&
-        !fs.existsSync(contentFile),
-      'an ordinary Admin save cannot recreate a missing content file from defaults',
+        productRowsAfterSave === 0,
+      'an ordinary Admin save cannot recreate a missing SQLite section from defaults',
       `${missingSaveResponse.status} ${JSON.stringify(missingSaveBody)}`,
     );
 
-    const incompleteBytes = JSON.stringify({ texts: {} });
-    fs.writeFileSync(contentFile, incompleteBytes);
+    await restoreEditorialRows();
+    await withDatabase((database) => database.prepare("DELETE FROM content_sections WHERE section <> 'texts'").run());
     const incompleteFallback = await (await fetch(`${BASE}/api/content`)).json();
     const incompleteSaveResponse = await fetch(`${BASE}/api/content`, {
       method: 'PUT',
@@ -662,14 +700,17 @@ try {
       body: JSON.stringify(incompleteFallback),
     });
     const incompleteSaveBody = await incompleteSaveResponse.json().catch(() => ({}));
+    const incompleteRows = await withDatabase((database) => Number(database.prepare(
+      'SELECT COUNT(*) AS count FROM content_sections',
+    ).get().count));
     check(
       incompleteSaveResponse.status === 503 &&
         incompleteSaveBody.code === 'content-unavailable' &&
-        fs.readFileSync(contentFile, 'utf8') === incompleteBytes,
-      'a structurally incomplete content file is preserved and cannot be replaced by a routine save',
+        incompleteRows === 1,
+      'a structurally incomplete SQLite store is preserved and cannot be replaced by a routine save',
       `${incompleteSaveResponse.status} ${JSON.stringify(incompleteSaveBody)}`,
     );
-    fs.writeFileSync(contentFile, validContentText);
+    await restoreEditorialRows();
 
     /* Simulate content becoming referenced after the preview. The cleanup
        endpoint has to rescan at confirmation time and skip it. */
@@ -677,7 +718,7 @@ try {
       ...content.posts[0],
       body: `${content.posts[0]?.body || ''}<img src="${orphanUrl}">`,
     };
-    fs.writeFileSync(contentFile, JSON.stringify(content, null, 2));
+    await writeEditorial({ posts: content.posts });
     const raced = await fetch(`${BASE}/api/uploads/unused`, {
       method: 'DELETE',
       headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
@@ -688,7 +729,7 @@ try {
     check(fs.existsSync(path.join(UPLOADS, 'images', 'cleanup-480.webp')), 'a skipped optimized set remains complete');
 
     content.posts[0].body = String(content.posts[0].body).replace(`<img src="${orphanUrl}">`, '');
-    fs.writeFileSync(contentFile, JSON.stringify(content, null, 2));
+    await writeEditorial({ posts: content.posts });
     const cleanup = await fetch(`${BASE}/api/uploads/unused`, {
       method: 'DELETE',
       headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },

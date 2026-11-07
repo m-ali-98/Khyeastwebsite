@@ -14,12 +14,13 @@
    uploads — lands in .e2e-data/ and is thrown away on the next run. The real
    server/data/ is never opened.
 
-   The content file is seeded from the repository's own content.json when it
-   exists, so the tests exercise the catalogue you actually ship rather than
-   an empty default state. */
+   Editorial content is initialized directly from the same immutable
+   DEFAULT_STATE path as a genuinely fresh production install; no mutable seed
+   file is copied into the fixture. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as store from '../server/db.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -57,15 +58,23 @@ if (lastErr) {
 fs.mkdirSync(path.join(dataDir, 'uploads', 'images'), { recursive: true });
 fs.mkdirSync(path.join(dataDir, 'uploads', 'videos'), { recursive: true });
 
-const live = path.join(ROOT, 'server', 'data', 'content.json');
-if (fs.existsSync(live)) fs.copyFileSync(live, path.join(dataDir, 'content.json'));
+const databaseFile = path.join(dataDir, 'e2e.db');
+const database = await store.openDB(databaseFile);
+const initialized = store.initializeContentStore(database, { freshInstall: true });
+if (!['initialized', 'ready'].includes(initialized.status)) {
+  database.close();
+  throw new Error(`[e2e] could not initialize SQLite content: ${initialized.reason || initialized.status}`);
+}
+store.seedFromLegacy(database, {
+  LEGACY_CONTENT_FILE: path.join(dataDir, 'does-not-exist-content.json'),
+  SHOP_FILE: path.join(dataDir, 'does-not-exist-shop.json'),
+  MESSAGES_FILE: path.join(dataDir, 'does-not-exist-messages.json'),
+});
+database.close();
 
-/* The seeded content.json points at whatever the admin has uploaded on this
-   machine, so the uploads have to travel with it. Without them every
-   /uploads/... URL in the catalogue 404s and the console-error and
-   broken-image checks fail on photos that are perfectly fine in reality —
-   and the more widths a srcset offers, the more 404s one stale copy produces.
-   Copying is cheap next to a browser run and keeps the pair consistent. */
+/* Local ignored uploads are copied only as fixtures. Shipped defaults do not
+   point at them, but retaining the old convenience lets developers test media
+   already present in their checkout without making those files authoritative. */
 const liveUploads = path.join(ROOT, 'server', 'uploads');
 if (fs.existsSync(liveUploads)) {
   fs.cpSync(liveUploads, path.join(dataDir, 'uploads'), { recursive: true, force: true });
