@@ -180,7 +180,7 @@ test('a11y the key admin management tabs', async ({ page }) => {
   }
 });
 
-test('a11y the rich editor and its accessible link workflow', async ({ page }) => {
+test('a11y the rich editor and its accessible dialogs', async ({ page }) => {
   await loginAdmin(page);
   await page.locator('.admin__side button', { hasText: 'وبلاگ' }).click();
   await page.getByRole('button', { name: /مقاله جدید/ }).first().click();
@@ -210,6 +210,18 @@ test('a11y the rich editor and its accessible link workflow', async ({ page }) =
   results = await audit(page);
   expect(results.violations.length, `\n  media dialog:\n  ${describe(results)}\n`).toBe(0);
   await mediaDialog.getByRole('button', { name: 'انصراف' }).click();
+  await expect(editor.getByRole('textbox')).toBeFocused();
+
+  await editor.getByRole('button', { name: 'افزودن یا ویرایش جدول' }).click();
+  const tableDialog = page.getByRole('dialog', { name: 'افزودن جدول' });
+  await expect(tableDialog.getByLabel('عنوان جدول')).toBeFocused();
+  results = await audit(page);
+  expect(results.violations.length, `\n  table dialog:\n  ${describe(results)}\n`).toBe(0);
+  await tableDialog.getByRole('button', { name: 'افزودن جدول', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(tableDialog.getByRole('button', { name: 'بستن پنجره' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(tableDialog).toHaveCount(0);
   await expect(editor.getByRole('textbox')).toBeFocused();
 });
 

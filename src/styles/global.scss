@@ -53,6 +53,12 @@
   --warn: #8a5800;
   --warn-soft: rgba(217, 164, 65, 0.14);
   --warn-line: rgba(138, 88, 0, 0.3);
+  /* Theme-aware rich-text palette. Authored HTML stores semantic names rather
+     than inline CSS, so colours remain readable after a theme switch. */
+  --rich-text-blue: #145da0;
+  --rich-text-green: #187a3c;
+  --rich-text-amber: #805400;
+  --rich-text-purple: #6d3fa3;
 
   --radius-sm: 14px;
   --radius: 22px;
@@ -144,6 +150,10 @@
   --warn: #f2c14e;
   --warn-soft: rgba(242, 193, 78, 0.15);
   --warn-line: rgba(242, 193, 78, 0.34);
+  --rich-text-blue: #7db7ff;
+  --rich-text-green: #65d58a;
+  --rich-text-amber: #f2c14e;
+  --rich-text-purple: #c6a3ff;
 
   --shadow-sm: 0 6px 24px -12px rgba(0, 0, 0, 0.7);
   --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
@@ -1619,6 +1629,16 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .post-card__body p { margin: 0; color: var(--muted); font-size: 14px; }
 .post-card__foot { margin-top: auto; padding-top: 10px; }
 
+/* Sanitized rich text stores only these semantic colour names. Never style an
+   arbitrary authored value: that would re-open inline CSS as a layout/XSS
+   boundary and would make dark-mode contrast unpredictable. */
+[data-text-color='ink'] { color: var(--ink); }
+[data-text-color='crimson'] { color: var(--crimson-ink); }
+[data-text-color='blue'] { color: var(--rich-text-blue); }
+[data-text-color='green'] { color: var(--rich-text-green); }
+[data-text-color='amber'] { color: var(--rich-text-amber); }
+[data-text-color='purple'] { color: var(--rich-text-purple); }
+
 .post-body { max-width: 800px; margin: 0 auto; font-size: 16.5px; color: var(--ink-2); }
 .post-body h2,
 .post-body h3,
@@ -1666,6 +1686,56 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .post-body > video,
 .post-body figure video { width: 100%; }
 .post-body figcaption { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.post-body figure[data-rich-table] {
+  max-width: 100%;
+  margin: 30px 0;
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 15px;
+  background: var(--surface-raised);
+  text-align: start;
+  box-shadow: var(--shadow-sm);
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+.post-body figure[data-rich-table] table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.85;
+}
+.post-body figure[data-rich-table] caption {
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--bg-soft);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  text-align: start;
+}
+.post-body figure[data-rich-table] th,
+.post-body figure[data-rich-table] td {
+  min-width: 125px;
+  padding: 11px 14px;
+  border-inline-end: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
+.post-body figure[data-rich-table] th:last-child,
+.post-body figure[data-rich-table] td:last-child { border-inline-end: 0; }
+.post-body figure[data-rich-table] tbody tr:last-child td { border-bottom: 0; }
+.post-body figure[data-rich-table] th {
+  background: var(--crimson-soft);
+  color: var(--ink);
+  font-weight: 800;
+}
+.post-body figure[data-rich-table] tbody tr:nth-child(even) td { background: var(--surface-tint); }
+.post-body figure[data-rich-table] th > :last-child,
+.post-body figure[data-rich-table] td > :last-child { margin-bottom: 0; }
 .post-callout {
   background: linear-gradient(135deg, var(--crimson-soft), rgba(220, 20, 60, 0.03));
   border-right: 4px solid var(--crimson);

@@ -497,7 +497,7 @@ export function ShopProductsTab() {
         <div style={{ marginTop: 14 }}>
           <Field label="توضیح کوتاه (روی کارت محصول)" textarea value={draft.short} onChange={(v) => setDraft({ ...draft, short: v })} />
         </div>
-        <h3 style={{ margin: '22px 0 6px' }}>توضیحات کامل (با امکان پیوند، عکس و ویدیو)</h3>
+        <h3 style={{ margin: '22px 0 6px' }}>توضیحات کامل (با امکان رنگ متن، جدول، پیوند، عکس و ویدیو)</h3>
         <p className="admin__hint">جزئیات محصول را خوانا بنویسید و در صورت نیاز پیوند، رسانه و زیرنویس اضافه کنید.</p>
         <RichEditor
           value={draft.description}

@@ -105,6 +105,18 @@ check(contrast(token(lightTokens, 'ok'), token(lightTokens, 'surface')) >= 4.5, 
 check(contrast(token(darkTokens, 'ok'), token(darkTokens, 'surface')) >= 4.5, 'dark success text fails AA contrast');
 check(contrast(token(lightTokens, 'warn'), token(lightTokens, 'surface')) >= 4.5, 'light warning text fails AA contrast');
 check(contrast(token(darkTokens, 'warn'), token(darkTokens, 'surface')) >= 4.5, 'dark warning text fails AA contrast');
+check(contrast(token(lightTokens, 'ink'), token(lightTokens, 'surface')) >= 4.5, 'light rich-text ink fails AA contrast');
+check(contrast(token(darkTokens, 'ink'), token(darkTokens, 'surface')) >= 4.5, 'dark rich-text ink fails AA contrast');
+for (const name of ['blue', 'green', 'amber', 'purple']) {
+  check(
+    contrast(token(lightTokens, `rich-text-${name}`), token(lightTokens, 'surface')) >= 4.5,
+    `light rich-text ${name} fails AA contrast`,
+  );
+  check(
+    contrast(token(darkTokens, `rich-text-${name}`), token(darkTokens, 'surface')) >= 4.5,
+    `dark rich-text ${name} fails AA contrast`,
+  );
+}
 
 for (const leak of leaks) console.log(`LEAK ${leak}`);
 console.log(`${passed}/${total}`);

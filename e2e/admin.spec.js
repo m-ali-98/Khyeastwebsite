@@ -504,6 +504,9 @@ test('the article editor formats safe rich content without exposing code control
   await expect(editor.getByRole('button', { name: 'فهرست نقطه‌ای' })).toBeVisible();
   await expect(editor.getByRole('button', { name: 'فهرست شماره‌ای' })).toBeVisible();
   await expect(editor.getByRole('button', { name: /افزودن تصویر/ })).toBeVisible();
+  await expect(editor.getByLabel('رنگ متن')).toBeVisible();
+  await expect(editor.getByLabel('رنگ متن').locator('option')).toHaveCount(7);
+  await expect(editor.getByRole('button', { name: 'افزودن یا ویرایش جدول' })).toBeVisible();
   await expect(editor.getByRole('button', { name: /پیش‌نمایش امن/ })).toBeVisible();
   await expect(editor.getByRole('button', { name: /کد|HTML/i })).toHaveCount(0);
 
@@ -625,11 +628,86 @@ test('the article editor formats safe rich content without exposing code control
   await expect(area.locator('u')).toHaveText('زیرخط');
   await expect(editor).toContainText('قالب‌بندی ناسازگار هنگام چسباندن پاک شد.');
 
+  /* Text colours are finite semantic tokens, not author-controlled CSS. */
+  await area.evaluate((element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let text = walker.nextNode();
+    while (text && !text.data.includes('متن پاک')) text = walker.nextNode();
+    if (!text) throw new Error('pasted text was not found');
+    const start = text.data.indexOf('متن پاک');
+    const range = document.createRange();
+    range.setStart(text, start);
+    range.setEnd(text, start + 'متن پاک'.length);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  await editor.getByLabel('رنگ متن').selectOption('blue');
+  await expect(area.locator('span[data-text-color="blue"]')).toContainText('متن پاک');
+  await expect(area.locator('span[data-text-color][style], font')).toHaveCount(0);
+
+  /* Tables are captioned semantic structures. Escape closes the modal, and
+     reopening it keeps the editor selection available for insertion. */
+  await area.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  const tableButton = editor.getByRole('button', { name: 'افزودن یا ویرایش جدول' });
+  await tableButton.click();
+  await expect(page.getByRole('dialog', { name: 'افزودن جدول' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'افزودن جدول' })).toHaveCount(0);
+
+  await tableButton.click();
+  const tableDialog = page.getByRole('dialog', { name: 'افزودن جدول' });
+  await expect(tableDialog.getByLabel(/تعداد ردیف/)).toHaveAttribute('min', '2');
+  await expect(tableDialog.getByLabel(/تعداد ردیف/)).toHaveAttribute('max', '20');
+  await expect(tableDialog.getByLabel('تعداد ستون')).toHaveAttribute('max', '8');
+  await tableDialog.getByLabel(/تعداد ردیف/).fill('4');
+  await tableDialog.getByLabel('تعداد ستون').fill('3');
+  await tableDialog.getByRole('button', { name: 'افزودن جدول', exact: true }).click();
+  await expect(tableDialog).toBeVisible(); // caption is intentionally required
+  await tableDialog.getByLabel('عنوان جدول').fill('جدول آزمایشی تولید');
+  await tableDialog.getByRole('button', { name: 'افزودن جدول', exact: true }).click();
+
+  const richTable = area.locator('figure[data-rich-table]').last();
+  await expect(richTable.locator('caption')).toHaveText('جدول آزمایشی تولید');
+  await expect(richTable.locator('tr')).toHaveCount(4);
+  await expect(richTable.locator('thead th[scope="col"]')).toHaveCount(3);
+  await expect(richTable.locator('[style],[class]')).toHaveCount(0);
+  await richTable.locator('td').first().fill('مقدار حفظ‌شده');
+
+  await richTable.locator('td').first().click();
+  await tableButton.click();
+  const editTableDialog = page.getByRole('dialog', { name: 'ویرایش جدول' });
+  await editTableDialog.getByLabel(/تعداد ردیف/).fill('3');
+  await editTableDialog.getByLabel('تعداد ستون').fill('2');
+  await editTableDialog.getByRole('button', { name: 'ذخیره تغییرات' }).click();
+  await expect(richTable.locator('tr')).toHaveCount(3);
+  await expect(richTable.locator('thead th[scope="col"]')).toHaveCount(2);
+  await expect(richTable.locator('td').first()).toHaveText('مقدار حفظ‌شده');
+
   await editor.getByRole('button', { name: 'پیش‌نمایش امن' }).click();
   await expect(editor.locator('.rte__preview')).toBeVisible();
   await expect(editor.locator('.rte__preview figure img[alt="برش‌های نان تازه"]')).toBeVisible();
+  await expect(editor.locator('.rte__preview span[data-text-color="blue"]')).toContainText('متن پاک');
+  await expect(editor.locator('.rte__preview figure[data-rich-table] table')).toBeVisible();
   await expect(area).toBeHidden();
   await editor.getByRole('button', { name: 'بازگشت به ویرایش' }).click();
+
+  /* Deletion is explicit and confirmed instead of depending on fragile DOM
+     key handling inside a contenteditable table. */
+  await richTable.locator('td').first().click();
+  await tableButton.click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('dialog', { name: 'ویرایش جدول' }).getByRole('button', { name: 'حذف جدول' }).click();
+  await expect(area.locator('figure[data-rich-table]')).toHaveCount(0);
 
   await editor.getByRole('button', { name: 'ویرایش تمام‌صفحه' }).click();
   await expect(editor).toHaveClass(/is-fullscreen/);
@@ -644,10 +722,12 @@ test('the shop full-description field uses the same approachable rich editor', a
   await adminTab(page, 'فروشگاه — محصولات').first().click();
   await page.locator('.admin__item').first().locator('[title="ویرایش"]').click();
 
-  await expect(page.getByRole('heading', { name: 'توضیحات کامل (با امکان پیوند، عکس و ویدیو)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'توضیحات کامل (با امکان رنگ متن، جدول، پیوند، عکس و ویدیو)' })).toBeVisible();
   const editor = page.getByRole('region', { name: 'ویرایشگر توضیحات کامل محصول' });
   await expect(editor.getByRole('textbox', { name: 'ویرایشگر توضیحات کامل محصول' })).toHaveAttribute('data-placeholder', /توضیحات کامل محصول/);
   await expect(editor.getByRole('button', { name: /افزودن یا ویرایش پیوند/ })).toBeVisible();
+  await expect(editor.getByLabel('رنگ متن')).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'افزودن یا ویرایش جدول' })).toBeVisible();
   await expect(editor.getByRole('button', { name: 'افزودن تصویر' })).toBeVisible();
   await expect(editor.getByRole('button', { name: 'افزودن ویدیو' })).toBeVisible();
   await page.getByRole('button', { name: 'انصراف' }).last().click();
@@ -823,6 +903,36 @@ test('the rich editor stays usable on a narrow screen @mobile', async ({ page },
   expect(dialogBox.width).toBeLessThanOrEqual(page.viewportSize()?.width || 412);
   await dialog.getByRole('button', { name: 'انصراف' }).click();
 
+  const area = editor.getByRole('textbox', { name: 'ویرایشگر متن مقاله' });
+  await area.fill('جدول واکنش‌گرا');
+  await area.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  await editor.getByRole('button', { name: 'افزودن یا ویرایش جدول' }).click();
+  const tableDialog = page.getByRole('dialog', { name: 'افزودن جدول' });
+  const tableDialogBox = await tableDialog.boundingBox();
+  expect(tableDialogBox).toBeTruthy();
+  expect(tableDialogBox.x).toBeGreaterThanOrEqual(0);
+  expect(tableDialogBox.width).toBeLessThanOrEqual(page.viewportSize()?.width || 412);
+  await tableDialog.getByLabel(/تعداد ردیف/).fill('2');
+  await tableDialog.getByLabel('تعداد ستون').fill('8');
+  await tableDialog.getByLabel('عنوان جدول').fill('جدول پهن آزمایشی');
+  await tableDialog.getByRole('button', { name: 'افزودن جدول', exact: true }).click();
+  await editor.getByRole('button', { name: 'پیش‌نمایش امن' }).click();
+  const richTable = editor.locator('.rte__preview figure[data-rich-table]');
+  await expect(richTable).toBeVisible();
+  const tableOverflow = await richTable.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(tableOverflow).toBeGreaterThan(0);
+  const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(pageOverflow).toBeLessThanOrEqual(1);
+  await editor.getByRole('button', { name: 'بازگشت به ویرایش' }).click();
+
   await editor.getByRole('button', { name: 'ویرایش تمام‌صفحه' }).click();
   await expect(editor).toHaveCSS('position', 'fixed');
   const fullscreenBox = await editor.boundingBox();
@@ -846,8 +956,9 @@ test('a blog post can be written, published and read on the site', async ({ page
   await body.evaluate((editor) => {
     editor.innerHTML = [
       '<h2>عنوان بخش آزمایشی</h2>',
-      '<p>متن آزمایشی مقاله با یک <a href="/products" title="محصولات">پیوند</a> و چند جمله برای آنکه صفحه خالی نباشد.</p>',
+      '<p>متن آزمایشی مقاله با یک <a href="/products" title="محصولات">پیوند</a> و <span data-text-color="blue">عبارت آبی</span> برای آنکه صفحه خالی نباشد.</p>',
       '<blockquote>نکته آزمایشی برای خوانندگان مقاله</blockquote>',
+      '<figure data-rich-table><table><caption>آمار آزمایشی</caption><thead><tr><th scope="col">سال</th><th scope="col">مقدار</th></tr></thead><tbody><tr><td>۱۴۰۳</td><td>۱۲</td></tr></tbody></table></figure>',
       '<figure><img src="/assets/img/bread-slicing-480.webp" alt="برش نان تازه"><figcaption>زیرنویس آزمایشی تصویر</figcaption></figure>',
     ].join('');
     editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
@@ -864,6 +975,12 @@ test('a blog post can be written, published and read on the site', async ({ page
   await expect(publishedBody.getByRole('heading', { name: 'عنوان بخش آزمایشی' })).toBeVisible();
   await expect(publishedBody.locator('blockquote')).toHaveText('نکته آزمایشی برای خوانندگان مقاله');
   await expect(publishedBody.locator('a[href="/products"]')).toHaveAttribute('title', 'محصولات');
+  await expect(publishedBody.locator('span[data-text-color="blue"]')).toHaveText('عبارت آبی');
+  const publishedTable = publishedBody.locator('figure[data-rich-table]');
+  await expect(publishedTable.locator('caption')).toHaveText('آمار آزمایشی');
+  await expect(publishedTable.locator('th[scope="col"]')).toHaveCount(2);
+  await expect(publishedTable.locator('td')).toHaveCount(2);
+  await expect(publishedTable.locator('[style],[class]')).toHaveCount(0);
   await expect(publishedBody.locator('figure img')).toHaveAttribute('alt', 'برش نان تازه');
   await expect(publishedBody.locator('figcaption')).toHaveText('زیرنویس آزمایشی تصویر');
 

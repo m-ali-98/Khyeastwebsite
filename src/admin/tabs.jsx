@@ -405,7 +405,7 @@ export function PostsTab() {
           />
         </div>
         <h2 style={{ margin: '22px 0 6px', fontSize: '1.05rem' }}>متن مقاله</h2>
-        <p className="admin__hint">متن را مانند صفحه نهایی قالب‌بندی کنید؛ پیوند، تصویر، ویدیو، زیرنویس و پیش‌نمایش در دسترس است.</p>
+        <p className="admin__hint">متن را مانند صفحه نهایی قالب‌بندی کنید؛ رنگ متن، جدول، پیوند، تصویر، ویدیو، زیرنویس و پیش‌نمایش در دسترس است.</p>
         <RichEditor
           value={draft.body}
           onChange={(v) => setDraft({ ...draft, body: v })}

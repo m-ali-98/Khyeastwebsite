@@ -291,7 +291,7 @@ try {
   const originalContent = await (await fetch(`${BASE}/api/content`)).json();
   const hostileContent = structuredClone(originalContent);
   const postSlug = hostileContent.posts[0].slug;
-  hostileContent.posts[0].body = '<p onclick="steal()">متن <strong>مجاز</strong><script>alert(1)</script></p>';
+  hostileContent.posts[0].body = '<p onclick="steal()">متن <strong>مجاز</strong> <span data-text-color="blue" style="position:fixed">آبی</span><script>alert(1)</script></p><figure data-rich-table><table class="page-cover"><caption>جدول امن</caption><thead><tr><th scope="col">ستون</th><th scope="col">مقدار</th></tr></thead><tbody><tr><td>داده</td><td>۱۲</td></tr></tbody></table></figure>';
   hostileContent.shop.products[0].description = '<img src="javascript:alert(1)" onerror="steal()"><p><em>توضیح مجاز</em></p>';
   hostileContent.i18n = {
     ...(hostileContent.i18n || {}),
@@ -315,8 +315,13 @@ try {
     storedContent.shop.products[0].description,
     storedContent.i18n.en.posts[postSlug].body,
   ].join('\n');
-  check(!/(?:<script|<style|onerror|onclick|onmouseover|javascript:)/i.test(storedHtml), 'server removes active HTML before persistence', storedHtml.slice(0, 160));
-  check(/<strong>مجاز<\/strong>/.test(storedHtml) && /<em>توضیح مجاز<\/em>/.test(storedHtml) && /Safe translation/.test(storedHtml), 'server sanitizer preserves allowed rich-text formatting');
+  check(!/(?:<script|<style|\sstyle=|\sclass=|onerror|onclick|onmouseover|javascript:)/i.test(storedHtml), 'server removes active HTML before persistence', storedHtml.slice(0, 160));
+  check(
+    /<strong>مجاز<\/strong>/.test(storedHtml) && /<em>توضیح مجاز<\/em>/.test(storedHtml) &&
+      /Safe translation/.test(storedHtml) && /data-text-color="blue"/.test(storedHtml) &&
+      /<table><caption>جدول امن<\/caption>/.test(storedHtml),
+    'server sanitizer preserves allowed rich text, semantic colours and tables',
+  );
 
   const oversizedContent = structuredClone(storedContent);
   oversizedContent.posts[0].body = 'x'.repeat(250_001);

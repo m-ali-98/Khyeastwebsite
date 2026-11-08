@@ -51,8 +51,9 @@ const CASES = [
   ['iframe inside span',       '<span><iframe src="//evil"></iframe></span>'],
   ['js href inside unwrap',    '<span><a href="javascript:alert(1)">x</a></span>'],
   ['bad src removes img',      '<span><img src="data:text/html,<script>alert(1)</script>"></span>'],
-  ['table unwrap keeps text',  '<table><tr><td>text</td></tr></table>'],
-  ['legit content',           '<p>سلام <strong>دنیا</strong> <a href="/products">لینک</a></p>'],
+  ['safe table markup',       '<figure data-rich-table><table style="position:fixed" onclick="alert(1)"><caption>آمار</caption><thead><tr><th scope="col" style="color:red">سال</th><th scope="col">مقدار</th></tr></thead><tbody><tr><td>۱۴۰۴<script>alert(1)</script></td><td>۱۲</td></tr></tbody></table></figure>'],
+  ['spoofed text colour',     '<span data-text-color="evil" style="position:fixed;color:red" class="nav__logo">متن</span>'],
+  ['legit content',           '<p>سلام <strong>دنیا</strong> <span data-text-color="crimson">قرمز</span> <a href="/products">لینک</a></p>'],
   /* --- mutation XSS: markup that changes meaning when the browser re-parses
      the sanitizer's own output. These are the vectors that defeat naive
      regex-based cleaners. --- */
@@ -157,6 +158,50 @@ for (const [name, input, run = sanitizeHtml] of CASES) {
   console.log(`${leaked ? 'LEAK' : 'ok  '} ${name.padEnd(22)} -> ${out.slice(0, 60)}${why}`);
 }
 
+const nineHeaders = Array.from({ length: 9 }, (_, index) => `<th scope="col">س${index + 1}</th>`).join('');
+const nineCells = Array.from({ length: 9 }, (_, index) => `<td>${index + 1}</td>`).join('');
+const twentyBodyRows = Array.from({ length: 20 }, () => '<tr><td>۱</td><td>۲</td></tr>').join('');
+const richFeatureCases = [
+  [
+    'semantic table survives without layout attributes',
+    '<figure data-rich-table="yes"><table class="evil"><caption>جدول تولید</caption><thead><tr><th scope="COL" colspan="9">سال</th><th scope="col">مقدار</th></tr></thead><tbody><tr><td style="color:red">۱۴۰۴</td><td>۱۲</td></tr></tbody></table></figure>',
+    (output) => (
+      output.includes('<figure data-rich-table=""><table><caption>جدول تولید</caption>') &&
+      output.includes('<th scope="col">سال</th>') && !/class=|style=|colspan=/i.test(output)
+    ),
+  ],
+  [
+    'invalid table structure is unwrapped to text',
+    '<table><caption>بدون قاب</caption><thead><tr><th scope="col">الف</th><th scope="col">ب</th></tr></thead><tbody><tr><td>۱</td><td>۲</td></tr></tbody></table><figure data-rich-table><table><caption>تک‌ستون</caption><thead><tr><th scope="col">الف</th></tr></thead><tbody><tr><td>۳</td></tr></tbody></table></figure><figure data-rich-table><table><caption><script>عنوان جعلی</script></caption><thead><tr><th scope="col">الف</th><th scope="col">ب</th></tr></thead><tbody><tr><td>۴</td><td>۵</td></tr></tbody></table></figure>',
+    (output) => !/<table|data-rich-table/i.test(output) && output.includes('بدون قاب') && output.includes('تک‌ستون'),
+  ],
+  [
+    'table dimensions are bounded at persistence',
+    `<figure data-rich-table><table><caption>بیش از حد پهن</caption><thead><tr>${nineHeaders}</tr></thead><tbody><tr>${nineCells}</tr></tbody></table></figure><figure data-rich-table><table><caption>بیش از حد بلند</caption><thead><tr><th scope="col">الف</th><th scope="col">ب</th></tr></thead><tbody>${twentyBodyRows}</tbody></table></figure>`,
+    (output) => !/<table|data-rich-table/i.test(output) && output.includes('بیش از حد پهن') && output.includes('بیش از حد بلند'),
+  ],
+  [
+    'only fixed semantic text colours survive',
+    '<p><span data-text-color="BLUE" style="font-size:99px">آبی</span><span data-text-color="rainbow">بد</span></p>',
+    (output) => (
+      output.includes('<span data-text-color="blue">آبی</span>') &&
+      !output.includes('rainbow') && output.includes('بد') && !output.includes('style=')
+    ),
+  ],
+  [
+    'table and colour survive the persistence boundary',
+    '<figure data-rich-table><table><caption>فروش</caption><thead><tr><th scope="col">سال</th><th scope="col">روند</th></tr></thead><tbody><tr><td>۱۴۰۴</td><td><span data-text-color="green">رشد</span></td></tr></tbody></table></figure>',
+    (output) => output.includes('<table>') && output.includes('data-text-color="green"'),
+    (input) => sanitizeContentPayload({ posts: [{ body: input }] }).posts[0].body,
+  ],
+];
+for (const [name, input, accepts, run = sanitizeHtml] of richFeatureCases) {
+  const output = run(input);
+  const passed = accepts(output);
+  if (!passed) fails += 1;
+  console.log(`${passed ? 'ok  ' : 'LEAK'} ${name.padEnd(45)} -> ${output.slice(0, 100)}`);
+}
+
 const strictCases = [
   ['persistence rejects oversized HTML', 'x'.repeat(MAX_HTML_INPUT_LENGTH + 1), 'input-too-large'],
   ['persistence rejects excess nodes', '<br>'.repeat(MAX_HTML_NODES + 1), 'node-limit'],
@@ -191,5 +236,5 @@ const parserPassed = !parserResult.ok && parserResult.code === 'parser-error';
 if (!parserPassed) fails += 1;
 console.log(`${parserPassed ? 'ok  ' : 'LEAK'} ${'parser failure has a distinct result'.padEnd(38)} -> ${parserResult.code}`);
 
-const total = CASES.length + strictCases.length + 2;
+const total = CASES.length + richFeatureCases.length + strictCases.length + 2;
 console.log(`\n${total - fails}/${total} sanitizer cases safe`);
