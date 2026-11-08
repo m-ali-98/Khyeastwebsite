@@ -80,6 +80,16 @@ const STATIC_ROUTES = {
     bodyKeys: ['gallery.intro'],
     listing: 'gallery',
   },
+  '/sales-representatives': {
+    kind: 'collection',
+    titleKey: 'salesReps.hero.title',
+    seoTitleKey: 'seo.salesRepresentatives.title',
+    descriptionKey: 'salesReps.hero.sub',
+    imageKey: 'salesReps.hero.img',
+    bodyKeys: ['salesReps.intro'],
+    listing: 'salesRepresentatives',
+    locales: ['fa'],
+  },
   '/contact': {
     titleKey: 'contact.hero.title',
     descriptionKey: 'contact.hero.sub',
@@ -296,6 +306,15 @@ function pageLinks(view, locale, route, listing) {
       href: `${localePath(locale, '/gallery')}#${item.id}`,
       text: plainText(item.description),
     }));
+  }
+  if (listing === 'salesRepresentatives') {
+    return asArray(view.collections?.salesRepresentatives)
+      .filter((item) => item?.active !== false && validSlug(item?.id))
+      .map((item) => ({
+        label: plainText(item.name),
+        href: `/sales-representatives#${item.id}`,
+        text: plainText([item.city, item.province, item.brands].filter(Boolean).join('، ')),
+      }));
   }
   return route.links || [];
 }
@@ -748,6 +767,7 @@ function fallbackNavigation(meta) {
   }[locale] || ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Gallery', 'Contact'];
   const entries = ['/', '/about', '/products', '/export', '/quality', '/blog', '/gallery', '/contact']
     .map((path, index) => ({ path, label: labels[index] }));
+  if (locale === 'fa') entries.splice(-1, 0, { path: '/sales-representatives', label: 'نمایندگان فروش' });
   if (meta.shopAvailable) entries.splice(3, 0, { path: '/shop', label: 'فروشگاه' });
   return `<nav aria-label="${escapeHtml(locale === 'fa' ? 'پیوندهای اصلی' : locale === 'ar' ? 'الروابط الرئيسية' : 'Primary links')}"><ul>${entries
     .map(({ path, label }) => `<li><a href="${escapeHtml(localePath(locale, path))}">${escapeHtml(label)}</a></li>`)

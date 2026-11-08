@@ -733,11 +733,33 @@ try {
   });
   check(unknownPatch.status === 400, 'content PATCH refuses unknown top-level buckets');
 
+  const representativeRows = snapshot.collections?.salesRepresentatives;
+  check(
+    Array.isArray(representativeRows) && representativeRows.length === 47 &&
+      representativeRows.some((item) => item.city === 'کردکوی' && item.province === 'گلستان'),
+    'the supplied domestic-sales worksheet initializes the Persian representative collection',
+  );
+  const invalidRepresentativeCollections = JSON.parse(JSON.stringify(snapshot.collections));
+  invalidRepresentativeCollections.salesRepresentatives[0].latitude = 99;
+  const invalidRepresentativePatch = await fetch(`${BASE}/api/content`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ changes: { collections: invalidRepresentativeCollections } }),
+  });
+  const representativesAfterRefusal = (await (await fetch(`${BASE}/api/content`)).json())
+    .collections?.salesRepresentatives;
+  check(
+    invalidRepresentativePatch.status === 400 && representativesAfterRefusal?.[0]?.latitude !== 99,
+    'direct API writes cannot publish out-of-Iran representative markers',
+    `got ${invalidRepresentativePatch.status}`,
+  );
+
   /* Gallery media is a same-origin structural collection. Direct API clients
      must not bypass the Admin UI with mixed-content or locale-specific media.
      Old complete snapshots did not have this optional key and remain valid. */
   const legacyWithoutGallery = JSON.parse(JSON.stringify(snapshot));
   delete legacyWithoutGallery.gallery;
+  delete legacyWithoutGallery.collections.salesRepresentatives;
   const legacyGalleryPut = await fetch(`${BASE}/api/content`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...auth },
@@ -745,8 +767,10 @@ try {
   });
   const afterLegacyGallerySave = await (await fetch(`${BASE}/api/content`)).json();
   check(
-    legacyGalleryPut.ok && afterLegacyGallerySave.gallery?.length === snapshot.gallery?.length,
-    'an older content client preserves the optional gallery collection',
+    legacyGalleryPut.ok &&
+      afterLegacyGallerySave.gallery?.length === snapshot.gallery?.length &&
+      afterLegacyGallerySave.collections?.salesRepresentatives?.length === representativeRows.length,
+    'an older content client preserves optional gallery and representative collections',
     `got ${legacyGalleryPut.status}`,
   );
 

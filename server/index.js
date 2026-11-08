@@ -45,6 +45,7 @@ import {
   productNeedsImageValidation,
 } from '../shared/productImages.js';
 import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
+import { salesRepresentativeProblem } from '../shared/salesRepresentatives.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
@@ -1046,6 +1047,21 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
     next.gallery = Array.isArray(current.gallery) ? current.gallery : DEFAULT_STATE.gallery;
   }
 
+  /* Preserve the new nested collection when a pre-feature Admin client sends
+     its complete `collections` bucket. Omitting a field is not a request to
+     erase the public sales network; deliberate removal is represented by an
+     explicit empty array. */
+  if (
+    isRecord(next.collections) &&
+    !Object.hasOwn(next.collections, 'salesRepresentatives') &&
+    Array.isArray(current.collections?.salesRepresentatives)
+  ) {
+    next.collections = {
+      ...next.collections,
+      salesRepresentatives: current.collections.salesRepresentatives,
+    };
+  }
+
   const { shop: nextShop, ...persistedCandidate } = next;
   if (!store.validContentState(persistedCandidate) || !isRecord(nextShop)) {
     return res.status(400).json({ error: 'invalid content structure' });
@@ -1093,6 +1109,20 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
   if (next.collections?.trustSeals !== undefined) {
     const trustError = validateTrustSeals(next.collections.trustSeals);
     if (trustError) return res.status(400).json({ error: trustError });
+  }
+
+  /* Representatives are public contact records and SVG coordinates. Reject
+     malformed or oversized direct-API payloads before they reach SQLite; the
+     browser editor is useful feedback, not the persistence security boundary. */
+  if (next.collections?.salesRepresentatives !== undefined) {
+    const problem = salesRepresentativeProblem(next.collections.salesRepresentatives);
+    if (problem) {
+      return res.status(400).json({
+        error: 'invalid sales representatives',
+        code: problem.code,
+        index: problem.index,
+      });
+    }
   }
 
   /* Product photos have to be renderable under the exact img-src policy this

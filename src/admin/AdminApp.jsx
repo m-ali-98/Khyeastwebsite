@@ -5,6 +5,7 @@ import Logo from '../components/Logo';
 import { Icons, PasswordInput } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, TrustSealsTab, ContactTab, MessagesTab } from './tabs';
+import SalesRepresentativesTab from './SalesRepresentativesTab';
 import { UploadButton } from './editors';
 import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab, AdminSecurityTab } from './shopTabs';
 import { TranslationsTab } from './i18nTab';
@@ -30,6 +31,7 @@ import './admin.scss';
    stay available. */
 const CONTENT_WRITE_TABS = new Set([
   'products', 'posts', 'gallery', 'shop', 'texts', 'translations', 'media', 'links', 'trust', 'contact',
+  'representatives',
 ]);
 
 const TABS = [
@@ -42,6 +44,7 @@ const TABS = [
   { id: 'links', label: 'پیوندها', icon: 'link', group: 'content' },
   { id: 'trust', label: 'نمادهای اعتماد', icon: 'shield', base: true, group: 'content' },
   { id: 'contact', label: 'اطلاعات تماس', icon: 'contact', base: true, group: 'content' },
+  { id: 'representatives', label: 'نمایندگان فروش', icon: 'pin', base: true, faOnly: true, group: 'content' },
   { id: 'shop', label: 'فروشگاه — محصولات', icon: 'store', faOnly: true, group: 'commerce' },
   { id: 'orders', label: 'سفارش‌ها', icon: 'orders', faOnly: true, group: 'commerce' },
   { id: 'comments', label: 'دیدگاه‌ها', icon: 'comments', faOnly: true, group: 'commerce' },
@@ -852,6 +855,7 @@ function AdminShell() {
     links: LinksTab,
     trust: TrustSealsTab,
     contact: ContactTab,
+    representatives: SalesRepresentativesTab,
     messages: MessagesTab,
   }[activeTab];
 

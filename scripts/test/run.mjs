@@ -25,8 +25,8 @@ const ROUTES = [
   '/', '/about', '/products', '/products/dezmaye-gold-80', '/products/shetab-90',
   '/products/xpower-70', '/products/nanmaye-10', '/shop', '/shop/cart',
   '/shop/checkout', '/shop/dezmaye-gold-80', '/export', '/quality', '/blog',
-  '/blog/reduce-bread-production-costs', '/gallery', '/contact', '/shop/login', '/shop/account',
-  '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/gallery', '/en/contact', '/en/shop',
+  '/blog/reduce-bread-production-costs', '/gallery', '/sales-representatives', '/contact', '/shop/login', '/shop/account',
+  '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/gallery', '/en/contact', '/en/sales-representatives', '/en/shop',
   '/ar', '/ar/about', '/ar/products', '/ar/products/dezmaye-gold-80', '/ar/gallery', '/ar/contact', '/ar/shop',
   '/dezmaye', '/shetab', '/nonexistent-page',
 ];
@@ -272,6 +272,19 @@ console.log('\nSEO — every public route must be crawlable, canonical and safe'
   const ok = !crashed && Boolean(m) && m[1] === m[2];
   record(ok, 'seo', (leaks.join('; ') || err).slice(0, 300));
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} crawl, metadata, schema and sitemap checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+}
+
+console.log('\nSales representatives — worksheet data, Iran geometry and persistence rules');
+{
+  const { stdout, crashed, err } = await suite('sales-representatives.mjs', 10000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'sales-representatives', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} worksheet, map and validation checks`);
   leaks.forEach((entry) => console.log('       ' + entry));
   if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
 }

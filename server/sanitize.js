@@ -16,6 +16,7 @@ import {
   MAX_HTML_NODES,
 } from '../shared/sanitizeHtml.js';
 import { syncProductImages } from '../shared/productImages.js';
+import { normalizeSalesRepresentatives } from '../shared/salesRepresentatives.js';
 
 const faNumber = (value) => new Intl.NumberFormat('fa-IR').format(value);
 const fieldName = (field) => String(field || 'محتوای غنی').slice(0, 180);
@@ -156,6 +157,15 @@ export function sanitizeContentPayload(input) {
   if (Array.isArray(source.posts)) next.posts = sanitizePosts(source.posts);
   if (Array.isArray(source.products)) next.products = sanitizeProductList(source.products);
   if (Array.isArray(source.gallery)) next.gallery = normalizeGalleryItems(source.gallery);
+
+  if (source.collections && typeof source.collections === 'object' && !Array.isArray(source.collections)) {
+    next.collections = {
+      ...source.collections,
+      ...(Object.hasOwn(source.collections, 'salesRepresentatives')
+        ? { salesRepresentatives: normalizeSalesRepresentatives(source.collections.salesRepresentatives) }
+        : {}),
+    };
+  }
 
   if (source.i18n && typeof source.i18n === 'object' && !Array.isArray(source.i18n)) {
     next.i18n = Object.fromEntries(

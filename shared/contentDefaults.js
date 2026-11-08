@@ -1,3 +1,5 @@
+import { DEFAULT_SALES_REPRESENTATIVES } from './salesRepresentatives.js';
+
 /* ==========================================================================
    Shared content defaults — single source of truth for the public site,
    the admin panel seed and the backend seed.
@@ -210,6 +212,26 @@ export const TEXTS = {
   'contact.form.errMessage': 'متن پیام الزامی است.',
   'contact.form.errSend': 'ارسال پیام ممکن نشد؛ لطفاً دوباره تلاش کنید یا تلفنی تماس بگیرید.',
 
+  /* ---------- sales representatives (Persian site only) ---------- */
+  'seo.salesRepresentatives.title': 'نمایندگان فروش خمیرمایه خوزستان در سراسر ایران',
+  'salesReps.hero.title': 'نمایندگان فروش خمیرمایه خوزستان',
+  'salesReps.hero.sub': 'نزدیک‌ترین نماینده رسمی فروش محصولات دزمایه، شتاب، ایکس پاور و نان مایه را در شهر خود پیدا کنید.',
+  'salesReps.overline': 'شبکه فروش داخلی',
+  'salesReps.title': 'نماینده نزدیک خود را [[روی نقشه ایران]] پیدا کنید',
+  'salesReps.intro': 'استان یا نشان شهر را انتخاب کنید؛ برای یافتن سریع‌تر می‌توانید نام نماینده، شهر، استان یا برند را جست‌وجو کنید.',
+  'salesReps.search': 'جست‌وجوی نام، شهر، استان یا برند',
+  'salesReps.allProvinces': 'همه استان‌ها',
+  'salesReps.clear': 'پاک کردن فیلترها',
+  'salesReps.mapLabel': 'نقشه تعاملی نمایندگان فروش در ایران',
+  'salesReps.mapDescription': 'استان‌های ایران و شهرهای دارای نماینده فروش روی نقشه مشخص شده‌اند.',
+  'salesReps.mapHint': 'برای مشاهده نمایندگان، یک نشان شهر یا استان را انتخاب کنید.',
+  'salesReps.results': 'نماینده فعال',
+  'salesReps.selected': 'نتایج انتخاب‌شده',
+  'salesReps.phone': 'تماس با نماینده',
+  'salesReps.brands': 'برندهای تحت پوشش',
+  'salesReps.emptyTitle': 'نماینده‌ای با این جست‌وجو پیدا نشد',
+  'salesReps.emptyText': 'فیلترها را پاک کنید یا نام شهر و استان دیگری را جست‌وجو کنید.',
+
   /* ---------- gallery ---------- */
   'gallery.hero.title': 'گالری خمیرمایه خوزستان',
   'gallery.hero.sub': 'روایتی تصویری از کارخانه، آزمایشگاه، محصولات و مسیر جهانی خمیرمایه خوزستان.',
@@ -260,6 +282,7 @@ export const TEXTS = {
   'nav.quality': 'کیفیت و گواهینامه‌ها',
   'nav.blog': 'وبلاگ',
   'nav.gallery': 'گالری',
+  'nav.salesRepresentatives': 'نمایندگان فروش',
   'nav.contact': 'تماس با ما',
   'nav.main': 'ناوبری اصلی',
   'nav.mobile': 'ناوبری موبایل',
@@ -489,6 +512,7 @@ export const MEDIA = {
   'blog.hero.img': '/assets/img/bread-slicing.webp',
   'gallery.hero.img': '/assets/img/factory.webp',
   'contact.hero.img': '/assets/img/hero-wheat.webp',
+  'salesReps.hero.img': '/assets/img/hero-wheat.webp',
 };
 
 export const LINKS = {
@@ -557,6 +581,7 @@ export const COLLECTIONS = {
   /* Empty until the company receives an eNamad or another verified seal.
      The admin panel may publish up to four; an empty list renders nothing. */
   trustSeals: [],
+  salesRepresentatives: DEFAULT_SALES_REPRESENTATIVES,
   socials: [
     { id: 'whatsapp', label: 'واتس‌اپ', href: 'https://wa.me/989912214091' },
     { id: 'telegram', label: 'تلگرام', href: 'https://t.me/+989912214091' },

@@ -17,6 +17,7 @@ export const NAV_LINKS = [
   { to: '/quality', key: 'nav.quality' },
   { to: '/blog', key: 'nav.blog' },
   { to: '/gallery', key: 'nav.gallery' },
+  { to: '/sales-representatives', key: 'nav.salesRepresentatives', faOnly: true },
   { to: '/contact', key: 'nav.contact' },
 ];
 
@@ -37,6 +38,7 @@ const HEADER_NAV_ITEMS = [
   { to: '/export', key: 'nav.export' },
   { to: '/blog', key: 'nav.blog' },
   { to: '/gallery', key: 'nav.gallery' },
+  { to: '/sales-representatives', key: 'nav.salesRepresentatives', faOnly: true },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -99,9 +101,11 @@ function Navbar() {
   const location = useLocation();
   const { t, l, col } = useContent();
   const { count, display } = useShop() || { count: 0, display: {} };
-  const { shopEnabled, isRTL } = useLocale();
+  const { shopEnabled, isRTL, locale } = useLocale();
   const storefrontEnabled = shopEnabled && display.enabled !== false;
-  const navItems = HEADER_NAV_ITEMS.filter((item) => !item.shopOnly || storefrontEnabled);
+  const navItems = HEADER_NAV_ITEMS.filter((item) =>
+    (!item.shopOnly || storefrontEnabled) && (!item.faOnly || locale === 'fa')
+  );
   const aboutIsActive = ['/about', '/quality'].some(
     (path) => location.pathname === path || location.pathname.startsWith(`${path}/`),
   );
@@ -567,7 +571,9 @@ function Footer() {
           <div>
             <h2>{t('footer.quickTitle')}</h2>
             <ul>
-              {NAV_LINKS.filter((link) => link.to !== '/' && (!link.shopOnly || shopEnabled)).map((link) => (
+              {NAV_LINKS.filter((link) =>
+                link.to !== '/' && (!link.shopOnly || shopEnabled) && (!link.faOnly || locale === 'fa')
+              ).map((link) => (
                 <li key={link.to}>
                   <Link to={link.to}>
                     <Icons.arrow size={14} />

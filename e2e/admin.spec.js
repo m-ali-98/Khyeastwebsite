@@ -63,7 +63,7 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
   const labels = [
     'محصولات', 'وبلاگ', 'فروشگاه — محصولات', 'سفارش‌ها', 'دیدگاه‌ها',
     'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'گالری', 'متون سایت',
-    'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
+    'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'نمایندگان فروش', 'پیام‌های مردم',
   ];
   for (const label of labels) {
     await adminTab(page, label).first().click();
@@ -71,6 +71,57 @@ test('every Persian tab opens and renders its panel', async ({ page }) => {
     await expect(page.locator('.admin__panel h1').first()).not.toBeEmpty();
   }
   expect(errors, 'console errors while touring the panel').toEqual([]);
+});
+
+test('sales representatives can be added in Admin, located in Gorgan, published and removed', async ({ page }) => {
+  const original = await (await page.request.get('/api/content')).json();
+  const name = `نماینده آزمایشی گرگان ${STAMP}`;
+  await loginAdmin(page);
+
+  try {
+    await adminTab(page, 'نمایندگان فروش').first().click();
+    const manager = page.getByTestId('admin-sales-representatives');
+    await expect(manager).toBeVisible();
+    await manager.getByRole('button', { name: 'افزودن نماینده' }).click();
+
+    const editor = manager.locator('.admin-reps__editor');
+    await editor.locator('label', { hasText: 'استان' }).locator('select').selectOption('گلستان');
+    await editor.locator('label', { hasText: 'شهر' }).locator('input').fill('گرگان');
+    await editor.locator('label', { hasText: 'نام شخص یا شرکت' }).locator('input').fill(name);
+    await editor.locator('label', { hasText: 'شماره تماس' }).locator('input').fill('09111234567');
+    await editor.locator('label', { hasText: 'برندهای تحت پوشش' }).locator('input').fill('دزمایه');
+    await editor.getByRole('button', { name: 'ثبت در پیش‌نویس' }).click();
+
+    const published = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await manager.getByRole('button', { name: 'ذخیره و انتشار' }).click();
+    expect((await published).status()).toBe(200);
+
+    await gotoReady(page, '/sales-representatives');
+    await expect(page.locator('.sales-reps__card', { hasText: name })).toBeVisible();
+    await expect(page.locator('.sales-map__marker').filter({ has: page.locator('title', { hasText: 'گرگان' }) })).toHaveCount(1);
+
+    await loginAdmin(page);
+    await openAdminTab(page, 'نمایندگان فروش');
+    const restoredManager = page.getByTestId('admin-sales-representatives');
+    await restoredManager.locator('.admin-reps__filters input').fill(name);
+    const row = restoredManager.locator('.admin-reps__row', { hasText: name });
+    await expect(row).toBeVisible();
+    page.once('dialog', (dialog) => dialog.accept());
+    await row.getByRole('button', { name: `حذف ${name}` }).click();
+    const removed = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await restoredManager.getByRole('button', { name: 'ذخیره و انتشار' }).click();
+    expect((await removed).status()).toBe(200);
+    const after = await (await page.request.get('/api/content')).json();
+    expect(after.collections.salesRepresentatives.some((item) => item.name === name)).toBe(false);
+  } finally {
+    await page.request.patch('/api/content', {
+      data: { changes: { collections: original.collections } },
+    });
+  }
 });
 
 test('controlled CMS fields coalesce keystrokes into one bucket-only patch', async ({ page }) => {
@@ -737,7 +788,7 @@ test('the admin shell uses an accessible drawer on a narrow screen @mobile', asy
   const labels = [
     'محصولات', 'وبلاگ', 'فروشگاه — محصولات', 'سفارش‌ها', 'دیدگاه‌ها',
     'درگاه پرداخت', 'مشتریان', 'پیامک', 'امنیت و محدودیت‌ها', 'گالری', 'متون سایت',
-    'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'پیام‌های مردم',
+    'تصاویر صفحات', 'پیوندها', 'نمادهای اعتماد', 'اطلاعات تماس', 'نمایندگان فروش', 'پیام‌های مردم',
   ];
   for (const label of labels) {
     await openAdminTab(page, label);

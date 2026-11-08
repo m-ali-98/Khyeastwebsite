@@ -24,6 +24,7 @@ const Quality = lazy(() => import('./pages/Quality'));
 const Blog = lazy(() => import('./pages/Blog'));
 const PostDetail = lazy(() => import('./pages/PostDetail'));
 const Contact = lazy(() => import('./pages/Contact'));
+const SalesRepresentatives = lazy(() => import('./pages/SalesRepresentatives'));
 const Gallery = lazy(() => import('./pages/Gallery'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const Shop = lazy(() => import('./pages/Shop'));
@@ -52,9 +53,10 @@ function PublicRoutes() {
   /* The online shop is an Iran-facing feature (rial pricing, Iranian payment
      gateway), so it exists on the Persian site only. On /en and /ar its routes
      are simply not mounted and fall through to the 404 page. */
-  const { shopEnabled } = useLocale();
+  const { shopEnabled, locale } = useLocale();
   const { state } = useContent();
   const storefrontEnabled = shopEnabled && state.shop?.display?.enabled !== false;
+  const persianSite = locale === 'fa';
   return (
     <Routes>
       <Route path="/" element={<Home />} />
@@ -77,6 +79,7 @@ function PublicRoutes() {
       <Route path="/blog" element={<Blog />} />
       <Route path="/blog/:slug" element={<PostDetail />} />
       <Route path="/gallery" element={<Gallery />} />
+      {persianSite && <Route path="/sales-representatives" element={<SalesRepresentatives />} />}
       <Route path="/contact" element={<Contact />} />
       <Route path="/dezmaye" element={<Navigate to="/products/dezmaye-gold-80" replace />} />
       <Route path="/shetab" element={<Navigate to="/products/shetab-90" replace />} />
