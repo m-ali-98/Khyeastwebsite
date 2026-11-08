@@ -13,43 +13,43 @@ export const CATALOG_SOURCE_URL = 'https://khuzestanyeast-co.com/products/';
 
 export const CATALOG_VARIANTS = Object.freeze([
   /* Dezmaye Gold — 9 catalogue variants. */
-  { slug: 'dezmaye-gold-70', brand: 'dezmaye', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'dezmaye-gold-80', brand: 'dezmaye', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12, featured: true },
-  { slug: 'dezmaye-gold-90', brand: 'dezmaye', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'dezmaye-gold-100', brand: 'dezmaye', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
+  { slug: 'dezmaye-gold-70', brand: 'dezmaye', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 4 },
+  { slug: 'dezmaye-gold-80', brand: 'dezmaye', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12, featured: true, imageCount: 3 },
+  { slug: 'dezmaye-gold-90', brand: 'dezmaye', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 3 },
+  { slug: 'dezmaye-gold-100', brand: 'dezmaye', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 6 },
   /* Keep the established slug because the shop SKU and old indexed links use it. */
-  { slug: 'dezmaye-golden-400', brand: 'dezmaye', amount: 400, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24 },
-  { slug: 'dezmaye-gold-450', brand: 'dezmaye', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24 },
-  { slug: 'dezmaye-gold-500', brand: 'dezmaye', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24 },
-  { slug: 'dezmaye-gold-5kg', brand: 'dezmaye', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24 },
-  { slug: 'dezmaye-gold-10kg', brand: 'dezmaye', amount: 10, unit: 'kg', package: 'bag', carton: null, shelfMonths: 6 },
+  { slug: 'dezmaye-golden-400', brand: 'dezmaye', amount: 400, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, imageCount: 4 },
+  { slug: 'dezmaye-gold-450', brand: 'dezmaye', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, imageCount: 5 },
+  { slug: 'dezmaye-gold-500', brand: 'dezmaye', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, imageCount: 5 },
+  { slug: 'dezmaye-gold-5kg', brand: 'dezmaye', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24, imageCount: 4 },
+  { slug: 'dezmaye-gold-10kg', brand: 'dezmaye', amount: 10, unit: 'kg', package: 'bag', carton: null, shelfMonths: 6, imageCount: 3 },
 
   /* Shetab Maye — 7 catalogue variants. */
-  { slug: 'shetab-70', brand: 'shetab', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'shetab-80', brand: 'shetab', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12 },
-  { slug: 'shetab-90', brand: 'shetab', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, featured: true },
-  { slug: 'shetab-100', brand: 'shetab', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'shetab-450', brand: 'shetab', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24 },
-  { slug: 'shetab-500', brand: 'shetab', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24 },
-  { slug: 'shetab-5kg', brand: 'shetab', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24 },
+  { slug: 'shetab-70', brand: 'shetab', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 1 },
+  { slug: 'shetab-80', brand: 'shetab', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12, imageCount: 1 },
+  { slug: 'shetab-90', brand: 'shetab', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, featured: true, imageCount: 1 },
+  { slug: 'shetab-100', brand: 'shetab', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 1 },
+  { slug: 'shetab-450', brand: 'shetab', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, imageCount: 1 },
+  { slug: 'shetab-500', brand: 'shetab', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, imageCount: 3 },
+  { slug: 'shetab-5kg', brand: 'shetab', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24, imageCount: 1 },
 
   /* X-Power — 7 catalogue variants. */
-  { slug: 'xpower-70', brand: 'xpower', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, featured: true },
-  { slug: 'xpower-80', brand: 'xpower', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12 },
-  { slug: 'xpower-90', brand: 'xpower', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'xpower-100', brand: 'xpower', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'xpower-450', brand: 'xpower', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24 },
-  { slug: 'xpower-500', brand: 'xpower', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, layers: 4 },
-  { slug: 'xpower-5kg', brand: 'xpower', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24 },
+  { slug: 'xpower-70', brand: 'xpower', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, featured: true, imageCount: 1 },
+  { slug: 'xpower-80', brand: 'xpower', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12, imageCount: 1 },
+  { slug: 'xpower-90', brand: 'xpower', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 1 },
+  { slug: 'xpower-100', brand: 'xpower', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 1 },
+  { slug: 'xpower-450', brand: 'xpower', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, imageCount: 1 },
+  { slug: 'xpower-500', brand: 'xpower', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, layers: 4, imageCount: 1 },
+  { slug: 'xpower-5kg', brand: 'xpower', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24, imageCount: 1 },
 
   /* Nan Maye — 7 catalogue variants. */
-  { slug: 'nanmaye-70', brand: 'nanmaye', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'nanmaye-80', brand: 'nanmaye', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12 },
-  { slug: 'nanmaye-90', brand: 'nanmaye', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'nanmaye-100', brand: 'nanmaye', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24 },
-  { slug: 'nanmaye-450', brand: 'nanmaye', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24 },
-  { slug: 'nanmaye-500', brand: 'nanmaye', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, featured: true },
-  { slug: 'nanmaye-5kg', brand: 'nanmaye', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24 },
+  { slug: 'nanmaye-70', brand: 'nanmaye', amount: 70, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 1 },
+  { slug: 'nanmaye-80', brand: 'nanmaye', amount: 80, unit: 'g', package: 'sachet', carton: 50, shelfMonths: 12, imageCount: 1 },
+  { slug: 'nanmaye-90', brand: 'nanmaye', amount: 90, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 1 },
+  { slug: 'nanmaye-100', brand: 'nanmaye', amount: 100, unit: 'g', package: 'vacuum', carton: 60, shelfMonths: 24, imageCount: 1 },
+  { slug: 'nanmaye-450', brand: 'nanmaye', amount: 450, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, imageCount: 1 },
+  { slug: 'nanmaye-500', brand: 'nanmaye', amount: 500, unit: 'g', package: 'vacuum', carton: 20, shelfMonths: 24, featured: true, imageCount: 1 },
+  { slug: 'nanmaye-5kg', brand: 'nanmaye', amount: 5, unit: 'kg', package: 'vacuum', carton: 2, shelfMonths: 24, imageCount: 1 },
 ]);
 
 const BRAND_IMAGES = Object.freeze({
@@ -58,6 +58,21 @@ const BRAND_IMAGES = Object.freeze({
   xpower: '/assets/products/xpower.webp',
   nanmaye: '/assets/products/nanmaye.webp',
 });
+
+/** Ordered, repository-owned WebP gallery produced from the reviewed intake.
+ * The first URL is the card/SEO image; numbered files preserve the order the
+ * user chose in the sandbox without retaining any multi-megabyte PNG master in
+ * the shipped source tree. */
+export function catalogProductImageUrls(variant) {
+  const count = Number(variant?.imageCount);
+  if (!variant?.slug || !Number.isSafeInteger(count) || count < 1) {
+    return [BRAND_IMAGES[variant?.brand] || BRAND_IMAGES.dezmaye];
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const suffix = index === 0 ? '' : `-${String(index + 1).padStart(2, '0')}`;
+    return `/assets/products/catalog/${variant.slug}${suffix}.webp`;
+  });
+}
 
 const FA_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
 const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
@@ -180,6 +195,7 @@ export function buildCatalogProducts(locale, shared = {}) {
   const copy = COPY[locale] || COPY.fa;
   return CATALOG_VARIANTS.map((variant) => {
     const weight = copy.weight(variant);
+    const images = catalogProductImageUrls(variant);
     const specs = [
       [variant.package === 'sachet' ? copy.labels.sachetWeight : copy.labels.weight, copy.weightValue(variant, weight)],
       [copy.labels.package, copy.packageValue(variant)],
@@ -196,7 +212,8 @@ export function buildCatalogProducts(locale, shared = {}) {
       title: copy.title[variant.brand](weight),
       weight,
       pack: copy.pack[variant.package],
-      image: BRAND_IMAGES[variant.brand],
+      image: images[0],
+      images,
       featured: Boolean(variant.featured),
       short: `${copy.variantSummary(weight, copy.pack[variant.package])} ${copy.short[variant.brand]}`,
       specs,

@@ -73,6 +73,12 @@ test('the recovered catalogue exposes 30 variants, exact brand filters and local
   await gotoReady(page, '/products');
   const cards = page.locator('.product-card');
   await expect(cards).toHaveCount(30);
+  const primaryPaths = await cards.locator('.product-card__media img').evaluateAll((images) => (
+    images.map((image) => new URL(image.src).pathname)
+  ));
+  expect(primaryPaths).toHaveLength(30);
+  expect(new Set(primaryPaths).size).toBe(30);
+  expect(primaryPaths.every((path) => /^\/assets\/products\/catalog\/[a-z0-9-]+\.webp$/.test(path))).toBe(true);
 
   const filters = page.locator('.products-filter');
   for (const [name, count] of [
@@ -90,6 +96,30 @@ test('the recovered catalogue exposes 30 variants, exact brand filters and local
   await gotoReady(page, '/products/dezmaye-gold-10kg');
   await expect(page.locator('.catalog-detail__layout h1')).toContainText('۱۰ کیلوگرم');
   await expect(page.locator('.catalog-detail__layout')).toContainText('۶ ماه');
+  await expect(page.locator('.product-gallery__thumb')).toHaveCount(3);
+  await expect(page.locator('.product-gallery__main')).toHaveAttribute(
+    'src',
+    '/assets/products/catalog/dezmaye-gold-10kg.webp',
+  );
+  await page.locator('.product-gallery__thumb').last().click();
+  await expect(page.locator('.product-gallery__main')).toHaveAttribute(
+    'src',
+    '/assets/products/catalog/dezmaye-gold-10kg-03.webp',
+  );
+
+  /* The largest reviewed gallery must stay inside a 320 px RTL viewport: a
+     thumbnail rail has a wide min-content size unless the media grid item is
+     explicitly constrained to its track. */
+  await page.setViewportSize({ width: 320, height: 844 });
+  await gotoReady(page, '/products/dezmaye-gold-100');
+  await routeSettled(page);
+  await expect(page.locator('.product-gallery__thumb')).toHaveCount(6);
+  const galleryBounds = await page.locator('.product-gallery').evaluate((gallery) => {
+    const bounds = gallery.getBoundingClientRect();
+    return { left: bounds.left, right: bounds.right, viewport: window.innerWidth };
+  });
+  expect(galleryBounds.left).toBeGreaterThanOrEqual(-1);
+  expect(galleryBounds.right).toBeLessThanOrEqual(galleryBounds.viewport + 1);
 
   for (const [route, title, shelfLife] of [
     ['/en/products/dezmaye-gold-80', 'Dezmaye Gold', '12 months'],

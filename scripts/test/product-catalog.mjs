@@ -2,12 +2,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import {
   CATALOG_SOURCE_URL,
   CATALOG_VARIANTS,
   buildCatalogProducts,
   buildCatalogProductTranslations,
+  catalogProductImageUrls,
 } from '../../shared/catalogProducts.js';
 import { loadAllPacks, localizeState } from '../../shared/i18n/index.js';
 import {
@@ -60,6 +62,38 @@ const expectedRows = [
   ['nanmaye-500', 'nanmaye', 500, 'g', 'vacuum', 20, 24],
   ['nanmaye-5kg', 'nanmaye', 5, 'kg', 'vacuum', 2, 24],
 ];
+const expectedImageCounts = {
+  'dezmaye-gold-70': 4,
+  'dezmaye-gold-80': 3,
+  'dezmaye-gold-90': 3,
+  'dezmaye-gold-100': 6,
+  'dezmaye-golden-400': 4,
+  'dezmaye-gold-450': 5,
+  'dezmaye-gold-500': 5,
+  'dezmaye-gold-5kg': 4,
+  'dezmaye-gold-10kg': 3,
+  'shetab-70': 1,
+  'shetab-80': 1,
+  'shetab-90': 1,
+  'shetab-100': 1,
+  'shetab-450': 1,
+  'shetab-500': 3,
+  'shetab-5kg': 1,
+  'xpower-70': 1,
+  'xpower-80': 1,
+  'xpower-90': 1,
+  'xpower-100': 1,
+  'xpower-450': 1,
+  'xpower-500': 1,
+  'xpower-5kg': 1,
+  'nanmaye-70': 1,
+  'nanmaye-80': 1,
+  'nanmaye-90': 1,
+  'nanmaye-100': 1,
+  'nanmaye-450': 1,
+  'nanmaye-500': 1,
+  'nanmaye-5kg': 1,
+};
 const compactRows = CATALOG_VARIANTS.map((variant) => [
   variant.slug,
   variant.brand,
@@ -80,6 +114,11 @@ check(
 check(
   new Set(CATALOG_VARIANTS.map(({ slug }) => slug)).size === 30,
   'every recovered variant has one unique stable slug',
+);
+check(
+  CATALOG_VARIANTS.every(({ slug, imageCount }) => expectedImageCounts[slug] === imageCount) &&
+    Object.values(expectedImageCounts).reduce((sum, count) => sum + count, 0) === 60,
+  'the 60 reviewed intake images stay assigned to the intended 30 variants',
 );
 
 const byBrand = Object.groupBy(CATALOG_VARIANTS, ({ brand }) => brand);
@@ -117,6 +156,7 @@ check(
 check(
   products.every((product) => (
     product.title && product.short && product.weight && product.pack && product.image &&
+    product.images?.length === expectedImageCounts[product.slug] && product.image === product.images[0] &&
     product.specs.length >= 5 && product.usage.length === 4 &&
     product.analysis.length === 6 && product.storage.length === 4
   )),
@@ -126,7 +166,8 @@ check(
   products.every((product, index) => (
     product.usage !== products[(index + 1) % products.length].usage &&
     product.analysis !== products[(index + 1) % products.length].analysis &&
-    product.storage !== products[(index + 1) % products.length].storage
+    product.storage !== products[(index + 1) % products.length].storage &&
+    product.images !== products[(index + 1) % products.length].images
   )),
   'generated product detail arrays do not share mutable references',
 );
@@ -159,22 +200,32 @@ check(
   'the X-Power 500 g detail page displays its four-layer vacuum pack',
 );
 
-const expectedImages = new Set([
-  '/assets/products/dezmaye-gold.webp',
-  '/assets/products/shetab.webp',
-  '/assets/products/xpower.webp',
-  '/assets/products/nanmaye.webp',
-]);
+const expectedImages = products.flatMap(({ images }) => images);
+const catalogImageDirectory = path.join(ROOT, 'public', 'assets', 'products', 'catalog');
+const shippedCatalogFiles = fs.readdirSync(catalogImageDirectory).sort();
 check(
-  products.every(({ image }) => expectedImages.has(image) && image.startsWith('/assets/')),
-  'catalogue media stays on the same origin and uses the four owned brand packshots',
+  expectedImages.length === 60 && new Set(expectedImages).size === 60 &&
+    CATALOG_VARIANTS.every((variant) => (
+      JSON.stringify(productBySlug.get(variant.slug)?.images) === JSON.stringify(catalogProductImageUrls(variant))
+    )),
+  'all 60 ordered gallery URLs are unique and derived from their reviewed variant assignment',
 );
 check(
-  [...expectedImages].every((url) => {
-    const file = path.join(ROOT, 'public', url.replace(/^\//, ''));
-    return fs.statSync(file).isFile() && fs.statSync(file).size > 0;
-  }),
-  'every catalogue packshot exists as a non-empty public asset',
+  expectedImages.every((url) => url.startsWith('/assets/products/catalog/') && url.endsWith('.webp')) &&
+    shippedCatalogFiles.length === 60 && shippedCatalogFiles.every((file) => file.endsWith('.webp')) &&
+    JSON.stringify(shippedCatalogFiles) === JSON.stringify(expectedImages.map((url) => path.basename(url)).sort()),
+  'the tracked catalogue directory contains only the 60 optimized WebP outputs',
+);
+const optimizedMetadata = await Promise.all(expectedImages.map(async (url) => {
+  const file = path.join(ROOT, 'public', url.replace(/^\//, ''));
+  return { stat: fs.statSync(file), metadata: await sharp(file).metadata() };
+}));
+check(
+  optimizedMetadata.every(({ stat, metadata }) => (
+    stat.isFile() && stat.size > 0 && stat.size <= 400 * 1024 &&
+    metadata.format === 'webp' && metadata.width <= 1600 && metadata.height <= 1600
+  )),
+  'every catalogue image is a bounded, non-empty WebP no larger than 1600 px or 400 KB',
 );
 
 const english = buildCatalogProductTranslations('en', {
@@ -205,9 +256,9 @@ check(
   'Arabic package and shelf-life exceptions are localized from the shared table',
 );
 check(
-  !Object.values(english).some((product) => Object.hasOwn(product, 'image')) &&
-    !Object.values(arabic).some((product) => Object.hasOwn(product, 'image')),
-  'locale overlays cannot replace language-neutral product media',
+  !Object.values(english).some((product) => Object.hasOwn(product, 'image') || Object.hasOwn(product, 'images')) &&
+    !Object.values(arabic).some((product) => Object.hasOwn(product, 'image') || Object.hasOwn(product, 'images')),
+  'locale overlays cannot replace language-neutral product galleries',
 );
 
 await loadAllPacks();

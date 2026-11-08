@@ -1237,7 +1237,10 @@
   .about-factory .split__media .img-main img { min-height: 390px; }
 
   .catalog-detail__layout { grid-template-columns: minmax(0, 1fr); }
-  .catalog-detail__media { max-width: 620px; margin-inline: auto; }
+  /* Multiple thumbnails have a wide min-content size. Give the centered media
+     item an explicit track-relative width so that gallery rails scroll inside
+     narrow cards instead of growing leftward beyond the clipped RTL viewport. */
+  .catalog-detail__media { width: 100%; max-width: 620px; margin-inline: auto; }
 
   .export-map__layout { grid-template-columns: minmax(0, 1fr); }
   .export-map__detail-top { margin-block-end: 0; }
