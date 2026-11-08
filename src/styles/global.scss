@@ -2456,22 +2456,34 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
-  .products-catalog-grid .product-card {
+  /* A photo's intrinsic portrait/landscape ratio must not participate in the
+     grid row size. Every catalogue card uses one fixed mobile frame; the
+     image remains fully visible inside its own column via object-fit: contain. */
+  .products-index .products-catalog-grid .product-card {
     display: grid;
     grid-template-columns: 116px minmax(0, 1fr);
-    min-height: 158px;
+    grid-template-rows: minmax(0, 1fr);
+    height: 200px;
+    min-height: 200px;
     border-radius: 18px;
   }
   .products-catalog-grid .product-card__media {
     min-width: 0;
     height: 100%;
-    min-height: 158px;
+    min-height: 0;
     aspect-ratio: auto;
     border-radius: 0;
     border-block-end: 0;
     border-inline-end: 1px solid var(--line);
   }
-  .products-catalog-grid .product-card__media img { padding: 8px; }
+  .products-catalog-grid .product-card__media img {
+    padding: 8px;
+    object-fit: contain;
+    object-position: center;
+  }
+  .products-catalog-grid .product-card:is(:hover, :focus-within) .product-card__media img {
+    transform: none;
+  }
   .products-catalog-grid .product-card__brand {
     inset-block-start: 8px;
     inset-inline-start: 8px;

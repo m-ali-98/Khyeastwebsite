@@ -131,6 +131,45 @@ test('the recovered catalogue exposes 30 variants, exact brand filters and local
   }
 });
 
+test('mobile catalogue cards use equal frames without cropping product photos @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+
+  for (const route of ['/products', '/en/products', '/ar/products']) {
+    await gotoReady(page, route);
+    const cards = page.locator('.products-catalog-grid .product-card');
+    await expect(cards).toHaveCount(30);
+
+    const metrics = await cards.evaluateAll((elements) => elements.map((card) => {
+      const media = card.querySelector('.product-card__media');
+      const image = media.querySelector('img');
+      const body = card.querySelector('.product-card__body');
+      const cardBounds = card.getBoundingClientRect();
+      const mediaBounds = media.getBoundingClientRect();
+      const imageStyle = getComputedStyle(image);
+      return {
+        width: cardBounds.width,
+        height: cardBounds.height,
+        mediaInsideCard: mediaBounds.top >= cardBounds.top - 1 &&
+          mediaBounds.bottom <= cardBounds.bottom + 1,
+        bodyFits: body.scrollHeight <= body.clientHeight,
+        objectFit: imageStyle.objectFit,
+        objectPosition: imageStyle.objectPosition,
+      };
+    }));
+
+    const widths = metrics.map(({ width }) => width);
+    const heights = metrics.map(({ height }) => height);
+    /* Active route/reveal transforms can introduce sub-pixel bounding-box
+       fractions, so compare the rendered frames with a one-pixel tolerance. */
+    expect(Math.max(...widths) - Math.min(...widths)).toBeLessThan(1);
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(1);
+    expect(heights.every((height) => Math.abs(height - 200) < 1)).toBe(true);
+    expect(metrics.every(({ mediaInsideCard, bodyFits, objectFit, objectPosition }) => (
+      mediaInsideCard && bodyFits && objectFit === 'contain' && objectPosition === '50% 50%'
+    ))).toBe(true);
+  }
+});
+
 test('gallery paginates nine at a time and its lightbox is keyboard-accessible @mobile', async ({ page }) => {
   await page.route('**/api/content', async (route) => {
     const response = await route.fetch();

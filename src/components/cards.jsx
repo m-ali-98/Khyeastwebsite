@@ -13,9 +13,9 @@ export function ProductCard({ product, index = 0 }) {
   return (
     <Reveal as="article" className="card product-card" y={40} delay={(index % 4) * 0.1}>
       <Link to={`/products/${product.slug}`} className="product-card__media" aria-label={product.title}>
-        {/* 720x720 square source. The intrinsic size is declared so the
-            browser reserves the box and the grid does not jump as photos
-            load. */}
+        {/* Declare a square presentation slot so the browser reserves stable
+            card space before each differently proportioned packshot loads;
+            object-fit: contain keeps the complete product visible. */}
         <img {...imgProps(product.image, SIZES.card)} alt={product.title} width={720} height={720} loading="lazy" />
         <span className="product-card__brand">{brand?.fa}</span>
       </Link>
