@@ -131,6 +131,42 @@ test('the recovered catalogue exposes 30 variants, exact brand filters and local
   }
 });
 
+test('mobile catalogue filtering preserves scroll position and does not reload the route @mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  const contentRequests = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/content') contentRequests.push(request.url());
+  });
+
+  await gotoReady(page, '/products');
+  await routeSettled(page);
+  const filters = page.locator('.products-filter');
+  const cards = page.locator('.product-card');
+  await expect(cards).toHaveCount(30);
+  const requestsBeforeFilter = contentRequests.length;
+
+  /* Reproduce the reported path: make a small mobile scroll while the filter
+     remains clickable, then shorten the list. The old query-keyed <main>
+     disappeared during a content reload and the browser clamped this position
+     to the footer. */
+  await page.evaluate(() => window.scrollTo(0, 300));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(300);
+  const scrollBeforeFilter = await page.evaluate(() => window.scrollY);
+
+  await filters.getByRole('button', { name: /شتاب \(Shetab\)/ }).click();
+  await expect(page).toHaveURL(/\/products\?brand=shetab$/);
+  await expect(cards).toHaveCount(7);
+  await page.waitForTimeout(600);
+
+  const scrollAfterFilter = await page.evaluate(() => ({
+    top: window.scrollY,
+    maximum: document.documentElement.scrollHeight - window.innerHeight,
+  }));
+  expect(Math.abs(scrollAfterFilter.top - scrollBeforeFilter)).toBeLessThanOrEqual(2);
+  expect(scrollAfterFilter.top).toBeLessThan(scrollAfterFilter.maximum - 100);
+  expect(contentRequests).toHaveLength(requestsBeforeFilter);
+});
+
 test('mobile catalogue cards use equal frames without cropping product photos @mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 });
 

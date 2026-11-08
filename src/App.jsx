@@ -95,13 +95,13 @@ function NavigationRoutes() {
   const isAdmin = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
   const { locale } = useLocale();
   const { reload } = useContent();
-  /* Gallery pagination changes only which nine records from the already-fresh
-     collection are visible. Keep that query-string navigation inside the
-     mounted route instead of re-fetching all content and flashing the global
-     navigation loader for every page button. */
-  const isGalleryCollection = /^\/(?:en\/|ar\/)?gallery$/.test(location.pathname);
-  const routeKey = isGalleryCollection
-    ? `gallery:${location.pathname}`
+  /* Collection query strings only change which already-fresh records are
+     visible. Keep gallery pagination and catalogue brand filters inside their
+     mounted route instead of briefly removing <main>, re-fetching all content,
+     and letting the browser clamp a mobile scroll position to the footer. */
+  const isInPlaceCollection = /^\/(?:gallery|products)$/.test(location.pathname);
+  const routeKey = isInPlaceCollection
+    ? `collection:${location.pathname}`
     : `${location.key || 'route'}:${location.pathname}${location.search}`;
   const [freshKey, setFreshKey] = useState('');
   const [settledKey, setSettledKey] = useState('');
