@@ -84,7 +84,7 @@ function PublicRoutes() {
       <Route path="/dezmaye" element={<Navigate to="/products/dezmaye-gold-80" replace />} />
       <Route path="/shetab" element={<Navigate to="/products/shetab-90" replace />} />
       <Route path="/xpower" element={<Navigate to="/products/xpower-70" replace />} />
-      <Route path="/nanmaye" element={<Navigate to="/products/nanmaye-10" replace />} />
+      <Route path="/nanmaye" element={<Navigate to="/products/nanmaye-500" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -26,11 +26,11 @@ ErrorDocument 404 /404.html
   RewriteRule ^(?:fa/)?dezmaye/?$ /products/dezmaye-gold-80 [R=301,L]
   RewriteRule ^(?:fa/)?shetab/?$ /products/shetab-90 [R=301,L]
   RewriteRule ^(?:fa/)?xpower/?$ /products/xpower-70 [R=301,L]
-  RewriteRule ^(?:fa/)?nanmaye/?$ /products/nanmaye-10 [R=301,L]
+  RewriteRule ^(?:fa/)?nanmaye/?$ /products/nanmaye-500 [R=301,L]
   RewriteRule ^(en|ar)/dezmaye/?$ /$1/products/dezmaye-gold-80 [R=301,L]
   RewriteRule ^(en|ar)/shetab/?$ /$1/products/shetab-90 [R=301,L]
   RewriteRule ^(en|ar)/xpower/?$ /$1/products/xpower-70 [R=301,L]
-  RewriteRule ^(en|ar)/nanmaye/?$ /$1/products/nanmaye-10 [R=301,L]
+  RewriteRule ^(en|ar)/nanmaye/?$ /$1/products/nanmaye-500 [R=301,L]
 
   RewriteRule ^fa/?$ / [R=301,L]
   RewriteRule ^fa/(.*?)/?$ /$1 [R=301,L,NE]

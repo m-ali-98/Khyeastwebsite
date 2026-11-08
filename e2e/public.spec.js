@@ -69,6 +69,38 @@ test.describe('public routes', () => {
   }
 });
 
+test('the recovered catalogue exposes 30 variants, exact brand filters and localized details @mobile', async ({ page }) => {
+  await gotoReady(page, '/products');
+  const cards = page.locator('.product-card');
+  await expect(cards).toHaveCount(30);
+
+  const filters = page.locator('.products-filter');
+  for (const [name, count] of [
+    [/دزمایه \(Dezmaye\)/, 9],
+    [/شتاب \(Shetab\)/, 7],
+    [/ایکس پاور \(X-Power\)/, 7],
+    [/نان مایه \(Nan Maye\)/, 7],
+  ]) {
+    await filters.getByRole('button', { name }).click();
+    await expect(cards).toHaveCount(count);
+  }
+  await filters.getByRole('button', { name: 'همه محصولات', exact: true }).click();
+  await expect(cards).toHaveCount(30);
+
+  await gotoReady(page, '/products/dezmaye-gold-10kg');
+  await expect(page.locator('.catalog-detail__layout h1')).toContainText('۱۰ کیلوگرم');
+  await expect(page.locator('.catalog-detail__layout')).toContainText('۶ ماه');
+
+  for (const [route, title, shelfLife] of [
+    ['/en/products/dezmaye-gold-80', 'Dezmaye Gold', '12 months'],
+    ['/ar/products/dezmaye-gold-80', 'دزمايه غولد', '١٢ شهرًا'],
+  ]) {
+    await gotoReady(page, route);
+    await expect(page.locator('.catalog-detail__layout h1')).toContainText(title);
+    await expect(page.locator('.catalog-detail__layout')).toContainText(shelfLife);
+  }
+});
+
 test('gallery paginates nine at a time and its lightbox is keyboard-accessible @mobile', async ({ page }) => {
   await page.route('**/api/content', async (route) => {
     const response = await route.fetch();

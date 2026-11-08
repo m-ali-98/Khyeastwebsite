@@ -28,7 +28,7 @@ const ALIASES = {
   '/dezmaye': '/products/dezmaye-gold-80',
   '/shetab': '/products/shetab-90',
   '/xpower': '/products/xpower-70',
-  '/nanmaye': '/products/nanmaye-10',
+  '/nanmaye': '/products/nanmaye-500',
 };
 
 const STATIC_ROUTES = {

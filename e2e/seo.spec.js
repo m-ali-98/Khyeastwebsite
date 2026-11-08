@@ -89,6 +89,8 @@ test('legacy, prefixed and slash duplicates are permanent redirects', async ({ r
     ['/dezmaye', '/products/dezmaye-gold-80'],
     ['/en/dezmaye', '/en/products/dezmaye-gold-80'],
     ['/fa/dezmaye/', '/products/dezmaye-gold-80'],
+    ['/nanmaye', '/products/nanmaye-500'],
+    ['/ar/nanmaye', '/ar/products/nanmaye-500'],
     ['/fa/products', '/products'],
     ['/about/', '/about'],
     ['/index.html', '/'],
@@ -111,6 +113,11 @@ test('the Persian shop never claims nonexistent English or Arabic equivalents', 
   const product = await (await request.get('/shop/dezmaye-gold-80')).text();
   expect(product).toContain(`rel="canonical" href="${origin}/products/dezmaye-gold-80"`);
   expect(product).not.toContain('hreflang=');
+
+  const standalone = await (await request.get('/shop/nanmaye-10')).text();
+  expect(standalone).toContain(`rel="canonical" href="${origin}/shop/nanmaye-10"`);
+  expect(standalone).not.toContain(`href="${origin}/en/shop/nanmaye-10"`);
+  expect(standalone).not.toContain(`href="${origin}/ar/shop/nanmaye-10"`);
 });
 
 test('client navigation replaces title, canonical, social metadata and JSON-LD', async ({ page }) => {

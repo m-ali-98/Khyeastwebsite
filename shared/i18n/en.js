@@ -1,3 +1,5 @@
+import { buildCatalogProductTranslations } from '../catalogProducts.js';
+
 /* ==========================================================================
    English content overrides.
    Only the values differ from shared/contentDefaults.js — the key structure is
@@ -54,7 +56,7 @@ export const TEXTS = {
   'home.brands.cardLink': 'Products of this brand',
   'home.products.overline': 'Featured products',
   'home.products.title': 'Instant dry yeast for [[every kind of baking]]',
-  'home.products.sub': 'From household sachets to 20 kg export sacks — all held to a single quality promise.',
+  'home.products.sub': 'From 70 g packs to 10 kg industrial sacks — all held to a single quality promise.',
   'home.products.btnAll': 'View all products',
   'home.process.overline': 'The path to quality',
   'home.process.title': 'From a pure culture to [[ready-to-use dry yeast]]',
@@ -109,7 +111,7 @@ export const TEXTS = {
   /* ---------- products ---------- */
   'products.hero.title': 'Khuzestan Yeast products',
   'products.hero.sub':
-    'Our full instant dry yeast range under the Dezmaye, Shetab, X-Power and Nan Maye brands — from 70 g sachets to 20 kg export sacks.',
+    'Thirty instant dry yeast packages under the Dezmaye, Shetab, X-Power and Nan Maye brands — from 70 g packs to a 10 kg industrial sack.',
   'products.filter.all': 'All products',
   'products.catalog.title': 'Download the full product catalogue',
   'products.catalog.text':
@@ -474,8 +476,6 @@ const STORAGE = [
   'Once opened, keep the remaining yeast in a sealed container in the refrigerator (4 °C) and use it within 3 to 5 days.',
 ];
 
-const STANDARDS = 'ISO 9001:2015 (Germany), Halal certificate, Iranian National Standard';
-
 export const BRANDS = {
   dezmaye: { fa: 'Dezmaye', tagline: 'Our flagship export brand' },
   shetab: { fa: 'Shetab', tagline: 'Fast action, reliable result' },
@@ -483,150 +483,11 @@ export const BRANDS = {
   nanmaye: { fa: 'Nan Maye', tagline: 'The choice of industrial bakeries' },
 };
 
-export const PRODUCTS = {
-  'dezmaye-gold-80': {
-    title: 'Dezmaye Gold instant dry yeast — 80 g',
-    weight: '80 g',
-    pack: 'Vacuum pack',
-    short:
-      'Dezmaye Gold instant dry yeast, produced to the highest European quality standards on advanced Frings (Austria) technology — exceptionally high fermentation activity with no need for pre-fermentation.',
-    specs: [
-      ['Net weight / sachet', '80 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer moisture-proof aluminium vacuum pack'],
-      ['Units per carton', '40 units per export carton'],
-      ['Shelf life', '24 months (2 years) from production, stored cool and dry'],
-      ['Standards', 'ISO 9001:2015 (Germany), Halal, Iranian National Standard, VH Berlin membership'],
-      ['Applications', 'Barbari, sangak, taftoon, lavash, baguette, toast, volume and fancy breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'dezmaye-gold-500': {
-    title: 'Dezmaye Gold instant dry yeast — 500 g',
-    weight: '500 g',
-    pack: 'Vacuum pack',
-    short:
-      'The economical 500 g Dezmaye Gold pack for busy bakeries and semi-industrial workshops — the same export-grade quality with a two-year shelf life.',
-    specs: [
-      ['Net weight', '500 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer moisture-proof aluminium vacuum pack'],
-      ['Units per carton', '20 units per export carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Traditional and volume breads, industrial pastry'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'dezmaye-golden-400': {
-    title: 'Dezmaye Golden instant dry yeast — 400 g',
-    weight: '400 g',
-    pack: 'Vacuum pack',
-    short:
-      'The golden edition of Dezmaye, made with a selected strain and uniform fermentation power — a dependable choice for continuous baking lines.',
-    specs: [
-      ['Net weight', '400 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer aluminium vacuum pack'],
-      ['Units per carton', '25 units per carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Industrial breads, baguettes and fancy breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'shetab-90': {
-    title: 'Shetab Maye instant dry yeast — 90 g',
-    weight: '90 g',
-    pack: 'Sachet',
-    short:
-      'Shetab Maye’s fast-acting formulation shortens fermentation time and raises the productivity of the baking line — ideal for traditional bakeries and home use.',
-    specs: [
-      ['Net weight / sachet', '90 g (three-layer sachet)'],
-      ['Packaging type', 'Aluminium sachet resistant to moisture and light'],
-      ['Units per carton', '50 sachets per carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Barbari, taftoon, lavash and household baking'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'shetab-500': {
-    title: 'Shetab instant dry yeast — 500 g',
-    weight: '500 g',
-    pack: 'Vacuum pack',
-    short:
-      'The 500 g Shetab pack for everyday bakery use — fast fermentation, an even crumb and fewer baking rejects.',
-    specs: [
-      ['Net weight', '500 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer aluminium vacuum pack'],
-      ['Units per carton', '20 units per carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Traditional and semi-volume breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'xpower-70': {
-    title: 'X-Power instant dry yeast — 70 g',
-    weight: '70 g',
-    pack: 'Vacuum pack',
-    short:
-      'X-Power delivers double fermentation power for heavy and sweet doughs — an excellent, even crumb even at high sugar and fat levels.',
-    specs: [
-      ['Net weight / sachet', '70 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer moisture-proof aluminium vacuum pack'],
-      ['Units per carton', '40 units per export carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Volume and fancy breads, fermented pastry and enriched doughs'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'nanmaye-10': {
-    title: 'Nan Maye instant dry yeast — 10 kg',
-    weight: '10 kg',
-    pack: 'Carton / sack',
-    short:
-      'The 10 kg Nan Maye sack for industrial baking lines — easy dosing, excellent flowability and stable performance in long fermentations.',
-    specs: [
-      ['Net weight', '10 kg'],
-      ['Packaging type', 'Multi-layer sack inside an export carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Industrial breads, toast bread, volume and semi-volume breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'nanmaye-20': {
-    title: 'Nan Maye export instant dry yeast — 20 kg',
-    weight: '20 kg',
-    pack: 'Bulk sack',
-    short:
-      'The 20 kg bulk sack for export and large bread factories, in packaging built to withstand international shipping and varied climates.',
-    specs: [
-      ['Net weight', '20 kg'],
-      ['Packaging type', 'Palletised multi-layer bulk sack'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Industrial bread factories and export'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-};
+export const PRODUCTS = buildCatalogProductTranslations('en', {
+  usage: USAGE,
+  analysis: ANALYSIS,
+  storage: STORAGE,
+});
 
 export const GALLERY = {
   'product-range': {
@@ -677,6 +538,6 @@ export const POSTS = {
     publishedAt: '2026-07-19',
     category: 'Technical guide',
     readTime: '7',
-    body: `<p>Not all yeasts are made alike; the strain, the drying method and the packaging all change how the dough behaves in different products. In this article we compare three common applications using the Khuzestan Yeast brands.</p><h2>Traditional breads (barbari, sangak, taftoon)</h2><p>In traditional bread the balance between fermentation speed and dough elasticity is critical. Shetab Maye, with its fast yet controlled action, is designed for the short cycles of a traditional bakery and produces a consistent final volume across back-to-back bakes.</p><h2>Volume and fancy breads</h2><p>Doughs enriched with sugar and fat place high osmotic pressure on the yeast cell. X-Power, built on an osmotolerant strain, keeps gassing steadily even in that harsh environment and guarantees the light, even crumb that volume breads need.</p><h2>Industrial breads and continuous lines</h2><p>On a continuous line, repeatability matters more than anything else. Dezmaye Gold and Nan Maye, with batch-to-batch consistency and large 10 kg and 20 kg packs, are optimised for industrial dosing and scheduled fermentations.</p><h2>Quick selection guide</h2><ul><li>Traditional bread on a short cycle: Shetab Maye (90 g sachet or 500 g vacuum pack)</li><li>Volume bread, fancy bread and fermented pastry: X-Power (70 g vacuum pack)</li><li>Continuous industrial lines and export: Dezmaye Gold and Nan Maye (10 and 20 kg)</li><li>Household and small workshop use: Dezmaye Gold 80 g</li></ul><p>The general rule: the higher the sugar and fat content of the dough and the longer the fermentation, the more resistant a strain and the larger a pack you need. The Khuzestan Yeast technical team is on hand to help you choose the right strain and dosage.</p>`,
+    body: `<p>Not all yeasts are made alike; the strain, the drying method and the packaging all change how the dough behaves in different products. In this article we compare three common applications using the Khuzestan Yeast brands.</p><h2>Traditional breads (barbari, sangak, taftoon)</h2><p>In traditional bread the balance between fermentation speed and dough elasticity is critical. Shetab Maye, with its fast yet controlled action, is designed for the short cycles of a traditional bakery and produces a consistent final volume across back-to-back bakes.</p><h2>Volume and fancy breads</h2><p>Doughs enriched with sugar and fat place high osmotic pressure on the yeast cell. X-Power, built on an osmotolerant strain, keeps gassing steadily even in that harsh environment and guarantees the light, even crumb that volume breads need.</p><h2>Industrial breads and continuous lines</h2><p>On a continuous line, repeatability matters more than anything else. Dezmaye Gold and Nan Maye, with batch-to-batch consistency and large 5 kg and 10 kg packs, are optimised for industrial dosing and scheduled fermentations.</p><h2>Quick selection guide</h2><ul><li>Traditional bread on a short cycle: Shetab Maye (90 g or 500 g vacuum pack)</li><li>Volume bread, fancy bread and fermented pastry: X-Power (70 g vacuum pack)</li><li>Continuous industrial lines and export: Dezmaye Gold 10 kg or Nan Maye 5 kg</li><li>Household and small workshop use: Dezmaye Gold 80 g</li></ul><p>The general rule: the higher the sugar and fat content of the dough and the longer the fermentation, the more resistant a strain and the larger a pack you need. The Khuzestan Yeast technical team is on hand to help you choose the right strain and dosage.</p>`,
   },
 };

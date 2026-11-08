@@ -107,17 +107,22 @@ check(resolveSeo('/shop', closedShopState, ORIGIN).status === 404 && !listRoutab
 check(redirectPath('/dezmaye') === '/products/dezmaye-gold-80', 'legacy brand permanent target');
 check(redirectPath('/en/dezmaye') === '/en/products/dezmaye-gold-80', 'localized legacy target');
 check(redirectPath('/fa/dezmaye/') === '/products/dezmaye-gold-80', 'combined prefix/slash/legacy redirect is single-hop');
+check(redirectPath('/nanmaye') === '/products/nanmaye-500', 'legacy Nan Maye target is a recovered catalogue variant');
+check(redirectPath('/ar/nanmaye') === '/ar/products/nanmaye-500', 'localized Nan Maye legacy target');
 check(redirectPath('/about/') === '/about', 'trailing slash canonical target');
 check(redirectPath('/fa/products') === '/products', 'default locale prefix target');
 check(redirectPath('/index.html') === '/', 'index file canonical target');
 
 const paths = listIndexablePaths(DEFAULT_STATE);
-check(paths.length === 59, 'all current public locale routes enumerated', String(paths.length));
+check(paths.length === 126, 'all current public locale routes enumerated', String(paths.length));
 check(new Set(paths).size === paths.length, 'route enumeration has no duplicates');
-check(!paths.some((entry) => entry.includes('/shop/')), 'transaction/product duplicates excluded from sitemap list');
+check(
+  paths.filter((entry) => entry.startsWith('/shop/')).join(',') === '/shop/nanmaye-10',
+  'catalogue duplicates stay excluded while the standalone Nan Maye shop SKU is indexable',
+);
 check(paths.includes('/shop') && !paths.includes('/en/shop') && !paths.includes('/ar/shop'), 'shop listed in Persian only');
 const routable = listRoutablePaths(DEFAULT_STATE);
-check(routable.length === 66, 'catalogue, gallery, representatives and seven customer-facing shop products are rendered');
+check(routable.length === 132, '30 localized catalogue variants, gallery, representatives and seven shop products are rendered');
 check(routable.includes('/shop/dezmaye-gold-80'), 'canonicalized shop product remains routable');
 const allMeta = paths.map((route) => resolveSeo(route, DEFAULT_STATE, ORIGIN));
 check(new Set(allMeta.map((meta) => meta.title)).size === allMeta.length, 'every sitemap page has a unique title');
@@ -173,10 +178,11 @@ check(builtHtaccess.includes('RewriteRule ^en/about$ /seo-pages/en--about.html [
 check(builtHtaccess.includes('RewriteRule . - [R=404,L]'), 'Apache returns genuine unknown-route 404');
 check(builtHtaccess.includes('X-Robots-Tag "noindex, nofollow, noarchive"'), 'Apache sends noindex header for private and 404 shells');
 check(builtHtaccess.includes('RewriteRule ^(?:fa/)?dezmaye/?$ /products/dezmaye-gold-80 [R=301,L]'), 'Apache sends a single permanent legacy redirect');
+check(builtHtaccess.includes('RewriteRule ^(?:fa/)?nanmaye/?$ /products/nanmaye-500 [R=301,L]'), 'Apache sends Nan Maye aliases to a real catalogue variant');
 
 /* Admin text is escaped in visible fallback and escaped inside JSON-LD. */
 const hostile = structuredClone(DEFAULT_STATE);
-hostile.products[0].title = '<script>alert(1)</script> Yeast';
+hostile.products.find(({ slug }) => slug === 'dezmaye-gold-80').title = '<script>alert(1)</script> Yeast';
 const hostileMeta = resolveSeo('/products/dezmaye-gold-80', hostile, ORIGIN);
 const template = fs.readFileSync(path.join(DIST, 'seo-pages', '_template.html'), 'utf8');
 const hostileHtml = renderSeoDocument(template, hostileMeta);

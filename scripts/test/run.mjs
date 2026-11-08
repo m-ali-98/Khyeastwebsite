@@ -23,7 +23,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const ROUTES = [
   '/', '/about', '/products', '/products/dezmaye-gold-80', '/products/shetab-90',
-  '/products/xpower-70', '/products/nanmaye-10', '/shop', '/shop/cart',
+  '/products/xpower-70', '/products/nanmaye-500', '/shop', '/shop/cart',
   '/shop/checkout', '/shop/dezmaye-gold-80', '/export', '/quality', '/blog',
   '/blog/reduce-bread-production-costs', '/gallery', '/sales-representatives', '/contact', '/shop/login', '/shop/account',
   '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/gallery', '/en/contact', '/en/sales-representatives', '/en/shop',
@@ -327,6 +327,19 @@ for (const [file, label, timeout] of [
     record(false, name, String(e.message).slice(0, 90));
     console.log(`  FAIL ${name} harness error`);
   }
+}
+
+console.log('\nProduct catalogue — recovered variants, localized details, media and routes');
+{
+  const { stdout, crashed, err } = await suite('product-catalog.mjs', 10000);
+  const line = stdout.trim().split('\n').pop() || '';
+  const m = line.match(/(\d+)\/(\d+)/);
+  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
+  const ok = !crashed && Boolean(m) && m[1] === m[2];
+  record(ok, 'product-catalog', (leaks.join('; ') || err).slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} variant, translation, media and routing checks`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
 }
 
 console.log('\nProduct images — legacy media, ordered galleries and SQLite persistence');
