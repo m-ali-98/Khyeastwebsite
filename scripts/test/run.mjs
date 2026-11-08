@@ -201,7 +201,7 @@ try {
 
 console.log('\nPersistence lifecycle — authoritative state and active requests survive failures');
 for (const [file, label] of [
-  ['content-store.mjs', 'fresh SQLite CMS initialization, fail-closed recovery and worker revisions'],
+  ['content-store.mjs', 'fresh final-schema initialization, incompatible-store refusal and worker revisions'],
   ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
   ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],

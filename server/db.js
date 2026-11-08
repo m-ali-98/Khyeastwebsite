@@ -22,19 +22,103 @@ import { sanitizeRichText } from './sanitize.js';
 import { normalizeProductImages } from '../shared/productImages.js';
 
 /* ------------------------------------------------------------------ open */
-export async function openDB(file) {
+const DATABASE_APPLICATION_ID = 0x4b485945; // "KHYE"
+const DATABASE_SCHEMA_VERSION = 1;
+
+const schemaError = (detail) => Object.assign(
+  new Error(
+    'SQLite schema is incompatible and automatic schema upgrades are disabled; ' +
+    `start with an empty persistent tree or restore a compatible backup (${detail})`,
+  ),
+  { code: 'DB_SCHEMA_INCOMPATIBLE' },
+);
+
+const pragmaNumber = (db, name) => {
+  const row = db.prepare(`PRAGMA ${name}`).get();
+  return Number(row?.[name] ?? Object.values(row || {})[0] ?? 0);
+};
+
+const REQUIRED_SCHEMA = Object.freeze({
+  settings: ['key', 'value'],
+  content_meta: ['id', 'revision', 'initialized_at', 'updated_at'],
+  content_sections: ['section', 'value_json', 'revision', 'updated_at'],
+  rate_limit_hits: ['id', 'kind', 'bucket_hash', 'bucket_version', 'at', 'pending'],
+  products: [
+    'slug', 'pos', 'title', 'brand', 'product_slug', 'unit', 'image', 'images',
+    'price', 'old_price', 'stock', 'active', 'featured', 'comments_locked',
+    'short', 'description', 'specs',
+  ],
+  orders: [
+    'id', 'code', 'token', 'customer_id', 'customer', 'subtotal', 'shipping',
+    'total', 'currency', 'status', 'provider', 'pay_authority', 'pay_ref',
+    'admin_note', 'at', 'paid_at', 'auto_cancelled', 'needs_attention', 'archived',
+  ],
+  order_payments: [
+    'authority', 'order_id', 'provider', 'status', 'ref_id', 'at', 'verified_at',
+    'reversal_started_at', 'reversed_at', 'last_error',
+  ],
+  order_items: ['order_id', 'pos', 'slug', 'title', 'unit', 'price', 'qty', 'sum'],
+  comments: ['id', 'slug', 'name', 'text', 'at', 'approved', 'reply', 'reply_at'],
+  messages: ['id', 'name', 'phone', 'email', 'subject', 'message', 'at', 'read'],
+  sms_log: [
+    'id', 'at', 'kind', 'phone', 'text', 'provider', 'environment', 'ok', 'error',
+    'message_id', 'ref',
+  ],
+  customers: ['id', 'phone', 'name', 'email', 'pass_hash', 'at', 'last_login_at', 'blocked'],
+  customer_sessions: ['token_hash', 'customer_id', 'at', 'expires_at', 'ua'],
+  otps: ['phone', 'purpose', 'code_hash', 'at', 'expires_at', 'attempts'],
+  otp_tickets: ['ticket_hash', 'phone', 'purpose', 'expires_at'],
+  addresses: [
+    'id', 'customer_id', 'pos', 'is_default', 'title', 'receiver', 'phone',
+    'province', 'city', 'address', 'plaque', 'unit', 'postal', 'note', 'at',
+  ],
+});
+
+const REQUIRED_INDEXES = Object.freeze([
+  'idx_content_sections_revision',
+  'idx_rate_limit_bucket', 'idx_rate_limit_at',
+  'idx_products_pos',
+  'idx_orders_at', 'idx_orders_status', 'idx_orders_status_at', 'idx_orders_customer',
+  'idx_orders_attention_at', 'idx_orders_archived_at', 'idx_orders_pay_authority',
+  'idx_order_payments_order', 'idx_items_order',
+  'idx_comments_slug', 'idx_comments_at', 'idx_comments_public_page',
+  'idx_messages_at', 'idx_sms_at', 'idx_sms_phone',
+  'idx_sessions_customer', 'idx_addresses_customer',
+]);
+
+export async function openDB(file, { allowCreate = !fs.existsSync(file) } = {}) {
+  if (!allowCreate && !fs.existsSync(file)) {
+    throw schemaError('database file is missing from an established state tree');
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = await createDatabase(file);
-  db.pragma('journal_mode = WAL'); // safe concurrent readers + one writer
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
-  migrate(db);
-  return db;
+  try {
+    ensureSchema(db, { allowCreate });
+    db.pragma('journal_mode = WAL'); // safe concurrent readers + one writer
+    db.pragma('foreign_keys = ON');
+    db.pragma('busy_timeout = 5000');
+    return db;
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
 }
 
-function migrate(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS settings (
+/** Create the complete schema only for an empty database. Existing databases
+ * must already match this release exactly; startup never imports, alters,
+ * backfills, or otherwise upgrades persistent state. */
+function ensureSchema(db, { allowCreate = false } = {}) {
+  const userTableCount = () => Number(db.prepare(
+    `SELECT COUNT(*) AS count
+       FROM sqlite_schema
+      WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+  ).get()?.count || 0);
+
+  if (allowCreate) {
+    db.immediateTransaction(() => {
+      if (userTableCount() !== 0) return;
+      db.exec(`
+    CREATE TABLE settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
@@ -42,26 +126,25 @@ function migrate(db) {
     /* Mutable editorial content is revisioned by section. One global revision
        identifies a coherent snapshot while per-section revisions let PATCH
        update only the requested bucket and make unintended rewrites visible. */
-    CREATE TABLE IF NOT EXISTS content_meta (
+    CREATE TABLE content_meta (
       id             INTEGER PRIMARY KEY CHECK (id = 1),
       revision       INTEGER NOT NULL CHECK (revision >= 1),
       initialized_at TEXT NOT NULL,
-      updated_at     TEXT NOT NULL,
-      source         TEXT NOT NULL
+      updated_at     TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS content_sections (
+    CREATE TABLE content_sections (
       section    TEXT PRIMARY KEY,
       value_json TEXT NOT NULL CHECK (json_valid(value_json)),
       revision   INTEGER NOT NULL CHECK (revision >= 1),
       updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_content_sections_revision
+    CREATE INDEX idx_content_sections_revision
       ON content_sections(revision);
 
     /* Short-lived abuse counters are shared through SQLite so several
        Passenger workers enforce one real ceiling instead of multiplying it by
        the process count. Bucket keys are secret-keyed before reaching here. */
-    CREATE TABLE IF NOT EXISTS rate_limit_hits (
+    CREATE TABLE rate_limit_hits (
       id             TEXT PRIMARY KEY,
       kind           TEXT NOT NULL,
       bucket_hash    TEXT NOT NULL,
@@ -69,11 +152,11 @@ function migrate(db) {
       at             INTEGER NOT NULL,
       pending        INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_rate_limit_bucket
+    CREATE INDEX idx_rate_limit_bucket
       ON rate_limit_hits(kind, bucket_hash, at);
-    CREATE INDEX IF NOT EXISTS idx_rate_limit_at ON rate_limit_hits(at);
+    CREATE INDEX idx_rate_limit_at ON rate_limit_hits(at);
 
-    CREATE TABLE IF NOT EXISTS products (
+    CREATE TABLE products (
       slug           TEXT PRIMARY KEY,
       pos            INTEGER NOT NULL DEFAULT 0,
       title          TEXT NOT NULL DEFAULT '',
@@ -92,12 +175,13 @@ function migrate(db) {
       description    TEXT NOT NULL DEFAULT '',
       specs          TEXT NOT NULL DEFAULT '[]'
     );
-    CREATE INDEX IF NOT EXISTS idx_products_pos ON products(pos);
+    CREATE INDEX idx_products_pos ON products(pos);
 
-    CREATE TABLE IF NOT EXISTS orders (
+    CREATE TABLE orders (
       id         TEXT PRIMARY KEY,
       code       TEXT NOT NULL UNIQUE,
       token      TEXT NOT NULL,
+      customer_id TEXT,
       customer   TEXT NOT NULL DEFAULT '{}',
       subtotal   INTEGER NOT NULL DEFAULT 0,
       shipping   INTEGER NOT NULL DEFAULT 0,
@@ -114,14 +198,20 @@ function migrate(db) {
       needs_attention INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_orders_at ON orders(at DESC);
-    CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-    CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at);
+    CREATE INDEX idx_orders_at ON orders(at DESC);
+    CREATE INDEX idx_orders_status ON orders(status);
+    CREATE INDEX idx_orders_status_at ON orders(status, at);
+    CREATE INDEX idx_orders_customer ON orders(customer_id);
+    CREATE INDEX idx_orders_attention_at ON orders(needs_attention DESC, at DESC);
+    CREATE INDEX idx_orders_archived_at ON orders(archived, at DESC);
+    CREATE UNIQUE INDEX idx_orders_pay_authority
+      ON orders(pay_authority)
+      WHERE pay_authority IS NOT NULL AND pay_authority <> '';
 
     /* Every authority ever issued for an order remains bound to that order.
        orders.pay_authority is only the current/settled pointer; this ledger is
        the durable ownership boundary used by callbacks after payment retries. */
-    CREATE TABLE IF NOT EXISTS order_payments (
+    CREATE TABLE order_payments (
       authority  TEXT PRIMARY KEY CHECK (authority <> ''),
       order_id   TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       provider   TEXT NOT NULL DEFAULT 'zarinpal',
@@ -133,9 +223,9 @@ function migrate(db) {
       reversed_at TEXT,
       last_error TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS idx_order_payments_order ON order_payments(order_id, at DESC);
+    CREATE INDEX idx_order_payments_order ON order_payments(order_id, at DESC);
 
-    CREATE TABLE IF NOT EXISTS order_items (
+    CREATE TABLE order_items (
       order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       pos      INTEGER NOT NULL DEFAULT 0,
       slug     TEXT NOT NULL DEFAULT '',
@@ -145,9 +235,9 @@ function migrate(db) {
       qty      INTEGER NOT NULL DEFAULT 1,
       sum      INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
+    CREATE INDEX idx_items_order ON order_items(order_id);
 
-    CREATE TABLE IF NOT EXISTS comments (
+    CREATE TABLE comments (
       id       TEXT PRIMARY KEY,
       slug     TEXT NOT NULL DEFAULT '',
       name     TEXT NOT NULL DEFAULT '',
@@ -157,12 +247,12 @@ function migrate(db) {
       reply    TEXT,
       reply_at TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_comments_slug ON comments(slug);
-    CREATE INDEX IF NOT EXISTS idx_comments_at ON comments(at DESC);
-    CREATE INDEX IF NOT EXISTS idx_comments_public_page
+    CREATE INDEX idx_comments_slug ON comments(slug);
+    CREATE INDEX idx_comments_at ON comments(at DESC);
+    CREATE INDEX idx_comments_public_page
       ON comments(slug, approved, at DESC, id DESC);
 
-    CREATE TABLE IF NOT EXISTS messages (
+    CREATE TABLE messages (
       id      TEXT PRIMARY KEY,
       name    TEXT NOT NULL DEFAULT '',
       phone   TEXT NOT NULL DEFAULT '',
@@ -172,7 +262,7 @@ function migrate(db) {
       at      TEXT NOT NULL,
       read    INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_messages_at ON messages(at DESC);
+    CREATE INDEX idx_messages_at ON messages(at DESC);
 
     /* Every send attempt, successful or not. Three jobs: the admin can see
        why a customer says they got nothing, the daily cap is countable, and
@@ -181,7 +271,7 @@ function migrate(db) {
 
        The phone column holds the canonical 98xxxxxxxxxx form — the same key
        the rest of the system uses, so a customer's messages can be found. */
-    CREATE TABLE IF NOT EXISTS sms_log (
+    CREATE TABLE sms_log (
       id          TEXT PRIMARY KEY,
       at          TEXT NOT NULL,
       kind        TEXT NOT NULL DEFAULT 'other',
@@ -194,14 +284,14 @@ function migrate(db) {
       message_id  TEXT,
       ref         TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS idx_sms_at ON sms_log(at DESC);
-    CREATE INDEX IF NOT EXISTS idx_sms_phone ON sms_log(phone);
+    CREATE INDEX idx_sms_at ON sms_log(at DESC);
+    CREATE INDEX idx_sms_phone ON sms_log(phone);
 
     /* ---------------- customer accounts ----------------
        phone is the identity and the login name, always in canonical
        98xxxxxxxxxx form so one person cannot become three accounts by
        typing their number three ways. */
-    CREATE TABLE IF NOT EXISTS customers (
+    CREATE TABLE customers (
       id            TEXT PRIMARY KEY,
       phone         TEXT NOT NULL UNIQUE,
       name          TEXT NOT NULL DEFAULT '',
@@ -214,18 +304,18 @@ function migrate(db) {
 
     /* Only the SHA-256 of the cookie is stored, so a dump of this table
        cannot be replayed as a login. */
-    CREATE TABLE IF NOT EXISTS customer_sessions (
+    CREATE TABLE customer_sessions (
       token_hash  TEXT PRIMARY KEY,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       at          TEXT NOT NULL,
       expires_at  TEXT NOT NULL,
       ua          TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS idx_sessions_customer ON customer_sessions(customer_id);
+    CREATE INDEX idx_sessions_customer ON customer_sessions(customer_id);
 
     /* One live code per phone+purpose: requesting a new one replaces the
        old, so an attacker cannot keep a pool of valid codes alive. */
-    CREATE TABLE IF NOT EXISTS otps (
+    CREATE TABLE otps (
       phone      TEXT NOT NULL,
       purpose    TEXT NOT NULL,
       code_hash  TEXT NOT NULL,
@@ -238,14 +328,14 @@ function migrate(db) {
     /* Proof that a code was verified, exchanged for the actual registration
        or password reset. Short-lived and single use, so the password step
        cannot be replayed later. */
-    CREATE TABLE IF NOT EXISTS otp_tickets (
+    CREATE TABLE otp_tickets (
       ticket_hash TEXT PRIMARY KEY,
       phone       TEXT NOT NULL,
       purpose     TEXT NOT NULL,
       expires_at  TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS addresses (
+    CREATE TABLE addresses (
       id          TEXT PRIMARY KEY,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       pos         INTEGER NOT NULL DEFAULT 0,
@@ -262,103 +352,38 @@ function migrate(db) {
       note        TEXT NOT NULL DEFAULT '',
       at          TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_addresses_customer ON addresses(customer_id);
-  `);
-
-  /* Version 1 rows used an unkeyed SHA-256 of a low-entropy identifier. Purge
-     them once while adding the marker: they are both privacy-weaker and cannot
-     match the HMAC-v2 buckets used by this release. A fresh database already
-     has bucket_version=2 and therefore keeps active limits across restarts. */
-  const rateLimitCols = db.prepare('PRAGMA table_info(rate_limit_hits)').all().map((c) => c.name);
-  if (!rateLimitCols.includes('bucket_version')) {
-    db.exec('ALTER TABLE rate_limit_hits ADD COLUMN bucket_version INTEGER NOT NULL DEFAULT 1');
-    db.exec('DELETE FROM rate_limit_hits');
+    CREATE INDEX idx_addresses_customer ON addresses(customer_id);
+      `);
+      db.exec(`PRAGMA application_id = ${DATABASE_APPLICATION_ID}`);
+      db.exec(`PRAGMA user_version = ${DATABASE_SCHEMA_VERSION}`);
+    })();
+  } else if (userTableCount() === 0) {
+    throw schemaError('database has no application schema');
   }
 
-  /* Gallery data is additive. Legacy product rows keep their original image
-     column; read mapping derives a one-photo gallery until the next save. */
-  const productCols = db.prepare('PRAGMA table_info(products)').all().map((column) => column.name);
-  if (!productCols.includes('images')) {
-    db.exec("ALTER TABLE products ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
+  const applicationId = pragmaNumber(db, 'application_id');
+  const schemaVersion = pragmaNumber(db, 'user_version');
+  if (applicationId !== DATABASE_APPLICATION_ID || schemaVersion !== DATABASE_SCHEMA_VERSION) {
+    throw schemaError(`application_id=${applicationId}, user_version=${schemaVersion}`);
   }
 
-  /* orders.customer_id is added separately: the table predates accounts and
-     ALTER TABLE ... ADD COLUMN throws if it is already there. */
-  const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
-  if (!orderCols.includes('customer_id')) {
-    db.exec('ALTER TABLE orders ADD COLUMN customer_id TEXT');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)');
-  }
-  if (!orderCols.includes('auto_cancelled')) {
-    db.exec('ALTER TABLE orders ADD COLUMN auto_cancelled INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!orderCols.includes('needs_attention')) {
-    db.exec('ALTER TABLE orders ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!orderCols.includes('pay_authority')) {
-    db.exec('ALTER TABLE orders ADD COLUMN pay_authority TEXT');
-  }
-  if (!orderCols.includes('archived')) {
-    db.exec('ALTER TABLE orders ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+  for (const [table, requiredColumns] of Object.entries(REQUIRED_SCHEMA)) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
+    if (!isDeepStrictEqual(columns, requiredColumns)) {
+      throw schemaError(`unexpected ${table} columns: ${columns.join(',') || 'none'}`);
+    }
   }
 
-  const paymentCols = db.prepare('PRAGMA table_info(order_payments)').all().map((column) => column.name);
-  if (!paymentCols.includes('reversal_started_at')) {
-    db.exec('ALTER TABLE order_payments ADD COLUMN reversal_started_at TEXT');
+  const indexes = new Set(
+    db.prepare("SELECT name FROM sqlite_schema WHERE type = 'index'").all().map((row) => row.name),
+  );
+  const missingIndex = REQUIRED_INDEXES.find((name) => !indexes.has(name));
+  if (missingIndex) throw schemaError(`missing index ${missingIndex}`);
+  const authorityIndex = db.prepare('PRAGMA index_list(orders)').all()
+    .find((index) => index.name === 'idx_orders_pay_authority');
+  if (Number(authorityIndex?.unique) !== 1 || Number(authorityIndex?.partial) !== 1) {
+    throw schemaError('payment-authority uniqueness index is invalid');
   }
-
-  /* Before pay_authority existed, pay_ref changed meaning mid-payment: it held
-     the authority while pending, then was overwritten with ref_id after
-     settlement. Preserve authorities we can identify without guessing. Paid
-     legacy rows whose authority was already destroyed cannot be reconstructed;
-     all new attempts retain both values independently. */
-  db.exec(`
-    UPDATE orders
-       SET pay_authority = pay_ref,
-           pay_ref = NULL
-     WHERE pay_authority IS NULL
-       AND provider = 'zarinpal'
-       AND pay_ref IS NOT NULL
-       AND pay_ref <> ''
-       AND (
-         status = 'pending_payment'
-         OR (status = 'cancelled' AND auto_cancelled <> 0)
-         OR (length(pay_ref) = 36 AND pay_ref GLOB 'A*')
-       );
-  `);
-
-  /* Backfill the previously-current authority. Older overwritten retry
-     authorities cannot be reconstructed, but every authority recorded from
-     this migration onward lives in order_payments even when the current
-     pointer changes again. */
-  db.exec(`
-    INSERT OR IGNORE INTO order_payments
-      (authority, order_id, provider, status, ref_id, at, verified_at)
-    SELECT pay_authority, id, provider,
-           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN 'settled' ELSE 'issued' END,
-           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN pay_ref ELSE NULL END,
-           at,
-           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN paid_at ELSE NULL END
-      FROM orders
-     WHERE pay_authority IS NOT NULL AND pay_authority <> '';
-  `);
-  const bindingConflict = db.prepare(
-    `SELECT orders.id, orders.pay_authority
-       FROM orders
-       JOIN order_payments ON order_payments.authority = orders.pay_authority
-      WHERE orders.pay_authority IS NOT NULL
-        AND orders.pay_authority <> ''
-        AND order_payments.order_id <> orders.id
-      LIMIT 1`,
-  ).get();
-  if (bindingConflict) throw new Error(`payment authority ownership conflict: ${bindingConflict.pay_authority}`);
-
-  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_attention_at ON orders(needs_attention DESC, at DESC)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_archived_at ON orders(archived, at DESC)');
-  /* The pointer stays unique as a defence in depth. The order_payments primary
-     key is the authoritative global one-authority/one-order constraint. */
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_pay_authority ON orders(pay_authority) WHERE pay_authority IS NOT NULL AND pay_authority <> ''");
 }
 
 /* ------------------------------------------------------- small utilities */
@@ -412,7 +437,7 @@ const freshDefaultContent = () => Object.fromEntries(
 );
 
 const contentMeta = (db) => db.prepare(
-  `SELECT revision, initialized_at, updated_at, source,
+  `SELECT revision, initialized_at, updated_at,
           (SELECT COUNT(*) FROM content_meta) AS meta_count
      FROM content_meta
     WHERE id = 1`,
@@ -430,7 +455,6 @@ export function getContentMeta(db) {
     revision: Number(meta.revision),
     initializedAt: meta.initialized_at,
     updatedAt: meta.updated_at,
-    source: meta.source,
   };
 }
 
@@ -478,12 +502,12 @@ export function getContentSectionRevisions(db) {
   return Object.fromEntries(rows.map((row) => [row.section, Number(row.revision)]));
 }
 
-const persistInitialContent = (db, state, source) => {
+const persistInitialContent = (db, state) => {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO content_meta (id, revision, initialized_at, updated_at, source)
-     VALUES (1, 1, ?, ?, ?)`,
-  ).run(now, now, source);
+    `INSERT INTO content_meta (id, revision, initialized_at, updated_at)
+     VALUES (1, 1, ?, ?)`,
+  ).run(now, now);
   const insert = db.prepare(
     `INSERT INTO content_sections (section, value_json, revision, updated_at)
      VALUES (?, ?, 1, ?)`,
@@ -501,7 +525,7 @@ export function initializeContentStore(db, { freshInstall = false } = {}) {
     try {
       const state = readContentSections(db);
       const meta = getContentMeta(db);
-      return { status: 'ready', source: meta.source, revision: meta.revision, state };
+      return { status: 'ready', revision: meta.revision, state };
     } catch (existingError) {
       const metaRows = Number(db.prepare('SELECT COUNT(*) AS count FROM content_meta').get()?.count || 0);
       const sectionRows = Number(db.prepare('SELECT COUNT(*) AS count FROM content_sections').get()?.count || 0);
@@ -518,8 +542,8 @@ export function initializeContentStore(db, { freshInstall = false } = {}) {
     }
 
     const initial = freshDefaultContent();
-    persistInitialContent(db, initial, 'defaults-fresh-install');
-    return { status: 'initialized', source: 'defaults-fresh-install', revision: 1, state: initial };
+    persistInitialContent(db, initial);
+    return { status: 'initialized', revision: 1, state: initial };
   });
 }
 
@@ -758,9 +782,9 @@ export function replaceProducts(db, products, { preserveStock = false } = {}) {
 /** Collapse repeated product lines before any inventory arithmetic.
  *
  *  This is deliberately repeated at the database boundary even though the
- *  checkout route also canonicalises its payload. reserveStock is used by
- *  admin status changes and migrations too; trusting every caller to remember
- *  the invariant is how duplicate lines once sold ten units out of five. */
+ *  checkout route also canonicalises its payload. reserveStock is also used by
+ *  Admin status changes; trusting every caller to remember the invariant is
+ *  how duplicate lines once sold ten units out of five. */
 export function mergeStockLines(lines) {
   const merged = new Map();
   for (const line of Array.isArray(lines) ? lines : []) {
@@ -1532,60 +1556,68 @@ export function deleteMessage(db, id) {
   db.prepare('DELETE FROM messages WHERE id = ?').run(String(id));
 }
 
-/* ========================================================= seed & import */
-/**
- * First operational migration: pull shop/orders/messages from legacy JSON
- * when present, otherwise from shipped defaults. Runs once (settings.seeded).
- */
-export function seedFromLegacy(db, { SHOP_FILE, MESSAGES_FILE }) {
+/* ================================================= fresh installation */
+const INSTALLATION_MARKER = 'installation.initializedAt';
+
+/** Populate operational defaults exactly once and only for a proven empty
+ * persistent tree. Existing databases without the marker are incompatible;
+ * no file import, inference, or backfill is attempted. */
+export function initializeOperationalStore(db, { freshInstall = false } = {}) {
   return withImmediateTransaction(db, () => {
-    if (getSetting(db, 'seeded')) return { skipped: true };
-    const report = { products: 0, orders: 0, comments: 0, messages: 0, from: [] };
+    const initializedAt = getSetting(db, INSTALLATION_MARKER, '');
+    if (initializedAt) {
+      const display = getSetting(db, 'shop.display');
+      const payment = getSetting(db, 'shop.payment');
+      return typeof initializedAt === 'string' && record(display) && record(payment)
+        ? { status: 'ready', initializedAt }
+        : { status: 'unavailable', reason: 'operational initialization metadata is invalid' };
+    }
 
-    const readJSON = (file) => {
-      try {
-        return JSON.parse(fs.readFileSync(file, 'utf8'));
-      } catch {
-        return null;
-      }
+    const counts = Object.fromEntries(
+      ['products', 'orders', 'comments', 'messages'].map((table) => [
+        table,
+        Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count || 0),
+      ]),
+    );
+    const shopSettings = Number(db.prepare(
+      "SELECT COUNT(*) AS count FROM settings WHERE key LIKE 'shop.%'",
+    ).get()?.count || 0);
+    if (!freshInstall || Object.values(counts).some(Boolean) || shopSettings) {
+      return {
+        status: 'unavailable',
+        reason: 'operational initialization marker is missing from an established state tree',
+      };
+    }
+
+    const initialShop = SHOP_SEED();
+    replaceProducts(db, DEFAULT_STATE.shop.products);
+    setSetting(db, 'shop.display', cloneJson(DEFAULT_STATE.shop.display));
+    setSetting(db, 'shop.payment', cloneJson(initialShop.payment));
+    for (const comment of initialShop.comments) insertComment(db, comment);
+
+    const now = new Date().toISOString();
+    setSetting(db, INSTALLATION_MARKER, now);
+    return {
+      status: 'initialized',
+      initializedAt: now,
+      products: Number(db.prepare('SELECT COUNT(*) AS count FROM products').get().count),
+      orders: 0,
+      comments: initialShop.comments.length,
+      messages: 0,
     };
+  });
+}
 
-    /* --- fresh shop products + display settings --- */
-    const shop = DEFAULT_STATE.shop;
-    replaceProducts(db, shop.products);
-    setSetting(db, 'shop.display', cloneJson(shop.display));
-    report.products = Number(db.prepare('SELECT COUNT(*) AS n FROM products').get().n);
-
-    /* --- orders, comments, payment (shop.json → DB) --- */
-    const legacyShopFile = readJSON(SHOP_FILE);
-    const legacyShop = legacyShopFile || SHOP_SEED();
-    if (legacyShopFile) report.from.push('shop.json');
-    for (const order of legacyShop.orders || []) {
-      insertOrder(db, order);
-      report.orders += 1;
+/** Initialize all mutable state under one outer writer transaction. If either
+ * half cannot initialize safely, no fresh-install defaults are committed. */
+export function initializeStore(db, { freshInstall = false } = {}) {
+  return withImmediateTransaction(db, () => {
+    const content = initializeContentStore(db, { freshInstall });
+    const operational = initializeOperationalStore(db, { freshInstall });
+    if (operational.status === 'unavailable') {
+      throw Object.assign(new Error(operational.reason), { code: 'DB_INITIALIZATION_UNAVAILABLE' });
     }
-    for (const comment of legacyShop.comments || []) {
-      insertComment(db, comment);
-      report.comments += 1;
-    }
-    setSetting(db, 'shop.payment', legacyShop.payment || SHOP_SEED().payment);
-
-    /* --- contact messages (messages.json → DB) --- */
-    const legacyMessages = readJSON(MESSAGES_FILE);
-    if (Array.isArray(legacyMessages)) {
-      report.from.push('messages.json');
-      for (const message of legacyMessages) {
-        insertMessage(db, {
-          ...message,
-          id: message.id || crypto.randomUUID(),
-          at: message.at || new Date().toISOString(),
-        });
-        report.messages += 1;
-      }
-    }
-
-    setSetting(db, 'seeded', new Date().toISOString());
-    return report;
+    return { content, operational };
   });
 }
 

@@ -60,15 +60,13 @@ fs.mkdirSync(path.join(dataDir, 'uploads', 'videos'), { recursive: true });
 
 const databaseFile = path.join(dataDir, 'e2e.db');
 const database = await store.openDB(databaseFile);
-const initialized = store.initializeContentStore(database, { freshInstall: true });
-if (!['initialized', 'ready'].includes(initialized.status)) {
+const initialized = store.initializeStore(database, { freshInstall: true });
+if (!['initialized', 'ready'].includes(initialized.content.status)) {
   database.close();
-  throw new Error(`[e2e] could not initialize SQLite content: ${initialized.reason || initialized.status}`);
+  throw new Error(
+    `[e2e] could not initialize SQLite content: ${initialized.content.reason || initialized.content.status}`,
+  );
 }
-store.seedFromLegacy(database, {
-  SHOP_FILE: path.join(dataDir, 'does-not-exist-shop.json'),
-  MESSAGES_FILE: path.join(dataDir, 'does-not-exist-messages.json'),
-});
 database.close();
 
 /* Local ignored uploads are copied only as fixtures. Shipped defaults do not

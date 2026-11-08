@@ -77,8 +77,6 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR)
    keeps a 200 MB video out of the JavaScript heap and lets publication use an
    atomic rename. The private directory is neither served nor backed up. */
 const UPLOAD_INCOMING_DIR = path.join(UPLOAD_DIR, '.incoming');
-const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
-const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
 const DB_FILE = process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : path.join(DATA_DIR, 'khyeast.db');
 const PORT = process.env.PORT || 8787;
 
@@ -182,12 +180,11 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 /* ---------------- database ---------------- */
-const db = await store.openDB(DB_FILE);
-const contentInitialization = store.initializeContentStore(db, {
-  freshInstall: installationWasFresh,
-});
+const db = await store.openDB(DB_FILE, { allowCreate: installationWasFresh });
+const installation = store.initializeStore(db, { freshInstall: installationWasFresh });
+const contentInitialization = installation.content;
 if (contentInitialization.status === 'initialized') {
-  console.log('[db] editorial content revision 1 — seeded from immutable defaults for a fresh installation');
+  console.log('[db] editorial content revision 1 — initialized from immutable defaults');
 }
 if (contentInitialization.status === 'unavailable') {
   console.error(
@@ -196,19 +193,13 @@ if (contentInitialization.status === 'unavailable') {
     contentInitialization.reason,
   );
 }
-
-/* Do not initialize operational state while editorial authority is invalid. */
-let seedReport = { skipped: true };
-if (contentInitialization.status !== 'unavailable') {
-  seedReport = store.seedFromLegacy(db, { SHOP_FILE, MESSAGES_FILE });
-  if (!seedReport.skipped) {
-    console.log(
-      `[db] initialised ${path.relative(process.cwd(), DB_FILE)} — ` +
-        `products: ${seedReport.products}, orders: ${seedReport.orders}, ` +
-        `comments: ${seedReport.comments}, messages: ${seedReport.messages}` +
-        (seedReport.from.length ? ` (imported from ${seedReport.from.join(', ')})` : ' (from defaults)'),
-    );
-  }
+if (installation.operational.status === 'initialized') {
+  const report = installation.operational;
+  console.log(
+    `[db] initialized ${path.relative(process.cwd(), DB_FILE)} — ` +
+      `products: ${report.products}, orders: ${report.orders}, ` +
+      `comments: ${report.comments}, messages: ${report.messages}`,
+  );
 }
 
 const rateLimiter = createRateLimiter({ database: db, store, hashSecret: SECRET });
@@ -552,7 +543,7 @@ const adminCookie = (req, token) => {
       secure: mode.secure,
       maxAge: Math.floor(TOKEN_TTL / 1000),
     }),
-    /* Expire old or alternate non-production names during migration. */
+    /* Expire old or alternate non-production cookie names. */
     serializeAdminCookie(LEGACY_ADMIN_COOKIE, '', { secure: mode.secure, maxAge: 0 }),
     ...(mode.name === ADMIN_COOKIE
       ? [serializeAdminCookie(ADMIN_DEV_COOKIE, '', { secure: false, maxAge: 0 })]

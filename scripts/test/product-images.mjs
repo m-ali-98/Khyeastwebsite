@@ -2,7 +2,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import { mergeContentState } from '../../shared/contentState.js';
 import { localizeState } from '../../shared/i18n/index.js';
@@ -158,54 +157,36 @@ check(
 );
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-product-images-'));
-const file = path.join(dir, 'legacy.db');
+const file = path.join(dir, 'fresh.db');
 let database;
 try {
-  /* Reproduce the exact pre-gallery products table, then let openDB perform the
-     additive migration. This proves an installed site needs no manual work. */
-  const legacy = new DatabaseSync(file);
-  legacy.exec(`
-    CREATE TABLE products (
-      slug TEXT PRIMARY KEY,
-      pos INTEGER NOT NULL DEFAULT 0,
-      title TEXT NOT NULL DEFAULT '',
-      brand TEXT NOT NULL DEFAULT '',
-      product_slug TEXT NOT NULL DEFAULT '',
-      unit TEXT NOT NULL DEFAULT '',
-      image TEXT NOT NULL DEFAULT '',
-      price INTEGER NOT NULL DEFAULT 0,
-      old_price INTEGER,
-      stock INTEGER NOT NULL DEFAULT -1,
-      active INTEGER NOT NULL DEFAULT 1,
-      featured INTEGER NOT NULL DEFAULT 0,
-      comments_locked INTEGER NOT NULL DEFAULT 0,
-      short TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
-      specs TEXT NOT NULL DEFAULT '[]'
-    );
-    INSERT INTO products (slug, title, image, stock)
-    VALUES ('legacy', 'Legacy', '/legacy-product.webp', 7);
-  `);
-  legacy.close();
-
   database = await store.openDB(file);
+  store.initializeStore(database, { freshInstall: true });
   const columns = database.prepare('PRAGMA table_info(products)').all().map((column) => column.name);
-  const legacyProduct = store.getProduct(database, 'legacy');
-  check(columns.includes('images'), 'SQLite migration adds the gallery column');
+  check(columns.includes('images'), 'the fresh SQLite schema includes the ordered gallery column');
+
+  store.replaceProducts(database, [{
+    slug: 'gallery-product',
+    title: 'Initial gallery',
+    image: '/initial.webp',
+    images: ['/initial.webp'],
+    stock: 7,
+  }]);
+  const initial = store.getProduct(database, 'gallery-product');
   check(
-    legacyProduct.image === '/legacy-product.webp' &&
-      JSON.stringify(legacyProduct.images) === JSON.stringify(['/legacy-product.webp']),
-    'migrated SQLite rows fall back to their legacy image',
+    initial.image === '/initial.webp' &&
+      JSON.stringify(initial.images) === JSON.stringify(['/initial.webp']),
+    'fresh SQLite rows expose the selected primary and ordered gallery',
   );
 
   store.replaceProducts(database, [{
-    ...legacyProduct,
+    ...initial,
     title: 'Gallery',
     image: '/stale.webp',
     images: ['/gallery-primary.webp', '/gallery-second.webp'],
     stock: 999,
   }], { preserveStock: true });
-  const persisted = store.getProduct(database, 'legacy');
+  const persisted = store.getProduct(database, 'gallery-product');
   check(
     persisted.image === '/gallery-primary.webp' &&
       JSON.stringify(persisted.images) === JSON.stringify(['/gallery-primary.webp', '/gallery-second.webp']),
@@ -213,7 +194,7 @@ try {
   );
   check(persisted.stock === 7, 'full-list gallery saves preserve live stock');
 } catch (error) {
-  check(false, 'SQLite gallery migration and round-trip', error?.stack || String(error));
+  check(false, 'fresh SQLite gallery round-trip', error?.stack || String(error));
 } finally {
   try { database?.close(); } catch {}
   fs.rmSync(dir, { recursive: true, force: true });

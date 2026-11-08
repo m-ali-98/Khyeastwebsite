@@ -52,6 +52,7 @@ let D;
 let server;
 try {
   D = await db.openDB(file);
+  db.initializeStore(D, { freshInstall: true });
   db.replaceProducts(D, [
     { slug: 'limited', title: 'Limited', price: 1000, stock: 5, active: true },
     { slug: 'late', title: 'Late callback', price: 1000, stock: 5, active: true },
@@ -87,14 +88,16 @@ try {
     storedPayment.payAuthority === 'A-ONE-PAYMENT-ONE-ORDER' && storedPayment.payRef === 'REF-SETTLED',
     'settlement reference cannot overwrite the payment authority',
   );
-  /* Simulate an existing pre-ledger database: reopening must backfill its
-     current authority without changing the separate settlement reference. */
-  D.prepare('DELETE FROM order_payments WHERE authority = ?').run('A-ONE-PAYMENT-ONE-ORDER');
+  db.updateOrderPaymentAttempt(D, authorityOwner.id, 'A-ONE-PAYMENT-ONE-ORDER', {
+    refId: 'REF-SETTLED',
+  });
+  /* Reopening the exact schema must preserve the immutable attempt ledger
+     without inferring or reconstructing any payment state. */
   D.close();
   D = await db.openDB(file);
   check(
     db.getOrderPaymentAttempt(D, authorityOwner.id, 'A-ONE-PAYMENT-ONE-ORDER')?.refId === 'REF-SETTLED',
-    'migration backfills existing order authorities into the attempt ledger',
+    'reopening preserves the existing order authority and settlement reference',
   );
   let duplicateAuthorityRejected = false;
   try {
@@ -442,7 +445,6 @@ try {
   const bootExpiry = order({ id: crypto.randomUUID(), code: `KY-BOOT-${Date.now()}` });
   check(db.reserveStock(D, bootExpiry.items).ok, 'startup-sweep fixture reserves stock');
   db.insertOrder(D, bootExpiry);
-  db.setSetting(D, 'seeded', new Date().toISOString());
   check(db.getProduct(D, 'limited').stock === 17, 'startup-sweep fixture holds three units');
   D.close();
   D = null;

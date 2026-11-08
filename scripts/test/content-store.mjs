@@ -1,9 +1,10 @@
-/* Editorial SQLite lifecycle: defaults are fresh-install-only, established
-   missing/corrupt state fails closed, and section revisions invalidate every
-   worker without rewriting unrelated buckets. */
+/* SQLite installation lifecycle: the final schema and defaults are fresh-only,
+   incompatible or damaged established state fails closed, and section revisions
+   invalidate every worker without rewriting unrelated buckets. */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import * as store from '../../server/db.js';
@@ -20,45 +21,56 @@ const check = (ok, name, detail = '') => {
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-content-store-'));
 
 try {
-  /* 1: DEFAULT_STATE may become mutable state only for a proven fresh tree. */
+  /* 1 + 2: all defaults may become mutable state only for a proven fresh tree. */
   {
     const db = await store.openDB(path.join(root, 'fresh.db'));
-    const result = store.initializeContentStore(db, { freshInstall: true });
+    const result = store.initializeStore(db, { freshInstall: true });
     const state = store.readContentSections(db);
+    const metaColumns = db.prepare('PRAGMA table_info(content_meta)').all().map((column) => column.name);
     check(
-      result.status === 'initialized' &&
-        result.source === 'defaults-fresh-install' &&
+      result.content.status === 'initialized' &&
         isDeepStrictEqual(Object.keys(state).sort(), [...store.CONTENT_SECTIONS].sort()) &&
-        isDeepStrictEqual(state.products, DEFAULT_STATE.products),
-      'a genuinely fresh database receives all nine immutable default sections',
-      JSON.stringify(result),
+        isDeepStrictEqual(state.products, DEFAULT_STATE.products) &&
+        !metaColumns.includes('source'),
+      'a genuinely fresh database receives all nine immutable default sections without provenance scaffolding',
+      JSON.stringify(result.content),
+    );
+    check(
+      result.operational.status === 'initialized' &&
+        result.operational.products === DEFAULT_STATE.shop.products.length &&
+        result.operational.orders === 0 && result.operational.messages === 0,
+      'the same fresh transaction initializes operational defaults without importing files',
+      JSON.stringify(result.operational),
     );
     db.close();
   }
 
-  /* 2: an empty but established deployment is recovery work, not a fresh app. */
+  /* 3: an empty but established deployment is recovery work, not a fresh app. */
   {
     const db = await store.openDB(path.join(root, 'established-empty.db'));
     const result = store.initializeContentStore(db, { freshInstall: false });
+    const operational = store.initializeOperationalStore(db, { freshInstall: false });
     const rows = db.prepare('SELECT COUNT(*) AS count FROM content_sections').get().count;
+    const products = db.prepare('SELECT COUNT(*) AS count FROM products').get().count;
     check(
-      result.status === 'unavailable' && Number(rows) === 0,
-      'an unproven empty store fails closed instead of silently reseeding defaults',
-      JSON.stringify(result),
+      result.status === 'unavailable' && operational.status === 'unavailable' &&
+        Number(rows) === 0 && Number(products) === 0,
+      'an unproven empty store fails closed instead of silently initializing defaults',
+      JSON.stringify({ content: result, operational }),
     );
     db.close();
   }
 
-  /* 3: a second worker sees the committed initialization and never resets it. */
+  /* 4: a second worker sees the committed initialization and never resets it. */
   {
     const file = path.join(root, 'idempotent.db');
     const first = await store.openDB(file);
-    const initialized = store.initializeContentStore(first, { freshInstall: true });
+    const initialized = store.initializeStore(first, { freshInstall: true }).content;
     const changed = store.readContentSections(first);
     changed.texts['test.persisted'] = 'kept';
     store.replaceContentSections(first, { texts: changed.texts }, { expectedRevision: 1 });
     const second = await store.openDB(file);
-    const ready = store.initializeContentStore(second, { freshInstall: true });
+    const ready = store.initializeStore(second, { freshInstall: true }).content;
     check(
       initialized.status === 'initialized' && ready.status === 'ready' &&
         ready.revision === 2 && store.readContentSections(second).texts['test.persisted'] === 'kept',
@@ -69,7 +81,7 @@ try {
     first.close();
   }
 
-  /* 4: missing established rows are never recreated, even with freshInstall. */
+  /* 5: missing established rows are never recreated, even with freshInstall. */
   {
     const file = path.join(root, 'missing-established.db');
     const db = await store.openDB(file);
@@ -87,7 +99,7 @@ try {
     db.close();
   }
 
-  /* 5: wrong-type JSON after initialization is preserved and rejected. */
+  /* 6: wrong-type JSON after initialization is preserved and rejected. */
   {
     const file = path.join(root, 'corrupt-established.db');
     const db = await store.openDB(file);
@@ -105,7 +117,7 @@ try {
     db.close();
   }
 
-  /* 6 + 7: only a changed bucket advances, and another connection sees both
+  /* 7 + 8: only a changed bucket advances, and another connection sees both
      the revision and PRAGMA data_version transition. */
   {
     const file = path.join(root, 'revisions.db');
@@ -141,6 +153,45 @@ try {
     );
     second.close();
     first.close();
+  }
+
+  /* 9: a non-empty foreign schema is rejected, never changed in place. */
+  {
+    const file = path.join(root, 'incompatible.db');
+    const raw = new DatabaseSync(file);
+    raw.exec('CREATE TABLE old_state (value TEXT NOT NULL)');
+    raw.close();
+    let rejected = false;
+    try {
+      await store.openDB(file);
+    } catch (error) {
+      rejected = error.code === 'DB_SCHEMA_INCOMPATIBLE';
+    }
+    const inspect = new DatabaseSync(file, { readOnly: true });
+    const tables = inspect.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name",
+    ).all().map((row) => row.name);
+    inspect.close();
+    check(
+      rejected && isDeepStrictEqual(tables, ['old_state']),
+      'an incompatible database is rejected without imports, ALTERs, or backfills',
+      JSON.stringify(tables),
+    );
+  }
+
+  /* 10: an established tree cannot turn a missing database into a new one. */
+  {
+    const file = path.join(root, 'absent-established.db');
+    let rejected = false;
+    try {
+      await store.openDB(file, { allowCreate: false });
+    } catch (error) {
+      rejected = error.code === 'DB_SCHEMA_INCOMPATIBLE';
+    }
+    check(
+      rejected && !fs.existsSync(file),
+      'a missing established database is rejected without creating a replacement file',
+    );
   }
 } catch (error) {
   check(false, 'content-store lifecycle harness', error?.stack || String(error));

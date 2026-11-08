@@ -35,11 +35,7 @@ const DB = path.join(DATA_DIR, 'behaviour.db');
 /* Initialize through the production SQLite APIs. The server will therefore
    see an established, complete store without any mutable JSON fixture. */
 const fixtureDatabase = await dbStore.openDB(DB);
-dbStore.initializeContentStore(fixtureDatabase, { freshInstall: true });
-dbStore.seedFromLegacy(fixtureDatabase, {
-  SHOP_FILE: path.join(DATA_DIR, 'missing-shop.json'),
-  MESSAGES_FILE: path.join(DATA_DIR, 'missing-messages.json'),
-});
+dbStore.initializeStore(fixtureDatabase, { freshInstall: true });
 fixtureDatabase.close();
 
 let pass = 0;

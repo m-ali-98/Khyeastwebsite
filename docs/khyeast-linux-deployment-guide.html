@@ -220,7 +220,7 @@
     <li><code>uploads/</code> — images, videos, and responsive image variants.</li>
     <li><code>ADMIN_SECRET</code> and the rest of the production environment — never lose the stable secret.</li>
   </ul>
-  <p>This guide keeps mutable state in <code>/var/lib/khyeast</code>, outside the Git checkout. Git contains only immutable code/defaults, so an Admin save cannot conflict with <code>git pull</code>. On a demonstrably fresh persistent tree, the application initializes all nine editorial sections directly from immutable <code>DEFAULT_STATE</code>. An established missing or corrupt database is never silently reseeded.</p>
+  <p>This guide keeps mutable state in <code>/var/lib/khyeast</code>, outside the Git checkout. Git contains only immutable code/defaults, so an Admin save cannot conflict with <code>git pull</code>. On a demonstrably fresh persistent tree, the application creates the complete final schema and initializes all nine editorial sections plus operational defaults directly from immutable JavaScript defaults. It has no JSON importer, seed file, <code>ALTER</code>, backfill, or automatic schema-upgrade path. An established missing, incompatible, or corrupt database is never silently changed or reseeded.</p>
 
   <h3>What this guide deliberately uses</h3>
   <div class="card-grid">
@@ -485,8 +485,8 @@ test -f dist/sitemap.xml
 test -f dist/robots.txt
 ls -lah dist | head</pre>
 
-  <h3>Initialize content once on fresh storage</h3>
-  <p>No seed JSON is shipped or required. Before the first service start, confirm that the configured database does not exist and that the persistent data and upload trees contain no files. The application then initializes all nine editorial sections in SQLite directly from immutable <code>DEFAULT_STATE</code>:</p>
+  <h3>Initialize the complete store once on fresh storage</h3>
+  <p>No seed JSON or import source is shipped or accepted. Before the first service start, confirm that the configured database does not exist and that the persistent data and upload trees contain no files. The application creates the complete final schema and initializes all nine editorial sections, shop defaults, payment defaults and sample comments together from immutable JavaScript defaults:</p>
   <pre><span class="comment"># First installation only: these commands must print nothing.</span>
 sudo test ! -e /var/lib/khyeast/data/khyeast.db
 sudo find /var/lib/khyeast/data /var/lib/khyeast/uploads \
@@ -495,7 +495,7 @@ sudo find /var/lib/khyeast/data /var/lib/khyeast/uploads \
 <span class="comment"># After the first service start, authority must be persisted.</span>
 curl -fsSI https://example.com/api/content | \
   grep -i 'x-khyeast-content-status: persisted'</pre>
-  <div class="callout danger"><b class="label">Do not manufacture freshness</b>If SQLite content is missing while any established database/upload state exists, startup serves a marked public fallback but refuses Admin writes and destructive upload cleanup. Restore a verified whole-database backup; never copy defaults into the database merely to clear the error.</div>
+  <div class="callout danger"><b class="label">Do not manufacture freshness</b>An existing database with the wrong application id, schema version or required columns is rejected without modification; there is no automatic upgrade. If editorial rows are missing from an otherwise compatible initialized store, startup serves a marked public fallback but refuses Admin writes and destructive upload cleanup. Restore a verified whole-database backup; never copy defaults into established state merely to clear an error.</div>
 
   <pre><span class="comment"># Give the locked service account read access to the finished release.</span>
 release=$(readlink -f /srv/khyeast/current)
@@ -938,7 +938,7 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
   <table>
     <thead><tr><th>Item</th><th>Policy</th><th>Reason</th></tr></thead>
     <tbody>
-      <tr><td>SQLite format 2 snapshot</td><td>Required; active: <code>.backup</code>; stopped: stable staged copy; integrity, foreign-key, nine-section and revision-fence checks</td><td>CMS revisions plus orders, payment attempts, stock, accounts and settings</td></tr>
+      <tr><td>SQLite format 2 snapshot</td><td>Required; active: <code>.backup</code>; stopped: stable staged copy; integrity, foreign-key, exact schema-contract, nine-section and revision-fence checks</td><td>CMS revisions plus orders, payment attempts, stock, accounts and settings</td></tr>
       <tr><td>Live <code>uploads/</code></td><td>Required; copy into staging twice</td><td>Files referenced by content and products</td></tr>
       <tr><td><code>uploads/.incoming/</code></td><td><strong>Exclude locally and offsite</strong></td><td>Incomplete multipart staging; never live recovery state</td></tr>
       <tr><td><code>uploads/.quarantine/</code></td><td><strong>Exclude locally and offsite</strong></td><td>30-day local recycle bin, not production state</td></tr>
@@ -952,9 +952,9 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
   <ol class="steps">
     <li>Measure the live payload and require room for staging, an uncompressed archive, and a 1 GiB post-estimate reserve before copying.</li>
     <li>Copy live uploads into a fresh stage, excluding <code>.quarantine</code> and transient <code>.incoming</code> bodies.</li>
-    <li>Read and strictly validate the live SQLite content metadata and all nine section types; record its monotonic revision.</li>
+    <li>Validate the live SQLite application id, schema version, content metadata and all nine section types; record its monotonic revision.</li>
     <li>If <code>khyeast.service</code> is active, run SQLite <code>.backup</code>. If systemd confirms it is inactive, copy the stable main file; if WAL survived an unclean stop, copy the main/WAL/SHM set and consolidate only that writable staged copy.</li>
-    <li>Run integrity, foreign-key and strict content checks on the snapshot. Read the live revision again and retry unless pre-snapshot, snapshot and post-snapshot revisions are identical.</li>
+    <li>Run integrity, foreign-key, exact schema-contract and strict content checks on the snapshot. Read the live revision again and retry unless pre-snapshot, snapshot and post-snapshot revisions are identical.</li>
     <li>Run a second upload copy without <code>--delete</code> and with both private exclusions. Accepted videos and untouched images appear by atomic rename, optimized masters publish only after their variants, and an in-progress multipart body never enters the archive.</li>
     <li>Archive only the stable stage, write manifest format 2 with database hash, content revision and snapshot mode, verify its listing, hash and flush it, then publish the final name atomically.</li>
   </ol>
@@ -1278,14 +1278,14 @@ sudo mv -Tf /srv/khyeast/current.rollback /srv/khyeast/current
 sudo systemctl restart khyeast
 curl -fsS https://example.com/api/health
 readlink -f /srv/khyeast/current</pre>
-  <div class="callout danger"><b class="label">Code rollback is not a data rollback</b>The newer release may already have changed SQLite schema or mutable state. Previous code is not automatically compatible. Stop the service, assess orders and payments accepted since the snapshot, and restore one coherent whole-database backup only when the reconciliation plan is explicit.</div>
+  <div class="callout danger"><b class="label">Code rollback is not a data rollback</b>This application never changes an existing schema; an incompatible release fails startup instead. A release that did start may still have changed orders, payments and other mutable state. Stop the service, assess activity since the snapshot, and restore one coherent whole-database backup only when the reconciliation plan is explicit.</div>
 
   <h3>When a restart gap is still unacceptable</h3>
-  <p>A graceful single process protects requests already in flight but cannot accept a new connection while the next process starts. True continuous service needs two ports or hosts: start and health-check the new release, switch the Nginx upstream, then drain the old release. Use that blue/green pattern only when database migrations are backward-compatible with both versions and shared SQLite write load has been tested. The static callback retry page remains useful defense in depth.</p>
+  <p>A graceful single process protects requests already in flight but cannot accept a new connection while the next process starts. True continuous service needs two ports or hosts: start and health-check the new release, switch the Nginx upstream, then drain the old release. Use that blue/green pattern only when both releases declare the same exact database schema contract and shared SQLite write load has been tested. The static callback retry page remains useful defense in depth.</p>
 
   <div class="callout">
     <b class="label">Rules for every update</b>
-    Record old and new commit IDs; verify the validated local snapshot and append-only offsite replication; build outside the live release; never replace <code>/var/lib/khyeast</code>; cut over atomically; smoke-test payment and Admin; then monitor closely.
+    Record old and new commit IDs; require the same exact database schema contract; verify the validated local snapshot and append-only offsite replication; build outside the live release; never replace <code>/var/lib/khyeast</code>; cut over atomically; smoke-test payment and Admin; then monitor closely.
   </div>
 </section>
 
@@ -1509,7 +1509,7 @@ https://example.com/admin</pre>
   <ul class="checklist">
     <li>Real-host Admin login works and uses <code>__Host-ky_admin</code>.</li>
     <li>Content status is <code>persisted</code>; missing/corrupt SQLite sections make Admin/direct-shop writes and destructive cleanup fail with 503.</li>
-    <li>On a first installation, the empty persistent tree initialized all nine sections directly from immutable defaults.</li>
+    <li>On the first installation, one empty persistent tree initialized the final schema, all nine sections and operational defaults directly from immutable code defaults.</li>
     <li>Security tab shows effective HTTPS and real visitor IP.</li>
     <li>Rate limits are enabled with reviewed values.</li>
     <li>FA/EN/AR public pages, 404, canonical, sitemap, and robots are correct.</li>

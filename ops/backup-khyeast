@@ -100,6 +100,14 @@ SELECT CAST(meta.revision AS TEXT)
   FROM meta
  WHERE meta.revision >= 1
    AND (SELECT COUNT(*) FROM content_meta) = 1
+   AND (SELECT application_id FROM pragma_application_id) = 1263032645
+   AND (SELECT user_version FROM pragma_user_version) = 1
+   AND (SELECT CASE WHEN json_valid(value) THEN json_type(value) END
+          FROM settings WHERE key = 'installation.initializedAt') = 'text'
+   AND (SELECT CASE WHEN json_valid(value) THEN json_type(value) END
+          FROM settings WHERE key = 'shop.display') = 'object'
+   AND (SELECT CASE WHEN json_valid(value) THEN json_type(value) END
+          FROM settings WHERE key = 'shop.payment') = 'object'
    AND (
      SELECT COUNT(*)
        FROM expected

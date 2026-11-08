@@ -206,11 +206,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 `/api/content` با `no-store` پاسخ می‌دهد. در هر ناوبری، محتوای تازه و chunk واقعی مسیر باید آماده شوند؛ تنها در صورت انتظار واقعی، نشانگر بارگذاری نمایش داده می‌شود.
 
-محتوای قابل‌ویرایش فقط در SQLite نگه‌داری می‌شود و فایل tracked نیست. Git فقط کد، ترجمه و defaultهای immutable را نگه می‌دارد؛ بنابراین ذخیرهٔ Admin با `git pull` تعارض نمی‌سازد. برنامه تنها وقتی کل درخت ماندگار را واقعاً تازه تشخیص دهد، هر ۹ بخش را مستقیماً از `DEFAULT_STATE` مقداردهی می‌کند. اگر دیتابیس یک نصب established ناقص یا خراب باشد، startup هرگز آن را با defaultها بازنویسی نمی‌کند: public fallback علامت‌دار می‌ماند و writeهای Admin و پاک‌سازی upload تا بازیابی معتبر fail closed هستند.
+همهٔ state قابل‌تغییر فقط در SQLite و storage ماندگار upload نگه‌داری می‌شود و فایل tracked نیست. Git فقط کد، ترجمه و defaultهای immutable را نگه می‌دارد؛ بنابراین ذخیرهٔ Admin با `git pull` تعارض نمی‌سازد. برنامه تنها وقتی کل درخت ماندگار را واقعاً تازه تشخیص دهد، هر ۹ بخش CMS و دادهٔ اولیهٔ عملیاتی را مستقیماً از defaultهای کد و در یک تراکنش مقداردهی می‌کند. هیچ فایل JSON، schema قدیمی یا دادهٔ قبلی import، ALTER یا backfill نمی‌شود. اگر دیتابیس یک نصب established ناقص، ناسازگار یا خراب باشد، startup هرگز آن را با defaultها بازنویسی نمی‌کند.
 
 ### SQLite
 
-- مهاجرت جدول‌ها هنگام راه‌اندازی به‌صورت خودکار انجام می‌شود.
+- schema کامل فقط روی دیتابیس خالی ساخته می‌شود؛ startup دیتابیس موجود را با application id، نسخه و ستون‌های لازم بررسی می‌کند و schema ناسازگار را بدون تغییر رد می‌کند.
+- هیچ مسیر import، ALTER، backfill یا ارتقای خودکار دیتابیس وجود ندارد.
 - حالت WAL، foreign key، busy timeout و تراکنش استفاده می‌شود.
 - fallback مبتنی بر `node:sqlite` برای تراکنش‌های تو‌در‌تو از savepoint واقعی استفاده می‌کند و writeهای CMS با `BEGIN IMMEDIATE` بین workerها سری می‌شوند.
 - `content_meta` یک revision سراسری و `content_sections` revision هر بخش را نگه می‌دارند. PATCH فقط row همان بخش را تغییر می‌دهد و cache هر worker با revision به‌همراه `PRAGMA data_version` باطل می‌شود.
@@ -218,7 +219,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - جدول `order_payments` همه authorityهای صادرشده را نگه می‌دارد؛ کلید اصلی authority اتصال آن به بیش از یک سفارش را در سطح دیتابیس ناممکن می‌کند.
 - جدول `rate_limit_hits` شمارنده‌های کوتاه‌عمر و reservationهای در حال اجرا را بین همه workerهای Passenger مشترک می‌کند؛ شناسه bucket با `ADMIN_SECRET` و HMAC-SHA-256 کلیدگذاری می‌شود تا IP یا موبایل کم‌دامنه از روی snapshot دیتابیس قابل brute-force نباشد.
 - `orders.pay_authority` فقط اشاره‌گر تلاش جاری یا تلاش تسویه‌شده است و تاریخچه پرداخت را جایگزین نمی‌کند.
-- JSONهای عملیاتی `shop.json` و `messages.json` در صورت وجود با guard فقط یک‌بار وارد SQLite می‌شوند؛ محتوای editorial هیچ مسیر import فایلی ندارد.
+- محصول، تنظیمات نمایش/پرداخت و دیدگاه‌های نمونهٔ نصب تازه فقط از defaultهای immutable جاوااسکریپت ساخته می‌شوند؛ هیچ seed یا ورودی JSON وجود ندارد.
 
 ## پرداخت و موجودی
 
@@ -244,10 +245,6 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - **Refund:** استرداد بعدی با Access Token، Terminal ID و session id تراکنش
 
 لغو مالی موفق، وضعیت سفارش و موجودی را نیز هماهنگ می‌کند.
-
-### نکته ارتقا از نسخه قدیمی
-
-مهاجرت، authority جاری هر سفارش را به `order_payments` منتقل می‌کند. authorityهایی که نسخه قدیمی پیش از این با retry بازنویسی کرده یا در سفارش پرداخت‌شده با `ref_id` جایگزین کرده است از داده محلی قابل بازسازی نیستند؛ چنین تراکنش‌های قدیمی باید با ledger زرین‌پال به‌صورت دستی تطبیق داده شوند.
 
 ## حساب و پیامک
 
@@ -376,7 +373,7 @@ Baselineهای تصویری فعلی platform-specific هستند. `npm run test
 ├── server/
 │   ├── index.js            Express، CMS، upload و SEO runtime
 │   ├── gracefulShutdown.js drain محدود requestها هنگام SIGTERM
-│   ├── db.js               schema، migration، revision و عملیات SQLite
+│   ├── db.js               schema نهایی، revision و عملیات SQLite
 │   ├── shop.js             سفارش، موجودی، Admin فروشگاه و callback پرداخت
 │   ├── accountRoutes.js    حساب مشتری، OTP و نشانی‌ها
 │   ├── payment.js          اتصال زرین‌پال
@@ -431,7 +428,7 @@ HTTPS برای کوکی `__Host-` پنل تولید ضروری است و login �
 
 ## پشتیبان‌گیری، قرنطینه و ارتقا
 
-دادهٔ عملیاتی شامل snapshot معتبر **کل SQLite** و فایل‌های زندهٔ `UPLOAD_DIR` است. برای SQLite فعال در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` ابتدا فضای آزاد لازم را بررسی می‌کند و بدون توقف Node snapshot آنلاین می‌گیرد. اگر systemd تأیید کند `khyeast.service` متوقف است، فایل پایدار SQLite (و در توقف ناپاک مجموعهٔ WAL) ابتدا به staging قابل‌نوشتن کپی و همان‌جا یکپارچه و اعتبارسنجی می‌شود؛ بنابراین sandbox فقط‌خواندنی backup اضطراری را خراب نمی‌کند. هر snapshot باید `integrity_check`، `foreign_key_check`، وجود و نوع هر ۹ بخش CMS و برابری revision پیش/داخل/پس از snapshot را بگذراند. دو گذر upload یک superset محافظه‌کار می‌سازند و فقط staging ثابت archive می‌شود. manifest format 2 شامل checksum دیتابیس و revision محتواست. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
+دادهٔ عملیاتی شامل snapshot معتبر **کل SQLite** و فایل‌های زندهٔ `UPLOAD_DIR` است. برای SQLite فعال در حالت WAL فایل دیتابیس زنده را با `cp` یا `tar` کپی نکنید؛ از API دستور `.backup` استفاده کنید. نمونهٔ production در `ops/backup-khyeast` ابتدا فضای آزاد لازم را بررسی می‌کند و بدون توقف Node snapshot آنلاین می‌گیرد. اگر systemd تأیید کند `khyeast.service` متوقف است، فایل پایدار SQLite (و در توقف ناپاک مجموعهٔ WAL) ابتدا به staging قابل‌نوشتن کپی و همان‌جا یکپارچه و اعتبارسنجی می‌شود؛ بنابراین sandbox فقط‌خواندنی backup اضطراری را خراب نمی‌کند. هر snapshot باید `integrity_check`، `foreign_key_check`، application id و schema version دقیق، وجود و نوع هر ۹ بخش CMS و برابری revision پیش/داخل/پس از snapshot را بگذراند. دو گذر upload یک superset محافظه‌کار می‌سازند و فقط staging ثابت archive می‌شود. manifest format 2 شامل checksum دیتابیس و revision محتواست. exit code یا هشدار ناقص `tar`/`rsync` نباید موفق تلقی شود. پس از ساخت archive معتبر، پنجرهٔ محلی به‌طور پیش‌فرض ۱۴ روز است (`LOCAL_RETENTION_DAYS`)؛ retention و verification مخزن offsite باید مستقل باشد.
 
 پوشه‌های زیر عمداً در backup محلی و offsite قرار نمی‌گیرند:
 
@@ -449,13 +446,13 @@ UPLOAD_DIR/.incoming/    # بدنهٔ موقت و هنوز منتشرنشدهٔ 
 هنگام انتشار نسخهٔ جدید:
 
 1. backup آنلاین معتبر و نسخهٔ offsite رمزگذاری‌شده را تأیید کنید.
-2. نسخهٔ جدید را در یک release directory جداگانه `npm ci`، test و build کنید؛ روی checkout در حال اجرا `npm ci` نزنید.
+2. نسخهٔ جدید را در یک release directory جداگانه `npm ci`، test و build کنید؛ روی checkout در حال اجرا `npm ci` نزنید. release باید دقیقاً همان قرارداد schema دیتابیس را اعلام کند؛ نسخهٔ ناسازگار بدون تغییر دیتابیس رد می‌شود و ارتقای in-place ندارد.
 3. symlink نسخه را اتمیک جابه‌جا کنید و فقط در لحظهٔ cutover سرویس را restart کنید.
 4. `server/data/` و `server/uploads/` را جایگزین یا پاک نکنید؛ state تولید باید بیرون checkout باشد.
 5. SIGTERM ابتدا پذیرش request جدید را می‌بندد و تا ۹۰ ثانیه به callbackهای فعال فرصت پایان می‌دهد؛ unit تولید باید `TimeoutStopSec=120s` داشته باشد.
 6. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان authority را حداکثر شش بار خودکار دوباره بررسی کند و سپس با اقدام دستی متوقف شود؛ مشتری نباید دوباره پرداخت کند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
 7. health، ورود Admin، header محتوای `persisted` و یک callback تکراری پرداخت را بررسی کنید.
-8. rollback کد به‌تنهایی schema/state را برنمی‌گرداند؛ پیش از rollback ناسازگار، سرویس را متوقف و فقط با برنامهٔ reconciliation صریح یک snapshot کامل و سازگار SQLite را بازیابی کنید.
+8. rollback کد state عملیاتی را به عقب برنمی‌گرداند؛ پیش از هر restore، سرویس را متوقف و فقط با برنامهٔ reconciliation صریح یک snapshot کامل و سازگار SQLite را بازیابی کنید.
 
 جزئیات نصب timerها، backup آنلاین/متوقف، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` روی VPS فقط checksum محلی را دوباره بررسی و snapshot جدید را اضافه می‌کند. Restic upstream گزینهٔ سراسری `--no-lock` را برای `backup` می‌پذیرد ولی اجرا نمی‌کند ([issue #1544](https://github.com/restic/restic/issues/1544))؛ backup همچنان lock می‌سازد و در پایان حذف می‌کند. بنابراین endpoint محدود باید حذف history را منع کند ولی فقط حذف `locks/*` را مجاز بداند (مانند `rest-server --append-only`). اگر provider چنین scopeی ندارد، credential آن را مستقیم به Restic ندهید و یک endpoint واقعاً append-only سازگار با lock جلوی آن قرار دهید. پیش از production، همان credential محدود را یک بار روی مخزن disposable آزمایش کنید: backup عادی باید همراه cleanup lock موفق و `forget` باید ناموفق باشد؛ سپس با credential کامل ماشین نگهداری تأیید کنید snapshot آزمایشی هنوز وجود دارد، قابل restore است و lock باقیمانده‌ای ندارد. `RESTIC_APPEND_ONLY=true` و تست mock جای این آزمون provider-side را نمی‌گیرند. `restic check` و retention فقط با `ops/maintain-khyeast-restic` و credential کامل روی یک ماشین مورداعتماد جدا اجرا می‌شوند. URL و credentialهای VPS فقط در `/etc/khyeast/restic.env` می‌مانند و credential نگهداری هرگز روی VPS قرار نمی‌گیرد. یک restore واقعی را تمرین کنید.
 
