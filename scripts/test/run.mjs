@@ -202,6 +202,7 @@ try {
 console.log('\nPersistence lifecycle — authoritative state and active requests survive failures');
 for (const [file, label] of [
   ['content-store.mjs', 'fresh final-schema initialization, incompatible-store refusal and worker revisions'],
+  ['migrations.mjs', 'explicit plans, transactional rollback and verified pre-change backups'],
   ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
   ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],

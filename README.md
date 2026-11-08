@@ -114,6 +114,7 @@ npm run server
 | `npm run dev` | فقط Vite روی پورت ۵۱۷۳ |
 | `npm run server` / `npm start` | API و build موجود روی پورت ۸۷۸۷ |
 | `npm run build` | build رابط کاربری و تولید HTMLهای SEO، sitemap و robots |
+| `npm run db:migrate` | اعتبارسنجی و اجرای صریح migrationهای نسخه‌بندی‌شده SQLite؛ startup هرگز آن را خودکار اجرا نمی‌کند |
 | `npm run seo:generate` | اجرای مستقل مولد SEO روی build موجود |
 | `npm run preview` | پیش‌نمایش استاتیک Vite؛ API واقعی ندارد |
 | `npm test` | build و اجرای مجموعه تست‌های بدون مرورگر |
@@ -161,6 +162,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `DATA_DIR` | `server/data` |
 | `UPLOAD_DIR` | `server/uploads`؛ فایل‌های multipart موقت در زیرپوشهٔ خصوصی `.incoming` همین filesystem قرار می‌گیرند |
 | `DB_FILE` | `<DATA_DIR>/khyeast.db` |
+| `MIGRATION_BACKUP_DIR` | محل backup تأییدشدهٔ پیش از migration؛ پیش‌فرض کنار `DATA_DIR` در `migration-backups/` |
+| `MIGRATION_MIN_FREE_BYTES` | ذخیرهٔ آزاد افزودهٔ لازم پیش از backup migration؛ پیش‌فرض ۱ GiB |
+| `MIGRATION_ATTEMPTS` | تعداد تلاش برای snapshot پایدار و fence شدن writeها؛ پیش‌فرض ۳ |
 | `TRUSTED_HOSTS` | allowlist میزبان‌ها و aliasهای معتبر کنار `PUBLIC_ORIGIN` |
 | `TRUST_PROXY` | پیش‌فرض امن: `loopback, linklocal, uniquelocal` |
 | `SEO_ORIGIN` | origin مخصوص build استاتیک SEO |
@@ -187,9 +191,10 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `/quality` | `/en/quality` | `/ar/quality` |
 | `/blog` | `/en/blog` | `/ar/blog` |
 | `/blog/:slug` | `/en/blog/:slug` | `/ar/blog/:slug` |
+| `/sales-representatives` | — | — |
 | `/contact` | `/en/contact` | `/ar/contact` |
 
-مسیرهای `/shop/*` فقط در نسخه فارسی وجود دارند. مسیرهای خصوصی مانند `/admin`، ورود، حساب، سبد، پرداخت و پیگیری سفارش با `noindex` سرو می‌شوند.
+مسیرهای `/shop/*` و `/sales-representatives` فقط در نسخه فارسی وجود دارند. مسیرهای خصوصی مانند `/admin`، ورود، حساب، سبد، پرداخت و پیگیری سفارش با `noindex` سرو می‌شوند.
 
 ## معماری محتوا و داده
 
@@ -206,12 +211,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 `/api/content` با `no-store` پاسخ می‌دهد. در هر ناوبری، محتوای تازه و chunk واقعی مسیر باید آماده شوند؛ تنها در صورت انتظار واقعی، نشانگر بارگذاری نمایش داده می‌شود.
 
-همهٔ state قابل‌تغییر فقط در SQLite و storage ماندگار upload نگه‌داری می‌شود و فایل tracked نیست. Git فقط کد، ترجمه و defaultهای immutable را نگه می‌دارد؛ بنابراین ذخیرهٔ Admin با `git pull` تعارض نمی‌سازد. برنامه تنها وقتی کل درخت ماندگار را واقعاً تازه تشخیص دهد، هر ۹ بخش CMS و دادهٔ اولیهٔ عملیاتی را مستقیماً از defaultهای کد و در یک تراکنش مقداردهی می‌کند. هیچ فایل JSON، schema قدیمی یا دادهٔ قبلی import، ALTER یا backfill نمی‌شود. اگر دیتابیس یک نصب established ناقص، ناسازگار یا خراب باشد، startup هرگز آن را با defaultها بازنویسی نمی‌کند.
+همهٔ state قابل‌تغییر فقط در SQLite و storage ماندگار upload نگه‌داری می‌شود و فایل tracked نیست. Git فقط کد، ترجمه و defaultهای immutable را نگه می‌دارد؛ بنابراین ذخیرهٔ Admin با `git pull` تعارض نمی‌سازد. برنامه تنها وقتی کل درخت ماندگار را واقعاً تازه تشخیص دهد، هر ۹ بخش CMS و دادهٔ اولیهٔ عملیاتی را مستقیماً از defaultهای کد و در یک تراکنش مقداردهی می‌کند. هیچ فایل JSON یا schema ناشناخته‌ای import یا حدس زده نمی‌شود. اگر دیتابیس یک نصب established ناقص، ناسازگار یا خراب باشد، startup هرگز آن را با defaultها بازنویسی یا خودکار upgrade نمی‌کند؛ فقط مسیرهای صریح و نسخه‌بندی‌شده‌ای که در `server/migrations.js` بازبینی شده‌اند با فرمان اپراتوری `npm run db:migrate` قابل اجرا هستند.
 
 ### SQLite
 
 - schema کامل فقط روی دیتابیس خالی ساخته می‌شود؛ startup دیتابیس موجود را با application id، نسخه و ستون‌های لازم بررسی می‌کند و schema ناسازگار را بدون تغییر رد می‌کند.
-- هیچ مسیر import، ALTER، backfill یا ارتقای خودکار دیتابیس وجود ندارد.
+- startup هیچ import، `ALTER`، backfill یا ارتقای خودکاری انجام نمی‌دهد. ارتقا فقط با migration صریح، مجاور و forward-only ثبت‌شده در کد انجام می‌شود.
 - حالت WAL، foreign key، busy timeout و تراکنش استفاده می‌شود.
 - fallback مبتنی بر `node:sqlite` برای تراکنش‌های تو‌در‌تو از savepoint واقعی استفاده می‌کند و writeهای CMS با `BEGIN IMMEDIATE` بین workerها سری می‌شوند.
 - `content_meta` یک revision سراسری و `content_sections` revision هر بخش را نگه می‌دارند. PATCH فقط row همان بخش را تغییر می‌دهد و cache هر worker با revision به‌همراه `PRAGMA data_version` باطل می‌شود.
@@ -220,6 +225,27 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - جدول `rate_limit_hits` شمارنده‌های کوتاه‌عمر و reservationهای در حال اجرا را بین همه workerهای Passenger مشترک می‌کند؛ شناسه bucket با `ADMIN_SECRET` و HMAC-SHA-256 کلیدگذاری می‌شود تا IP یا موبایل کم‌دامنه از روی snapshot دیتابیس قابل brute-force نباشد.
 - `orders.pay_authority` فقط اشاره‌گر تلاش جاری یا تلاش تسویه‌شده است و تاریخچه پرداخت را جایگزین نمی‌کند.
 - محصول، تنظیمات نمایش/پرداخت و دیدگاه‌های نمونهٔ نصب تازه فقط از defaultهای immutable جاوااسکریپت ساخته می‌شوند؛ هیچ seed یا ورودی JSON وجود ندارد.
+
+### اجرای migration صریح
+
+ابتدا plan و سلامت دیتابیس را بدون write بررسی کنید:
+
+```bash
+npm run db:migrate -- --database /var/lib/khyeast/data/khyeast.db --dry-run
+```
+
+اگر plan خالی باشد، فرمان فقط schema فعلی، `integrity_check` و foreign keyها را اعتبارسنجی می‌کند، با exit code صفر تمام می‌شود و حتی پوشهٔ backup نمی‌سازد. `--dry-run` برای plan غیرخالی بدون هیچ write با exit code برابر ۳ تمام می‌شود تا deployment مبتنی بر `set -e` پیش از cutover متوقف شود. اگر plan وجود داشته باشد، هر گام باید در `server/migrations.js` با نسخهٔ مبدأ/مقصد مجاور، توضیح و وضعیت سازگاری rolling ثبت شده باشد. اجرای واقعی پیش از نخستین `ALTER` یک snapshot با API خود SQLite می‌سازد، آن را با integrity/foreign-key/application-id/version و validator دقیق schema مبدأ بررسی می‌کند، checksum و manifest می‌نویسد، فضای آزاد را preflight می‌کند و با `PRAGMA data_version` مانع migration روی state جدیدتر از backup می‌شود.
+
+migrationهای offline به‌طور پیش‌فرض رد می‌شوند. پس از drain و توقف همهٔ workerها، اپراتور باید آگاهانه تأیید کند:
+
+```bash
+npm run db:migrate -- \
+  --database /var/lib/khyeast/data/khyeast.db \
+  --backup-dir /var/lib/khyeast/migration-backups \
+  --app-stopped
+```
+
+`--app-stopped` فقط attestation اپراتور است و سرویس را متوقف نمی‌کند. همهٔ گام‌ها و تغییر `user_version` در یک تراکنش اجرا می‌شوند؛ شکست rollback می‌شود و backup خودکار restore نمی‌شود. این snapshot دیتابیس جای backup کامل SQLite به‌همراه uploads و نسخهٔ offsite را نمی‌گیرد. در release فعلی schema برابر v1 است و registry خالی است، بنابراین فرمان روی دیتابیس جاری یک no-op تأییدشده است.
 
 ## پرداخت و موجودی
 
@@ -374,6 +400,7 @@ Baselineهای تصویری فعلی platform-specific هستند. `npm run test
 │   ├── index.js            Express، CMS، upload و SEO runtime
 │   ├── gracefulShutdown.js drain محدود requestها هنگام SIGTERM
 │   ├── db.js               schema نهایی، revision و عملیات SQLite
+│   ├── migrations.js       plan و اجرای صریح migration با backup و fence
 │   ├── shop.js             سفارش، موجودی، Admin فروشگاه و callback پرداخت
 │   ├── accountRoutes.js    حساب مشتری، OTP و نشانی‌ها
 │   ├── payment.js          اتصال زرین‌پال
@@ -446,13 +473,15 @@ UPLOAD_DIR/.incoming/    # بدنهٔ موقت و هنوز منتشرنشدهٔ 
 هنگام انتشار نسخهٔ جدید:
 
 1. backup آنلاین معتبر و نسخهٔ offsite رمزگذاری‌شده را تأیید کنید.
-2. نسخهٔ جدید را در یک release directory جداگانه `npm ci`، test و build کنید؛ روی checkout در حال اجرا `npm ci` نزنید. release باید دقیقاً همان قرارداد schema دیتابیس را اعلام کند؛ نسخهٔ ناسازگار بدون تغییر دیتابیس رد می‌شود و ارتقای in-place ندارد.
-3. symlink نسخه را اتمیک جابه‌جا کنید و فقط در لحظهٔ cutover سرویس را restart کنید.
-4. `server/data/` و `server/uploads/` را جایگزین یا پاک نکنید؛ state تولید باید بیرون checkout باشد.
-5. SIGTERM ابتدا پذیرش request جدید را می‌بندد و تا ۹۰ ثانیه به callbackهای فعال فرصت پایان می‌دهد؛ unit تولید باید `TimeoutStopSec=120s` داشته باشد.
-6. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان authority را حداکثر شش بار خودکار دوباره بررسی کند و سپس با اقدام دستی متوقف شود؛ مشتری نباید دوباره پرداخت کند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
-7. health، ورود Admin، header محتوای `persisted` و یک callback تکراری پرداخت را بررسی کنید.
-8. rollback کد state عملیاتی را به عقب برنمی‌گرداند؛ پیش از هر restore، سرویس را متوقف و فقط با برنامهٔ reconciliation صریح یک snapshot کامل و سازگار SQLite را بازیابی کنید.
+2. نسخهٔ جدید را در یک release directory جداگانه `npm ci`، test و build کنید؛ روی checkout در حال اجرا `npm ci` نزنید.
+3. از داخل release جدید و در حالی که نسخهٔ قدیمی هنوز آنلاین است، `npm run db:migrate -- --database /var/lib/khyeast/data/khyeast.db --dry-run` را اجرا کنید. schema ناشناخته، مسیر ناقص یا دیتابیس جدیدتر باید deployment را متوقف کند.
+4. اگر plan خالی است، بدون write ادامه دهید. اگر همهٔ گام‌ها صریحاً rolling-compatible هستند، فرمان واقعی می‌تواند با backup/fence آنلاین اجرا شود. برای هر گام offline، ابتدا همهٔ workerها را drain/stop کنید و سپس همان فرمان را با `--app-stopped` اجرا کنید؛ startup هرگز migration را به‌جای اپراتور انجام نمی‌دهد.
+5. symlink نسخه را اتمیک جابه‌جا کنید و سرویس را restart کنید؛ اگر برای migration متوقف شده بود، پس از cutover آن را start کنید.
+6. `server/data/`، `server/uploads/` و `migration-backups/` را جایگزین یا پاک نکنید؛ state تولید باید بیرون checkout باشد.
+7. SIGTERM ابتدا پذیرش request جدید را می‌بندد و تا ۹۰ ثانیه به callbackهای فعال فرصت پایان می‌دهد؛ unit تولید باید `TimeoutStopSec=120s` داشته باشد.
+8. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان authority را حداکثر شش بار خودکار دوباره بررسی کند و سپس با اقدام دستی متوقف شود؛ مشتری نباید دوباره پرداخت کند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
+9. health، ورود Admin، header محتوای `persisted` و یک callback تکراری پرداخت را بررسی کنید.
+10. پس از schema migration، rollback کد تنها وقتی مجاز است که migration صریحاً سازگاری نسخهٔ قبلی را حفظ کرده باشد. در غیر این صورت restore snapshot پیش از migration نیازمند توقف سرویس و reconciliation همهٔ سفارش‌ها و پرداخت‌های بعد از snapshot است.
 
 جزئیات نصب timerها، backup آنلاین/متوقف، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` روی VPS فقط checksum محلی را دوباره بررسی و snapshot جدید را اضافه می‌کند. Restic upstream گزینهٔ سراسری `--no-lock` را برای `backup` می‌پذیرد ولی اجرا نمی‌کند ([issue #1544](https://github.com/restic/restic/issues/1544))؛ backup همچنان lock می‌سازد و در پایان حذف می‌کند. بنابراین endpoint محدود باید حذف history را منع کند ولی فقط حذف `locks/*` را مجاز بداند (مانند `rest-server --append-only`). اگر provider چنین scopeی ندارد، credential آن را مستقیم به Restic ندهید و یک endpoint واقعاً append-only سازگار با lock جلوی آن قرار دهید. پیش از production، همان credential محدود را یک بار روی مخزن disposable آزمایش کنید: backup عادی باید همراه cleanup lock موفق و `forget` باید ناموفق باشد؛ سپس با credential کامل ماشین نگهداری تأیید کنید snapshot آزمایشی هنوز وجود دارد، قابل restore است و lock باقیمانده‌ای ندارد. `RESTIC_APPEND_ONLY=true` و تست mock جای این آزمون provider-side را نمی‌گیرند. `restic check` و retention فقط با `ops/maintain-khyeast-restic` و credential کامل روی یک ماشین مورداعتماد جدا اجرا می‌شوند. URL و credentialهای VPS فقط در `/etc/khyeast/restic.env` می‌مانند و credential نگهداری هرگز روی VPS قرار نمی‌گیرد. یک restore واقعی را تمرین کنید.
 

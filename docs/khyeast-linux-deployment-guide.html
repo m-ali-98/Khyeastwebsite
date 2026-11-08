@@ -220,7 +220,7 @@
     <li><code>uploads/</code> — images, videos, and responsive image variants.</li>
     <li><code>ADMIN_SECRET</code> and the rest of the production environment — never lose the stable secret.</li>
   </ul>
-  <p>This guide keeps mutable state in <code>/var/lib/khyeast</code>, outside the Git checkout. Git contains only immutable code/defaults, so an Admin save cannot conflict with <code>git pull</code>. On a demonstrably fresh persistent tree, the application creates the complete final schema and initializes all nine editorial sections plus operational defaults directly from immutable JavaScript defaults. It has no JSON importer, seed file, <code>ALTER</code>, backfill, or automatic schema-upgrade path. An established missing, incompatible, or corrupt database is never silently changed or reseeded.</p>
+  <p>This guide keeps mutable state in <code>/var/lib/khyeast</code>, outside the Git checkout. Git contains only immutable code/defaults, so an Admin save cannot conflict with <code>git pull</code>. On a demonstrably fresh persistent tree, the application creates the complete final schema and initializes all nine editorial sections plus operational defaults directly from immutable JavaScript defaults. It has no JSON importer, seed file, inferred legacy conversion, or automatic startup upgrade. An established missing, incompatible, or corrupt database is never silently changed or reseeded. A supported older schema can advance only through reviewed, adjacent, forward-only steps invoked explicitly with <code>npm run db:migrate</code>.</p>
 
   <h3>What this guide deliberately uses</h3>
   <div class="card-grid">
@@ -417,6 +417,7 @@ sudo install -d -m 0750 -o "$USER" -g khyeast /srv/khyeast/releases
 <span class="comment"># Persistent writable state.</span>
 sudo install -d -m 0750 -o khyeast -g khyeast /var/lib/khyeast/data
 sudo install -d -m 0750 -o khyeast -g khyeast /var/lib/khyeast/uploads
+sudo install -d -m 0700 -o khyeast -g khyeast /var/lib/khyeast/migration-backups
 
 <span class="comment"># Root-only environment configuration.</span>
 sudo install -d -m 0700 -o root -g root /etc/khyeast</pre>
@@ -429,6 +430,7 @@ sudo install -d -m 0700 -o root -g root /etc/khyeast</pre>
       <tr><td><code>/srv/khyeast/current</code></td><td>Deployment user</td><td>Symlink to the release systemd currently starts</td></tr>
       <tr><td><code>/var/lib/khyeast/data</code></td><td><code>khyeast</code></td><td>Authoritative SQLite database and its runtime sidecars</td></tr>
       <tr><td><code>/var/lib/khyeast/uploads</code></td><td><code>khyeast</code></td><td>Uploaded images, videos, and image variants</td></tr>
+      <tr><td><code>/var/lib/khyeast/migration-backups</code></td><td><code>khyeast</code>, mode 700</td><td>Checksummed SQLite recovery points made only before explicit schema changes</td></tr>
       <tr><td><code>/etc/khyeast/khyeast.env</code></td><td>root, mode 600</td><td>Production secrets and runtime configuration</td></tr>
     </tbody>
   </table>
@@ -495,7 +497,17 @@ sudo find /var/lib/khyeast/data /var/lib/khyeast/uploads \
 <span class="comment"># After the first service start, authority must be persisted.</span>
 curl -fsSI https://example.com/api/content | \
   grep -i 'x-khyeast-content-status: persisted'</pre>
-  <div class="callout danger"><b class="label">Do not manufacture freshness</b>An existing database with the wrong application id, schema version or required columns is rejected without modification; there is no automatic upgrade. If editorial rows are missing from an otherwise compatible initialized store, startup serves a marked public fallback but refuses Admin writes and destructive upload cleanup. Restore a verified whole-database backup; never copy defaults into established state merely to clear an error.</div>
+  <div class="callout danger"><b class="label">Do not manufacture freshness</b>An existing database with the wrong application id, unsupported schema version or required columns is rejected without modification; startup never upgrades it. If editorial rows are missing from an otherwise compatible initialized store, startup serves a marked public fallback but refuses Admin writes and destructive upload cleanup. Run the explicit migration command only for a reviewed version path. Otherwise restore a verified whole-database backup; never copy defaults into established state merely to clear an error.</div>
+
+  <h3>Plan schema changes explicitly</h3>
+  <p>From the fully tested new release, inspect the database without changing it:</p>
+  <pre>cd /srv/khyeast/releases/REPLACE-WITH-NEW-RELEASE
+npm run db:migrate -- \
+  --database /var/lib/khyeast/data/khyeast.db \
+  --backup-dir /var/lib/khyeast/migration-backups \
+  --dry-run</pre>
+  <p>A current database reports a validated no-op, exits zero, and creates no backup directory. A non-empty dry-run plan performs no writes and exits 3 so the <code>set -e</code> deployment sequence stops before cutover. The plan must consist only of adjacent migrations registered in <code>server/migrations.js</code>. Before a real plan executes, the runner preflights disk space, creates a SQLite-native snapshot, verifies integrity, foreign keys, application id, source version and the migration's exact source-schema contract, writes a SHA-256 manifest, and fences concurrent commits with <code>PRAGMA data_version</code>. All steps and <code>user_version</code> changes then commit in one transaction.</p>
+  <div class="callout warning"><b class="label">Offline is the default</b>Unless a migration is explicitly reviewed as rolling-compatible, the command refuses to run while the app may be active. Drain and stop every worker, then rerun with <code>--app-stopped</code>. That flag is an operator attestation; it does not stop the service. The migration snapshot covers SQLite only and does not replace the required whole-state backup plus encrypted offsite copy.</div>
 
   <pre><span class="comment"># Give the locked service account read access to the finished release.</span>
 release=$(readlink -f /srv/khyeast/current)
@@ -531,6 +543,9 @@ TRUST_PROXY="loopback, linklocal, uniquelocal"
 DATA_DIR=/var/lib/khyeast/data
 UPLOAD_DIR=/var/lib/khyeast/uploads
 DB_FILE=/var/lib/khyeast/data/khyeast.db
+MIGRATION_BACKUP_DIR=/var/lib/khyeast/migration-backups
+MIGRATION_MIN_FREE_BYTES=1073741824
+MIGRATION_ATTEMPTS=3
 
 <span class="comment"># Optional ownership tokens:</span>
 <span class="comment"># GOOGLE_SITE_VERIFICATION=...</span>
@@ -561,6 +576,7 @@ sudo stat /etc/khyeast/khyeast.env</pre>
     <li><code>TRUSTED_HOSTS</code>: valid aliases in addition to <code>PUBLIC_ORIGIN</code>.</li>
     <li><code>TRUST_PROXY</code>: keep the safe default for same-host Nginx. Never set <code>true</code> unless direct access to Node is impossible and the proxy topology is fully controlled.</li>
     <li><code>RATE_LIMITS_ENABLED</code> and <code>RL_MAX_*</code>: initial overrides only. Saved Admin settings later become authoritative.</li>
+    <li><code>MIGRATION_BACKUP_DIR</code>, <code>MIGRATION_MIN_FREE_BYTES</code>, and <code>MIGRATION_ATTEMPTS</code>: used only by the explicit migration command; startup ignores them.</li>
     <li><code>SEO_ORIGIN</code>: optional build-only origin; normally <code>PUBLIC_ORIGIN</code> is enough.</li>
     <li><code>PENDING_ORDER_TTL_MS</code>: default is approximately 30 minutes. Do not change without understanding inventory behavior.</li>
   </ul>
@@ -1229,6 +1245,12 @@ sudo systemctl start khyeast-offsite.service
 sudo systemctl show khyeast-offsite.service -p Result --value | grep -Fx success
 sudo journalctl -u khyeast-offsite.service -n 30 --no-pager
 
+<span class="comment"># Validate and plan with no writes; exit 3 stops this script when a plan exists.</span>
+sudo -u khyeast npm run db:migrate -- \
+  --database /var/lib/khyeast/data/khyeast.db \
+  --backup-dir /var/lib/khyeast/migration-backups \
+  --dry-run
+
 <span class="comment"># Keep the proxy's callback fallback page in step with the release.</span>
 sudo install -m 0644 -o root -g root \
   "$release/ops/payment-callback-unavailable.html" \
@@ -1256,6 +1278,27 @@ sudo install -m 0644 -o root -g root \
   /etc/systemd/system/
 <span class="comment"># Never install the maintenance unit or its full credentials on this VPS.</span>
 sudo systemctl daemon-reload</pre>
+
+  <h3>If the dry run prints a migration plan</h3>
+  <p>Do not continue to cutover until the plan has been reviewed. A plan marked entirely rolling-compatible can run while the old release remains online; its data-version fence retries if a commit lands after the backup. Every other plan is offline by default:</p>
+  <pre><span class="comment"># Offline plan only: stop after all requests have drained.</span>
+sudo systemctl stop khyeast
+sudo systemctl is-active khyeast | grep -Fx inactive
+
+<span class="comment"># The flag attests the stop; it does not perform it.</span>
+cd "$release"
+sudo -u khyeast npm run db:migrate -- \
+  --database /var/lib/khyeast/data/khyeast.db \
+  --backup-dir /var/lib/khyeast/migration-backups \
+  --app-stopped
+
+<span class="comment"># Only after migration succeeds, publish the new symlink and start it.</span>
+rm -f /srv/khyeast/current.next
+ln -s "$release" /srv/khyeast/current.next
+sudo mv -Tf /srv/khyeast/current.next /srv/khyeast/current
+sudo systemctl start khyeast</pre>
+  <div class="callout danger"><b class="label">No blind code rollback after migration</b>The pre-migration snapshot is deliberately not restored automatically. Returning to old code is safe only when every applied migration explicitly preserves old-code compatibility. Otherwise preserve the failed state, assess orders/payments created after the snapshot, and use the documented restore and reconciliation procedure.</div>
+
   <p>SIGTERM first closes the Node listener and drains active requests for up to 90 seconds before SQLite closes. A callback already being verified can therefore finish. A callback arriving during the remaining restart gap receives the dedicated Nginx 503 page and automatically retries the same authority URL instead of inviting a second payment.</p>
 
   <h3>Required post-cutover checks</h3>
@@ -1278,14 +1321,14 @@ sudo mv -Tf /srv/khyeast/current.rollback /srv/khyeast/current
 sudo systemctl restart khyeast
 curl -fsS https://example.com/api/health
 readlink -f /srv/khyeast/current</pre>
-  <div class="callout danger"><b class="label">Code rollback is not a data rollback</b>This application never changes an existing schema; an incompatible release fails startup instead. A release that did start may still have changed orders, payments and other mutable state. Stop the service, assess activity since the snapshot, and restore one coherent whole-database backup only when the reconciliation plan is explicit.</div>
+  <div class="callout danger"><b class="label">Code rollback is not a data rollback</b>Startup never changes an existing schema, but the explicit migration command can. After a migration, old code may be incompatible even if its symlink is restored. A running release may also have changed orders, payments and other mutable state. Roll code back only across a migration reviewed as backward-compatible; otherwise stop the service, assess activity since the pre-migration snapshot, and restore one coherent whole-database backup only when the reconciliation plan is explicit.</div>
 
   <h3>When a restart gap is still unacceptable</h3>
-  <p>A graceful single process protects requests already in flight but cannot accept a new connection while the next process starts. True continuous service needs two ports or hosts: start and health-check the new release, switch the Nginx upstream, then drain the old release. Use that blue/green pattern only when both releases declare the same exact database schema contract and shared SQLite write load has been tested. The static callback retry page remains useful defense in depth.</p>
+  <p>A graceful single process protects requests already in flight but cannot accept a new connection while the next process starts. True continuous service needs two ports or hosts: start and health-check the new release, switch the Nginx upstream, then drain the old release. Use that blue/green pattern only when both releases share the exact schema contract or every intervening migration is explicitly reviewed as rolling-compatible with both code versions, and shared SQLite write load has been tested. The static callback retry page remains useful defense in depth.</p>
 
   <div class="callout">
     <b class="label">Rules for every update</b>
-    Record old and new commit IDs; require the same exact database schema contract; verify the validated local snapshot and append-only offsite replication; build outside the live release; never replace <code>/var/lib/khyeast</code>; cut over atomically; smoke-test payment and Admin; then monitor closely.
+    Record old and new commit IDs; run the explicit schema dry-run before cutover; verify the validated local snapshot and append-only offsite replication; build outside the live release; never replace <code>/var/lib/khyeast</code>; cut over atomically; smoke-test payment and Admin; then monitor closely.
   </div>
 </section>
 
@@ -1510,6 +1553,7 @@ https://example.com/admin</pre>
     <li>Real-host Admin login works and uses <code>__Host-ky_admin</code>.</li>
     <li>Content status is <code>persisted</code>; missing/corrupt SQLite sections make Admin/direct-shop writes and destructive cleanup fail with 503.</li>
     <li>On the first installation, one empty persistent tree initialized the final schema, all nine sections and operational defaults directly from immutable code defaults.</li>
+    <li>The new release's explicit migration dry-run reports the expected current version or a reviewed plan before cutover.</li>
     <li>Security tab shows effective HTTPS and real visitor IP.</li>
     <li>Rate limits are enabled with reviewed values.</li>
     <li>FA/EN/AR public pages, 404, canonical, sitemap, and robots are correct.</li>
@@ -1536,6 +1580,7 @@ https://example.com/admin</pre>
       <tr><td>Renewal test</td><td><code>sudo certbot renew --dry-run</code></td></tr>
       <tr><td>Disk usage</td><td><code>df -h &amp;&amp; sudo du -sh /var/lib/khyeast/*</code></td></tr>
       <tr><td>Manual backup</td><td><code>sudo /usr/local/sbin/backup-khyeast</code></td></tr>
+      <tr><td>Schema dry-run</td><td><code>npm run db:migrate -- --database /var/lib/khyeast/data/khyeast.db --dry-run</code></td></tr>
       <tr><td>Backup timer</td><td><code>systemctl list-timers khyeast-backup.timer</code></td></tr>
       <tr><td>Offsite timer</td><td><code>systemctl list-timers khyeast-offsite.timer</code></td></tr>
       <tr><td>Quarantine timer</td><td><code>systemctl list-timers khyeast-quarantine-purge.timer</code></td></tr>

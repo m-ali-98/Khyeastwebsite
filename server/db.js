@@ -22,13 +22,14 @@ import { sanitizeRichText } from './sanitize.js';
 import { normalizeProductImages } from '../shared/productImages.js';
 
 /* ------------------------------------------------------------------ open */
-const DATABASE_APPLICATION_ID = 0x4b485945; // "KHYE"
-const DATABASE_SCHEMA_VERSION = 1;
+export const DATABASE_APPLICATION_ID = 0x4b485945; // "KHYE"
+export const DATABASE_SCHEMA_VERSION = 1;
 
 const schemaError = (detail) => Object.assign(
   new Error(
-    'SQLite schema is incompatible and automatic schema upgrades are disabled; ' +
-    `start with an empty persistent tree or restore a compatible backup (${detail})`,
+    'SQLite schema is incompatible and automatic startup upgrades are disabled; ' +
+    'run `npm run db:migrate` for a supported older schema, or restore a compatible backup ' +
+    `(${detail})`,
   ),
   { code: 'DB_SCHEMA_INCOMPATIBLE' },
 );
@@ -361,6 +362,12 @@ function ensureSchema(db, { allowCreate = false } = {}) {
     throw schemaError('database has no application schema');
   }
 
+  validateCurrentSchema(db);
+}
+
+/** Exact final-schema validator shared by startup and the explicit migration
+ * runner. It never creates, alters, backfills, or repairs state. */
+export function validateCurrentSchema(db) {
   const applicationId = pragmaNumber(db, 'application_id');
   const schemaVersion = pragmaNumber(db, 'user_version');
   if (applicationId !== DATABASE_APPLICATION_ID || schemaVersion !== DATABASE_SCHEMA_VERSION) {
@@ -384,6 +391,7 @@ function ensureSchema(db, { allowCreate = false } = {}) {
   if (Number(authorityIndex?.unique) !== 1 || Number(authorityIndex?.partial) !== 1) {
     throw schemaError('payment-authority uniqueness index is invalid');
   }
+  return { applicationId, schemaVersion };
 }
 
 /* ------------------------------------------------------- small utilities */
