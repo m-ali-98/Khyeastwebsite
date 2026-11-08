@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icons, PageHero, Reveal, SectionHead, hl } from '../components/ui';
 import { useContent } from '../content/ContentContext';
 import {
@@ -15,6 +15,8 @@ import {
 
 const searchable = (value) => normalizePersianLocation(value).toLocaleLowerCase('fa');
 const clusterKey = (item) => `${item.province}\u0000${item.city}\u0000${item.latitude}\u0000${item.longitude}`;
+const MAP_CENTER = Object.freeze({ x: IRAN_MAP_VIEWBOX.width / 2, y: IRAN_MAP_VIEWBOX.height / 2 });
+const CITY_FOCUS_SCALE = 1.34;
 
 function RepresentativeCard({ representative, t }) {
   const phoneHref = representativePhoneHref(representative.phone);
@@ -51,6 +53,9 @@ function RepresentativeCard({ representative, t }) {
 
 function IranRepresentativesMap({ representatives, selectedProvince, selectedCluster, onProvince, onCluster, t }) {
   const [hoveredProvince, setHoveredProvince] = useState('');
+  const [hoveredCluster, setHoveredCluster] = useState('');
+  const [focusedCluster, setFocusedCluster] = useState('');
+  const lastFocusPoint = useRef(MAP_CENTER);
   const clusters = useMemo(() => {
     const grouped = new Map();
     for (const representative of representatives) {
@@ -71,7 +76,26 @@ function IranRepresentativesMap({ representatives, selectedProvince, selectedClu
     }
     return counts;
   }, [representatives]);
+  const clusterKeys = useMemo(() => new Set(clusters.map((cluster) => cluster.key)), [clusters]);
+  useEffect(() => {
+    if (hoveredCluster && !clusterKeys.has(hoveredCluster)) setHoveredCluster('');
+    if (focusedCluster && !clusterKeys.has(focusedCluster)) setFocusedCluster('');
+  }, [clusterKeys, focusedCluster, hoveredCluster]);
+
   const hovered = IRAN_PROVINCE_SHAPES.find((shape) => shape.fa === hoveredProvince);
+  const activeClusterKey = hoveredCluster || focusedCluster;
+  const activeCluster = clusters.find((cluster) => cluster.key === activeClusterKey);
+  /* Zoom around the pin itself rather than panning it toward the centre. The
+     target therefore stays under the pointer, while retaining the last pivot
+     makes the return to the full map feel continuous. */
+  if (activeCluster) lastFocusPoint.current = activeCluster.point;
+  const focusPoint = lastFocusPoint.current;
+  const focusScale = activeCluster ? CITY_FOCUS_SCALE : 1;
+  const cameraTransform = [
+    `translate(${focusPoint.x.toFixed(2)}px, ${focusPoint.y.toFixed(2)}px)`,
+    `scale(${focusScale})`,
+    `translate(${(-focusPoint.x).toFixed(2)}px, ${(-focusPoint.y).toFixed(2)}px)`,
+  ].join(' ');
 
   const activateProvince = (province) => {
     onProvince(selectedProvince === province ? '' : province);
@@ -81,7 +105,15 @@ function IranRepresentativesMap({ representatives, selectedProvince, selectedClu
     <div className="sales-map">
       <div className="sales-map__summary" aria-live="polite">
         <span><Icons.pin size={16} /> {representatives.length.toLocaleString('fa-IR')} {t('salesReps.results')}</span>
-        {hovered && <strong>{hovered.fa}{provinceCounts.get(hovered.fa) ? ` · ${provinceCounts.get(hovered.fa).toLocaleString('fa-IR')}` : ''}</strong>}
+        {activeCluster ? (
+          <strong key={activeCluster.key}>
+            {activeCluster.items[0].city} · {activeCluster.items.length.toLocaleString('fa-IR')} {t('salesReps.results')}
+          </strong>
+        ) : hovered && (
+          <strong key={hovered.id}>
+            {hovered.fa}{provinceCounts.get(hovered.fa) ? ` · ${provinceCounts.get(hovered.fa).toLocaleString('fa-IR')}` : ''}
+          </strong>
+        )}
       </div>
       <svg
         className="sales-map__svg"
@@ -101,34 +133,67 @@ function IranRepresentativesMap({ representatives, selectedProvince, selectedClu
             <feDropShadow dx="0" dy="4" stdDeviation="4" floodOpacity=".28" />
           </filter>
         </defs>
-        <g className="sales-map__provinces">
-          {IRAN_PROVINCE_SHAPES.map((province) => {
-            const count = provinceCounts.get(province.fa) || 0;
-            const selected = selectedProvince === province.fa;
-            return (
-              <path
-                key={province.id}
-                d={province.d}
-                className={`${count ? 'has-representatives' : ''}${selected ? ' is-selected' : ''}`.trim()}
-                role="button"
-                tabIndex="0"
-                aria-label={`${province.fa}${count ? `، ${count.toLocaleString('fa-IR')} نماینده` : '، بدون نماینده فعال'}`}
-                aria-pressed={selected}
-                onPointerEnter={() => setHoveredProvince(province.fa)}
-                onPointerLeave={() => setHoveredProvince('')}
-                onFocus={() => setHoveredProvince(province.fa)}
-                onBlur={() => setHoveredProvince('')}
-                onClick={() => activateProvince(province.fa)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  activateProvince(province.fa);
-                }}
-              />
-            );
-          })}
+        <g
+          className={`sales-map__viewport${activeCluster ? ' is-city-focused' : ''}`}
+          style={{ transform: cameraTransform }}
+        >
+          <g className="sales-map__provinces">
+            {IRAN_PROVINCE_SHAPES.map((province) => {
+              const count = provinceCounts.get(province.fa) || 0;
+              const selected = selectedProvince === province.fa;
+              return (
+                <path
+                  key={province.id}
+                  d={province.d}
+                  className={`${count ? 'has-representatives' : ''}${selected ? ' is-selected' : ''}`.trim()}
+                  role="button"
+                  tabIndex="0"
+                  aria-label={`${province.fa}${count ? `، ${count.toLocaleString('fa-IR')} نماینده` : '، بدون نماینده فعال'}`}
+                  aria-pressed={selected}
+                  onPointerEnter={() => setHoveredProvince(province.fa)}
+                  onPointerLeave={() => setHoveredProvince('')}
+                  onFocus={() => setHoveredProvince(province.fa)}
+                  onBlur={() => setHoveredProvince('')}
+                  onClick={() => activateProvince(province.fa)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    activateProvince(province.fa);
+                  }}
+                />
+              );
+            })}
+          </g>
+          <g className="sales-map__markers" aria-hidden="true">
+            {clusters.map((cluster) => {
+              const selected = selectedCluster === cluster.key;
+              const active = activeClusterKey === cluster.key;
+              return (
+                <g
+                  key={cluster.key}
+                  className={`sales-map__marker${selected ? ' is-selected' : ''}${active ? ' is-active' : ''}`}
+                  transform={`translate(${cluster.point.x.toFixed(2)} ${cluster.point.y.toFixed(2)})`}
+                >
+                  <circle className="sales-map__marker-focus" r="34" />
+                  <circle className="sales-map__marker-pulse" r="26" />
+                  <g className="sales-map__marker-glyph">
+                    <path className="sales-map__marker-pin" d="M0 16C-5 9-15-1-15-11a15 15 0 1 1 30 0C15-1 5 9 0 16Z" filter="url(#sales-map-pin-shadow)" />
+                    <circle className="sales-map__marker-core" cy="-11" r="5" />
+                    {cluster.items.length > 1 && (
+                      <g className="sales-map__marker-count" transform="translate(13 -22)">
+                        <circle r="10" />
+                        <text textAnchor="middle" dominantBaseline="central">{cluster.items.length.toLocaleString('fa-IR')}</text>
+                      </g>
+                    )}
+                  </g>
+                </g>
+              );
+            })}
+          </g>
         </g>
-        <g className="sales-map__markers">
+        {/* Stable hit targets keep the city under the pointer while the visual
+            map scales, avoiding hover feedback loops in dense marker areas. */}
+        <g className="sales-map__marker-hits">
           {clusters.map((cluster) => {
             const selected = selectedCluster === cluster.key;
             const city = cluster.items[0].city;
@@ -136,12 +201,20 @@ function IranRepresentativesMap({ representatives, selectedProvince, selectedClu
             return (
               <g
                 key={cluster.key}
-                className={`sales-map__marker${selected ? ' is-selected' : ''}`}
+                className="sales-map__marker-hit"
                 transform={`translate(${cluster.point.x.toFixed(2)} ${cluster.point.y.toFixed(2)})`}
                 role="button"
                 tabIndex="0"
-                aria-label={`${city}، ${cluster.items.length.toLocaleString('fa-IR')} نماینده`}
+                aria-label={`${city}، استان ${province}، ${cluster.items.length.toLocaleString('fa-IR')} نماینده`}
                 aria-pressed={selected}
+                onPointerEnter={(event) => {
+                  if (event.pointerType !== 'touch') setHoveredCluster(cluster.key);
+                }}
+                onPointerLeave={() => setHoveredCluster((current) => (current === cluster.key ? '' : current))}
+                onFocus={(event) => {
+                  if (event.currentTarget.matches(':focus-visible')) setFocusedCluster(cluster.key);
+                }}
+                onBlur={() => setFocusedCluster((current) => (current === cluster.key ? '' : current))}
                 onClick={(event) => { event.stopPropagation(); onCluster(selected ? '' : cluster.key); }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -149,15 +222,7 @@ function IranRepresentativesMap({ representatives, selectedProvince, selectedClu
                   onCluster(selected ? '' : cluster.key);
                 }}
               >
-                <circle className="sales-map__marker-pulse" r="26" />
-                <path className="sales-map__marker-pin" d="M0 16C-5 9-15-1-15-11a15 15 0 1 1 30 0C15-1 5 9 0 16Z" filter="url(#sales-map-pin-shadow)" />
-                <circle className="sales-map__marker-core" cy="-11" r="5" />
-                {cluster.items.length > 1 && (
-                  <g className="sales-map__marker-count" transform="translate(13 -22)">
-                    <circle r="10" />
-                    <text textAnchor="middle" dominantBaseline="central">{cluster.items.length.toLocaleString('fa-IR')}</text>
-                  </g>
-                )}
+                <circle r="28" />
                 <title>{city}، استان {province}</title>
               </g>
             );

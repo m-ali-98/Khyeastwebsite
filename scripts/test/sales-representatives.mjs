@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import {
   IRAN_PROVINCES,
@@ -26,6 +27,8 @@ const rows = DEFAULT_STATE.collections.salesRepresentatives;
 const normalized = normalizeSalesRepresentatives(rows);
 const provinceNames = new Set(rows.map((item) => item.province));
 const mapNames = new Set(IRAN_PROVINCE_SHAPES.map((item) => item.fa));
+const mapPageSource = fs.readFileSync(new URL('../../src/pages/SalesRepresentatives.jsx', import.meta.url), 'utf8');
+const mapStyles = fs.readFileSync(new URL('../../src/styles/inner-pages.scss', import.meta.url), 'utf8');
 
 check(rows.length === 47, 'all 47 supplied worksheet rows are seeded', String(rows.length));
 check(provinceNames.size === 25, 'the worksheet covers 25 provinces', String(provinceNames.size));
@@ -51,6 +54,20 @@ check(
     return point && point.x >= 0 && point.x <= viewWidth && point.y >= 0 && point.y <= viewHeight;
   }),
   'every worksheet coordinate projects inside the local Iran viewBox',
+);
+check(
+  mapPageSource.includes('sales-map__viewport') && mapPageSource.includes('sales-map__marker-hits') &&
+    mapPageSource.includes('onPointerEnter') && mapPageSource.includes('onFocus'),
+  'city markers expose the animated camera to pointer and keyboard users',
+);
+check(
+  /\.sales-map__viewport\s*\{[^}]*transition:\s*transform/s.test(mapStyles) &&
+    mapStyles.includes('sales-map-focus-ring') && mapStyles.includes('.is-city-focused'),
+  'city focus has a smooth map camera, spotlight and locator ring',
+);
+check(
+  /prefers-reduced-motion:\s*reduce[\s\S]*?\.sales-map__viewport\s*\{[^}]*transform:\s*none\s*!important/s.test(mapStyles),
+  'reduced-motion visitors do not receive map zoom animation',
 );
 
 for (const [mutation, code, label] of [

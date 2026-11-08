@@ -1715,7 +1715,10 @@
   line-height: 1.4;
   backdrop-filter: blur(8px);
 }
-.sales-map__summary strong { color: #fff; }
+.sales-map__summary strong {
+  color: #fff;
+  animation: sales-map-chip-in 0.28s ease-out both;
+}
 
 .sales-map__svg {
   display: block;
@@ -1724,6 +1727,14 @@
   overflow: visible;
   filter: drop-shadow(0 18px 25px rgba(0, 0, 0, 0.22));
 }
+.sales-map__viewport {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  will-change: transform;
+  transition: transform 0.78s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sales-map__provinces { transition: filter 0.48s ease; }
+.sales-map__viewport.is-city-focused .sales-map__provinces { filter: saturate(0.88) brightness(0.93); }
 .sales-map__provinces path {
   fill: url(#sales-map-land);
   stroke: rgba(50, 64, 71, 0.56);
@@ -1743,7 +1754,24 @@
 .sales-map__provinces path.has-representatives:focus-visible { fill: #f8b8c4; }
 .sales-map__provinces path.is-selected { fill: var(--crimson-bright); }
 
-.sales-map__marker { cursor: pointer; outline: none; }
+.sales-map__markers { pointer-events: none; }
+.sales-map__marker {
+  opacity: 1;
+  transition: opacity 0.38s ease;
+}
+.sales-map__marker-hit { cursor: pointer; outline: none; }
+.sales-map__marker-hit circle { fill: transparent; pointer-events: all; }
+.sales-map__viewport.is-city-focused .sales-map__marker:not(.is-active) { opacity: 0.38; }
+.sales-map__marker-focus {
+  fill: rgba(255, 255, 255, 0.04);
+  stroke: var(--gold);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
 .sales-map__marker-pulse {
   fill: var(--crimson-bright);
   opacity: 0.13;
@@ -1751,19 +1779,44 @@
   transform-origin: center;
   animation: sales-map-pulse 2.6s ease-out infinite;
 }
-.sales-map__marker-pin { fill: var(--crimson-bright); stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.sales-map__marker-glyph {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sales-map__marker-pin {
+  fill: var(--crimson-bright);
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transition: fill 0.2s ease;
+}
 .sales-map__marker-core { fill: #fff; }
 .sales-map__marker-count circle { fill: #25333a; stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .sales-map__marker-count text { fill: #fff; font-size: 10px; font-family: inherit; font-weight: 850; }
-.sales-map__marker:hover .sales-map__marker-pin,
-.sales-map__marker:focus-visible .sales-map__marker-pin,
+.sales-map__marker.is-active .sales-map__marker-pin,
 .sales-map__marker.is-selected .sales-map__marker-pin { fill: var(--gold); }
-.sales-map__marker:focus-visible .sales-map__marker-pulse,
+.sales-map__marker.is-active .sales-map__marker-pulse,
 .sales-map__marker.is-selected .sales-map__marker-pulse { fill: var(--gold); opacity: 0.28; }
+.sales-map__marker.is-active .sales-map__marker-glyph { transform: translateY(-4px) scale(1.08); }
+.sales-map__marker.is-active .sales-map__marker-focus {
+  animation: sales-map-focus-ring 1.75s ease-out infinite;
+}
 
 @keyframes sales-map-pulse {
   0% { transform: scale(0.55); opacity: 0.24; }
   65%, 100% { transform: scale(1.25); opacity: 0; }
+}
+
+@keyframes sales-map-focus-ring {
+  0% { transform: scale(0.66); opacity: 0; }
+  24% { opacity: 0.9; }
+  100% { transform: scale(1.18); opacity: 0; }
+}
+
+@keyframes sales-map-chip-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .sales-map__hint {
@@ -1929,6 +1982,14 @@ a.sales-reps__phone:hover { background: var(--crimson); color: #fff; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .sales-map__summary strong { animation: none; }
+  .sales-map__viewport { transform: none !important; transition: none; }
+  .sales-map__provinces,
+  .sales-map__provinces path,
+  .sales-map__marker,
+  .sales-map__marker-glyph,
+  .sales-map__marker-pin { transition: none; }
   .sales-map__marker-pulse { animation: none; opacity: 0.16; }
-  .sales-map__provinces path { transition: none; }
+  .sales-map__marker.is-active .sales-map__marker-glyph { transform: none; }
+  .sales-map__marker.is-active .sales-map__marker-focus { animation: none; opacity: 0.72; }
 }
