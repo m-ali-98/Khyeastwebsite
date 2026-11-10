@@ -7,6 +7,7 @@ import AdminState from './AdminState';
 import { formatMoney } from '../shop/ShopContext';
 import { productImageList, productImagesProblem, syncProductImages } from '../../shared/productImages.js';
 import { trustSealImageOrigins } from '../../shared/trustSeals.js';
+import { autofillShopProductFromCatalog } from './shopProductDraft.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const slugify = (s) =>
@@ -359,6 +360,18 @@ export function ShopProductsTab() {
     });
   };
 
+  const selectCatalogProduct = (productSlug) => {
+    const selected = catalog.find((product) => product.slug === productSlug);
+    setDraft((current) => {
+      if (!current) return current;
+      /* Existing shop products may carry carefully edited sales copy. Changing
+         their relationship must not silently replace it; automatic import is
+         deliberately limited to the new-product flow requested by the admin. */
+      if (draftOriginalSlug || !selected) return { ...current, productSlug };
+      return autofillShopProductFromCatalog(current, selected);
+    });
+  };
+
   const saveDraft = async () => {
     if (galleryBusy) return window.alert('تا پایان بارگذاری تصاویر صبر کنید.');
     const galleryProblem = productImagesProblem(draft, trustedImageOrigins);
@@ -456,11 +469,16 @@ export function ShopProductsTab() {
           <Field
             label="محصول مرتبط در کاتالوگ سایت"
             value={draft.productSlug}
-            onChange={(v) => setDraft({ ...draft, productSlug: v })}
+            onChange={selectCatalogProduct}
             type="select"
             options={[{ value: '', label: '— بدون پیوند —' }, ...catalog.map((p) => ({ value: p.slug, label: p.title }))]}
           />
         </div>
+        {!draftOriginalSlug && (
+          <p className="admin__hint" style={{ marginTop: 8 }}>
+            با انتخاب محصول کاتالوگ، عنوان، برند، شناسه، واحد فروش، تصاویر، توضیحات و مشخصات به‌صورت خودکار وارد می‌شوند؛ قیمت و موجودی را جداگانه تعیین کنید.
+          </p>
+        )}
         <div className="admin__grid2" style={{ marginTop: 12 }}>
           <Field label="قیمت (ریال)" type="number" dir="ltr" value={draft.price} onChange={(v) => setDraft({ ...draft, price: v })} />
           <Field label="قیمت قبل از تخفیف (ریال — اختیاری)" type="number" dir="ltr" value={draft.oldPrice ?? ''} onChange={(v) => setDraft({ ...draft, oldPrice: v })} />

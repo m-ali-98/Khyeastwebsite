@@ -729,6 +729,46 @@ test('the article editor formats safe rich content without exposing code control
   await page.getByRole('button', { name: 'انصراف' }).last().click();
 });
 
+test('choosing a catalogue item auto-fills a new shop product without replacing sales decisions', async ({ page }) => {
+  const content = await (await page.request.get('/api/content')).json();
+  const source = content.products.find((product) => product.slug === 'dezmaye-gold-70');
+  expect(source, 'catalogue fixture for shop autofill').toBeTruthy();
+
+  await loginAdmin(page);
+  await adminTab(page, 'فروشگاه — محصولات').first().click();
+  await page.getByRole('button', { name: '+ محصول جدید', exact: true }).click();
+
+  await field(page, 'قیمت (ریال)').fill('1234567');
+  await field(page, 'موجودی انبار').fill('23');
+  const featured = page.locator('label', { hasText: 'برگزیده' }).locator('input[type="checkbox"]');
+  await featured.check();
+  await field(page, 'محصول مرتبط در کاتالوگ سایت').selectOption(source.slug);
+
+  await expect(field(page, 'عنوان محصول')).toHaveValue(source.title);
+  await expect(field(page, 'برند')).toHaveValue(source.brand);
+  await expect(field(page, 'شناسه یکتا (slug)')).toHaveValue(source.slug);
+  await expect(field(page, 'واحد فروش')).toHaveValue(`${source.pack} — ${source.weight}`);
+  await expect(field(page, 'توضیح کوتاه')).toHaveValue(source.short);
+  await expect(field(page, 'قیمت (ریال)')).toHaveValue('1234567');
+  await expect(field(page, 'موجودی انبار')).toHaveValue('23');
+  await expect(featured).toBeChecked();
+
+  const gallery = page.locator('.admin-product-gallery');
+  await expect(gallery.locator('.admin-product-gallery__item')).toHaveCount(source.images.length);
+  await expect(gallery.locator('.admin-product-gallery__item img').first()).toHaveAttribute('src', source.images[0]);
+
+  const description = page
+    .getByRole('region', { name: 'ویرایشگر توضیحات کامل محصول' })
+    .getByRole('textbox', { name: 'ویرایشگر توضیحات کامل محصول' });
+  await expect(description).toContainText(source.short);
+  await expect(description).toContainText(source.usage[0]);
+  await expect(description).toContainText(source.analysis[0][0]);
+  await expect(description).toContainText(source.storage[0]);
+  await expect(page.getByText(/عنوان، برند، شناسه، واحد فروش، تصاویر، توضیحات و مشخصات/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'انصراف' }).last().click();
+});
+
 test('the shop full-description field uses the same approachable rich editor', async ({ page }) => {
   await loginAdmin(page);
   await adminTab(page, 'فروشگاه — محصولات').first().click();

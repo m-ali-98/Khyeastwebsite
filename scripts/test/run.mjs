@@ -192,6 +192,9 @@ for (const [file, description, timeout] of [
 console.log('\nProduct catalogue — recovered variants, localized details, media and routes');
 await reportSuite('product-catalog.mjs', 10000, 'variant, translation, media and routing checks');
 
+console.log('\nShop product drafts — catalogue selections should fill every reusable field');
+await reportSuite('shop-product-draft.mjs', 10000, 'catalogue-to-shop autofill checks');
+
 console.log('\nProduct images — legacy media, ordered galleries and SQLite persistence');
 await reportSuite('product-images.mjs', 40000, 'gallery compatibility and persistence checks');
 
