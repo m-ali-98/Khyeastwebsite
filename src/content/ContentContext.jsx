@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import { mergeContentState } from '../../shared/contentState.js';
+import { CONTENT_REVISION_HEADER, parseContentRevision } from '../../shared/contentRevision.js';
 import { localizeState } from '../../shared/i18n/index.js';
 import { safeSocialLinks } from '../../shared/socialLinks.js';
 import { useLocale } from '../i18n/LocaleContext';
@@ -19,8 +20,8 @@ const changedBuckets = (current, next) => {
   );
 };
 
-export const api = async (path, { method = 'GET', body, auth: _auth = false, formData } = {}) => {
-  const headers = {};
+export const api = async (path, { method = 'GET', body, auth: _auth = false, formData, headers: extraHeaders = {} } = {}) => {
+  const headers = { ...extraHeaders };
   if (body && !formData) headers['Content-Type'] = 'application/json';
   const res = await fetch(path, {
     method,
@@ -47,6 +48,7 @@ export const api = async (path, { method = 'GET', body, auth: _auth = false, for
       problem: payload?.problem || '',
       detail: payload?.detail || '',
       field: payload?.field || '',
+      revision: parseContentRevision(payload?.revision ?? res.headers.get(CONTENT_REVISION_HEADER)),
       retryAfter: Number(payload?.retryAfter || res.headers.get('Retry-After') || 0),
     });
   }
@@ -70,10 +72,12 @@ export function ContentProvider({ children }) {
   const [ready, setReady] = useState(false);
   const [backend, setBackend] = useState(false);
   const [contentAvailable, setContentAvailable] = useState(false);
+  const [contentConflict, setContentConflict] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const inFlight = useRef(null);
   const stateRef = useRef(state);
   const persistedState = useRef(state);
+  const contentRevision = useRef(null);
   const saveTail = useRef(Promise.resolve());
   const saveRevision = useRef(0);
   const bucketRevisions = useRef(new Map());
@@ -100,17 +104,19 @@ export function ContentProvider({ children }) {
       const persistedNext = mergeContentState(DEFAULT_STATE, data);
       const next = { ...persistedNext };
       const persisted = r.headers.get('x-khyeast-content-status') !== 'fallback';
-      const revision = ++saveRevision.current;
+      const serverRevision = parseContentRevision(r.headers.get(CONTENT_REVISION_HEADER));
+      const localRevision = ++saveRevision.current;
       for (const key of Object.keys(next)) {
         const optimistic = optimisticBuckets.current.get(key);
         if (optimistic) next[key] = optimistic.value;
-        else bucketRevisions.current.set(key, revision);
+        else bucketRevisions.current.set(key, localRevision);
       }
+      contentRevision.current = persisted ? serverRevision : null;
       persistedState.current = persistedNext;
       stateRef.current = next;
       setState(next);
       setBackend(true);
-      setContentAvailable(persisted);
+      setContentAvailable(persisted && serverRevision !== null);
       return data;
     })()
       .catch((error) => {
@@ -145,16 +151,36 @@ export function ContentProvider({ children }) {
       }
     }
 
-    /* Keep writes ordered, but send only changed top-level buckets. This avoids
-       a stale editor snapshot overwriting unrelated content and makes a link or
-       phone edit proportional to that bucket rather than to the whole site. */
+    /* Keep writes ordered, but send only changed top-level buckets. Each write
+       carries the revision of the GET (or preceding accepted PATCH) that its
+       draft is based on; reading a revision inside the request would compare
+       current state with itself and miss stale tabs entirely. */
     const request = saveTail.current
       .catch(() => {})
-      .then(() => api('/api/content', {
-        method: 'PATCH',
-        body: { changes },
-        auth: true,
-      }));
+      .then(() => {
+        const expectedRevision = contentRevision.current;
+        if (expectedRevision === null) {
+          throw Object.assign(new Error('content revision unavailable; reload before saving'), {
+            code: 'content-revision-unavailable',
+          });
+        }
+        return api('/api/content', {
+          method: 'PATCH',
+          body: { changes },
+          auth: true,
+          headers: { [CONTENT_REVISION_HEADER]: String(expectedRevision) },
+        });
+      })
+      .then((result) => {
+        const acceptedRevision = parseContentRevision(result?.revision);
+        if (acceptedRevision === null) {
+          throw Object.assign(new Error('server did not return a valid content revision'), {
+            code: 'invalid-content-revision-response',
+          });
+        }
+        contentRevision.current = acceptedRevision;
+        return result;
+      });
     saveTail.current = request;
 
     return request
@@ -183,6 +209,7 @@ export function ContentProvider({ children }) {
         }
         setBackend(true);
         setContentAvailable(true);
+        setContentConflict(false);
         return result;
       })
       .catch((error) => {
@@ -207,9 +234,15 @@ export function ContentProvider({ children }) {
           }
         }
         if (error?.code === 'content-unavailable') setContentAvailable(false);
+        if (error?.code === 'content-conflict') {
+          setContentConflict(true);
+          /* The failed request is already settled when this task runs, so
+             reload can safely wait on saveTail without awaiting itself. */
+          window.setTimeout(() => reload().catch(() => {}), 0);
+        }
         throw error;
       });
-  }, []);
+  }, [reload]);
 
   const save = useCallback((next, { optimistic = true } = {}) => {
     const changes = changedBuckets(stateRef.current, next);
@@ -316,6 +349,7 @@ export function ContentProvider({ children }) {
       ready,
       backend,
       contentAvailable,
+      contentConflict,
       refreshing,
       save,
       autosave,
@@ -332,7 +366,7 @@ export function ContentProvider({ children }) {
       gallery: view.gallery ?? [],
       brands: view.brands ?? fallback.brands,
     }),
-    [state, view, fallback, locale, ready, backend, contentAvailable, refreshing, save, autosave, reload]
+    [state, view, fallback, locale, ready, backend, contentAvailable, contentConflict, refreshing, save, autosave, reload]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

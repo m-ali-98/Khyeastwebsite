@@ -691,7 +691,7 @@ function GalleryTab() {
 }
 
 function AdminShell() {
-  const { backend, contentAvailable, t } = useContent();
+  const { backend, contentAvailable, contentConflict, refreshing, t } = useContent();
   const { locale, isBase } = useAdminLocale();
   const [authed, setAuthed] = useState(null); // null = checking
   const [tab, setTab] = useState('products');
@@ -1024,7 +1024,16 @@ function AdminShell() {
               <Icons.shield size={19} />
               <div>
                 <strong>پنل در حالت بازیابی است</strong>
-                <span>محتوای SQLite گم‌شده، خراب یا ناقص است. محتوای پیش‌فرض فقط برای نمایش موقت بارگذاری شده و بخش‌های محتوایی تا بازیابی پایگاه‌دادهٔ معتبر فقط‌خواندنی هستند؛ ابتدا backup تأییدشده را بررسی کنید.</span>
+                <span>محتوای SQLite گم‌شده، خراب، ناقص یا بدون شناسه نسخه معتبر است. محتوای پیش‌فرض فقط برای نمایش موقت بارگذاری شده و بخش‌های محتوایی تا بازیابی پاسخ معتبر فقط‌خواندنی هستند؛ ابتدا backup تأییدشده و نسخه سرور را بررسی کنید.</span>
+              </div>
+            </div>
+          )}
+          {contentConflict && (
+            <div className="admin__notice admin__notice--error" role="alert">
+              <Icons.refresh size={19} />
+              <div>
+                <strong>نسخه جدیدتری در پنل دیگری ذخیره شده است</strong>
+                <span>{refreshing ? 'ذخیره متعارض رد شد و نسخه تازه در حال بارگذاری است…' : 'ذخیره متعارض رد شد و نسخه تازه بارگذاری شد. تغییر موردنظر را بررسی و دوباره اعمال کنید.'}</span>
               </div>
             </div>
           )}

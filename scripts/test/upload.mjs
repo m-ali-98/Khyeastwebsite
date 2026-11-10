@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { Readable } from 'node:stream';
 import sharp from 'sharp';
+import { CONTENT_REVISION_HEADER, parseContentRevision } from '../../shared/contentRevision.js';
 import { UPLOAD_LADDER, UPLOAD_MAX_WIDTH, widthFromName, variantWidths } from '../../shared/uploadSizes.js';
 import * as dbStore from '../../server/db.js';
 
@@ -167,17 +168,27 @@ try {
   {
     const originalResponse = await fetch(`${BASE}/api/content`);
     const original = await originalResponse.json();
+    let contentRevision = parseContentRevision(originalResponse.headers.get(CONTENT_REVISION_HEADER));
     check(
-      originalResponse.headers.get('x-khyeast-content-status') === 'persisted',
-      'healthy content reads identify the persisted source',
-      String(originalResponse.headers.get('x-khyeast-content-status')),
+      originalResponse.headers.get('x-khyeast-content-status') === 'persisted' && contentRevision !== null,
+      'healthy content reads identify the persisted source and revision',
+      `${originalResponse.headers.get('x-khyeast-content-status')} @ ${contentRevision}`,
     );
     const put = async (payload) => {
       const response = await fetch(`${BASE}/api/content`, {
         method: 'PUT',
-        headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+        headers: {
+          Cookie: token,
+          'Content-Type': 'application/json',
+          Origin: BASE,
+          [CONTENT_REVISION_HEADER]: String(contentRevision),
+        },
         body: JSON.stringify(payload),
       });
+      if (response.ok) {
+        const accepted = parseContentRevision(response.headers.get(CONTENT_REVISION_HEADER));
+        if (accepted !== null) contentRevision = accepted;
+      }
       return { status: response.status, body: await response.json().catch(() => ({})) };
     };
     const withImage = (image, seals = original.collections?.trustSeals || []) => {
@@ -199,9 +210,18 @@ try {
       products[0] = { ...products[0], image, images: [image] };
       const response = await fetch(`${BASE}/api/shop-admin/products`, {
         method: 'PUT',
-        headers: { Cookie: token, 'Content-Type': 'application/json', Origin: BASE },
+        headers: {
+          Cookie: token,
+          'Content-Type': 'application/json',
+          Origin: BASE,
+          [CONTENT_REVISION_HEADER]: String(contentRevision),
+        },
         body: JSON.stringify({ products }),
       });
+      if (response.ok) {
+        const accepted = parseContentRevision(response.headers.get(CONTENT_REVISION_HEADER));
+        if (accepted !== null) contentRevision = accepted;
+      }
       return { status: response.status, body: await response.json().catch(() => ({})) };
     };
     const untrustedDirectShop = await putShopImage('https://untrusted.example/shop.webp');
@@ -267,7 +287,9 @@ try {
       images: [legacyDuplicateUrl, legacyDuplicateUrl],
     };
     await writeEditorial({ products: legacy.products });
-    const legacyPayload = await (await fetch(`${BASE}/api/content`)).json();
+    const legacyResponse = await fetch(`${BASE}/api/content`);
+    const legacyPayload = await legacyResponse.json();
+    contentRevision = parseContentRevision(legacyResponse.headers.get(CONTENT_REVISION_HEADER));
     /* ContentContext canonicalizes legacy media while loading it. Reproduce the
        actual Admin payload, not the raw file representation. */
     legacyPayload.products[0] = { ...legacyPayload.products[0], image: '', images: [] };

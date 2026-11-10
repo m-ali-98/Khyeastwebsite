@@ -12,8 +12,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
+import { CONTENT_REVISION_HEADER } from '../shared/contentRevision.js';
 import { loginAdmin, adminTab, openAdminTab, watchConsole, gotoReady, routeSettled, one, E2E, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
 
+const revisionHeaders = (response) => ({
+  [CONTENT_REVISION_HEADER]: response.headers()[CONTENT_REVISION_HEADER.toLowerCase()],
+});
 const field = (page, label) => page.locator('label.field', { hasText: label }).locator('input, textarea, select').first();
 
 /* Unique per run so a re-run never collides with leftovers. */
@@ -118,7 +122,9 @@ test('sales representatives can be added in Admin, located in Gorgan, published 
     const after = await (await page.request.get('/api/content')).json();
     expect(after.collections.salesRepresentatives.some((item) => item.name === name)).toBe(false);
   } finally {
+    const latest = await page.request.get('/api/content');
     await page.request.patch('/api/content', {
+      headers: revisionHeaders(latest),
       data: { changes: { collections: original.collections } },
     });
   }
@@ -143,7 +149,9 @@ test('controlled CMS fields coalesce keystrokes into one bucket-only patch', asy
     await input.fill(`${original}?autosave=`);
     await input.pressSequentially('coalesced', { delay: 25 });
     await expect(input).toHaveValue(`${original}?autosave=coalesced`);
-    expect((await saved).status()).toBe(200);
+    const savedResponse = await saved;
+    expect(savedResponse.status()).toBe(200);
+    expect(savedResponse.request().headers()[CONTENT_REVISION_HEADER.toLowerCase()]).toMatch(/^[1-9]\d*$/);
     await page.waitForTimeout(850);
 
     expect(patches).toHaveLength(1);
@@ -222,7 +230,11 @@ test('gallery manager publishes ordered media and locale-specific modal copy', a
     await englishCard.click();
     await expect(page.getByRole('dialog')).toContainText('Additional English copy shown beneath the enlarged gallery image.');
   } finally {
-    const restore = await page.request.put('/api/content', { data: original });
+    const latest = await page.request.get('/api/content');
+    const restore = await page.request.put('/api/content', {
+      headers: revisionHeaders(latest),
+      data: original,
+    });
     expect(restore.status(), 'gallery test restored the original content snapshot').toBe(200);
   }
 });
@@ -1103,14 +1115,18 @@ test('the admin can publish one to four third-party trust seals in the footer', 
     await expect.poll(() => seal.locator('img').evaluate((image) => image.naturalWidth)).toBe(1);
   } finally {
     if (original) {
-      const restored = await page.evaluate(async (content) => {
+      const restored = await page.evaluate(async ({ content, revisionHeader }) => {
+        const latest = await fetch('/api/content', { cache: 'no-store' });
         const response = await fetch('/api/content', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            [revisionHeader]: latest.headers.get(revisionHeader),
+          },
           body: JSON.stringify(content),
         });
         return response.ok;
-      }, original);
+      }, { content: original, revisionHeader: CONTENT_REVISION_HEADER });
       expect(restored, 'trust-seal fixture cleanup failed').toBe(true);
     }
   }
@@ -1170,14 +1186,18 @@ test('the shop showcase can publish multiple independently linked images', async
     await expect(showcase).toHaveAttribute('data-autoplay', 'false');
   } finally {
     if (original) {
-      const restored = await page.evaluate(async (content) => {
+      const restored = await page.evaluate(async ({ content, revisionHeader }) => {
+        const latest = await fetch('/api/content', { cache: 'no-store' });
         const response = await fetch('/api/content', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            [revisionHeader]: latest.headers.get(revisionHeader),
+          },
           body: JSON.stringify(content),
         });
         return response.ok;
-      }, original);
+      }, { content: original, revisionHeader: CONTENT_REVISION_HEADER });
       expect(restored, 'showcase fixture cleanup failed').toBe(true);
     }
   }

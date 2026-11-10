@@ -151,6 +151,18 @@ try {
       'another worker invalidates its cache token while an identical save stays a no-op',
       JSON.stringify({ beforeToken, afterToken, noOp }),
     );
+    const shopOnlyRevision = store.advanceContentRevision(second, { expectedRevision: 2 });
+    let staleRefused = false;
+    try {
+      store.replaceContentSections(second, { texts: changed.state.texts }, { expectedRevision: 2 });
+    } catch (error) {
+      staleRefused = error.code === 'CONTENT_CONFLICT';
+    }
+    check(
+      shopOnlyRevision === 3 && staleRefused,
+      'shop-only mutations advance the shared token and stale editorial snapshots are refused',
+      JSON.stringify({ shopOnlyRevision, staleRefused }),
+    );
     second.close();
     first.close();
   }

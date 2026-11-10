@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { CONTENT_REVISION_HEADER, parseContentRevision } from '../../shared/contentRevision.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -288,7 +289,26 @@ try {
   /* Bypass every browser editor and send hostile rich text straight to the
      authenticated JSON endpoint. Persistence itself must canonicalise posts,
      translated post overrides and shop product descriptions. */
-  const originalContent = await (await fetch(`${BASE}/api/content`)).json();
+  const originalContentResponse = await fetch(`${BASE}/api/content`);
+  const originalContent = await originalContentResponse.json();
+  let contentRevision = parseContentRevision(originalContentResponse.headers.get(CONTENT_REVISION_HEADER));
+  const putContent = async (payload) => {
+    const response = await fetch(`${BASE}/api/content`, {
+      method: 'PUT',
+      headers: {
+        ...secureAdminHeaders,
+        Origin: BASE,
+        'Content-Type': 'application/json',
+        [CONTENT_REVISION_HEADER]: String(contentRevision),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (response.ok) {
+      const accepted = parseContentRevision(response.headers.get(CONTENT_REVISION_HEADER));
+      if (accepted !== null) contentRevision = accepted;
+    }
+    return response;
+  };
   const hostileContent = structuredClone(originalContent);
   const postSlug = hostileContent.posts[0].slug;
   hostileContent.posts[0].body = '<p onclick="steal()">متن <strong>مجاز</strong> <span data-text-color="blue" style="position:fixed">آبی</span><script>alert(1)</script></p><figure data-rich-table><table class="page-cover"><caption>جدول امن</caption><thead><tr><th scope="col">ستون</th><th scope="col">مقدار</th></tr></thead><tbody><tr><td>داده</td><td>۱۲</td></tr></tbody></table></figure>';
@@ -303,11 +323,7 @@ try {
       },
     },
   };
-  const hostileWrite = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { ...secureAdminHeaders, Origin: BASE, 'Content-Type': 'application/json' },
-    body: JSON.stringify(hostileContent),
-  });
+  const hostileWrite = await putContent(hostileContent);
   check(hostileWrite.ok, 'direct authenticated content write is accepted for server sanitizing', `got ${hostileWrite.status}`);
   const storedContent = await (await fetch(`${BASE}/api/content`)).json();
   const storedHtml = [
@@ -325,11 +341,7 @@ try {
 
   const oversizedContent = structuredClone(storedContent);
   oversizedContent.posts[0].body = 'x'.repeat(250_001);
-  const oversizedWrite = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { ...secureAdminHeaders, Origin: BASE, 'Content-Type': 'application/json' },
-    body: JSON.stringify(oversizedContent),
-  });
+  const oversizedWrite = await putContent(oversizedContent);
   const oversizedError = await oversizedWrite.json();
   const contentAfterRefusal = await (await fetch(`${BASE}/api/content`)).json();
   check(
@@ -342,13 +354,20 @@ try {
 
   /* The dedicated shop endpoint bypasses writeContent, so prove the SQLite
      product boundary independently applies the same policy. */
-  const shopAdmin = await (await fetch(`${BASE}/api/shop-admin/products`, { headers: secureAdminHeaders })).json();
+  const shopAdminResponse = await fetch(`${BASE}/api/shop-admin/products`, { headers: secureAdminHeaders });
+  const shopAdmin = await shopAdminResponse.json();
+  let shopRevision = parseContentRevision(shopAdminResponse.headers.get(CONTENT_REVISION_HEADER));
   const originalProductDescription = shopAdmin.products[0].description;
   const oversizedProducts = structuredClone(shopAdmin.products);
   oversizedProducts[0].description = 'x'.repeat(250_001);
   const refusedProductWrite = await fetch(`${BASE}/api/shop-admin/products`, {
     method: 'PUT',
-    headers: { ...secureAdminHeaders, Origin: BASE, 'Content-Type': 'application/json' },
+    headers: {
+      ...secureAdminHeaders,
+      Origin: BASE,
+      'Content-Type': 'application/json',
+      [CONTENT_REVISION_HEADER]: String(shopRevision),
+    },
     body: JSON.stringify({ products: oversizedProducts }),
   });
   const refusedProductError = await refusedProductWrite.json();
@@ -365,20 +384,26 @@ try {
   shopAdmin.products[0].description = '<p><strong>DB safe</strong><iframe src="https://evil.example"></iframe></p>';
   const directProductWrite = await fetch(`${BASE}/api/shop-admin/products`, {
     method: 'PUT',
-    headers: { ...secureAdminHeaders, Origin: BASE, 'Content-Type': 'application/json' },
+    headers: {
+      ...secureAdminHeaders,
+      Origin: BASE,
+      'Content-Type': 'application/json',
+      [CONTENT_REVISION_HEADER]: String(shopRevision),
+    },
     body: JSON.stringify({ products: shopAdmin.products }),
   });
+  const directRevision = parseContentRevision(directProductWrite.headers.get(CONTENT_REVISION_HEADER));
+  if (directRevision !== null) {
+    contentRevision = directRevision;
+    shopRevision = directRevision;
+  }
   const directProducts = await directProductWrite.json();
   check(
     directProductWrite.ok && /<strong>DB safe<\/strong>/.test(directProducts.products[0].description) && !/<iframe/i.test(directProducts.products[0].description),
     'shop product database boundary sanitizes direct Admin API writes',
   );
 
-  await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { ...secureAdminHeaders, Origin: BASE, 'Content-Type': 'application/json' },
-    body: JSON.stringify(originalContent),
-  });
+  await putContent(originalContent);
 
   /* A production process reached over plain HTTP must fail explicitly instead
      of returning {ok:true} with a Secure cookie the browser silently drops. */

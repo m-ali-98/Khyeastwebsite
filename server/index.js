@@ -46,6 +46,7 @@ import {
 } from '../shared/productImages.js';
 import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
 import { salesRepresentativeProblem } from '../shared/salesRepresentatives.js';
+import { CONTENT_REVISION_HEADER, parseContentRevision } from '../shared/contentRevision.js';
 import { socialLinkOverridesProblem, socialLinksProblem } from '../shared/socialLinks.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
@@ -238,6 +239,14 @@ const readContentStrict = () => {
   }
 };
 
+/* Pair the response body with the exact global revision that produced it.
+   A deferred SQLite read transaction prevents another Passenger worker from
+   committing between the content SELECTs and the revision header. */
+const readContentSnapshotStrict = () => db.transaction(() => ({
+  content: readContentStrict(),
+  revision: store.getContentMeta(db).revision,
+}))();
+
 /* Public reads retain the historical availability fallback, but callers can
    distinguish it through X-Khyeast-Content-Status. It must never be fed back
    into a write as though it were persisted state. */
@@ -278,7 +287,7 @@ const strictContentForResponse = (res, operation, scope = 'content') => {
  * caller's one SQLite writer transaction. Existing stock is never copied from
  * the Admin snapshot; the dedicated compare-and-set endpoint remains the only
  * way to change an existing product's operational inventory. */
-const writeContent = (next, previous, requestedSections = store.CONTENT_SECTIONS) => {
+const writeContent = (next, previous, requestedSections = store.CONTENT_SECTIONS, expectedRevision) => {
   const sanitized = sanitizeContentPayload(next);
 
   /* Sanitization canonicalizes galleries. For an untouched legacy catalogue
@@ -304,9 +313,7 @@ const writeContent = (next, previous, requestedSections = store.CONTENT_SECTIONS
   for (const section of requestedSections) {
     if (store.CONTENT_SECTIONS.includes(section)) editorialChanges[section] = sanitized[section];
   }
-  const expectedRevision = store.getContentMeta(db).revision;
   const editorialResult = store.replaceContentSections(db, editorialChanges, { expectedRevision });
-  if (editorialResult.changedSections.length) invalidateEditorialCache();
 
   const shop = sanitized.shop;
   let productsChanged = false;
@@ -333,7 +340,15 @@ const writeContent = (next, previous, requestedSections = store.CONTENT_SECTIONS
   if (productsChanged) store.replaceProducts(db, shop.products, { preserveStock: true });
   if (displayChanged) store.setSetting(db, 'shop.display', nextDisplay);
 
+  /* Editorial changes already advanced the token. A shop-only content change
+     must do the same, because it is carried by the same GET/PUT snapshot. */
+  const revision = (productsChanged || displayChanged) && !editorialResult.changedSections.length
+    ? store.advanceContentRevision(db, { expectedRevision })
+    : editorialResult.revision;
+  if (revision !== expectedRevision) invalidateEditorialCache();
+
   return {
+    revision,
     changedSections: editorialResult.changedSections,
     productsChanged,
     displayChanged,
@@ -837,13 +852,15 @@ app.get('/api/content', async (_req, res) => {
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   try {
-    const content = await readContentStrict();
+    const { content, revision } = readContentSnapshotStrict();
     res.setHeader('X-Khyeast-Content-Status', 'persisted');
+    res.setHeader(CONTENT_REVISION_HEADER, String(revision));
     res.json(content);
   } catch {
     /* Keep the public site readable during a restore incident, while exposing
        that this is a shipped fallback rather than authoritative saved state.
-       Admin uses the header to display a read-only recovery warning. */
+       Admin uses the header to display a read-only recovery warning. A fallback
+       deliberately has no revision and can never authorize a write. */
     res.setHeader('X-Khyeast-Content-Status', 'fallback');
     try {
       res.json(fallbackContent());
@@ -1013,6 +1030,10 @@ app.put('/api/admin/security', requireAuth, (req, res) => {
 /* ---------------- admin: content ---------------- */
 const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts', 'shop'];
 const PATCHABLE_CONTENT_KEYS = new Set([...REQUIRED_KEYS, 'gallery', 'i18n']);
+const setContentRevision = (res, revision) => {
+  res.setHeader(CONTENT_REVISION_HEADER, String(revision));
+  return revision;
+};
 const saveContentRequest = (req, res, { partial = false } = {}) => {
   /* A public GET may deliberately serve shipped defaults during a restore
      incident. Never let an ordinary Admin save turn that availability fallback
@@ -1029,7 +1050,6 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
     const keys = Object.keys(changes);
     const unknown = keys.find((key) => !PATCHABLE_CONTENT_KEYS.has(key));
     if (unknown) return res.status(400).json({ error: `unknown content key: ${unknown}` });
-    if (!keys.length) return res.json({ ok: true, unchanged: true });
     requestedSections = keys.filter((key) => store.CONTENT_SECTIONS.includes(key));
     next = { ...current, ...changes };
   } else {
@@ -1189,8 +1209,39 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
     }
   }
 
+  /* The revision must come from the exact GET snapshot the editor changed.
+     Reading it here would merely compare current state with itself and let a
+     stale tab overwrite a newer one. This check runs while BEGIN IMMEDIATE is
+     held, so no other worker can commit between comparison and persistence. */
+  const revisionHeader = req.get(CONTENT_REVISION_HEADER);
+  const expectedRevision = parseContentRevision(revisionHeader);
+  const currentRevision = store.getContentMeta(db).revision;
+  setContentRevision(res, currentRevision);
+  if (revisionHeader === undefined) {
+    return res.status(428).json({
+      error: 'content revision is required; reload before saving',
+      code: 'content-revision-required',
+      revision: currentRevision,
+    });
+  }
+  if (expectedRevision === null) {
+    return res.status(400).json({
+      error: 'invalid content revision',
+      code: 'invalid-content-revision',
+      revision: currentRevision,
+    });
+  }
+  if (expectedRevision !== currentRevision) {
+    return res.status(409).json({
+      error: 'content changed in another editor; reload and review the latest version',
+      code: 'content-conflict',
+      revision: currentRevision,
+    });
+  }
+
+  let result;
   try {
-    writeContent(next, current, requestedSections);
+    result = writeContent(next, current, requestedSections, expectedRevision);
   } catch (error) {
     if (isRichTextValidationError(error)) {
       return res.status(400).json({
@@ -1202,11 +1253,28 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
     }
     throw error;
   }
-  res.json({ ok: true });
+  setContentRevision(res, result.revision);
+  res.json({
+    ok: true,
+    unchanged: !result.changedSections.length && !result.productsChanged && !result.displayChanged,
+    revision: result.revision,
+  });
 };
 
 const contentWriteRoute = (partial) => (req, res, next) => {
-  runContentMutation(() => saveContentRequest(req, res, { partial })).catch(next);
+  runContentMutation(() => saveContentRequest(req, res, { partial })).catch((error) => {
+    /* Handle this only after the transaction rejected, so a future conflict
+       raised late in writeContent can never commit earlier partial work. */
+    if (error?.code === 'CONTENT_CONFLICT') {
+      const revision = setContentRevision(res, store.getContentMeta(db).revision);
+      return res.status(409).json({
+        error: 'content changed in another editor; reload and review the latest version',
+        code: 'content-conflict',
+        revision,
+      });
+    }
+    return next(error);
+  });
 };
 app.put('/api/content', requireAuth, contentWriteRoute(false));
 app.patch('/api/content', requireAuth, contentWriteRoute(true));

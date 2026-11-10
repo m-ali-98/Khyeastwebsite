@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { createRateLimiter, rateLimitDefaults } from '../../server/rateLimits.js';
+import { CONTENT_REVISION_HEADER, parseContentRevision } from '../../shared/contentRevision.js';
 import * as dbStore from '../../server/db.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -426,11 +427,20 @@ try {
   const SLUG = 'inv-test';
 
   /* PUT /api/shop-admin/products REPLACES the whole catalogue, so every write
-     has to carry both fixtures or one silently deletes the other. */
-  const putProducts = (invStock) =>
-    fetch(`${BASE}/api/shop-admin/products`, {
+     has to carry both fixtures and the revision of the snapshot it follows. */
+  let directContentRevision = null;
+  const putProducts = async (invStock) => {
+    if (directContentRevision === null) {
+      const current = await fetch(`${BASE}/api/shop-admin/products`, { headers: auth });
+      directContentRevision = parseContentRevision(current.headers.get(CONTENT_REVISION_HEADER));
+    }
+    const response = await fetch(`${BASE}/api/shop-admin/products`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...auth },
+      headers: {
+        'Content-Type': 'application/json',
+        [CONTENT_REVISION_HEADER]: String(directContentRevision),
+        ...auth,
+      },
       body: JSON.stringify({
         products: [
           { slug: RL_SLUG, title: 'تست محدودیت', price: 100000, stock: -1, active: true },
@@ -438,6 +448,11 @@ try {
         ],
       }),
     });
+    if (response.ok) {
+      directContentRevision = parseContentRevision(response.headers.get(CONTENT_REVISION_HEADER));
+    }
+    return response;
+  };
 
   /* ---- 1. inventory balances across the order lifecycle ------------------
      Runs FIRST: later checks deliberately exhaust the order rate limit, which
@@ -708,7 +723,27 @@ try {
      the snapshot back erased every sale made since the page was opened — a
      customer's order simply vanished from inventory. */
   await setStock(10);
-  const snapshot = await (await fetch(`${BASE}/api/content`)).json();
+  const snapshotResponse = await fetch(`${BASE}/api/content`);
+  const snapshot = await snapshotResponse.json();
+  const initialContentRevision = parseContentRevision(snapshotResponse.headers.get(CONTENT_REVISION_HEADER));
+  let contentRevision = initialContentRevision;
+  const writeContent = async (method, body, revision = contentRevision) => {
+    const response = await fetch(`${BASE}/api/content`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...auth,
+        ...(revision === null ? {} : { [CONTENT_REVISION_HEADER]: String(revision) }),
+      },
+      body: JSON.stringify(body),
+    });
+    if (response.ok) {
+      const accepted = parseContentRevision(response.headers.get(CONTENT_REVISION_HEADER));
+      if (accepted !== null) contentRevision = accepted;
+    }
+    return response;
+  };
+  check(initialContentRevision !== null, 'content GET exposes its coherent SQLite revision', String(initialContentRevision));
 
   const writeProbeDb = await dbStore.openDB(DB);
   writeProbeDb.exec(`
@@ -723,11 +758,7 @@ try {
 
   const patchedLinks = { ...snapshot.links, 'home.cta.primary': '/about?partial=1' };
   const revisionsBeforePatch = dbStore.getContentSectionRevisions(writeProbeDb);
-  const contentPatch = await fetch(`${BASE}/api/content`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify({ changes: { links: patchedLinks } }),
-  });
+  const contentPatch = await writeContent('PATCH', { changes: { links: patchedLinks } });
   const afterContentPatch = await (await fetch(`${BASE}/api/content`)).json();
   const revisionsAfterPatch = dbStore.getContentSectionRevisions(writeProbeDb);
   const revisedSections = dbStore.CONTENT_SECTIONS.filter(
@@ -735,21 +766,39 @@ try {
   );
   check(
     contentPatch.ok &&
+      contentRevision === initialContentRevision + 1 &&
       afterContentPatch.links['home.cta.primary'] === '/about?partial=1' &&
       afterContentPatch.texts['global.company.name'] === snapshot.texts['global.company.name'] &&
       (await stockOf()) === 10 &&
       revisedSections.length === 1 && revisedSections[0] === 'links' &&
       Number(writeProbeDb.prepare('SELECT COUNT(*) AS count FROM content_write_probe').get().count) === 0,
-    'a top-level content PATCH advances only its SQLite section without touching copy, stock, or shop settings',
+    'a top-level content PATCH advances only its SQLite section and returned revision without touching copy, stock, or shop settings',
     `got ${contentPatch.status}`,
   );
 
+  const staleLinks = { ...snapshot.links, 'home.cta.primary': '/stale-editor' };
+  const stalePatch = await writeContent('PATCH', { changes: { links: staleLinks } }, initialContentRevision);
+  const stalePatchError = await stalePatch.json();
+  const staleFullPut = await writeContent('PUT', snapshot, initialContentRevision);
+  const staleFullError = await staleFullPut.json();
+  const missingRevisionPut = await writeContent('PUT', afterContentPatch, null);
+  const missingRevisionError = await missingRevisionPut.json();
+  const afterConflict = await (await fetch(`${BASE}/api/content`)).json();
+  check(
+    stalePatch.status === 409 && stalePatchError.code === 'content-conflict' &&
+      staleFullPut.status === 409 && staleFullError.code === 'content-conflict' &&
+      missingRevisionPut.status === 428 && missingRevisionError.code === 'content-revision-required' &&
+      afterConflict.links['home.cta.primary'] === '/about?partial=1',
+    'stale bucket PATCHes, stale full PUTs and revisionless writes cannot overwrite a newer editor',
+    JSON.stringify({
+      stalePatch: [stalePatch.status, stalePatchError],
+      staleFullPut: [staleFullPut.status, staleFullError],
+      missing: [missingRevisionPut.status, missingRevisionError],
+    }),
+  );
+
   const revisionBeforeShopNoop = dbStore.getContentMeta(writeProbeDb).revision;
-  const unchangedShopPatch = await fetch(`${BASE}/api/content`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify({ changes: { shop: afterContentPatch.shop } }),
-  });
+  const unchangedShopPatch = await writeContent('PATCH', { changes: { shop: afterContentPatch.shop } });
   const revisionAfterShopNoop = dbStore.getContentMeta(writeProbeDb).revision;
   const probedShopWrites = Number(
     writeProbeDb.prepare('SELECT COUNT(*) AS count FROM content_write_probe').get().count,
@@ -789,10 +838,8 @@ try {
   );
   const invalidRepresentativeCollections = JSON.parse(JSON.stringify(snapshot.collections));
   invalidRepresentativeCollections.salesRepresentatives[0].latitude = 99;
-  const invalidRepresentativePatch = await fetch(`${BASE}/api/content`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify({ changes: { collections: invalidRepresentativeCollections } }),
+  const invalidRepresentativePatch = await writeContent('PATCH', {
+    changes: { collections: invalidRepresentativeCollections },
   });
   const representativesAfterRefusal = (await (await fetch(`${BASE}/api/content`)).json())
     .collections?.salesRepresentatives;
@@ -808,11 +855,7 @@ try {
   const legacyWithoutGallery = JSON.parse(JSON.stringify(snapshot));
   delete legacyWithoutGallery.gallery;
   delete legacyWithoutGallery.collections.salesRepresentatives;
-  const legacyGalleryPut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(legacyWithoutGallery),
-  });
+  const legacyGalleryPut = await writeContent('PUT', legacyWithoutGallery);
   const afterLegacyGallerySave = await (await fetch(`${BASE}/api/content`)).json();
   check(
     legacyGalleryPut.ok &&
@@ -824,11 +867,7 @@ try {
 
   const unsafeGallery = JSON.parse(JSON.stringify(snapshot));
   unsafeGallery.gallery[0].src = 'https://untrusted.example/factory.webp';
-  const unsafeGalleryPut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(unsafeGallery),
-  });
+  const unsafeGalleryPut = await writeContent('PUT', unsafeGallery);
   check(unsafeGalleryPut.status === 400, 'external gallery media is refused at the persistence boundary', `got ${unsafeGalleryPut.status}`);
 
   const translatedGallery = JSON.parse(JSON.stringify(snapshot));
@@ -845,11 +884,7 @@ try {
       },
     },
   };
-  const translatedGalleryPut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(translatedGallery),
-  });
+  const translatedGalleryPut = await writeContent('PUT', translatedGallery);
   check(translatedGalleryPut.ok, 'gallery copy translations are accepted', `got ${translatedGalleryPut.status}`);
   const translatedGallerySaved = await (await fetch(`${BASE}/api/content`)).json();
   const savedGalleryOverride = translatedGallerySaved.i18n?.en?.gallery?.[galleryId] || {};
@@ -859,11 +894,7 @@ try {
     'gallery translation save strips structural media fields',
   );
 
-  const galleryRestore = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(snapshot),
-  });
+  const galleryRestore = await writeContent('PUT', snapshot);
   check(galleryRestore.ok, 'gallery validation fixture restores the original content');
 
   /* Social hrefs are executable navigation, not ordinary copy. Reject active
@@ -872,11 +903,7 @@ try {
   for (const href of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>']) {
     const unsafeSocial = JSON.parse(JSON.stringify(snapshot));
     unsafeSocial.collections.socials[0].href = href;
-    const response = await fetch(`${BASE}/api/content`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...auth },
-      body: JSON.stringify(unsafeSocial),
-    });
+    const response = await writeContent('PUT', unsafeSocial);
     const body = await response.json();
     check(
       response.status === 400 && body.code === 'unsafe-href-scheme',
@@ -899,11 +926,7 @@ try {
       socials: [{ href: 'javascript:alert(1)' }],
     },
   };
-  const translatedSocialPut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(translatedSocial),
-  });
+  const translatedSocialPut = await writeContent('PUT', translatedSocial);
   check(
     translatedSocialPut.status === 400,
     'a locale social override cannot bypass the canonical href validator',
@@ -924,11 +947,7 @@ try {
       active: true,
     }],
   };
-  const trustPut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(trustFixture),
-  });
+  const trustPut = await writeContent('PUT', trustFixture);
   check(trustPut.ok, 'one valid HTTPS trust seal is accepted', `got ${trustPut.status}`);
   const trustPage = await fetch(`${BASE}/`);
   const trustCsp = trustPage.headers.get('content-security-policy') || '';
@@ -943,45 +962,25 @@ try {
     ...trustFixture.collections.trustSeals[0],
     id: `trust-test-${index + 1}`,
   }));
-  const tooManyPut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(tooMany),
-  });
+  const tooManyPut = await writeContent('PUT', tooMany);
   check(tooManyPut.status === 400, 'a fifth footer trust seal is refused', `got ${tooManyPut.status}`);
 
   const unsafeSeal = JSON.parse(JSON.stringify(trustFixture));
   unsafeSeal.collections.trustSeals[0].href = 'javascript:alert(1)';
-  const unsafePut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(unsafeSeal),
-  });
+  const unsafePut = await writeContent('PUT', unsafeSeal);
   check(unsafePut.status === 400, 'an unsafe trust-seal destination is refused', `got ${unsafePut.status}`);
 
   const unsafeImage = JSON.parse(JSON.stringify(trustFixture));
   unsafeImage.collections.trustSeals[0].image = 'data:image/svg+xml,<svg onload=alert(1)>';
-  const unsafeImagePut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(unsafeImage),
-  });
+  const unsafeImagePut = await writeContent('PUT', unsafeImage);
   check(unsafeImagePut.status === 400, 'an unsafe trust-seal image is refused', `got ${unsafeImagePut.status}`);
 
   const unsafeImageId = JSON.parse(JSON.stringify(trustFixture));
   unsafeImageId.collections.trustSeals[0].imageId = 'seal" onerror="alert(1)';
-  const unsafeImageIdPut = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(unsafeImageId),
-  });
+  const unsafeImageIdPut = await writeContent('PUT', unsafeImageId);
   check(unsafeImageIdPut.status === 400, 'an unsafe provider image id is refused', `got ${unsafeImageIdPut.status}`);
 
-  const restoreTrust = await fetch(`${BASE}/api/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify(snapshot),
-  });
+  const restoreTrust = await writeContent('PUT', snapshot);
   check(restoreTrust.ok, 'trust-seal fixture restores the original content');
   const restoredPage = await fetch(`${BASE}/`);
   check(
@@ -999,11 +998,7 @@ try {
     const edited = JSON.parse(JSON.stringify(snapshot));
     const target = (edited.shop?.products || []).find((p) => p.slug === SLUG);
     if (target) target.price = 123456;
-    const put = await fetch(`${BASE}/api/content`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...auth },
-      body: JSON.stringify(edited),
-    });
+    const put = await writeContent('PUT', edited);
     check(put.ok, 'content save with a stale shop snapshot is accepted', `got ${put.status}`);
     check((await stockOf()) === 6, 'saving the content panel does not resurrect sold stock');
     const after = await (await fetch(`${BASE}/api/shop-products`)).json();
@@ -1019,7 +1014,19 @@ try {
      snapshot. It must preserve live stock too; explicit inventory edits use
      the compare-and-set route and reject a stale expected value. */
   await setStock(10);
-  const productSnapshot = await (await fetch(`${BASE}/api/shop-admin/products`, { headers: auth })).json();
+  const productSnapshotResponse = await fetch(`${BASE}/api/shop-admin/products`, { headers: auth });
+  const productSnapshot = await productSnapshotResponse.json();
+  const productSnapshotRevision = parseContentRevision(productSnapshotResponse.headers.get(CONTENT_REVISION_HEADER));
+  const revisionlessProductSave = await fetch(`${BASE}/api/shop-admin/products`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ products: productSnapshot.products }),
+  });
+  check(
+    revisionlessProductSave.status === 428,
+    'the legacy whole-catalogue endpoint also requires its source revision',
+    `got ${revisionlessProductSave.status}`,
+  );
   const staleOrder = await jpost('/api/shop-public/orders', {
     items: [{ slug: SLUG, qty: 2 }],
     customer: CUSTOMER,
@@ -1028,7 +1035,11 @@ try {
     check((await stockOf()) === 8, 'products-endpoint fixture: ordering 2 of 10 leaves 8');
     const staleSave = await fetch(`${BASE}/api/shop-admin/products`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...auth },
+      headers: {
+        'Content-Type': 'application/json',
+        [CONTENT_REVISION_HEADER]: String(productSnapshotRevision),
+        ...auth,
+      },
       body: JSON.stringify({ products: productSnapshot.products }),
     });
     check(staleSave.ok, 'stale products snapshot is accepted without overwriting stock');
@@ -1238,12 +1249,24 @@ try {
     { slug: 'keep-a', title: 'A', price: 1000, stock: -1, active: true },
     { slug: 'keep-b', title: 'B', price: 1000, stock: -1, active: true },
   ];
-  const putRaw = (products) =>
-    fetch(`${BASE}/api/shop-admin/products`, {
+  let rawRevision = null;
+  const putRaw = async (products) => {
+    if (rawRevision === null) {
+      const current = await fetch(`${BASE}/api/shop-admin/products`, { headers: auth });
+      rawRevision = parseContentRevision(current.headers.get(CONTENT_REVISION_HEADER));
+    }
+    const response = await fetch(`${BASE}/api/shop-admin/products`, {
       method: 'PUT',
-      headers: { ...auth, 'content-type': 'application/json' },
+      headers: {
+        ...auth,
+        'content-type': 'application/json',
+        [CONTENT_REVISION_HEADER]: String(rawRevision),
+      },
       body: JSON.stringify({ products }),
     });
+    if (response.ok) rawRevision = parseContentRevision(response.headers.get(CONTENT_REVISION_HEADER));
+    return response;
+  };
 
   await putRaw(seed);
   const before = await catalogue();

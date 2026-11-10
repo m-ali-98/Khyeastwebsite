@@ -8,6 +8,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
+import { CONTENT_REVISION_HEADER, parseContentRevision } from '../shared/contentRevision.js';
 import {
   createPayment,
   verifyPayment,
@@ -1061,7 +1062,13 @@ export function createShopRouter({
 
   /* products + display settings (admin panel) */
   r.get('/api/shop-admin/products', requireAuth, (_req, res) => {
-    res.json({ products: db.listProducts(D), display: display() });
+    const snapshot = D.transaction(() => ({
+      revision: db.getContentMeta(D).revision,
+      products: db.listProducts(D),
+      display: display(),
+    }))();
+    res.setHeader(CONTENT_REVISION_HEADER, String(snapshot.revision));
+    res.json({ products: snapshot.products, display: snapshot.display });
   });
 
   r.put('/api/shop-admin/products', requireAuth, (req, res, next) => {
@@ -1069,14 +1076,40 @@ export function createShopRouter({
       /* Shop galleries are part of upload-reference accounting. Refuse this
          Admin write too when authoritative CMS sections cannot be read. */
       assertContentAvailable();
+      const initialRevision = db.getContentMeta(D).revision;
+      res.setHeader(CONTENT_REVISION_HEADER, String(initialRevision));
+      const revisionHeader = req.get(CONTENT_REVISION_HEADER);
+      const expectedRevision = parseContentRevision(revisionHeader);
+      if (revisionHeader === undefined) {
+        return res.status(428).json({
+          error: 'content revision is required; reload before saving',
+          code: 'content-revision-required',
+          revision: initialRevision,
+        });
+      }
+      if (expectedRevision === null) {
+        return res.status(400).json({
+          error: 'invalid content revision',
+          code: 'invalid-content-revision',
+          revision: initialRevision,
+        });
+      }
+      if (expectedRevision !== initialRevision) {
+        return res.status(409).json({
+          error: 'content changed in another editor; reload and review the latest version',
+          code: 'content-conflict',
+          revision: initialRevision,
+        });
+      }
       const b = req.body || {};
+      let productsChanged = false;
       if (Array.isArray(b.products)) {
         const previousProducts = db.listProducts(D);
         const previousBySlug = new Map(previousProducts.map((product) => [product.slug, product]));
         /* Whole-list clients also send stale operational stock. Ignore that field
            when deciding whether editorial data changed; order still matters
            because replaceProducts persists list position. */
-        const productsChanged = b.products.length !== previousProducts.length ||
+        productsChanged = b.products.length !== previousProducts.length ||
           b.products.some((product, index) => (
             product?.slug !== previousProducts[index]?.slug ||
             productNeedsImageValidation(product, previousBySlug.get(product?.slug), { ignore: ['stock'] })
@@ -1120,16 +1153,32 @@ export function createShopRouter({
           }
         }
       }
-      if (b.display && typeof b.display === 'object') {
-        db.setSetting(D, 'shop.display', { ...display(), ...b.display });
-      }
-      return res.json({ ok: true, products: db.listProducts(D), display: display() });
+      const previousDisplay = display();
+      const nextDisplay = b.display && typeof b.display === 'object'
+        ? { ...previousDisplay, ...b.display }
+        : previousDisplay;
+      const displayChanged = JSON.stringify(nextDisplay) !== JSON.stringify(previousDisplay);
+      if (displayChanged) db.setSetting(D, 'shop.display', nextDisplay);
+      const revision = productsChanged || displayChanged
+        ? db.advanceContentRevision(D, { expectedRevision })
+        : initialRevision;
+      res.setHeader(CONTENT_REVISION_HEADER, String(revision));
+      return res.json({ ok: true, revision, products: db.listProducts(D), display: display() });
     }).catch((error) => {
       if (error?.code === 'CONTENT_UNAVAILABLE') {
         res.setHeader('Retry-After', '60');
         return res.status(503).json({
           error: 'persisted SQLite content is unavailable; restore a verified database backup before writing',
           code: 'content-unavailable',
+        });
+      }
+      if (error?.code === 'CONTENT_CONFLICT') {
+        const revision = db.getContentMeta(D).revision;
+        res.setHeader(CONTENT_REVISION_HEADER, String(revision));
+        return res.status(409).json({
+          error: 'content changed in another editor; reload and review the latest version',
+          code: 'content-conflict',
+          revision,
         });
       }
       return next(error);

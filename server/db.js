@@ -125,8 +125,8 @@ function ensureSchema(db, { allowCreate = false } = {}) {
     );
 
     /* Mutable editorial content is revisioned by section. One global revision
-       identifies a coherent snapshot while per-section revisions let PATCH
-       update only the requested bucket and make unintended rewrites visible. */
+       identifies the complete content snapshot (including normalized shop
+       rows), while per-section revisions show which editorial buckets changed. */
     CREATE TABLE content_meta (
       id             INTEGER PRIMARY KEY CHECK (id = 1),
       revision       INTEGER NOT NULL CHECK (revision >= 1),
@@ -601,6 +601,26 @@ export function replaceContentSections(db, changes, { expectedRevision } = {}) {
       throw editorialError('editorial revision changed during save', 'CONTENT_CONFLICT');
     }
     return { revision, changedSections, state: current };
+  });
+}
+
+/** Shop display/catalogue rows live outside content_sections but are part of
+ * the same Admin snapshot. Advance the global token after a shop-only content
+ * save so a stale full-document PUT cannot overwrite that newer mutation. */
+export function advanceContentRevision(db, { expectedRevision } = {}) {
+  return withImmediateTransaction(db, () => {
+    const meta = getContentMeta(db);
+    if (expectedRevision !== undefined && Number(expectedRevision) !== meta.revision) {
+      throw editorialError('content changed in another worker', 'CONTENT_CONFLICT');
+    }
+    const revision = meta.revision + 1;
+    const result = db.prepare(
+      'UPDATE content_meta SET revision = ?, updated_at = ? WHERE id = 1 AND revision = ?',
+    ).run(revision, new Date().toISOString(), meta.revision);
+    if (result.changes !== 1) {
+      throw editorialError('content revision changed during save', 'CONTENT_CONFLICT');
+    }
+    return revision;
   });
 }
 
