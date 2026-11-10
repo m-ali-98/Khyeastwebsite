@@ -131,6 +131,30 @@ test('the recovered catalogue exposes 30 variants, exact brand filters and local
   }
 });
 
+test('catalogue purchase links follow explicit shop relationships and disappear with a disabled shop @mobile', async ({ page }) => {
+  await gotoReady(page, '/products/dezmaye-gold-80');
+  const relatedPurchase = page.locator('.catalog-detail__actions').getByRole('link', { name: 'خرید آنلاین' });
+  await expect(relatedPurchase).toHaveAttribute('href', '/shop/dezmaye-gold-80');
+  await expect(page.locator('.nav__account')).toHaveCount(1);
+
+  await gotoReady(page, '/products/dezmaye-gold-70');
+  const fallbackPurchase = page.locator('.catalog-detail__actions').getByRole('link', { name: 'خرید آنلاین' });
+  await expect(fallbackPurchase).toHaveAttribute('href', '/shop');
+
+  await page.route('**/api/content', async (route) => {
+    const response = await route.fetch();
+    const content = await response.json();
+    content.shop.display.enabled = false;
+    await route.fulfill({ response, json: content });
+  });
+  await gotoReady(page, '/products/dezmaye-gold-80');
+
+  await expect(page.locator('.catalog-detail__actions').getByRole('link', { name: 'خرید آنلاین' })).toHaveCount(0);
+  await expect(page.locator('.nav__account')).toHaveCount(0);
+  await expect(page.locator('.nav__cart')).toHaveCount(0);
+  await expect(page.locator('.nav__actions')).toBeVisible();
+});
+
 test('mobile catalogue filtering preserves scroll position and does not reload the route @mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 });
   const contentRequests = [];

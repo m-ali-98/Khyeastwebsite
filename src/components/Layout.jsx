@@ -340,18 +340,17 @@ function Navbar() {
               sit tighter to each other than to the call to action, which is
               what makes them read as a pair rather than as clutter. */}
           <div className="nav__actions">
-            {shopEnabled && (
+            {storefrontEnabled && (
               <div className="nav__icons">
-                {storefrontEnabled && (
-                  <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
-                    <Icons.cart size={19} />
-                    {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
-                  </Link>
-                )}
+                <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
+                  <Icons.cart size={19} />
+                  {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
+                </Link>
 
                 {/* One destination either way: the panel bounces a signed-out
                     visitor to the login page, so the header does not have to
-                    know the session state to render the right link. */}
+                    know the session state to render the right link. The whole
+                    icon cluster leaves the layout when the shop is disabled. */}
                 <Link to="/shop/account" className="nav__icon nav__account" aria-label={t('shop.account.title')}>
                   <Icons.users size={19} />
                 </Link>

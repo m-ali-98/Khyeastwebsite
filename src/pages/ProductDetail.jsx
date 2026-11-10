@@ -7,16 +7,19 @@ import { useContent } from '../content/ContentContext';
 import { useLocale } from '../i18n/LocaleContext';
 import NotFound from './NotFound';
 import ProductGallery from '../components/ProductGallery';
+import { catalogueShopPath } from '../../shared/shopLinks.js';
 
 export default function ProductDetail() {
   const { slug } = useParams();
-  const { t, l, products, brands } = useContent();
+  const { t, l, products, brands, state } = useContent();
   const { shopEnabled } = useLocale();
   const [tab, setTab] = useState('usage');
 
   const product = products.find((p) => p.slug === slug);
   if (!product) return <NotFound />;
   const brand = brands.find((b) => b.id === product.brand);
+  const storefrontEnabled = shopEnabled && state.shop?.display?.enabled !== false;
+  const shopPath = catalogueShopPath(product.slug, state.shop?.products);
 
   /* Same brand first. Someone looking at a 500g دزمایه is far more likely to
      want the other دزمایه sizes than a different brand entirely, and the
@@ -87,11 +90,12 @@ export default function ProductDetail() {
                   <Icons.phone size={18} />
                   {t('product.btnOrder')}
                 </a>
-                {/* The shop exists on the Persian site only, so this button
-                    follows the same gate the navigation uses rather than a
-                    second rule that could drift away from it. */}
-                {shopEnabled && (
-                  <Link className="btn btn--primary" to="/shop">
+                {/* Keep the purchase action on the same availability gate as
+                    the header. An explicit Admin catalogue relationship opens
+                    that exact shop item; otherwise the storefront remains the
+                    useful fallback instead of guessing from coincident slugs. */}
+                {storefrontEnabled && (
+                  <Link className="btn btn--primary" to={shopPath}>
                     <Icons.store size={18} />
                     {t('product.btnShop')}
                   </Link>
