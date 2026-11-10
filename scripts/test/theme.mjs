@@ -120,3 +120,4 @@ for (const name of ['blue', 'green', 'amber', 'purple']) {
 
 for (const leak of leaks) console.log(`LEAK ${leak}`);
 console.log(`${passed}/${total}`);
+if (leaks.length) process.exitCode = 1;

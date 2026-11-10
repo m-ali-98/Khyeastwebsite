@@ -789,7 +789,5 @@ try {
   await stop();
 }
 
-/* Exit 0 even on failure, like every other suite here: run.mjs reads the
-   N/M line and the LEAK lines from stdout. A non-zero exit makes execFile
-   reject, and the reason — the thing we actually need — is thrown away. */
 console.log(`${pass}/${pass + fail}`);
+if (fail) process.exitCode = 1;

@@ -744,3 +744,4 @@ if (start === -1 || end < start) {
 }
 
 console.log(`${pass}/${pass + fail}`);
+if (fail) process.exitCode = 1;

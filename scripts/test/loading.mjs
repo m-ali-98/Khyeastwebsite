@@ -93,3 +93,4 @@ check((dataPages.match(/<PagePending/g) || []).length >= 4, 'shop page data tran
 
 for (const leak of leaks) console.log(`LEAK ${leak}`);
 console.log(`${passed}/${total}`);
+if (leaks.length) process.exitCode = 1;

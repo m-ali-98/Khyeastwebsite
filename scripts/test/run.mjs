@@ -17,6 +17,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { runNodeSuite, summarizeNodeSuite } from './suite-harness.mjs';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -52,22 +53,29 @@ const record = (ok, label, detail = '') => {
   failures.push(`${label}${detail ? ' — ' + detail : ''}`);
 };
 
-/* A suite that exits non-zero makes execFile reject, and its stdout — the
-   LEAK lines saying what actually broke — goes in the bin. Keep it: a bare
-   "harness error" has cost real debugging time. */
-async function suite(file, timeout) {
-  try {
-    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
-    return { stdout, crashed: false, err: '' };
-  } catch (e) {
-    return { stdout: e?.stdout || '', crashed: true, err: String(e?.stderr || e?.message || e).trim() };
+/* A non-zero child makes execFile reject, but the rejection still contains
+   the assertion summary and LEAK diagnostics. Keep both instead of reducing
+   an actionable failure to a generic harness error. */
+async function reportSuite(file, timeout, description = '') {
+  const name = file.replace('.mjs', '');
+  const result = await runNodeSuite(path.join(HERE, file), { cwd: HERE, timeout });
+  const { line, leaks, ok, detail } = summarizeNodeSuite(result);
+
+  record(ok, name, detail.slice(0, 300));
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line || '?'}${description ? ` ${description}` : ''}`);
+  leaks.forEach((entry) => console.log('       ' + entry));
+  if (result.failed && result.error) {
+    console.log('       ' + result.error.split('\n').slice(-4).join(' | ').slice(0, 300));
   }
 }
 
-async function child(script, arg) {
-  const { stdout } = await run('node', [path.join(HERE, script), arg], { cwd: HERE, timeout: 40000 });
+async function child(script, ...args) {
+  const { stdout } = await run(process.execPath, [path.join(HERE, script), ...args], { cwd: HERE, timeout: 40000 });
   return JSON.parse(stdout.trim().split('\n').pop());
 }
+
+console.log('\nTest harness — child failures must retain their diagnostics');
+await reportSuite('runner-harness.mjs', 10000, 'exit-code and diagnostic checks');
 
 console.log('\nRoutes — every page must mount and render real content');
 for (const route of ROUTES) {
@@ -111,8 +119,7 @@ const CONTENT_CASES = [
 for (const name of CONTENT_CASES) {
   for (const route of ['/', '/products', '/shop']) {
     try {
-      const { stdout } = await run('node', [path.join(HERE, 'content-one.mjs'), name, route], { cwd: HERE, timeout: 40000 });
-      const r = JSON.parse(stdout.trim().split('\n').pop());
+      const r = await child('content-one.mjs', name, route);
       const ok = r.chars > 40 && !r.errors.length;
       record(ok, `content ${name} @ ${route}`, r.errors[0]?.slice(0, 80));
       if (!ok) console.log(`  FAIL ${name.padEnd(22)} ${route.padEnd(11)} ${String(r.chars).padStart(5)}ch ${r.errors[0]?.slice(0, 50) || ''}`);
@@ -125,289 +132,80 @@ for (const name of CONTENT_CASES) {
 console.log(`  ${CONTENT_CASES.length * 3} malformed payloads checked`);
 
 console.log('\nSanitizer — admin-authored HTML must never execute or restyle');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'sanitizer.mjs')], { cwd: HERE, timeout: 40000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'sanitizer', leaks.join('; ').slice(0, 120));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line}`);
-  leaks.forEach((l) => console.log('       ' + l));
-} catch (e) {
-  record(false, 'sanitizer', String(e.message).slice(0, 90));
-  console.log('  FAIL sanitizer harness error');
-}
+await reportSuite('sanitizer.mjs', 40000);
 
 console.log('\nPayment — the money path must fail closed');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'payment.mjs')], { cwd: HERE, timeout: 40000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'payment', leaks.join('; ').slice(0, 160));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} amount + callback-origin cases`);
-  leaks.forEach((l) => console.log('       ' + l));
-} catch (e) {
-  record(false, 'payment', String(e.message).slice(0, 90));
-  console.log('  FAIL payment harness error');
-}
+await reportSuite('payment.mjs', 40000, 'amount + callback-origin cases');
 
 console.log('\nSMS — a message that cannot be sent must not cost an order');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'sms.mjs')], { cwd: HERE, timeout: 40000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'sms', leaks.join('; ').slice(0, 160));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} phone, secret and transport cases`);
-  leaks.forEach((l) => console.log('       ' + l));
-} catch (e) {
-  record(false, 'sms', String(e.message).slice(0, 90));
-  console.log('  FAIL sms harness error');
-}
+await reportSuite('sms.mjs', 40000, 'phone, secret and transport cases');
 
 console.log('\nAuth — logging out must revoke the session, not just hide its cookie');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'auth.mjs')], { cwd: HERE, timeout: 60000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'auth', leaks.join('; ').slice(0, 160));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} session / revocation cases`);
-  leaks.forEach((l) => console.log('       ' + l));
-} catch (e) {
-  record(false, 'auth', String(e.message).slice(0, 90));
-  console.log('  FAIL auth harness error');
-}
+await reportSuite('auth.mjs', 60000, 'session / revocation cases');
 
 console.log('\nHardening — headers, error leakage, exposed files');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'hardening.mjs')], { cwd: HERE, timeout: 60000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'hardening', leaks.join('; ').slice(0, 160));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} transport-level checks`);
-  leaks.forEach((l) => console.log('       ' + l));
-} catch (e) {
-  record(false, 'hardening', String(e.message).slice(0, 90));
-  console.log('  FAIL hardening harness error');
-}
+await reportSuite('hardening.mjs', 60000, 'transport-level checks');
 
 console.log('\nPersistence lifecycle — authoritative state and active requests survive failures');
-for (const [file, label] of [
+for (const [file, description] of [
   ['content-store.mjs', 'fresh final-schema initialization, incompatible-store refusal and worker revisions'],
   ['migrations.mjs', 'explicit plans, transactional rollback and verified pre-change backups'],
   ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
   ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],
 ]) {
-  const name = file.replace('.mjs', '');
-  const { stdout, crashed, err } = await suite(file, 30000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, name, (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} ${label}`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+  await reportSuite(file, 30000, description);
 }
 
 console.log('\nTheme — first paint defaults light and saved dark mode stays coherent');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'theme.mjs')], { cwd: HERE, timeout: 30000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'theme', leaks.join('; ').slice(0, 200));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} startup and palette checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-} catch (e) {
-  record(false, 'theme', String(e.message).slice(0, 90));
-  console.log('  FAIL theme harness error');
-}
+await reportSuite('theme.mjs', 30000, 'startup and palette checks');
 
 console.log('\nLoading — first paint and route feedback follow real readiness');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'loading.mjs')], { cwd: HERE, timeout: 30000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'loading', leaks.join('; ').slice(0, 200));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} readiness and motion checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-} catch (e) {
-  record(false, 'loading', String(e.message).slice(0, 90));
-  console.log('  FAIL loading harness error');
-}
+await reportSuite('loading.mjs', 30000, 'readiness and motion checks');
 
 console.log('\nAssets — every referenced image must ship, and nothing oversized');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'assets.mjs')], { cwd: HERE, timeout: 30000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'assets', leaks.join('; ').slice(0, 200));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} asset checks`);
-  leaks.forEach((l) => console.log('       ' + l));
-} catch (e) {
-  record(false, 'assets', String(e.message).slice(0, 90));
-  console.log('  FAIL assets harness error');
-}
+await reportSuite('assets.mjs', 30000, 'asset checks');
 
 console.log('\nSEO — every public route must be crawlable, canonical and safe');
-{
-  const { stdout, crashed, err } = await suite('seo.mjs', 40000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, 'seo', (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} crawl, metadata, schema and sitemap checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
-}
+await reportSuite('seo.mjs', 40000, 'crawl, metadata, schema and sitemap checks');
 
 console.log('\nSales representatives — worksheet data, Iran geometry and persistence rules');
-{
-  const { stdout, crashed, err } = await suite('sales-representatives.mjs', 10000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, 'sales-representatives', (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} worksheet, map and validation checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
-}
+await reportSuite('sales-representatives.mjs', 10000, 'worksheet, map and validation checks');
 
 console.log('\nUpload optimisation — a photo may be shrunk, but never lost or broken');
-for (const [file, label, timeout] of [
+for (const [file, description, timeout] of [
   ['images.mjs', 'upload optimisation checks', 60000],
   ['upload-cleanup.mjs', 'unused-file reference and safety checks', 30000],
   ['upload.mjs', 'upload round-trip checks', 90000],
 ]) {
-  const name = file.replace('.mjs', '');
-  const { stdout, crashed, err } = await suite(file, timeout);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.trim().startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, name, (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} ${label}`);
-  leaks.forEach((l) => console.log('       ' + l.trim()));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
+  await reportSuite(file, timeout, description);
 }
 
 console.log('\nAccounts — a phone, a password, and no sight of anyone else orders');
-for (const [file, label, timeout] of [
+for (const [file, description, timeout] of [
   ['accounts.mjs', 'hashing, codes, sessions and addresses', 40000],
   ['account-http.mjs', 'signup, login, ownership and snapshots', 90000],
 ]) {
-  const name = file.replace('.mjs', '');
-  try {
-    const { stdout } = await run('node', [path.join(HERE, file)], { cwd: HERE, timeout });
-    const line = stdout.trim().split('\n').pop();
-    const m = line.match(/(\d+)\/(\d+)/);
-    const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-    const ok = Boolean(m) && m[1] === m[2];
-    record(ok, name, leaks.join('; ').slice(0, 200));
-    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} ${label}`);
-    leaks.forEach((l) => console.log('       ' + l));
-  } catch (e) {
-    record(false, name, String(e.message).slice(0, 90));
-    console.log(`  FAIL ${name} harness error`);
-  }
+  await reportSuite(file, timeout, description);
 }
 
 console.log('\nProduct catalogue — recovered variants, localized details, media and routes');
-{
-  const { stdout, crashed, err } = await suite('product-catalog.mjs', 10000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, 'product-catalog', (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} variant, translation, media and routing checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
-}
+await reportSuite('product-catalog.mjs', 10000, 'variant, translation, media and routing checks');
 
 console.log('\nProduct images — legacy media, ordered galleries and SQLite persistence');
-{
-  const { stdout, crashed, err } = await suite('product-images.mjs', 40000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, 'product-images', (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} gallery compatibility and persistence checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
-}
+await reportSuite('product-images.mjs', 40000, 'gallery compatibility and persistence checks');
 
 console.log('\nPublic gallery — safe media, locale overlays and page-size contract');
-{
-  const { stdout, crashed, err } = await suite('gallery.mjs', 10000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, 'gallery', (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} media validation and localization checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
-}
+await reportSuite('gallery.mjs', 10000, 'media validation and localization checks');
 
 console.log('\nCart availability — persisted lines follow the live catalogue');
-{
-  const { stdout, crashed, err } = await suite('cart-availability.mjs', 10000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, 'cart-availability', (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} deletion, deactivation and stock-change checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
-}
+await reportSuite('cart-availability.mjs', 10000, 'deletion, deactivation and stock-change checks');
 
 console.log('\nInventory — duplicate carts and abandoned payments cannot oversell');
-{
-  const { stdout, crashed, err } = await suite('inventory.mjs', 40000);
-  const line = stdout.trim().split('\n').pop() || '';
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((entry) => entry.startsWith('LEAK'));
-  const ok = !crashed && Boolean(m) && m[1] === m[2];
-  record(ok, 'inventory', (leaks.join('; ') || err).slice(0, 300));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m ? m[0] : '?'} stock and expiry checks`);
-  leaks.forEach((entry) => console.log('       ' + entry));
-  if (crashed && err) console.log('       ' + err.split('\n').slice(-4).join(' | ').slice(0, 300));
-}
+await reportSuite('inventory.mjs', 40000, 'stock and expiry checks');
 
 console.log('\nBehaviour — limits, errors and inventory must not cost a sale');
-try {
-  const { stdout } = await run('node', [path.join(HERE, 'behaviour.mjs')], { cwd: HERE, timeout: 90000 });
-  const line = stdout.trim().split('\n').pop();
-  const m = line.match(/(\d+)\/(\d+)/);
-  const leaks = stdout.split('\n').filter((l) => l.startsWith('LEAK'));
-  const ok = Boolean(m) && m[1] === m[2];
-  record(ok, 'behaviour', leaks.join('; ').slice(0, 200));
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${line} behavioural checks`);
-  leaks.forEach((l) => console.log('       ' + l));
-} catch (e) {
-  record(false, 'behaviour', String(e.message).slice(0, 90));
-  console.log('  FAIL behaviour harness error');
-}
+await reportSuite('behaviour.mjs', 90000, 'behavioural checks');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) {

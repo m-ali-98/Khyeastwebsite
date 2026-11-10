@@ -238,3 +238,4 @@ console.log(`${parserPassed ? 'ok  ' : 'LEAK'} ${'parser failure has a distinct 
 
 const total = CASES.length + richFeatureCases.length + strictCases.length + 2;
 console.log(`\n${total - fails}/${total} sanitizer cases safe`);
+if (fails) process.exitCode = 1;

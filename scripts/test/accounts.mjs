@@ -221,3 +221,4 @@ const G = await import(pathToFileURL(path.join(ROOT, 'shared/iranGeo.js')).href)
 }
 
 console.log(`${pass}/${pass + fail}`);
+if (fail) process.exitCode = 1;

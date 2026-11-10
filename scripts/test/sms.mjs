@@ -385,3 +385,4 @@ const {
 }
 
 console.log(`${pass}/${pass + fail}`);
+if (fail) process.exitCode = 1;

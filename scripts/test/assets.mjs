@@ -29,7 +29,7 @@ const check = (cond, what, extra = '') => {
 if (!fs.existsSync(DIST)) {
   console.log('LEAK dist/ missing — run `npm run build` first');
   console.log('0/1');
-  process.exit(0);
+  process.exit(1);
 }
 
 /* Collect every /assets/... reference from the places that can name one. */
@@ -270,3 +270,4 @@ check(
 }
 
 console.log(`${pass}/${pass + fail}`);
+if (fail) process.exitCode = 1;

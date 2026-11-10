@@ -173,6 +173,5 @@ const png = async (w, h) => noise(w, h).png().toBuffer();
 }
 
 for (const f of fails) console.log('  LEAK ' + f);
-/* Exit 0 and let run.mjs judge the N/M line — a non-zero exit would make it
-   discard this output, which is the only thing that says what broke. */
 console.log(`${pass}/${pass + fails.length}`);
+if (fails.length) process.exitCode = 1;
