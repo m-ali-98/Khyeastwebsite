@@ -333,6 +333,15 @@ try {
   check(!oversell.ok && oversell.error === 'insufficient stock', 'duplicate lines are checked as one quantity');
   check(db.getProduct(D, 'limited').stock === 5, 'failed duplicate reservation is atomic');
 
+  for (const qty of [[1], true, '3']) {
+    const coerced = db.reserveStock(D, [{ slug: 'limited', qty }]);
+    check(
+      !coerced.ok && coerced.error === 'invalid quantity',
+      `the stock boundary refuses coercible quantity ${JSON.stringify(qty)}`,
+    );
+  }
+  check(db.getProduct(D, 'limited').stock === 5, 'coercible quantities cannot move stock');
+
   const valid = db.reserveStock(D, [
     { slug: 'limited', qty: 1 },
     { slug: 'limited', qty: 2 },

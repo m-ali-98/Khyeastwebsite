@@ -80,6 +80,39 @@ const rand = (n) => crypto.randomBytes(n).toString('hex');
 const PUBLIC_COMMENT_PAGE_SIZE = 8;
 const PUBLIC_COMMENT_PAGE_MAX = 20;
 
+/**
+ * A tracking token authorizes only the customer-facing order view. Build that
+ * view from explicit root and nested allowlists so adding a future internal
+ * database field cannot silently publish it to every token holder.
+ */
+export const publicTrackingOrder = (order = {}) => ({
+  code: order.code,
+  items: Array.isArray(order.items)
+    ? order.items.map((item) => ({
+        slug: item?.slug,
+        title: item?.title,
+        unit: item?.unit,
+        price: item?.price,
+        qty: item?.qty,
+        sum: item?.sum,
+      }))
+    : [],
+  customer: {
+    name: order.customer?.name,
+    phone: order.customer?.phone,
+    city: order.customer?.city,
+    address: order.customer?.address,
+    postal: order.customer?.postal,
+    note: order.customer?.note,
+  },
+  subtotal: order.subtotal,
+  shipping: order.shipping,
+  total: order.total,
+  currency: order.currency,
+  status: order.status,
+  at: order.at,
+});
+
 const encodeCommentCursor = (comment) => Buffer.from(
   JSON.stringify([comment.at, comment.id]),
   'utf8',
@@ -206,6 +239,12 @@ export function createShopRouter({
   const display = () => ({ ...DEFAULT_STATE.shop.display, ...(db.getSetting(D, 'shop.display') || {}) });
   const payment = () => normalizePayment(db.getSetting(D, 'shop.payment') || {});
   const smsCfg = () => normalizeSms(db.getSetting(D, 'shop.sms') || {});
+  /* Receiver numbers belong on the shipping label, but only the account phone
+     has passed OTP ownership verification. Notifications therefore resolve
+     the account at send time and fail closed when no verified account exists. */
+  const verifiedCustomerPhone = (order) => (
+    order?.customerId ? db.getCustomerById(D, order.customerId)?.phone || '' : ''
+  );
 
   /* Query by order, never by the attacker-supplied authority, then compare
      every mapped attempt with fixed-length digests. This keeps hit/miss work
@@ -290,13 +329,12 @@ export function createShopRouter({
   function dispatchPaidOrderSms(order, req) {
     const sms = smsCfg();
     if (!sms.onOrder || !order?.paidAt || !['paid', 'shipped', 'delivered'].includes(order.status)) return;
-    const account = db.getCustomerById(D, order.customerId);
     const url = orderStatusUrl(safeOrigin(req, payment().callbackBase), order);
     dispatchSms({
       kind: 'order',
-      /* The account phone was verified. The delivery recipient may be a
-         neighbour, so the address snapshot must never choose this recipient. */
-      to: account?.phone || '',
+      /* The delivery recipient may be a neighbour, so the address snapshot
+         must never choose who receives a private tracking token. */
+      to: verifiedCustomerPhone(order),
       ref: order.code,
       text: orderSmsText(order, url),
       templateId: sms.orderTemplateId || 0,
@@ -518,10 +556,10 @@ export function createShopRouter({
     if (!d.enabled) return res.status(403).json({ error: 'shop disabled' });
     if (!Array.isArray(items) || !items.length || items.length > 50)
       return res.status(400).json({ error: 'invalid items' });
-    /* Ordering requires an account with a verified phone. That is the whole
-       point of the phone being verified: the order confirmation, the
-       tracking link and any delivery call all go to a number somebody has
-       actually proved they hold. */
+    /* Ordering requires an account with a verified phone. Private order and
+       shipment notifications go to that account identity. The delivery
+       snapshot below may name a different receiver phone for the courier, but
+       that typed contact is never treated as proof of ownership. */
     const account = getCustomer(req);
     if (!account) return res.status(401).json({ error: 'برای ثبت سفارش وارد حساب خود شوید.' });
 
@@ -561,8 +599,11 @@ export function createShopRouter({
     for (const item of items) {
       const slug = String(item?.slug || '').trim();
       if (!slug) return res.status(400).json({ error: 'invalid product' });
-      const qty = item?.qty === undefined ? 1 : Number(item.qty);
-      if (!Number.isSafeInteger(qty) || qty <= 0) return res.status(400).json({ error: 'invalid quantity' });
+      const qty = item?.qty === undefined ? 1 : item.qty;
+      /* JSON numbers only. Number(...) made [1], true and "3" indistinguishable
+         from a real numeric quantity before validation. */
+      if (typeof qty !== 'number' || !Number.isSafeInteger(qty) || qty <= 0)
+        return res.status(400).json({ error: 'invalid quantity' });
       const totalQty = (quantities.get(slug) || 0) + qty;
       if (!Number.isSafeInteger(totalQty) || totalQty > 999)
         return res.status(400).json({ error: 'invalid quantity' });
@@ -767,8 +808,7 @@ export function createShopRouter({
     sweepExpiredOrders();
     const order = db.getOrderByCode(D, req.params.code);
     if (!order || !secretEqual(req.query.token, order.token)) return res.status(404).json({ error: 'not found' });
-    const { token, ...rest } = order;
-    res.json({ order: rest });
+    res.json({ order: publicTrackingOrder(order) });
   });
 
   /* ---------------- gateway callbacks ---------------- */
@@ -1223,7 +1263,9 @@ export function createShopRouter({
     if (updated && shouldSendShipmentSms(order.status, patch.status, sms)) {
       dispatchSms({
         kind: 'shipped',
-        to: order.customer?.phone,
+        /* The receiver snapshot is an unverified delivery contact. Shipment
+           updates, like tracking links, go only to the OTP-verified account. */
+        to: verifiedCustomerPhone(order),
         ref: order.code,
         text: shipmentSmsText(order),
         templateId: sms.statusTemplateId || 0,

@@ -797,9 +797,10 @@ export function mergeStockLines(lines) {
   const merged = new Map();
   for (const line of Array.isArray(lines) ? lines : []) {
     const slug = String(line?.slug || '').trim();
-    const qty = Number(line?.qty);
+    const qty = line?.qty;
     if (!slug) throw new Error('invalid product');
-    if (!Number.isSafeInteger(qty) || qty <= 0) throw new Error('invalid quantity');
+    if (typeof qty !== 'number' || !Number.isSafeInteger(qty) || qty <= 0)
+      throw new Error('invalid quantity');
     const total = (merged.get(slug) || 0) + qty;
     if (!Number.isSafeInteger(total)) throw new Error('invalid quantity');
     merged.set(slug, total);

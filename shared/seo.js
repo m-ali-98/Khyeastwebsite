@@ -13,6 +13,7 @@ import {
   localizeState,
   shopEnabled,
 } from './i18n/index.js';
+import { safeSocialLinks } from './socialLinks.js';
 
 export const DEFAULT_SITE_ORIGIN = 'https://khuzestanyeast-co.com';
 export const SEO_HEAD_START = '<!-- seo:head:start -->';
@@ -337,10 +338,8 @@ function breadcrumbItems(view, locale, relative, title) {
 function organizationSchema(view, origin) {
   const texts = view.texts || {};
   const offices = asArray(view.collections?.offices);
-  const socials = asArray(view.collections?.socials)
-    .map((item) => String(item?.href || '').trim())
-    .filter((href) => /^https?:\/\//i.test(href))
-    .map((href) => absoluteUrl(origin, href));
+  const socials = safeSocialLinks(asArray(view.collections?.socials))
+    .map((item) => absoluteUrl(origin, String(item.href).trim()));
   const phones = offices.flatMap((office) => asArray(office?.phones)).map((phone) => phone?.tel).filter(Boolean);
   return {
     '@type': 'Organization',

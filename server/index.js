@@ -46,6 +46,7 @@ import {
 } from '../shared/productImages.js';
 import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
 import { salesRepresentativeProblem } from '../shared/salesRepresentatives.js';
+import { socialLinkOverridesProblem, socialLinksProblem } from '../shared/socialLinks.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
@@ -1075,6 +1076,14 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
     if (problem) {
       return res.status(400).json({ error: `invalid ${locale} gallery translation`, problem });
     }
+    const socialProblem = socialLinkOverridesProblem(localeData?.collections?.socials);
+    if (socialProblem) {
+      return res.status(400).json({
+        error: `invalid ${locale} social link`,
+        code: socialProblem.code,
+        index: socialProblem.index,
+      });
+    }
   }
   /* The slug is both the primary key and the URL for catalogue products and
      blog posts. A blank one produces /products/ (which collides with the index
@@ -1100,6 +1109,21 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
   if (Array.isArray(next.shop?.products)) {
     const problems = shopProductProblems(next.shop.products);
     if (problems.length) return res.status(400).json({ error: 'invalid shop products', problems });
+  }
+
+  /* Social destinations become executable anchor hrefs in three public
+     surfaces. CSP does not make javascript: or data: navigation safe, so the
+     persistence boundary accepts only absolute HTTP(S) destinations (plus a
+     non-rendered incomplete draft while an Admin is typing). */
+  if (next.collections?.socials !== undefined) {
+    const problem = socialLinksProblem(next.collections.socials);
+    if (problem) {
+      return res.status(400).json({
+        error: 'invalid social links',
+        code: problem.code,
+        index: problem.index,
+      });
+    }
   }
 
   /* Trust seals become executable destinations and expand img-src in the

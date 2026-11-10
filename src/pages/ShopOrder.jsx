@@ -191,12 +191,6 @@ export default function ShopOrder() {
                     <span>{t('shop.order.date')}</span>
                     <span>{new Date(order.at).toLocaleString('fa-IR')}</span>
                   </div>
-                  {order.payRef && (
-                    <div className="order-card__row">
-                      <span>{t('shop.order.ref')}</span>
-                      <span dir="ltr">{String(order.payRef).slice(0, 24)}</span>
-                    </div>
-                  )}
                 </div>
               </Reveal>
             </div>

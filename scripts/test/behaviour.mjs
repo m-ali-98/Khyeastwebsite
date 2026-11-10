@@ -354,9 +354,19 @@ try {
   const publicReversalOrder = await (
     await fetch(`${BASE}/api/shop-public/orders/${encodeURIComponent(reversalFixture.code)}?token=${encodeURIComponent(reversalFixture.token)}`)
   ).json();
+  const trackingAllowedFields = new Set([
+    'code', 'items', 'customer', 'subtotal', 'shipping', 'total', 'currency', 'status', 'at',
+  ]);
+  const trackingForbiddenFields = [
+    'id', 'token', 'customerId', 'provider', 'payAuthority', 'payRef', 'adminNote',
+    'paidAt', 'autoCancelled', 'needsAttention', 'archived', 'paymentAttempts',
+  ];
   check(
-    publicReversalOrder.order && !Object.hasOwn(publicReversalOrder.order, 'paymentAttempts'),
-    'public order tracking never exposes payment-attempt history',
+    publicReversalOrder.order &&
+      Object.keys(publicReversalOrder.order).every((field) => trackingAllowedFields.has(field)) &&
+      trackingForbiddenFields.every((field) => !Object.hasOwn(publicReversalOrder.order, field)),
+    'token-authenticated tracking is an explicit customer-field allowlist',
+    JSON.stringify(Object.keys(publicReversalOrder.order || {})),
   );
   const settledRefreshUrl =
     `/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(reversalFixture.code)}` +
@@ -504,6 +514,22 @@ try {
   /* Duplicate slugs are one inventory claim, not independent lines. */
   await setStock(5);
 
+  /* JSON values that only become integers through JavaScript coercion are not
+     cart quantities. Reject them before either stock or rate-limit state moves. */
+  for (const qty of [[1], true, '3']) {
+    const response = await jpost('/api/shop-public/orders', {
+      items: [{ slug: SLUG, qty }],
+      customer: CUSTOMER,
+    });
+    const body = await response.json();
+    check(
+      response.status === 400 && body.error === 'invalid quantity',
+      `coercible quantity ${JSON.stringify(qty)} is refused`,
+      `got ${response.status}: ${JSON.stringify(body)}`,
+    );
+  }
+  check((await stockOf()) === 5, 'refused coercible quantities do not reserve inventory');
+
   const commentsDb = await dbStore.openDB(DB);
   for (let index = 0; index < 7; index += 1) {
     dbStore.insertComment(commentsDb, {
@@ -572,13 +598,25 @@ try {
   }
 
   await setStock(10);
+  const unverifiedReceiverPhone = '09123334444';
   const invOrder = await jpost('/api/shop-public/orders', {
     items: [{ slug: SLUG, qty: 3 }],
-    customer: CUSTOMER,
+    customer: { ...CUSTOMER, phone: unverifiedReceiverPhone },
   });
   check(invOrder.ok, 'inventory test order placed', `status ${invOrder.status}`);
 
   const { order } = await invOrder.json();
+  const trackedOrder = await (
+    await fetch(`${BASE}/api/shop-public/orders/${encodeURIComponent(order.code)}?token=${encodeURIComponent(order.token)}`)
+  ).json();
+  const publicCustomerFields = new Set(['name', 'phone', 'city', 'address', 'postal', 'note']);
+  check(
+    trackedOrder.order?.customer?.phone === unverifiedReceiverPhone &&
+      Object.keys(trackedOrder.order.customer).every((field) => publicCustomerFields.has(field)) &&
+      !Object.hasOwn(trackedOrder.order.customer, 'addressId'),
+    'tracking allowlists the receiver snapshot without leaking its internal address id',
+    JSON.stringify(trackedOrder.order?.customer),
+  );
   check((await orderLogs(order.code)).length === 0, 'creating an unpaid order does not send the order-registered SMS');
   check((await stockOf()) === 7, 'ordering 3 of 10 leaves 7');
 
@@ -591,6 +629,11 @@ try {
     paidOrderRows[0]?.text.includes(`token=${order.token}`),
     'the offline-payment confirmation includes the private tracking link',
   );
+  check(
+    paidOrderRows[0]?.phone === '989121234567',
+    'the private tracking SMS goes to the OTP-verified account, not the typed receiver',
+    String(paidOrderRows[0]?.phone || ''),
+  );
   await setStatus(id, 'paid');
   check((await orderLogs(order.code)).length === 1, 'saving the paid offline order again does not duplicate its confirmation');
   await setStatus(id, 'delivered');
@@ -599,6 +642,11 @@ try {
   const sentRows = await waitForShipmentLogs(order.code, 1);
   check(sentRows.length === 1, 'the first transition into shipped sends one SMS', `got ${sentRows.length}`);
   check(sentRows[0]?.text.includes('ارسال شد'), 'the shipped SMS has the customer-facing shipment text');
+  check(
+    sentRows[0]?.phone === '989121234567' && sentRows[0]?.phone !== '989123334444',
+    'shipment SMS uses the OTP-verified account phone instead of the receiver snapshot',
+    String(sentRows[0]?.phone || ''),
+  );
   const noteEdit = await fetch(`${BASE}/api/shop-admin/orders/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...auth },
@@ -818,6 +866,50 @@ try {
   });
   check(galleryRestore.ok, 'gallery validation fixture restores the original content');
 
+  /* Social hrefs are executable navigation, not ordinary copy. Reject active
+     schemes at persistence rather than hoping the document CSP neutralizes
+     links that React later places in the header, footer and contact page. */
+  for (const href of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>']) {
+    const unsafeSocial = JSON.parse(JSON.stringify(snapshot));
+    unsafeSocial.collections.socials[0].href = href;
+    const response = await fetch(`${BASE}/api/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify(unsafeSocial),
+    });
+    const body = await response.json();
+    check(
+      response.status === 400 && body.code === 'unsafe-href-scheme',
+      `${href.split(':', 1)[0]} social destinations are refused before persistence`,
+      `got ${response.status}: ${JSON.stringify(body)}`,
+    );
+  }
+  const afterUnsafeSocial = await (await fetch(`${BASE}/api/content`)).json();
+  check(
+    afterUnsafeSocial.collections?.socials?.[0]?.href === snapshot.collections.socials[0].href,
+    'refused social schemes never replace the persisted destination',
+    String(afterUnsafeSocial.collections?.socials?.[0]?.href || ''),
+  );
+
+  const translatedSocial = JSON.parse(JSON.stringify(snapshot));
+  translatedSocial.i18n.en = {
+    ...(translatedSocial.i18n.en || {}),
+    collections: {
+      ...(translatedSocial.i18n.en?.collections || {}),
+      socials: [{ href: 'javascript:alert(1)' }],
+    },
+  };
+  const translatedSocialPut = await fetch(`${BASE}/api/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(translatedSocial),
+  });
+  check(
+    translatedSocialPut.status === 400,
+    'a locale social override cannot bypass the canonical href validator',
+    `got ${translatedSocialPut.status}`,
+  );
+
   /* Footer trust seals are admin-authored external resources. Valid HTTPS
      providers expand img-src for the rendered document; unsafe schemes and a
      fifth seal must be refused before they can reach either HTML or CSP. */
@@ -839,9 +931,11 @@ try {
   });
   check(trustPut.ok, 'one valid HTTPS trust seal is accepted', `got ${trustPut.status}`);
   const trustPage = await fetch(`${BASE}/`);
+  const trustCsp = trustPage.headers.get('content-security-policy') || '';
   check(
-    (trustPage.headers.get('content-security-policy') || '').includes('https://seal.example'),
+    trustCsp.includes('https://seal.example'),
     'a configured trust-logo origin is added to img-src',
+    trustCsp,
   );
 
   const tooMany = JSON.parse(JSON.stringify(trustFixture));

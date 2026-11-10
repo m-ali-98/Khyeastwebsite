@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import { mergeContentState } from '../../shared/contentState.js';
 import { localizeState } from '../../shared/i18n/index.js';
+import { safeSocialLinks } from '../../shared/socialLinks.js';
 import { useLocale } from '../i18n/LocaleContext';
 
 const Ctx = createContext(null);
@@ -322,7 +323,10 @@ export function ContentProvider({ children }) {
       t: (k) => view.texts?.[k] ?? fallback.texts[k] ?? '',
       m: (k) => view.media?.[k] ?? fallback.media[k] ?? '',
       l: (k) => view.links?.[k] ?? fallback.links[k] ?? '#',
-      col: (k) => view.collections?.[k] ?? fallback.collections[k] ?? [],
+      col: (k) => {
+        const collection = view.collections?.[k] ?? fallback.collections[k] ?? [];
+        return k === 'socials' ? safeSocialLinks(collection) : collection;
+      },
       products: view.products ?? [],
       posts: view.posts ?? [],
       gallery: view.gallery ?? [],

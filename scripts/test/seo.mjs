@@ -46,6 +46,19 @@ const invalidLocaleShop = resolveSeo('/en/shop', DEFAULT_STATE, ORIGIN);
 check(home.indexable && home.status === 200, 'home indexable');
 check(home.canonical === `${ORIGIN}/`, 'home canonical');
 check(home.alternates.length === 4, 'home has 3 locales plus x-default');
+const hostileSocialState = structuredClone(DEFAULT_STATE);
+hostileSocialState.collections.socials = [
+  hostileSocialState.collections.socials[0],
+  { id: 'unsafe-js', label: 'unsafe', href: 'javascript:alert(1)' },
+  { id: 'unsafe-data', label: 'unsafe', href: 'data:text/html,<script>alert(1)</script>' },
+];
+const hostileOrganization = resolveSeo('/', hostileSocialState, ORIGIN).schema?.['@graph']
+  ?.find((item) => item['@type'] === 'Organization');
+check(
+  hostileOrganization?.sameAs?.length === 1 && hostileOrganization.sameAs[0].startsWith('https://wa.me/'),
+  'legacy unsafe social hrefs are omitted from public structured data',
+  JSON.stringify(hostileOrganization?.sameAs),
+);
 check(enAbout.lang === 'en' && enAbout.dir === 'ltr', 'English language and direction');
 check(!enAbout.title.includes('Khuzestan Yeast Co. | Khuzestan Yeast Co.'), 'title does not duplicate company name');
 check(arQuality.lang === 'ar' && arQuality.dir === 'rtl', 'Arabic language and direction');
