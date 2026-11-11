@@ -154,19 +154,23 @@ check(
     JSON.stringify(CATALOG_VARIANTS.map(({ slug }) => slug)),
   'the Persian public catalogue exposes all and only the 30 recovered variants',
 );
-const dynamicHomeStats = resolveHomeStats(DEFAULT_STATE.collections.homeStats, products);
+const dynamicHomeStats = resolveHomeStats(DEFAULT_STATE.collections.homeStats, products, DEFAULT_STATE.brands);
 check(
-  dynamicHomeStats[1]?.value === products.length,
-  'the homepage product counter matches the full /products catalogue count',
+  dynamicHomeStats[1]?.value === products.length && dynamicHomeStats[2]?.value === DEFAULT_STATE.brands.length,
+  'homepage product and brand counters match the current public collections',
 );
 const legacyHomeStats = DEFAULT_STATE.collections.homeStats.map((stat) => {
   const { metric: _metric, ...legacy } = stat;
   return { ...legacy };
 });
 legacyHomeStats[1] = { ...legacyHomeStats[1], value: 18 };
+const addedProducts = [...products, { ...products[0], slug: 'new-catalogue-product' }];
+const addedBrands = [...DEFAULT_STATE.brands, { id: 'new-brand' }];
+const updatedLegacyStats = resolveHomeStats(legacyHomeStats, addedProducts, addedBrands);
 check(
-  resolveHomeStats(legacyHomeStats, [...products, { ...products[0], slug: 'new-catalogue-product' }])[1]?.value === 31,
-  'existing saved homepage stats replace the stale count when catalogue products change',
+  updatedLegacyStats[1]?.value === addedProducts.length &&
+    updatedLegacyStats[2]?.value === addedBrands.length,
+  'legacy saved homepage stats track Admin-added products and brands instead of stale totals',
 );
 check(
   products.every((product) => (

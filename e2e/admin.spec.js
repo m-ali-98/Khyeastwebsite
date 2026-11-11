@@ -491,6 +491,129 @@ test('deleting the product asks for confirmation and removes it everywhere', asy
   await expect(page.locator('.product-card', { hasText: 'محصول آزمایشی' })).toHaveCount(0);
 });
 
+test('Admin brand changes flow through homepage, catalogue filters and the shop', async ({ page }) => {
+  const originalResponse = await page.request.get('/api/content');
+  const original = await originalResponse.json();
+  const shopProduct = original.shop.products.find((product) => product.active && !product.productSlug)
+    || original.shop.products.find((product) => product.active);
+  expect(shopProduct, 'an active shop product to exercise its brand filter').toBeTruthy();
+  const brandId = `e2e-brand-${STAMP}`;
+  const brandFa = `برند آزمایشی ${STAMP}`;
+  const brandEn = `E2E Brand ${STAMP}`;
+
+  try {
+    await loginAdmin(page);
+    await adminTab(page, 'محصولات').first().click();
+    await page.getByRole('button', { name: '+ برند جدید' }).click();
+    await field(page, 'شناسه یکتا (slug)').fill(brandId);
+    await field(page, 'نام فارسی').fill(brandFa);
+    await field(page, 'نام انگلیسی').fill(brandEn);
+    await field(page, 'نشانی تصویر').fill('/assets/products/dezmaye-gold.webp');
+
+    const created = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await page.getByRole('button', { name: 'ذخیره برند' }).click();
+    expect((await created).status()).toBe(200);
+    await expect(page.locator('.admin__item', { hasText: brandFa })).toBeVisible();
+
+    /* Seed one locale override, then reload so the removal flow must clean a
+       real persisted translation rather than only an empty editor snapshot. */
+    const beforeTranslation = await page.request.get('/api/content');
+    const translatedState = await beforeTranslation.json();
+    const i18n = structuredClone(translatedState.i18n || {});
+    i18n.en = {
+      ...(i18n.en || {}),
+      brands: {
+        ...(i18n.en?.brands || {}),
+        [brandId]: { fa: brandEn, tagline: 'Managed brand translation' },
+      },
+    };
+    const translationSaved = await page.request.patch('/api/content', {
+      headers: revisionHeaders(beforeTranslation),
+      data: { changes: { i18n } },
+    });
+    expect(translationSaved.status()).toBe(200);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.admin__side')).toBeVisible();
+    await expect(page.locator('.admin__item', { hasText: brandFa })).toBeVisible();
+
+    await gotoReady(page, '/products');
+    await expect(page.locator('.products-filter').getByRole('button', { name: `${brandFa} (${brandEn})`, exact: true })).toBeVisible();
+    await gotoReady(page, '/');
+    const homeStats = page.locator('.stats-band .stat');
+    const brandStat = homeStats.nth(2);
+    await brandStat.scrollIntoViewIfNeeded();
+    await expect(brandStat.locator('.stat__value')).toHaveText(faNum(original.brands.length + 1));
+    await expect(page.locator('.brands-grid .brand-card')).toHaveCount(original.brands.length + 1);
+
+    /* The shop's brand selector and public brand filter consume this same
+       managed list. Move a shop-only SKU temporarily to the new brand. */
+    await loginAdmin(page);
+    await adminTab(page, 'فروشگاه — محصولات').first().click();
+    const shopRow = page.locator('.admin__item', { hasText: shopProduct.title });
+    await shopRow.locator('.admin__iconbtn[title="ویرایش"]').click();
+    await field(page, 'برند').selectOption(brandId);
+    const shopBrandSaved = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await page.getByRole('button', { name: 'ذخیره محصول', exact: true }).click();
+    expect((await shopBrandSaved).status()).toBe(200);
+
+    await gotoReady(page, '/shop');
+    const shopBrandFilter = page.locator('.shop-filter').getByRole('button', { name: brandFa, exact: true });
+    await expect(shopBrandFilter).toBeVisible();
+    await shopBrandFilter.click();
+    await expect(page.locator('.shop-grid .shop-card', { hasText: shopProduct.title })).toBeVisible();
+
+    /* Existing catalogue/shop references block removal both in Admin and at
+       the API boundary. Once the shop SKU is moved back, deletion is enabled. */
+    await loginAdmin(page);
+    await adminTab(page, 'محصولات').first().click();
+    const deleteBrand = page.getByRole('button', { name: `حذف برند ${brandFa}` });
+    await expect(deleteBrand).toBeDisabled();
+
+    await adminTab(page, 'فروشگاه — محصولات').first().click();
+    const editedShopRow = page.locator('.admin__item', { hasText: shopProduct.title });
+    await editedShopRow.locator('.admin__iconbtn[title="ویرایش"]').click();
+    await field(page, 'برند').selectOption(shopProduct.brand);
+    const shopBrandRestored = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await page.getByRole('button', { name: 'ذخیره محصول', exact: true }).click();
+    expect((await shopBrandRestored).status()).toBe(200);
+
+    await gotoReady(page, '/shop');
+    await expect(page.locator('.shop-filter').getByRole('button', { name: brandFa, exact: true })).toHaveCount(0);
+    await loginAdmin(page);
+    await adminTab(page, 'محصولات').first().click();
+    await expect(deleteBrand).toBeEnabled();
+    page.once('dialog', (dialog) => dialog.accept());
+    const removed = page.waitForResponse((response) => (
+      response.url().endsWith('/api/content') && response.request().method() === 'PATCH'
+    ));
+    await deleteBrand.click();
+    expect((await removed).status()).toBe(200);
+
+    const afterRemoval = await (await page.request.get('/api/content')).json();
+    expect(afterRemoval.brands.some((brand) => brand.id === brandId)).toBe(false);
+    expect(afterRemoval.i18n?.en?.brands?.[brandId]).toBeUndefined();
+    await gotoReady(page, '/products');
+    await expect(page.locator('.products-filter').getByRole('button', { name: `${brandFa} (${brandEn})`, exact: true })).toHaveCount(0);
+    await gotoReady(page, '/');
+    const finalBrandStat = page.locator('.stats-band .stat').nth(2);
+    await finalBrandStat.scrollIntoViewIfNeeded();
+    await expect(finalBrandStat.locator('.stat__value')).toHaveText(faNum(original.brands.length));
+  } finally {
+    const latest = await page.request.get('/api/content');
+    const restore = await page.request.put('/api/content', {
+      headers: revisionHeaders(latest),
+      data: original,
+    });
+    expect(restore.status(), 'brand test restored the original content snapshot').toBe(200);
+  }
+});
+
 test('the article editor formats safe rich content without exposing code controls', async ({ page }) => {
   await loginAdmin(page);
   await adminTab(page, 'وبلاگ').first().click();

@@ -830,6 +830,75 @@ try {
   });
   check(unknownPatch.status === 400, 'content PATCH refuses unknown top-level buckets');
 
+  /* Brand CRUD is shared content, so the persistence boundary must protect
+     every catalogue and shop reference even when a caller bypasses Admin. */
+  const brandInUse = snapshot.brands.find((brand) => (
+    snapshot.products.some((product) => product.brand === brand.id) ||
+    snapshot.shop.products.some((product) => product.brand === brand.id)
+  ));
+  const brandRemovalWhileUsed = await writeContent('PATCH', {
+    changes: { brands: snapshot.brands.filter((brand) => brand.id !== brandInUse?.id) },
+  });
+  const contentAfterBrandRemovalRefusal = await (await fetch(`${BASE}/api/content`)).json();
+  check(
+    Boolean(brandInUse) && brandRemovalWhileUsed.status === 400 &&
+      contentAfterBrandRemovalRefusal.brands.some((brand) => brand.id === brandInUse.id),
+    'a brand referenced by catalogue or shop products cannot be removed through the content API',
+    `got ${brandRemovalWhileUsed.status}`,
+  );
+
+  const brandBeforeCrud = await (await fetch(`${BASE}/api/content`)).json();
+  const managedBrand = {
+    id: `behaviour-brand-${Date.now().toString(36)}`,
+    fa: 'برند آزمون رفتاری',
+    en: 'Behaviour Test Brand',
+    tagline: 'Temporary validation fixture',
+    image: '/assets/products/dezmaye-gold.webp',
+  };
+  const addManagedBrand = await writeContent('PATCH', {
+    changes: { brands: [...brandBeforeCrud.brands, managedBrand] },
+  });
+  const afterManagedBrandAdd = await (await fetch(`${BASE}/api/content`)).json();
+  check(
+    addManagedBrand.ok && afterManagedBrandAdd.brands.some((brand) => brand.id === managedBrand.id),
+    'a valid Admin-managed brand is accepted and returned in the shared content state',
+    `got ${addManagedBrand.status}`,
+  );
+
+  const missingBrandName = await writeContent('PATCH', {
+    changes: {
+      brands: [...afterManagedBrandAdd.brands, {
+        ...managedBrand,
+        id: `${managedBrand.id}-missing-name`,
+        fa: '',
+      }],
+    },
+  });
+  const untrustedBrandImage = await writeContent('PATCH', {
+    changes: {
+      brands: [...afterManagedBrandAdd.brands, {
+        ...managedBrand,
+        id: `${managedBrand.id}-untrusted-image`,
+        image: 'https://untrusted.example/brand.webp',
+      }],
+    },
+  });
+  check(
+    missingBrandName.status === 400 && untrustedBrandImage.status === 400,
+    'brand writes require both names and an image allowed by the site CSP',
+    `name=${missingBrandName.status}, image=${untrustedBrandImage.status}`,
+  );
+
+  const removeManagedBrand = await writeContent('PATCH', {
+    changes: { brands: afterManagedBrandAdd.brands.filter((brand) => brand.id !== managedBrand.id) },
+  });
+  const afterManagedBrandRemoval = await (await fetch(`${BASE}/api/content`)).json();
+  check(
+    removeManagedBrand.ok && !afterManagedBrandRemoval.brands.some((brand) => brand.id === managedBrand.id),
+    'an unused brand can be removed from the authoritative list',
+    `got ${removeManagedBrand.status}`,
+  );
+
   const representativeRows = snapshot.collections?.salesRepresentatives;
   check(
     Array.isArray(representativeRows) && representativeRows.length === 47 &&
@@ -1017,6 +1086,24 @@ try {
   const productSnapshotResponse = await fetch(`${BASE}/api/shop-admin/products`, { headers: auth });
   const productSnapshot = await productSnapshotResponse.json();
   const productSnapshotRevision = parseContentRevision(productSnapshotResponse.headers.get(CONTENT_REVISION_HEADER));
+  const unknownBrandProducts = structuredClone(productSnapshot.products);
+  unknownBrandProducts[0].brand = `missing-brand-${Date.now().toString(36)}`;
+  const unknownBrandSave = await fetch(`${BASE}/api/shop-admin/products`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      [CONTENT_REVISION_HEADER]: String(productSnapshotRevision),
+      ...auth,
+    },
+    body: JSON.stringify({ products: unknownBrandProducts }),
+  });
+  const productsAfterUnknownBrand = await (await fetch(`${BASE}/api/shop-admin/products`, { headers: auth })).json();
+  check(
+    unknownBrandSave.status === 400 &&
+      productsAfterUnknownBrand.products.find((product) => product.slug === productSnapshot.products[0].slug)?.brand === productSnapshot.products[0].brand,
+    'the legacy shop-products endpoint also refuses unknown managed brands without changing the catalogue',
+    `got ${unknownBrandSave.status}`,
+  );
   const revisionlessProductSave = await fetch(`${BASE}/api/shop-admin/products`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...auth },

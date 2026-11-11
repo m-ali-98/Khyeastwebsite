@@ -50,9 +50,9 @@ export const TEXTS = {
   'home.intro.badge': 'Since 1991',
 
   'home.brands.overline': 'Our brands',
-  'home.brands.title': 'Four trusted brands, [[one quality standard]]',
+  'home.brands.title': 'Trusted brands, [[one quality standard]]',
   'home.brands.sub':
-    'Our instant dry yeast reaches domestic and international markets under the Dezmaye, Shetab, X-Power and Nan Maye names.',
+    'Our instant dry yeast reaches domestic and international markets through a diverse portfolio of brands.',
   'home.brands.cardLink': 'Products of this brand',
   'home.products.overline': 'Featured products',
   'home.products.title': 'Instant dry yeast for [[every kind of baking]]',

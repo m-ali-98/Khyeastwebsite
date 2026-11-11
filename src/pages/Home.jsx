@@ -309,8 +309,8 @@ function Features() {
 }
 
 function StatsBand() {
-  const { col, products } = useContent();
-  const stats = resolveHomeStats(col('homeStats'), products);
+  const { col, products, brands } = useContent();
+  const stats = resolveHomeStats(col('homeStats'), products, brands);
   return (
     <section className="section stats-band">
       <div className="container">

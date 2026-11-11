@@ -1,20 +1,28 @@
 /**
- * Keep the homepage's catalogue count tied to the same product collection used
- * by the /products listing. The positional fallback handles existing saved CMS
- * snapshots created before the metric marker was added.
+ * Keep homepage collection counters tied to the same data collections used by
+ * the public catalogue and shop. Legacy positional indices keep old CMS
+ * snapshots dynamic until they are next explicitly saved.
  */
-const LEGACY_PRODUCT_COUNT_INDEX = 1;
+const LEGACY_METRIC_INDEX = {
+  'catalogue-products': 1,
+  brands: 2,
+};
 
-export function resolveHomeStats(stats, products) {
+export function resolveHomeStats(stats, products, brands) {
   if (!Array.isArray(stats)) return [];
 
-  const markedIndex = stats.findIndex((stat) => stat?.metric === 'catalogue-products');
-  const productCountIndex = markedIndex >= 0 ? markedIndex : LEGACY_PRODUCT_COUNT_INDEX;
-  const productCount = Array.isArray(products) ? products.length : 0;
+  const counts = {
+    'catalogue-products': Array.isArray(products) ? products.length : 0,
+    brands: Array.isArray(brands) ? brands.length : 0,
+  };
+  const indexMetrics = new Map(
+    Object.entries(LEGACY_METRIC_INDEX).map(([metric, index]) => [index, metric]),
+  );
 
   return stats.map((stat, index) => {
-    if (index !== productCountIndex) return stat;
+    const metric = stat?.metric || indexMetrics.get(index);
+    if (!Object.hasOwn(counts, metric)) return stat;
     const row = stat && typeof stat === 'object' && !Array.isArray(stat) ? stat : {};
-    return { ...row, value: productCount };
+    return { ...row, value: counts[metric] };
   });
 }

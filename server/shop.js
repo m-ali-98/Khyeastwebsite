@@ -1075,7 +1075,7 @@ export function createShopRouter({
     return contentMutation(() => {
       /* Shop galleries are part of upload-reference accounting. Refuse this
          Admin write too when authoritative CMS sections cannot be read. */
-      assertContentAvailable();
+      const authoritativeContent = assertContentAvailable();
       const initialRevision = db.getContentMeta(D).revision;
       res.setHeader(CONTENT_REVISION_HEADER, String(initialRevision));
       const revisionHeader = req.get(CONTENT_REVISION_HEADER);
@@ -1121,6 +1121,23 @@ export function createShopRouter({
              was not edited cannot block an unrelated product or display save. */
           const problems = shopProductProblems(b.products);
           if (problems.length) return res.status(400).json({ error: 'invalid products', problems });
+          const brandList = Array.isArray(authoritativeContent?.brands)
+            ? authoritativeContent.brands
+            : db.readContentSections(D).brands;
+          const knownBrandIds = new Set(brandList.map((brand) => brand.id));
+          const unknownBrandIndex = b.products.findIndex((product) => {
+            const brand = String(product?.brand || '').trim();
+            return brand && !knownBrandIds.has(brand);
+          });
+          if (unknownBrandIndex >= 0) {
+            const brand = String(b.products[unknownBrandIndex]?.brand || '').trim();
+            return res.status(400).json({
+              error: 'invalid products',
+              code: 'unknown-brand',
+              field: `products[${unknownBrandIndex}].brand`,
+              problems: [`محصول فروشگاه به برند ناشناخته «${brand}» اشاره می‌کند`],
+            });
+          }
           const imageOrigins = trustedImageOrigins();
           for (let index = 0; index < b.products.length; index += 1) {
             const product = b.products[index];

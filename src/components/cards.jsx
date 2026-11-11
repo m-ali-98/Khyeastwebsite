@@ -64,10 +64,10 @@ export function PostCard({ post, index = 0 }) {
   );
 }
 
-/* The whole card is the link. Someone reading «four brands, one standard»
-   and clicking دزمایه means "show me those" — the products page already
-   filters on ?brand=, so this just hands it the id. Link, not a div with an
-   onClick: it has to be middle-clickable, focusable and announced as a link. */
+/* The whole card is the link. Someone browsing the brand section and clicking
+   a brand means "show me those" — the products page already filters on
+   ?brand=, so this just hands it the id. Link, not a div with an onClick: it
+   has to be middle-clickable, focusable and announced as a link. */
 export function BrandCard({ brand, index = 0 }) {
   const { t } = useContent();
   return (
@@ -83,9 +83,7 @@ export function BrandCard({ brand, index = 0 }) {
         <img {...imgProps(brand.image, SIZES.card)} alt={brand.fa} loading="lazy" />
       </div>
       <h2>{brand.fa}</h2>
-      <p>
-        {brand.en} · {brand.tagline}
-      </p>
+      <p>{[brand.en, brand.tagline].filter(Boolean).join(' · ')}</p>
       <span className="brand-card__cta">
         {t('home.brands.cardLink')}
         <Icons.arrow size={15} />

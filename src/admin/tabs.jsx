@@ -115,6 +115,8 @@ const productGalleryProblemFa = (problem) => {
 export function ProductsTab() {
   const { state, save, brands } = useContent();
   const [draft, setDraft] = useState(null);
+  const [brandDraft, setBrandDraft] = useState(null);
+  const [brandSaving, setBrandSaving] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const trustedImageOrigins = useMemo(
     () => trustSealImageOrigins(state.collections?.trustSeals),
@@ -191,6 +193,117 @@ export function ProductsTab() {
     });
   };
 
+  const saveBrandDraft = async () => {
+    const { _orig, ...rest } = brandDraft;
+    const id = String(_orig || rest.id || '').trim();
+    const idError = checkSlug(
+      state.brands.map((brand) => ({ slug: brand.id })),
+      id,
+      _orig,
+      'برند',
+    );
+    if (idError) return window.alert(idError);
+
+    const fa = String(rest.fa || '').trim();
+    const en = String(rest.en || '').trim();
+    const image = String(rest.image || '').trim();
+    if (!fa || !en) return window.alert('نام فارسی و نام انگلیسی برند را وارد کنید.');
+    if (!image) return window.alert('برای برند یک تصویر بارگذاری یا نشانی تصویر وارد کنید.');
+    const imageProblem = productImagesProblem({ image }, trustedImageOrigins);
+    if (imageProblem) return window.alert(productGalleryProblemFa(imageProblem));
+
+    const clean = {
+      ...rest,
+      id,
+      fa,
+      en,
+      tagline: String(rest.tagline || '').trim(),
+      image,
+    };
+    const nextBrands = _orig
+      ? state.brands.map((brand) => (brand.id === _orig ? clean : brand))
+      : [...state.brands, clean];
+
+    setBrandSaving(true);
+    try {
+      await save({ ...state, brands: nextBrands }, { optimistic: false });
+      setBrandDraft(null);
+    } catch (error) {
+      window.alert(error.message || 'ذخیره برند ممکن نشد؛ هیچ تغییری ذخیره نشد.');
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+
+  const removeBrand = async (brand) => {
+    const catalogueUses = state.products.filter((product) => product.brand === brand.id).length;
+    const shopUses = (state.shop?.products || []).filter((product) => product.brand === brand.id).length;
+    if (catalogueUses || shopUses) return;
+    if (!window.confirm(`برند «${brand.fa}» حذف شود؟ ترجمه‌های آن نیز پاک می‌شوند.`)) return;
+
+    setBrandSaving(true);
+    try {
+      await save({
+        ...state,
+        brands: state.brands.filter((item) => item.id !== brand.id),
+        i18n: dropTranslations(state.i18n, 'brands', brand.id),
+      }, { optimistic: false });
+    } catch (error) {
+      window.alert(error.message || 'حذف برند ممکن نشد؛ هیچ تغییری ذخیره نشد.');
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+
+  if (brandDraft) {
+    return (
+      <div className="admin__panel">
+        <div className="admin__head">
+          <div>
+            <h1>{brandDraft._orig ? 'ویرایش برند' : 'برند جدید'}</h1>
+            <p>شناسه برند در پیوند فیلتر محصولات استفاده می‌شود؛ پس از ساخت، ثابت می‌ماند.</p>
+          </div>
+        </div>
+        <div className="admin__grid2">
+          {brandDraft._orig ? (
+            <label className="field" style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: 0 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>شناسه برند</span>
+              <code>{brandDraft.id}</code>
+            </label>
+          ) : (
+            <Field
+              label="شناسه یکتا (slug)"
+              value={brandDraft.id}
+              dir="ltr"
+              onChange={(value) => setBrandDraft({ ...brandDraft, id: slugify(value) })}
+            />
+          )}
+          <Field label="نام فارسی" value={brandDraft.fa} onChange={(value) => setBrandDraft({ ...brandDraft, fa: value })} />
+          <Field label="نام انگلیسی" value={brandDraft.en} onChange={(value) => setBrandDraft({ ...brandDraft, en: value })} />
+          <Field label="شعار کوتاه (اختیاری)" value={brandDraft.tagline} onChange={(value) => setBrandDraft({ ...brandDraft, tagline: value })} />
+        </div>
+        <div className="admin__row" style={{ marginTop: 16 }}>
+          {brandDraft.image && <img src={brandDraft.image} alt="" width="96" height="72" style={{ objectFit: 'contain', borderRadius: 9, background: 'var(--bg-softer)' }} />}
+          <UploadButton accept="image/*" label="بارگذاری تصویر برند" onUploaded={(url) => setBrandDraft({ ...brandDraft, image: url })} />
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <Field label="نشانی تصویر" value={brandDraft.image} dir="ltr" onChange={(value) => setBrandDraft({ ...brandDraft, image: value })} />
+        </div>
+        <p className="admin__hint" style={{ marginTop: 10 }}>
+          برای ترجمه نام و شعار انگلیسی یا عربی، از «متون و فهرست‌ها ← برندها» استفاده کنید. تصویر باید از فایل سایت یا مبدأ HTTPS مورد اعتماد باشد.
+        </p>
+        <div className="admin__row" style={{ marginTop: 22 }}>
+          <button className="btn btn--primary" onClick={saveBrandDraft} disabled={brandSaving}>
+            {brandSaving ? 'در حال ذخیره…' : 'ذخیره برند'}
+          </button>
+          <button className="btn btn--outline" onClick={() => setBrandDraft(null)} disabled={brandSaving}>
+            انصراف
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (draft) {
     return (
       <div className="admin__panel">
@@ -264,6 +377,65 @@ export function ProductsTab() {
           + محصول جدید
         </button>
       </div>
+      <section aria-labelledby="admin-brands-title" style={{ marginBottom: 28 }}>
+        <div className="admin__head">
+          <div>
+            <h2 id="admin-brands-title">برندها ({brands.length.toLocaleString('fa-IR')})</h2>
+            <p>این فهرست در فیلترهای محصولات و فروشگاه، کارت‌های صفحه اصلی و شمارنده برندها استفاده می‌شود.</p>
+          </div>
+          <button
+            className="btn btn--outline"
+            onClick={() => setBrandDraft({ id: '', fa: '', en: '', tagline: '', image: '' })}
+          >
+            + برند جدید
+          </button>
+        </div>
+        <div className="admin__list">
+          {!state.brands.length && (
+            <AdminState compact icon="pack" title="هنوز برندی ثبت نشده است." detail="برای ساخت نخستین برند، دکمه «برند جدید» را انتخاب کنید." />
+          )}
+          {state.brands.map((brand) => {
+            const catalogueUses = state.products.filter((product) => product.brand === brand.id).length;
+            const shopUses = (state.shop?.products || []).filter((product) => product.brand === brand.id).length;
+            const isUsed = catalogueUses + shopUses > 0;
+            return (
+              <div className="admin__item" key={brand.id}>
+                <img src={brand.image} alt="" />
+                <div>
+                  <b>{brand.fa} <small dir="ltr">({brand.en})</small></b>
+                  <small>
+                    {isUsed
+                      ? `در ${catalogueUses.toLocaleString('fa-IR')} محصول کاتالوگ و ${shopUses.toLocaleString('fa-IR')} محصول فروشگاه استفاده می‌شود؛ برای حذف ابتدا محصولات را به برند دیگری منتقل کنید.`
+                      : 'هنوز محصولی به این برند متصل نیست.'}
+                  </small>
+                </div>
+                <div className="admin__actions">
+                  <button
+                    type="button"
+                    className="admin__iconbtn"
+                    title="ویرایش برند"
+                    aria-label={`ویرایش برند ${brand.fa}`}
+                    onClick={() => setBrandDraft({ ...clone(brand), _orig: brand.id })}
+                    disabled={brandSaving}
+                  >
+                    <Icons.edit size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="admin__iconbtn danger"
+                    title={isUsed ? 'ابتدا محصولات وابسته را به برند دیگری منتقل کنید' : 'حذف برند'}
+                    aria-label={`حذف برند ${brand.fa}`}
+                    onClick={() => removeBrand(brand)}
+                    disabled={brandSaving || isUsed}
+                  >
+                    <Icons.trash size={16} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
       <div className="admin__list">
         {!state.products.length && (
           <AdminState icon="pack" title="هنوز محصولی ثبت نشده است." detail="برای ساخت نخستین محصول، دکمه «محصول جدید» را انتخاب کنید." />

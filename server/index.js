@@ -1123,6 +1123,23 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
       }
       if (seen.has(id)) return res.status(400).json({ error: `${bucket}[${i}]: duplicate ${key} "${id}"` });
       seen.add(id);
+      if (bucket === 'brands' && (!String(list[i]?.fa || '').trim() || !String(list[i]?.en || '').trim())) {
+        return res.status(400).json({ error: `brands[${i}]: Persian and English names are required` });
+      }
+    }
+  }
+
+  const brandIds = new Set((Array.isArray(next.brands) ? next.brands : []).map((brand) => brand?.id));
+  for (const [bucket, products] of [
+    ['products', next.products],
+    ['shop.products', next.shop?.products],
+  ]) {
+    if (!Array.isArray(products)) continue;
+    for (let index = 0; index < products.length; index += 1) {
+      const brand = products[index]?.brand;
+      if (brand && !brandIds.has(brand)) {
+        return res.status(400).json({ error: `${bucket}[${index}]: unknown brand "${brand}"` });
+      }
     }
   }
 
@@ -1180,6 +1197,32 @@ const saveContentRequest = (req, res, { partial = false } = {}) => {
   const currentImageOrigins = trustSealImageOrigins(current.collections?.trustSeals);
   const originPolicyChanged = [...new Set(trustedImageOrigins)].sort().join('\n') !==
     [...new Set(currentImageOrigins)].sort().join('\n');
+  const previousBrandsById = new Map(
+    (Array.isArray(current.brands) ? current.brands : []).map((brand) => [brand?.id, brand]),
+  );
+  for (let index = 0; index < next.brands.length; index += 1) {
+    const brand = next.brands[index];
+    if (
+      !originPolicyChanged &&
+      !productNeedsImageValidation(brand, previousBrandsById.get(brand?.id))
+    ) continue;
+    if (!String(brand?.image || '').trim()) {
+      return res.status(400).json({
+        error: 'invalid brand image',
+        code: 'required',
+        field: `brands[${index}].image`,
+      });
+    }
+    const problem = productImagesProblem(brand, trustedImageOrigins);
+    if (problem) {
+      return res.status(400).json({
+        error: 'invalid brand image',
+        code: problem.code,
+        field: `brands[${index}].image`,
+        detail: productImagesProblemMessage(problem),
+      });
+    }
+  }
   for (const [bucket, list, previousList, ignore] of [
     ['products', next.products, current.products, []],
     ['shop.products', next.shop?.products, current.shop?.products, ['stock']],

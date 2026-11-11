@@ -53,8 +53,8 @@ export const TEXTS = {
   'home.intro.badge': 'از سال ۱۳۷۰',
 
   'home.brands.overline': 'برندهای تجاری',
-  'home.brands.title': 'چهار برند معتبر، [[یک استاندارد کیفیت]]',
-  'home.brands.sub': 'محصول خمیرمایه خشک فوری خود را با نام‌های تجاری دزمایه، شتاب، ایکس پاور و نان مایه روانه بازارهای داخلی و خارجی می‌کنیم.',
+  'home.brands.title': 'برندهای معتبر، [[یک استاندارد کیفیت]]',
+  'home.brands.sub': 'محصول خمیرمایه خشک فوری خود را با مجموعه‌ای متنوع از برندها به بازارهای داخلی و خارجی عرضه می‌کنیم.',
   'home.brands.cardLink': 'محصولات این برند',
 
   'home.products.overline': 'محصولات برگزیده',
@@ -619,7 +619,7 @@ export const COLLECTIONS = {
   homeStats: [
     { value: 30, suffix: '+', label: 'سال سابقه' },
     { metric: 'catalogue-products', suffix: '', label: 'محصول متنوع' },
-    { value: 4, suffix: '', label: 'برند معتبر' },
+    { metric: 'brands', suffix: '', label: 'برند معتبر' },
     { value: 50, suffix: '+', label: 'کشور صادراتی' },
   ],
   stats: [
