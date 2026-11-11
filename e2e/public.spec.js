@@ -131,6 +131,24 @@ test('the recovered catalogue exposes 30 variants, exact brand filters and local
   }
 });
 
+test('homepage catalogue counter follows the live /products listing @mobile', async ({ page }) => {
+  const expectedCount = 11;
+  await page.route('**/api/content', async (route) => {
+    const response = await route.fetch();
+    const content = await response.json();
+    content.products = content.products.slice(0, expectedCount);
+    await route.fulfill({ response, json: content });
+  });
+
+  await gotoReady(page, '/products');
+  await expect(page.locator('.products-catalog-grid .product-card')).toHaveCount(expectedCount);
+
+  await gotoReady(page, '/');
+  const productStat = page.locator('.stats-band .stat').nth(1);
+  await productStat.scrollIntoViewIfNeeded();
+  await expect(productStat.locator('.stat__value')).toHaveText(faNum(expectedCount), { timeout: 6000 });
+});
+
 test('catalogue purchase links follow explicit shop relationships and disappear with a disabled shop @mobile', async ({ page }) => {
   await gotoReady(page, '/products/dezmaye-gold-80');
   const relatedPurchase = page.locator('.catalog-detail__actions').getByRole('link', { name: 'خرید آنلاین' });

@@ -618,7 +618,7 @@ export const COLLECTIONS = {
   ],
   homeStats: [
     { value: 30, suffix: '+', label: 'سال سابقه' },
-    { value: 18, suffix: '', label: 'محصول متنوع' },
+    { metric: 'catalogue-products', suffix: '', label: 'محصول متنوع' },
     { value: 4, suffix: '', label: 'برند معتبر' },
     { value: 50, suffix: '+', label: 'کشور صادراتی' },
   ],

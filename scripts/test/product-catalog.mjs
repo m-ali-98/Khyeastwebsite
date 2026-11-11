@@ -12,6 +12,7 @@ import {
   catalogProductImageUrls,
 } from '../../shared/catalogProducts.js';
 import { loadAllPacks, localizeState } from '../../shared/i18n/index.js';
+import { resolveHomeStats } from '../../shared/homeStats.js';
 import {
   DEFAULT_SITE_ORIGIN,
   listIndexablePaths,
@@ -152,6 +153,20 @@ check(
   products.length === 30 && JSON.stringify(products.map(({ slug }) => slug)) ===
     JSON.stringify(CATALOG_VARIANTS.map(({ slug }) => slug)),
   'the Persian public catalogue exposes all and only the 30 recovered variants',
+);
+const dynamicHomeStats = resolveHomeStats(DEFAULT_STATE.collections.homeStats, products);
+check(
+  dynamicHomeStats[1]?.value === products.length,
+  'the homepage product counter matches the full /products catalogue count',
+);
+const legacyHomeStats = DEFAULT_STATE.collections.homeStats.map((stat) => {
+  const { metric: _metric, ...legacy } = stat;
+  return { ...legacy };
+});
+legacyHomeStats[1] = { ...legacyHomeStats[1], value: 18 };
+check(
+  resolveHomeStats(legacyHomeStats, [...products, { ...products[0], slug: 'new-catalogue-product' }])[1]?.value === 31,
+  'existing saved homepage stats replace the stale count when catalogue products change',
 );
 check(
   products.every((product) => (

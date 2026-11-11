@@ -4,6 +4,7 @@ import { m as mo, useReducedMotion, useScroll, useTransform } from 'framer-motio
 import { Icons, Reveal, SectionHead, Counter, CTABand, hl, useNum } from '../components/ui';
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
+import { resolveHomeStats } from '../../shared/homeStats.js';
 import { useLocale } from '../i18n/LocaleContext';
 import { useShop } from '../shop/ShopContext';
 import { ShopCard } from '../shop/parts';
@@ -308,12 +309,13 @@ function Features() {
 }
 
 function StatsBand() {
-  const { col } = useContent();
+  const { col, products } = useContent();
+  const stats = resolveHomeStats(col('homeStats'), products);
   return (
     <section className="section stats-band">
       <div className="container">
         <div className="stats-grid">
-          {col('homeStats').map((s, i) => (
+          {stats.map((s, i) => (
             <Reveal key={s.label} delay={i * 0.1} className="stat">
               <div className="stat__value">
                 <Counter to={Number(s.value)} suffix={s.suffix} />
