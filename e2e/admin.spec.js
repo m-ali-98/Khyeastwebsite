@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { CONTENT_REVISION_HEADER } from '../shared/contentRevision.js';
-import { loginAdmin, adminTab, openAdminTab, watchConsole, gotoReady, routeSettled, one, E2E, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
+import { loginAdmin, adminTab, openAdminTab, watchConsole, gotoReady, routeSettled, one, E2E, signUpCustomer, addAddress, uniquePhone, faNum } from './helpers.js';
 
 const revisionHeaders = (response) => ({
   [CONTENT_REVISION_HEADER]: response.headers()[CONTENT_REVISION_HEADER.toLowerCase()],
@@ -383,6 +383,55 @@ test('Cmd/Ctrl+K filters commands, supports arrows and restores focus', async ({
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
+});
+
+test('catalogue products can be searched, filtered and sorted in Admin', async ({ page }) => {
+  const content = await (await page.request.get('/api/content')).json();
+  const products = content.products;
+  const sample = products[0];
+  expect(sample, 'the seeded catalogue contains products').toBeTruthy();
+
+  await loginAdmin(page);
+  await adminTab(page, 'محصولات').first().click();
+  const rows = page.locator('.admin-products__item');
+  const search = page.getByRole('searchbox', { name: 'جست‌وجوی محصولات' });
+  await expect(rows).toHaveCount(products.length);
+
+  await search.fill(sample.slug);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(sample.title);
+
+  const latinWeight = sample.weight
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660));
+  await search.fill(latinWeight);
+  await expect(rows.filter({ hasText: sample.title })).toHaveCount(1);
+
+  await search.fill('');
+  const brandCount = products.filter((product) => product.brand === sample.brand).length;
+  await page.getByLabel('فیلتر برند محصولات').selectOption(sample.brand);
+  await expect(rows).toHaveCount(brandCount);
+  await page.getByLabel('فیلتر برند محصولات').selectOption('');
+
+  const featuredCount = products.filter((product) => product.featured).length;
+  await page.getByLabel('فیلتر وضعیت محصولات').selectOption('featured');
+  await expect(rows).toHaveCount(featuredCount);
+  await page.getByLabel('فیلتر وضعیت محصولات').selectOption('all');
+
+  await page.getByLabel('مرتب‌سازی محصولات').selectOption('title');
+  const renderedTitles = await rows.locator('.admin-products__title-line b').allTextContents();
+  expect(renderedTitles).toEqual([...renderedTitles].sort((left, right) => left.localeCompare(right, 'fa')));
+
+  await search.fill('khyeast-no-such-product-987654');
+  await expect(page.locator('.admin-products__empty')).toBeVisible();
+  await expect(rows).toHaveCount(0);
+  await page.getByRole('button', { name: 'پاک‌کردن جست‌وجو و فیلترها' }).first().click();
+  await expect(rows).toHaveCount(products.length);
+
+  await page.getByRole('button', { name: 'جمع‌کردن' }).click();
+  await expect(page.locator('#admin-products-brand-list')).toBeHidden();
+  await page.getByRole('button', { name: 'نمایش برندها' }).click();
+  await expect(page.locator('#admin-products-brand-list')).toBeVisible();
 });
 
 test('creating a catalogue product publishes it to the public site', async ({ page }) => {
@@ -1110,6 +1159,29 @@ test('the admin shell uses an accessible drawer on a narrow screen @mobile', asy
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `${label} introduced horizontal page overflow`).toBeLessThanOrEqual(1);
   }
+});
+
+test('the catalogue filters and product rows fit a narrow screen @mobile', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'narrow-screen catalogue check');
+  await loginAdmin(page);
+
+  const content = await (await page.request.get('/api/content')).json();
+  const sample = content.products[0];
+  const panel = page.locator('.admin-products');
+  const search = page.getByRole('searchbox', { name: 'جست‌وجوی محصولات' });
+  await expect(panel).toBeVisible();
+  await expect(search).toBeVisible();
+  await expect(page.getByLabel('فیلتر برند محصولات')).toBeVisible();
+  await expect(page.getByLabel('مرتب‌سازی محصولات')).toBeVisible();
+  await search.fill(sample.slug);
+  await expect(page.locator('.admin-products__item')).toHaveCount(1);
+
+  const panelBox = await panel.boundingBox();
+  expect(panelBox).toBeTruthy();
+  expect(panelBox.x).toBeGreaterThanOrEqual(0);
+  expect(panelBox.x + panelBox.width).toBeLessThanOrEqual((page.viewportSize()?.width || 412) + 1);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, 'the catalogue controls must not cause horizontal page overflow').toBeLessThanOrEqual(1);
 });
 
 test('the rich editor stays usable on a narrow screen @mobile', async ({ page }, testInfo) => {
