@@ -594,7 +594,19 @@ test('Admin brand changes flow through homepage, catalogue filters and the shop'
     const brandStat = homeStats.nth(2);
     await brandStat.scrollIntoViewIfNeeded();
     await expect(brandStat.locator('.stat__value')).toHaveText(faNum(original.brands.length + 1));
-    await expect(page.locator('.brands-grid .brand-card')).toHaveCount(original.brands.length + 1);
+    const brandGrid = page.locator('.brands-grid');
+    await expect(brandGrid.locator('.brand-card')).toHaveCount(original.brands.length + 1);
+    const lastRowCenterError = await brandGrid.evaluate((grid) => {
+      const cards = [...grid.querySelectorAll(':scope > .brand-card')];
+      const gridRect = grid.getBoundingClientRect();
+      const rects = cards.map((card) => card.getBoundingClientRect());
+      const lastRowTop = Math.max(...rects.map((rect) => rect.top));
+      const lastRow = rects.filter((rect) => Math.abs(rect.top - lastRowTop) < 1);
+      const lastRowLeft = Math.min(...lastRow.map((rect) => rect.left));
+      const lastRowRight = Math.max(...lastRow.map((rect) => rect.right));
+      return Math.abs((lastRowLeft + lastRowRight - gridRect.left - gridRect.right) / 2);
+    });
+    expect(lastRowCenterError, 'the incomplete brand row should be centered').toBeLessThan(2);
 
     /* The shop's brand selector and public brand filter consume this same
        managed list. Move a shop-only SKU temporarily to the new brand. */

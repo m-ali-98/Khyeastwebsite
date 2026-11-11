@@ -1114,9 +1114,14 @@ input, select, textarea { font-family: inherit; }
 
 /* ---------- Brand strip ---------- */
 .brands-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--grid-gap);
+}
+.brands-grid > .brand-card {
+  flex: 0 1 calc((100% - var(--grid-gap) - var(--grid-gap) - var(--grid-gap)) / 4);
+  min-width: 0;
 }
 .brand-card {
   position: relative;
@@ -2419,7 +2424,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 /* ---------- Responsive ---------- */
 @media (max-width: 1080px) {
   .products-grid { grid-template-columns: repeat(3, 1fr); }
-  .brands-grid { grid-template-columns: repeat(2, 1fr); }
+  .brands-grid > .brand-card { flex-basis: calc((100% - var(--grid-gap)) / 2); }
   .features-grid { grid-template-columns: repeat(2, 1fr); }
   .certs-grid { grid-template-columns: repeat(2, 1fr); }
   .footer__grid { grid-template-columns: 1fr 1fr; }
@@ -2525,7 +2530,6 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .form-grid { grid-template-columns: 1fr; }
   .contact-grid { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; }
-  .brands-grid { grid-template-columns: repeat(2, 1fr); }
 
   /* Homepage card collections become short, swipeable previews rather than
      four- and three-card vertical walls. A visible slice of the next card is
