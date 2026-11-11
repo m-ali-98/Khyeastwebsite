@@ -22,6 +22,7 @@ import {
   isAllowedProductImageUrl,
   MAX_PRODUCT_IMAGES,
 } from '../../shared/productImages.js';
+import { canonicalVideoEmbedUrl, getVideoEmbedProvider } from '../../shared/videoEmbeds.js';
 
 /* ---------------- simple field ---------------- */
 export function Field({ label, value, onChange, type = 'text', dir, textarea, rows = 3, options }) {
@@ -524,13 +525,29 @@ function textStatistics(html) {
 }
 
 function safeMediaSource(kind, url) {
-  if (typeof document === 'undefined' || !url) return '';
+  if (typeof document === 'undefined' || !url) return null;
+  const holder = document.createElement('div');
+
+  if (kind === 'video') {
+    const provider = getVideoEmbedProvider(url);
+    const embedUrl = canonicalVideoEmbedUrl(url);
+    if (provider && !embedUrl) return null;
+    if (embedUrl) {
+      holder.innerHTML = sanitizeHtml(
+        `<iframe src="${escapeHtml(embedUrl)}" title="Video preview"></iframe>`,
+      );
+      const src = holder.querySelector('iframe[src]')?.getAttribute('src');
+      return src ? { type: 'embed', url: src } : null;
+    }
+  }
+
   const candidate = kind === 'image'
     ? `<img src="${escapeHtml(url)}" alt="">`
     : `<video src="${escapeHtml(url)}" controls></video>`;
-  const holder = document.createElement('div');
   holder.innerHTML = sanitizeHtml(candidate);
-  return holder.querySelector(kind === 'image' ? 'img[src]' : 'video[src]')?.getAttribute('src') || '';
+  const media = holder.querySelector(kind === 'image' ? 'img[src]' : 'video[src]');
+  const src = media?.getAttribute('src');
+  return src ? { type: kind === 'image' ? 'image' : 'video', url: src } : null;
 }
 
 function plainTextMarkup(text) {
@@ -655,7 +672,7 @@ export function RichEditor({
 
   const safePreview = useMemo(() => (preview ? sanitizeHtml(html) : ''), [html, preview]);
   const stats = useMemo(() => textStatistics(html), [html]);
-  const mediaPreviewUrl = useMemo(
+  const mediaPreview = useMemo(
     () => safeMediaSource(mediaDialog?.kind, mediaDialog?.url),
     [mediaDialog?.kind, mediaDialog?.url],
   );
@@ -1009,7 +1026,7 @@ export function RichEditor({
   };
 
   const editMedia = (event) => {
-    const media = event.target.closest?.('img,video');
+    const media = event.target.closest?.('img,video,iframe');
     if (!media || !ref.current?.contains(media)) return;
     event.preventDefault();
     const figure = media.closest('figure');
@@ -1034,16 +1051,33 @@ export function RichEditor({
       setMediaDialog((current) => ({ ...current, error: 'نشانی فایل را وارد یا فایل را بارگذاری کنید.' }));
       return;
     }
-    const media = mediaDialog.kind === 'image'
-      ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(mediaDialog.alt.trim())}">`
-      : `<video src="${escapeHtml(url)}" controls preload="metadata"></video>`;
-    const caption = mediaDialog.caption.trim()
-      ? `<figcaption>${escapeHtml(mediaDialog.caption.trim())}</figcaption>`
-      : '';
+
+    const captionText = mediaDialog.caption.trim();
+    let media;
+    if (mediaDialog.kind === 'image') {
+      media = `<img src="${escapeHtml(url)}" alt="${escapeHtml(mediaDialog.alt.trim())}">`;
+    } else {
+      const provider = getVideoEmbedProvider(url);
+      const embedUrl = canonicalVideoEmbedUrl(url);
+      if (provider && !embedUrl) {
+        setMediaDialog((current) => ({
+          ...current,
+          error: 'پیوند امن و معتبر HTTPS از YouTube، Aparat یا Vimeo وارد کنید.',
+        }));
+        return;
+      }
+      media = embedUrl
+        ? `<iframe src="${escapeHtml(embedUrl)}" title="${escapeHtml(captionText || 'پخش‌کننده ویدیو')}"></iframe>`
+        : `<video src="${escapeHtml(url)}" controls preload="metadata"></video>`;
+    }
+
+    const caption = captionText ? `<figcaption>${escapeHtml(captionText)}</figcaption>` : '';
     const markup = sanitizeHtml(`<figure>${media}${caption}</figure>`);
     const holder = document.createElement('div');
     holder.innerHTML = markup;
-    const valid = holder.querySelector(mediaDialog.kind === 'image' ? 'img[src]' : 'video[src]');
+    const valid = holder.querySelector(
+      mediaDialog.kind === 'image' ? 'img[src]' : 'video[src],iframe[src]',
+    );
     if (!valid) {
       setMediaDialog((current) => ({ ...current, error: 'نشانی فایل ایمن یا معتبر نیست.' }));
       return;
@@ -1404,8 +1438,22 @@ export function RichEditor({
             </div>
             <label>
               <span>نشانی {mediaDialog.kind === 'image' ? 'تصویر' : 'ویدیو'}</span>
-              <input autoFocus dir="ltr" inputMode="url" placeholder="https://… یا /uploads/…" value={mediaDialog.url} onChange={(event) => setMediaDialog((current) => ({ ...current, url: event.target.value, error: '' }))} />
+              <input
+                autoFocus
+                dir="ltr"
+                inputMode="url"
+                placeholder={mediaDialog.kind === 'image'
+                  ? 'https://… یا /uploads/…'
+                  : 'YouTube، Aparat، Vimeo یا /uploads/video.mp4'}
+                value={mediaDialog.url}
+                onChange={(event) => setMediaDialog((current) => ({ ...current, url: event.target.value, error: '' }))}
+              />
             </label>
+            {mediaDialog.kind === 'video' && (
+              <p className="rte-dialog__help">
+                پیوندهای YouTube، Aparat و Vimeo به‌صورت امن تعبیه می‌شوند؛ بارگذاری فایل و نشانی مستقیم ویدیو نیز همچنان قابل استفاده است.
+              </p>
+            )}
             {mediaDialog.kind === 'image' && (
               <label>
                 <span>متن جایگزین تصویر</span>
@@ -1417,11 +1465,20 @@ export function RichEditor({
               <span>زیرنویس <small>(اختیاری)</small></span>
               <input value={mediaDialog.caption} onChange={(event) => setMediaDialog((current) => ({ ...current, caption: event.target.value }))} />
             </label>
-            {mediaPreviewUrl && (
+            {mediaPreview && (
               <div className="rte-dialog__media-preview" aria-label="پیش‌نمایش رسانه">
-                {mediaDialog.kind === 'image'
-                  ? <img src={mediaPreviewUrl} alt={mediaDialog.alt || ''} />
-                  : <video src={mediaPreviewUrl} controls preload="metadata" />}
+                {mediaPreview.type === 'image'
+                  ? <img src={mediaPreview.url} alt={mediaDialog.alt || ''} />
+                  : mediaPreview.type === 'embed'
+                    ? <iframe
+                        src={mediaPreview.url}
+                        title={mediaDialog.caption.trim() || 'پیش‌نمایش ویدیو'}
+                        loading="lazy"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        allow="encrypted-media; fullscreen; picture-in-picture"
+                        allowFullScreen
+                      />
+                    : <video src={mediaPreview.url} controls preload="metadata" />}
                 {mediaDialog.caption && <small>{mediaDialog.caption}</small>}
               </div>
             )}

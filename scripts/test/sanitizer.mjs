@@ -7,6 +7,11 @@ import {
   MAX_HTML_NODES,
 } from '../../shared/sanitizeHtml.js';
 import { sanitizeContentPayload } from '../../server/sanitize.js';
+import {
+  canonicalVideoEmbedUrl,
+  getVideoEmbedProvider,
+  isCanonicalVideoEmbedUrl,
+} from '../../shared/videoEmbeds.js';
 const { window } = parseHTML('<!doctype html><html><body></body></html>');
 globalThis.document = window.document;
 const sanitizeHtml = (html) => sanitizeHtmlWithParser(html, LD);
@@ -28,7 +33,18 @@ const CASES = [
   ['protocol-relative base',  '<a href="//khyeast.invalid/path">x</a>'],
   ['anchor slash-backslash',  '<a href="/\\evil.com">x</a>'],
   ['iframe',                  '<iframe src="https://evil.com"></iframe>'],
+  ['youtube watch iframe',    '<figure><iframe src="https://www.youtube.com/watch?v=dQw4w9WgXcQ&amp;feature=share" title="نان تازه" width="560" height="315" allow="camera; autoplay; *" onload="alert(1)"><script>alert(1)</script></iframe><figcaption>ویدیوی معرفی</figcaption></figure>'],
+  ['youtube short link',      '<iframe src="https://youtu.be/dQw4w9WgXcQ?si=tracking"></iframe>'],
+  ['aparat share link',       '<iframe src="https://www.aparat.com/v/AbC123" loading="eager"></iframe>'],
+  ['aparat embed link',       '<iframe src="https://www.aparat.com/video/video/embed/videohash/AbC123/vt/frame"></iframe>'],
+  ['vimeo unlisted share',    '<iframe src="https://vimeo.com/123456789/AbCdEf1234?share=copy"></iframe>'],
+  ['vimeo player link',       '<iframe src="https://player.vimeo.com/video/123456789?h=AbCdEf1234"></iframe>'],
+  ['iframe deceptive host',   '<iframe src="https://www.youtube.com.evil.example/embed/dQw4w9WgXcQ"></iframe>'],
+  ['iframe credentials',      '<iframe src="https://www.youtube.com@evil.example/watch?v=dQw4w9WgXcQ"></iframe>'],
+  ['iframe custom port',      '<iframe src="https://www.youtube.com:444/watch?v=dQw4w9WgXcQ"></iframe>'],
+  ['direct uploaded video',   '<figure><video src="/uploads/videos/demo.mp4" controls preload="metadata"></video></figure>'],
   ['style tag',               '<style>body{display:none}</style>'],
+
   ['style attr',              '<p style="position:fixed;inset:0">x</p>'],
   ['class attr',              '<p class="nav__logo">x</p>'],
   ['onclick',                 '<p onclick="alert(1)">x</p>'],
@@ -105,7 +121,7 @@ const CASES = [
    parse. The string regex is kept as a cheap second opinion for the things a
    tree walk cannot see, like a javascript: URL sitting in an allowed href. */
 const FORBIDDEN_TAGS = new Set([
-  'script', 'iframe', 'style', 'object', 'embed', 'form', 'meta', 'base',
+  'script', 'style', 'object', 'embed', 'form', 'meta', 'base',
   'link', 'noscript', 'noembed', 'template', 'svg', 'math', 'marquee',
   'bgsound', 'plaintext', 'input', 'button', 'details',
 ]);
@@ -137,11 +153,64 @@ function inspect(html) {
         problems.push(`${tag}[${n}=external-confusion]`);
       }
     }
+    if (tag === 'iframe') {
+      const allowedAttributes = new Set(['src', 'title', 'loading', 'referrerpolicy', 'allow', 'allowfullscreen']);
+      if (!isCanonicalVideoEmbedUrl(el.getAttribute('src'))) problems.push('iframe[untrusted-src]');
+      if (Array.from(el.attributes).some((attr) => !allowedAttributes.has(attr.name.toLowerCase()))) {
+        problems.push('iframe[unexpected-attribute]');
+      }
+      if (!el.getAttribute('title') || Array.from(el.getAttribute('title')).length > 200) {
+        problems.push('iframe[invalid-title]');
+      }
+      if (el.getAttribute('loading') !== 'lazy' ||
+          el.getAttribute('referrerpolicy') !== 'strict-origin-when-cross-origin' ||
+          el.getAttribute('allow') !== 'encrypted-media; fullscreen; picture-in-picture' ||
+          !el.hasAttribute('allowfullscreen') || el.childNodes.length) {
+        problems.push('iframe[unsafe-policy-or-fallback]');
+      }
+    }
   }
   return problems;
 }
 
 let fails = 0;
+const VIDEO_LINK_CASES = [
+  ['YouTube watch URL', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&feature=share', 'youtube', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ'],
+  ['YouTube short URL', 'https://youtu.be/dQw4w9WgXcQ?si=tracking', 'youtube', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ'],
+  ['scheme-less Shorts URL', 'www.youtube.com/shorts/dQw4w9WgXcQ', 'youtube', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ'],
+  ['Aparat share URL', 'https://www.aparat.com/v/AbC123', 'aparat', 'https://www.aparat.com/video/video/embed/videohash/AbC123/vt/frame'],
+  ['Aparat player URL', 'https://aparat.com/video/video/embed/videohash/AbC123/vt/frame', 'aparat', 'https://www.aparat.com/video/video/embed/videohash/AbC123/vt/frame'],
+  ['Vimeo unlisted URL', 'https://vimeo.com/123456789/AbCdEf1234?share=copy', 'vimeo', 'https://player.vimeo.com/video/123456789?h=AbCdEf1234'],
+  ['Vimeo player URL', 'https://player.vimeo.com/video/123456789?h=AbCdEf1234', 'vimeo', 'https://player.vimeo.com/video/123456789?h=AbCdEf1234'],
+  ['YouTube privacy player URL', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ', 'youtube', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ'],
+];
+for (const [name, input, provider, expected] of VIDEO_LINK_CASES) {
+  const actualProvider = getVideoEmbedProvider(input);
+  const actualUrl = canonicalVideoEmbedUrl(input);
+  const passed = actualProvider === provider && actualUrl === expected && isCanonicalVideoEmbedUrl(actualUrl);
+  if (!passed) fails += 1;
+  console.log(`${passed ? 'ok  ' : 'LEAK'} ${`video link: ${name}`.padEnd(45)} -> ${actualUrl || 'rejected'}`);
+}
+
+const INVALID_VIDEO_LINKS = [
+  'https://www.youtube.com/watch?v=short',
+  'http://youtu.be/dQw4w9WgXcQ',
+  'https://www.youtube.com:444/watch?v=dQw4w9WgXcQ',
+  'https://www.youtube.com.evil.example/watch?v=dQw4w9WgXcQ',
+  'https://www.youtube.com@evil.example/watch?v=dQw4w9WgXcQ',
+  'https://youtu.be/dQw4w9WgXcQ/extra',
+  'https://vimeo.com/1234',
+  'https://vimeo.com/123456789/AbCdEf1234?h=OtherHash',
+  'https://vimeo.com/123456789?h=AbCdEf1234&h=OtherHash',
+  '//www.youtube.com/watch?v=dQw4w9WgXcQ',
+];
+for (const input of INVALID_VIDEO_LINKS) {
+  const actualUrl = canonicalVideoEmbedUrl(input);
+  const passed = !actualUrl;
+  if (!passed) fails += 1;
+  console.log(`${passed ? 'ok  ' : 'LEAK'} ${'unsafe video link rejected'.padEnd(45)} -> ${actualUrl || 'rejected'}`);
+}
+
 for (const [name, input, run = sanitizeHtml] of CASES) {
   let out;
   try { out = String(run(input) ?? ''); } catch (e) { out = 'THREW: ' + e.message; }
@@ -194,6 +263,21 @@ const richFeatureCases = [
     (output) => output.includes('<table>') && output.includes('data-text-color="green"'),
     (input) => sanitizeContentPayload({ posts: [{ body: input }] }).posts[0].body,
   ],
+  [
+    'provider iframe survives the persistence boundary',
+    '<figure><iframe src="https://youtu.be/dQw4w9WgXcQ"><p>discarded iframe fallback</p></iframe><figcaption>معرفی</figcaption></figure>',
+    (output) => (
+      output.includes('src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"') &&
+      output.includes('معرفی') && !output.includes('discarded iframe fallback')
+    ),
+    (input) => sanitizeContentPayload({ posts: [{ body: input }] }).posts[0].body,
+  ],
+  [
+    'uploaded video survives the persistence boundary',
+    '<figure><video src="/uploads/videos/demo.mp4" controls preload="metadata"></video></figure>',
+    (output) => output.includes('src="/uploads/videos/demo.mp4"') && output.includes('controls') && output.includes('preload="metadata"'),
+    (input) => sanitizeContentPayload({ posts: [{ body: input }] }).posts[0].body,
+  ],
 ];
 for (const [name, input, accepts, run = sanitizeHtml] of richFeatureCases) {
   const output = run(input);
@@ -236,6 +320,6 @@ const parserPassed = !parserResult.ok && parserResult.code === 'parser-error';
 if (!parserPassed) fails += 1;
 console.log(`${parserPassed ? 'ok  ' : 'LEAK'} ${'parser failure has a distinct result'.padEnd(38)} -> ${parserResult.code}`);
 
-const total = CASES.length + richFeatureCases.length + strictCases.length + 2;
+const total = CASES.length + VIDEO_LINK_CASES.length + INVALID_VIDEO_LINKS.length + richFeatureCases.length + strictCases.length + 2;
 console.log(`\n${total - fails}/${total} sanitizer cases safe`);
 if (fails) process.exitCode = 1;

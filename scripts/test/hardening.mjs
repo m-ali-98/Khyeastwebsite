@@ -133,6 +133,13 @@ try {
   ]) {
     check(csp.includes(directive), `CSP has ${directive}`);
   }
+  const frameSources = csp.match(/(?:^|;)\s*frame-src\s+([^;]+)/i)?.[1]?.trim() || '';
+  const expectedFrameSources = 'https://www.youtube-nocookie.com https://www.aparat.com https://player.vimeo.com';
+  check(frameSources === expectedFrameSources, 'CSP frame-src is limited to canonical video providers', frameSources);
+  const publicPage = await fetch(`${BASE}/blog`);
+  const pageCsp = publicPage.headers.get('content-security-policy') || '';
+  const pageFrameSources = pageCsp.match(/(?:^|;)\s*frame-src\s+([^;]+)/i)?.[1]?.trim() || '';
+  check(pageFrameSources === expectedFrameSources, 'route-rendered CSP allows only the reviewed video providers', pageFrameSources);
   check(!/script-src[^;]*'unsafe-inline'/.test(csp), 'CSP script-src is not unsafe-inline');
   check(!/script-src[^;]*'unsafe-eval'/.test(csp), 'CSP script-src is not unsafe-eval');
 

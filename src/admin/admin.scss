@@ -1360,6 +1360,17 @@
     object-fit: contain;
     box-shadow: 0 7px 24px rgb(0 0 0 / 0.09);
   }
+  iframe {
+    display: block;
+    width: 100%;
+    max-width: 900px;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    margin: 0 auto;
+    border: 0;
+    border-radius: 12px;
+    background: #000;
+  }
   figcaption { margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.75; }
   a { color: var(--crimson-ink); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 }
@@ -1546,6 +1557,15 @@
   background: var(--bg-soft);
 
   img, video { max-width: 100%; max-height: 250px; border-radius: 9px; object-fit: contain; }
+  iframe {
+    width: 100%;
+    max-width: 390px;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    border: 0;
+    border-radius: 9px;
+    background: #000;
+  }
   small { color: var(--muted); }
 }
 

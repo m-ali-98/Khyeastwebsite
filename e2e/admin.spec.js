@@ -737,6 +737,63 @@ test('the article editor formats safe rich content without exposing code control
   await editImageDialog.getByRole('button', { name: 'ذخیره تغییرات' }).click();
   await expect(area.locator('figcaption')).toHaveText('زیرنویس ویرایش‌شده');
 
+  /* Provider embeds are mocked locally; the editor must store only the
+     canonical player URL and let the iframe be edited like other media. */
+  for (const host of ['www.youtube-nocookie.com', 'player.vimeo.com']) {
+    await page.route(`https://${host}/**`, (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<!doctype html><html><title>mock video</title></html>',
+    }));
+  }
+  await editor.getByRole('button', { name: 'افزودن ویدیو' }).click();
+  const videoDialog = page.getByRole('dialog', { name: 'افزودن ویدیو' });
+  const youtubePlayer = 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ';
+  await videoDialog.getByLabel('نشانی ویدیو').fill('https://youtu.be/dQw4w9WgXcQ?si=editor-test');
+  await expect(videoDialog.locator('iframe')).toHaveAttribute('src', youtubePlayer);
+  await videoDialog.getByLabel(/زیرنویس/).fill('ویدیوی آزمایشی');
+  await videoDialog.getByRole('button', { name: 'افزودن به متن' }).click();
+  const embeddedVideo = area.locator('figure iframe').last();
+  await expect(embeddedVideo).toHaveAttribute('src', youtubePlayer);
+  await expect(embeddedVideo).toHaveAttribute('loading', 'lazy');
+  await expect(embeddedVideo).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+  await expect(area.locator('figure figcaption').last()).toHaveText('ویدیوی آزمایشی');
+
+  await embeddedVideo.evaluate((frame) => frame.dispatchEvent(new MouseEvent('dblclick', {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+  })));
+  const editVideoDialog = page.getByRole('dialog', { name: 'ویرایش ویدیو' });
+  await expect(editVideoDialog.getByLabel('نشانی ویدیو')).toHaveValue(youtubePlayer);
+  await editVideoDialog.getByLabel('نشانی ویدیو').fill('https://vimeo.com/123456789/AbCdEf1234');
+  await editVideoDialog.getByRole('button', { name: 'ذخیره تغییرات' }).click();
+  await expect(area.locator('figure iframe').last()).toHaveAttribute(
+    'src',
+    'https://player.vimeo.com/video/123456789?h=AbCdEf1234',
+  );
+
+  /* The upload path and a pasted direct MP4 URL keep using <video>. */
+  await editor.getByRole('button', { name: 'افزودن ویدیو' }).click();
+  const uploadVideoDialog = page.getByRole('dialog', { name: 'افزودن ویدیو' });
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom', 'latin1'), Buffer.alloc(64, 7)]);
+  await uploadVideoDialog.locator('input[type="file"]').setInputFiles({
+    name: 'editor-upload.mp4',
+    mimeType: 'video/mp4',
+    buffer: mp4,
+  });
+  const directVideoUrl = uploadVideoDialog.getByLabel('نشانی ویدیو');
+  await expect(directVideoUrl).toHaveValue(/\/uploads\/videos\/[A-Za-z0-9_.-]+\.mp4$/);
+  const uploadedVideoUrl = await directVideoUrl.inputValue();
+  await uploadVideoDialog.getByRole('button', { name: 'افزودن به متن' }).click();
+  await expect(area.locator('video[src]').last()).toHaveAttribute('src', uploadedVideoUrl);
+
+  await editor.getByRole('button', { name: 'افزودن ویدیو' }).click();
+  const directVideoDialog = page.getByRole('dialog', { name: 'افزودن ویدیو' });
+  await directVideoDialog.getByLabel('نشانی ویدیو').fill(uploadedVideoUrl);
+  await directVideoDialog.getByRole('button', { name: 'افزودن به متن' }).click();
+  await expect(area.locator('video[src]').last()).toHaveAttribute('src', uploadedVideoUrl);
+
   /* Uploading is asynchronous; the original caret must still be used after
      the server returns the optimized asset URL. */
   await editor.getByRole('button', { name: 'افزودن تصویر' }).click();

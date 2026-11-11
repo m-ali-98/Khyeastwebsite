@@ -5,6 +5,7 @@
  * dangerouslySetInnerHTML. Keep this module DOM-implementation agnostic so
  * Linkedom and real browsers execute exactly the same policy.
  */
+import { canonicalVideoEmbedUrl } from './videoEmbeds.js';
 
 export const MAX_HTML_INPUT_LENGTH = 250_000;
 export const MAX_HTML_DEPTH = 128;
@@ -23,16 +24,17 @@ export const RICH_TEXT_TABLE_LIMITS = Object.freeze({
 const RICH_TEXT_COLORS = new Set(RICH_TEXT_COLOR_IDS);
 const ALLOWED = new Set([
   'P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'SPAN', 'H2', 'H3', 'H4',
-  'UL', 'OL', 'LI', 'A', 'IMG', 'VIDEO', 'BLOCKQUOTE', 'FIGURE', 'FIGCAPTION', 'SOURCE',
+  'UL', 'OL', 'LI', 'A', 'IMG', 'VIDEO', 'IFRAME', 'BLOCKQUOTE', 'FIGURE', 'FIGCAPTION', 'SOURCE',
   'TABLE', 'CAPTION', 'THEAD', 'TBODY', 'TR', 'TH', 'TD',
 ]);
 
 /* These elements can alter parsing, fetch executable resources, submit data,
  * or hide active markup in a secondary DOM tree. Their complete subtrees are
- * discarded; ordinary formatting wrappers that are not allowlisted are only
- * unwrapped so pasted text is not needlessly lost. */
+ * discarded; the sole iframe exception is canonicalized to one reviewed video
+ * provider and stripped of all fallback children below. Ordinary formatting
+ * wrappers that are not allowlisted are only unwrapped so pasted text survives. */
 const DROP_WITH_CONTENT = new Set([
-  'SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE',
+  'SCRIPT', 'STYLE', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE',
   'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'OPTION',
   'TEMPLATE', 'NOSCRIPT', 'NOEMBED', 'SVG', 'MATH', 'TITLE', 'PLAINTEXT',
 ]);
@@ -41,6 +43,7 @@ const ATTRS = {
   A: new Set(['href', 'title', 'target']),
   IMG: new Set(['src', 'alt']),
   VIDEO: new Set(['src', 'controls', 'preload']),
+  IFRAME: new Set(['src', 'title']),
   SOURCE: new Set(['src', 'type']),
   SPAN: new Set(['data-text-color']),
   FIGURE: new Set(['data-rich-table']),
@@ -135,6 +138,22 @@ function rebuildAttributes(element, tag) {
     if (attrs.has('controls')) element.setAttribute('controls', '');
     const preload = String(attrs.get('preload') || '').toLowerCase();
     if (['none', 'metadata', 'auto'].includes(preload)) element.setAttribute('preload', preload);
+    return true;
+  }
+
+  if (tag === 'IFRAME') {
+    const src = canonicalVideoEmbedUrl(attrs.get('src'));
+    if (!src) return false;
+    const title = String(attrs.get('title') || '')
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .trim()
+      .slice(0, 200);
+    element.setAttribute('src', src);
+    element.setAttribute('title', title || 'Video player');
+    element.setAttribute('loading', 'lazy');
+    element.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    element.setAttribute('allow', 'encrypted-media; fullscreen; picture-in-picture');
+    element.setAttribute('allowfullscreen', '');
     return true;
   }
 
@@ -294,6 +313,12 @@ function sanitizeDomRootDetailed(root) {
 
     if (!rebuildAttributes(node, tag)) {
       node.remove();
+      continue;
+    }
+    /* Iframes have no authored fallback content. Discard all children before
+       any descendant can become active in a reparsed browsing context. */
+    if (tag === 'IFRAME') {
+      node.replaceChildren();
       continue;
     }
     /* A span is meaningful only as one of our semantic, theme-aware text

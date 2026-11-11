@@ -48,6 +48,7 @@ import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.
 import { salesRepresentativeProblem } from '../shared/salesRepresentatives.js';
 import { CONTENT_REVISION_HEADER, parseContentRevision } from '../shared/contentRevision.js';
 import { socialLinkOverridesProblem, socialLinksProblem } from '../shared/socialLinks.js';
+import { VIDEO_EMBED_FRAME_SOURCES } from '../shared/videoEmbeds.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
@@ -805,8 +806,9 @@ const makeCsp = (inlineScripts = INLINE_SCRIPTS, trustedImageOrigins = []) => [
   "font-src 'self'",
   /* The admin panel talks to this origin only. */
   "connect-src 'self'",
-  /* Nothing is ever embedded, and we embed nothing. */
-  "frame-src 'none'",
+  /* Only provider-specific video player origins are frameable. The shared
+     parser emits canonical URLs on precisely these three origins. */
+  `frame-src ${VIDEO_EMBED_FRAME_SOURCES.join(' ')}`,
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
