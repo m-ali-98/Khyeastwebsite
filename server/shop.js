@@ -24,8 +24,12 @@ import {
   listRefunds,
   refundStatus,
   calculateFee,
+  orderCodeFromTransactionDescription,
+  refundTransactionMatchesOrder,
 } from './payment.js';
-import { formatAddress } from './accounts.js';
+import { formatAddress, originAllowed } from './accounts.js';
+import { publicOrderView } from './orderViews.js';
+import { isTrustedCallbackBase, safeOrigin } from './siteOrigin.js';
 import {
   sendSms,
   normalizeSms,
@@ -48,31 +52,7 @@ import {
   productNeedsImageValidation,
 } from '../shared/productImages.js';
 
-/* ---------------------------------------------------------------------------
-   Trusted origin for payment callback URLs.
-
-   `req.get('host')` is whatever the client sent. An attacker can point the
-   gateway's return URL at a host they control, which leaks the order token in
-   the callback query string. So: prefer the admin-configured callbackBase,
-   then PUBLIC_ORIGIN from the environment, and only fall back to the request
-   host when it is in the allowlist (or when no allowlist is configured, which
-   is the local-development case).
---------------------------------------------------------------------------- */
-function safeOrigin(req, configuredBase) {
-  if (configuredBase) return configuredBase;
-  /* index.js loads the optional .env after ESM imports are evaluated, so read
-     these values at request time rather than freezing empty module constants. */
-  const publicOrigin = String(process.env.PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
-  if (publicOrigin) return publicOrigin;
-  const trustedHosts = String(process.env.TRUSTED_HOSTS || '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-  const host = String(req.get('host') || '').toLowerCase();
-  if (trustedHosts.length && !trustedHosts.includes(host)) return '';
-  if (!/^[a-z0-9.\-]+(:\d+)?$/.test(host)) return '';
-  return `${req.protocol}://${host}`;
-}
+/* Trusted payment/SMS origin logic lives in server/siteOrigin.js. */
 
 export { SHOP_SEED } from './seed.js';
 
@@ -81,38 +61,8 @@ const rand = (n) => crypto.randomBytes(n).toString('hex');
 const PUBLIC_COMMENT_PAGE_SIZE = 8;
 const PUBLIC_COMMENT_PAGE_MAX = 20;
 
-/**
- * A tracking token authorizes only the customer-facing order view. Build that
- * view from explicit root and nested allowlists so adding a future internal
- * database field cannot silently publish it to every token holder.
- */
-export const publicTrackingOrder = (order = {}) => ({
-  code: order.code,
-  items: Array.isArray(order.items)
-    ? order.items.map((item) => ({
-        slug: item?.slug,
-        title: item?.title,
-        unit: item?.unit,
-        price: item?.price,
-        qty: item?.qty,
-        sum: item?.sum,
-      }))
-    : [],
-  customer: {
-    name: order.customer?.name,
-    phone: order.customer?.phone,
-    city: order.customer?.city,
-    address: order.customer?.address,
-    postal: order.customer?.postal,
-    note: order.customer?.note,
-  },
-  subtotal: order.subtotal,
-  shipping: order.shipping,
-  total: order.total,
-  currency: order.currency,
-  status: order.status,
-  at: order.at,
-});
+/** Explicit customer-field allowlist shared with the account API. */
+export const publicTrackingOrder = publicOrderView;
 
 const encodeCommentCursor = (comment) => Buffer.from(
   JSON.stringify([comment.at, comment.id]),
@@ -187,14 +137,6 @@ const orderCode = () => `KY-${Date.now().toString(36).slice(-5).toUpperCase()}${
    and short enough that abandoned baskets cannot hold scarce inventory all
    day. The environment hooks make the sweeper testable without a 30-minute
    sleep; production defaults remain fixed and safe. */
-/* Hashing both sides first gives timingSafeEqual equal-length buffers even for
-   a malformed candidate. The order token is secret, so ordinary === is an
-   avoidable timing oracle on both retry and tracking endpoints. */
-const secretEqual = (candidate, expected) => {
-  const digest = (value) => crypto.createHash('sha256').update(String(value ?? '')).digest();
-  return crypto.timingSafeEqual(digest(candidate), digest(expected));
-};
-
 export const shopProductProblems = (products) => {
   const problems = [];
   const seen = new Set();
@@ -225,6 +167,9 @@ export function createShopRouter({
   contentMutation = (operation) => Promise.resolve().then(operation),
   assertContentAvailable = () => {},
   paymentVerifier = verifyPayment,
+  refundCreator = createRefund,
+  transactionLister = listTransactions,
+  selfOrigin = (req) => safeOrigin(req, ''),
 }) {
   /* Set by index.js once the account router exists. The two routers need
      each other — orders need the signed-in customer, accounts need the
@@ -266,6 +211,12 @@ export function createShopRouter({
     return check.limited ? rateLimitResponse(res, check.retryAfter) : null;
   };
 
+  const sameOrigin = (req, res) => {
+    if (originAllowed(req, selfOrigin(req))) return true;
+    res.status(403).json({ error: 'forbidden' });
+    return false;
+  };
+
   const sweepExpiredOrders = () => {
     const cutoff = new Date(Date.now() - pendingOrderTtlMs).toISOString();
     try {
@@ -294,15 +245,32 @@ export function createShopRouter({
     const midnight = new Date();
     midnight.setHours(0, 0, 0, 0);
 
+    let reservation;
+    try {
+      reservation = db.reserveSmsDailyCap(D, {
+        cap: cfg.dailyCap,
+        since: midnight.toISOString(),
+      });
+    } catch (error) {
+      console.error('[sms] daily-cap reservation failed:', error.message);
+      return Promise.resolve({ ok: false, error: 'daily cap unavailable' });
+    }
+
     const log = (row) => {
       try {
-        db.insertSmsLog(D, row);
+        if (reservation.id) {
+          /* If finalizing the in-flight row fails, retain a separate audit row;
+             the reservation itself remains counted until the day ends. */
+          if (!db.finishSmsDailyCapReservation(D, reservation.id, row)) db.insertSmsLog(D, row);
+        } else {
+          db.insertSmsLog(D, row);
+        }
       } catch (e) {
         console.error('[sms] could not log:', e.message);
       }
     };
 
-    if (cfg.dailyCap > 0 && db.countSmsSince(D, midnight.toISOString()) >= cfg.dailyCap) {
+    if (!reservation.allowed) {
       log({ ...msg, provider: cfg.provider, environment: cfg.environment, ok: false, error: 'daily cap reached' });
       return Promise.resolve({ ok: false, error: 'daily cap reached' });
     }
@@ -330,11 +298,16 @@ export function createShopRouter({
   function dispatchPaidOrderSms(order, req) {
     const sms = smsCfg();
     if (!sms.onOrder || !order?.paidAt || !['paid', 'shipped', 'delivered'].includes(order.status)) return;
-    const url = orderStatusUrl(safeOrigin(req, payment().callbackBase), order);
+    const origin = safeOrigin(req, payment().callbackBase);
+    if (!origin) {
+      console.error(`[sms] skipped order link for ${order.code}: trusted site origin unavailable`);
+      return;
+    }
+    const url = orderStatusUrl(origin, order);
     dispatchSms({
       kind: 'order',
       /* The delivery recipient may be a neighbour, so the address snapshot
-         must never choose who receives a private tracking token. */
+         must never choose who receives a private account-only order link. */
       to: verifiedCustomerPhone(order),
       ref: order.code,
       text: orderSmsText(order, url),
@@ -550,6 +523,7 @@ export function createShopRouter({
   });
 
   r.post('/api/shop-public/orders', async (req, res) => {
+    if (!sameOrigin(req, res)) return;
     const blocked = limited('order', req.ip, res);
     if (blocked) return blocked;
     const { items, customer } = req.body || {};
@@ -687,11 +661,20 @@ export function createShopRouter({
     const origin = safeOrigin(req, pm.callbackBase);
     let pay = { provider: 'offline', authority: null, payUrl: null };
     if (pm.provider !== 'offline') {
-      try {
-        pay = await createPayment(pm, order, { origin });
-      } catch (e) {
-        console.error('[shop] gateway error:', e.message);
+      if (!origin) {
         pay = { provider: 'offline', authority: null, payUrl: null, gatewayError: true };
+      } else {
+        try {
+          pay = await createPayment(pm, order, { origin });
+          /* A configured online provider can deliberately degrade to offline
+             when its credentials are invalid. Surface that just like a thrown
+             gateway failure; the order remains safe and the customer can retry
+             after the operator fixes the configuration. */
+          if (!pay.payUrl || !pay.authority) pay = { ...pay, gatewayError: true };
+        } catch (e) {
+          console.error('[shop] gateway error:', e.message);
+          pay = { provider: 'offline', authority: null, payUrl: null, gatewayError: true };
+        }
       }
     }
     /* Persist every issued authority before its redirect URL reaches the
@@ -728,28 +711,40 @@ export function createShopRouter({
        the order has atomically reached `paid`; see the callback paths below. */
     res.json({
       ok: true,
-      order: { code: order.code, token: order.token, total: order.total, status: order.status, provider: order.provider },
+      order: { code: order.code, total: order.total, status: order.status, provider: order.provider },
       payment: { provider: pay.provider, payUrl: pay.payUrl || null, gatewayError: !!pay.gatewayError },
     });
   });
 
-  /* Retry payment for a pending order. Both the address and the order get a
-     bucket: rotating order codes must not multiply gateway calls, while one
-     leaked token must not be hammered from a botnet without a per-order cap. */
+  /* Compatibility endpoint for older clients, now bound to the same
+     HttpOnly account session as the dedicated account route. Order codes are
+     identifiers, never bearer credentials. */
+  r.get('/api/shop-public/orders/:code', (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    const customer = getCustomer(req);
+    if (!customer) return res.status(401).json({ error: 'برای مشاهده سفارش وارد حساب خود شوید.' });
+    const order = db.getOrderByCode(D, req.params.code);
+    if (!order || order.customerId !== customer.id) return res.status(404).json({ error: 'not found' });
+    return res.json({ order: publicTrackingOrder(order) });
+  });
+
+  /* A customer can retry only an order owned by their signed-in account. The
+     same ownership gate prevents order-code probing from revealing valid IDs. */
   r.post('/api/shop-public/orders/:code/pay', async (req, res) => {
+    if (!sameOrigin(req, res)) return;
     sweepExpiredOrders();
     const ipKey = `ip:${req.ip || 'unknown'}`;
-    const orderKey = `order:${String(req.params.code || '')}`;
     const ipLimit = rateLimiter.check('paymentRetry', ipKey);
-    const orderLimit = rateLimiter.check('paymentRetry', orderKey);
-    if (ipLimit.limited || orderLimit.limited)
-      return rateLimitResponse(res, Math.max(ipLimit.retryAfter, orderLimit.retryAfter));
+    if (ipLimit.limited) return rateLimitResponse(res, ipLimit.retryAfter);
 
-    /* Reserve the IP bucket before looking up the private token. Invalid probes
-       are counted too, and concurrent Passenger workers cannot each admit a
-       full batch between a separate check and record. */
     const ipAttempt = rateLimiter.reserve('paymentRetry', ipKey);
     if (ipAttempt.limited) return rateLimitResponse(res, ipAttempt.retryAfter);
+    const customer = getCustomer(req);
+    if (!customer) {
+      ipAttempt.finish(true);
+      return res.status(401).json({ error: 'برای ادامه وارد حساب خود شوید.' });
+    }
+
     let order;
     try {
       order = db.getOrderByCode(D, req.params.code);
@@ -757,13 +752,9 @@ export function createShopRouter({
       ipAttempt.finish(false);
       throw error;
     }
-    if (!order) {
+    if (!order || order.customerId !== customer.id) {
       ipAttempt.finish(true);
       return res.status(404).json({ error: 'not found' });
-    }
-    if (!secretEqual(req.body?.token, order.token)) {
-      ipAttempt.finish(true);
-      return res.status(403).json({ error: 'invalid token' });
     }
     if (order.status !== 'pending_payment') {
       ipAttempt.finish(false);
@@ -774,6 +765,8 @@ export function createShopRouter({
       ipAttempt.finish(false);
       return res.status(409).json({ error: 'online payment disabled' });
     }
+
+    const orderKey = `order:${order.id}`;
     let orderAttempt;
     try {
       orderAttempt = rateLimiter.reserve('paymentRetry', orderKey);
@@ -788,6 +781,7 @@ export function createShopRouter({
     ipAttempt.finish(true);
     orderAttempt.finish(true);
     const origin = safeOrigin(req, pm.callbackBase);
+    if (!origin) return res.status(502).json({ error: 'trusted callback origin unavailable' });
     try {
       const pay = await createPayment(pm, order, { origin });
       if (!pay.authority || !pay.payUrl) return res.status(502).json({ error: 'gateway unavailable' });
@@ -801,15 +795,6 @@ export function createShopRouter({
       console.error('[shop] payment retry failed:', error.message);
       res.status(502).json({ error: 'gateway error' });
     }
-  });
-
-  /* Order tracking (needs the private order token). Use the same constant-time
-     comparison as payment retry so this second token gate is not weaker. */
-  r.get('/api/shop-public/orders/:code', (req, res) => {
-    sweepExpiredOrders();
-    const order = db.getOrderByCode(D, req.params.code);
-    if (!order || !secretEqual(req.query.token, order.token)) return res.status(404).json({ error: 'not found' });
-    res.json({ order: publicTrackingOrder(order) });
   });
 
   /* ---------------- gateway callbacks ---------------- */
@@ -1071,7 +1056,7 @@ export function createShopRouter({
     res.json({ products: snapshot.products, display: snapshot.display });
   });
 
-  r.put('/api/shop-admin/products', requireAuth, (req, res, next) => {
+  r.put('/api/shop-admin/products', requireAuth, express.json({ limit: '8mb' }), (req, res, next) => {
     return contentMutation(() => {
       /* Shop galleries are part of upload-reference accounting. Refuse this
          Admin write too when authoritative CMS sections cannot be read. */
@@ -1396,8 +1381,13 @@ export function createShopRouter({
 
   r.put('/api/shop-admin/payment', requireAuth, (req, res) => {
     /* merge, not replace: a form that posts the mask back keeps the stored
-       credential instead of wiping it */
+       credential instead of wiping it. A return base must remain on a pinned
+       or explicitly trusted site origin; rejecting it here prevents both the
+       gateway callback and customer SMS links from being sent off-site. */
     const next = mergePayment(payment(), req.body || {});
+    if (next.callbackBase && !isTrustedCallbackBase(next.callbackBase, req)) {
+      return res.status(400).json({ error: 'callback base must be a trusted site origin' });
+    }
     db.setSetting(D, 'shop.payment', next);
     res.json({ ok: true, payment: publicPayment(next) });
   });
@@ -1599,7 +1589,14 @@ export function createShopRouter({
 
   r.get('/api/shop-admin/payment/transactions', requireAuth, async (req, res) => {
     const { filter, limit, offset } = req.query;
-    res.json(await listTransactions(payment(), { filter, limit, offset }));
+    const out = await transactionLister(payment(), { filter, limit, offset });
+    res.json({
+      ...out,
+      transactions: (out.transactions || []).map((transaction) => ({
+        ...transaction,
+        orderCode: orderCodeFromTransactionDescription(transaction?.description),
+      })),
+    });
   });
 
   /* Refunds are the after-the-fact counterpart to a reversal: no time
@@ -1610,24 +1607,84 @@ export function createShopRouter({
   });
 
   r.post('/api/shop-admin/payment/refunds', requireAuth, async (req, res) => {
-    const out = await createRefund(payment(), req.body || {});
+    const sessionId = String(req.body?.sessionId || '').trim();
+    const requestedCode = String(req.body?.orderCode || '').trim();
+    if (!sessionId) return res.status(400).json({ error: 'شناسه تراکنش لازم است.' });
+
+    /* The refund API takes a terminal session id, not our stored ref_id. Fetch
+       the gateway's own row and verify its server-authored order description
+       and amount before an order is cancelled or its stock is released. */
+    const ledger = await transactionLister(payment(), { limit: 100, offset: 0 });
+    if (!ledger.ok) return res.status(409).json({ error: ledger.error || 'تراکنش برای تطبیق قابل دریافت نیست.' });
+    const transaction = (ledger.transactions || []).find(
+      (row) => String(row?.id ?? '') === sessionId,
+    );
+    if (!transaction) return res.status(409).json({ error: 'تراکنش در فهرست ترمینال پیدا نشد.' });
+    const transactionAmount = Number(transaction.amount);
+    const refundAmount = Number(req.body?.amount);
+    if (
+      !Number.isSafeInteger(transactionAmount) || transactionAmount <= 0 ||
+      !Number.isSafeInteger(refundAmount) || refundAmount <= 0 || refundAmount > transactionAmount
+    ) {
+      return res.status(400).json({ error: 'مبلغ برگشت باید عدد صحیح و حداکثر برابر مبلغ تراکنش باشد.' });
+    }
+
+    const describedCode = orderCodeFromTransactionDescription(transaction.description);
+    let order = null;
+    if (requestedCode) {
+      order = db.getOrderByCode(D, requestedCode);
+      const status = String(transaction.status || '').toUpperCase();
+      if (
+        !order ||
+        !['PAID', 'VERIFIED', 'REFUNDED'].includes(status) ||
+        !refundTransactionMatchesOrder(order, sessionId, transaction)
+      ) {
+        return res.status(409).json({ error: 'شناسه تراکنش با سفارش انتخاب‌شده تطبیق ندارد.' });
+      }
+    } else if (describedCode) {
+      const candidate = db.getOrderByCode(D, describedCode);
+      if (candidate) {
+        const status = String(transaction.status || '').toUpperCase();
+        if (
+          !['PAID', 'VERIFIED', 'REFUNDED'].includes(status) ||
+          !refundTransactionMatchesOrder(candidate, sessionId, transaction)
+        ) {
+          return res.status(409).json({ error: 'اطلاعات تراکنش با سفارش ذخیره‌شده تطبیق ندارد.' });
+        }
+        order = candidate;
+      }
+    }
+
+    const out = await refundCreator(payment(), req.body || {});
     if (!out.ok) return res.status(409).json({ error: out.error || 'برگشت وجه ممکن نشد.' });
 
-    /* If the refund belongs to an order we know about, the order has to
-       follow: money returned while the shop still holds reserved stock for
-       it is a slow inventory leak nobody notices. The link is best-effort —
-       a refund can legitimately be for something with no order behind it. */
-    const code = String(req.body?.orderCode || '').trim();
-    const order = code ? db.getOrderByCode(D, code) : null;
-    if (order) {
-      db.updateOrder(D, order.id, {
+    if (order && refundAmount === Number(order.total)) {
+      const updated = db.updateOrder(D, order.id, {
         status: 'cancelled',
         autoCancelled: false,
         needsAttention: false,
-        adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال برگشت داده شد.`.trim(),
+        adminNote: `${order.adminNote || ''}\nمبلغ کامل از طریق زرین‌پال برگشت داده شد.`.trim(),
       });
+      if (!updated.ok) {
+        db.appendOrderAdminNote(
+          D,
+          order.id,
+          'هشدار: برگشت وجه از درگاه تأیید شد اما وضعیت سفارش/موجودی به‌روزرسانی نشد؛ پیگیری فوری لازم است.',
+          { needsAttention: true },
+        );
+      }
+    } else if (order) {
+      /* A partial refund is not a cancellation: releasing the full reservation
+         would mint stock while the remaining order is still active. Keep the
+         inventory reserved and flag the order for an operator decision. */
+      db.appendOrderAdminNote(
+        D,
+        order.id,
+        `هشدار: بازپرداخت جزئی ${refundAmount.toLocaleString('en-US')} ریالی ثبت شد؛ موجودی آزاد نشد و سفارش نیازمند بررسی است.`,
+        { needsAttention: true },
+      );
     }
-    res.json({ ...out, order: order ? db.getOrderByCode(D, code) : null });
+    res.json({ ...out, order: order ? db.getOrderById(D, order.id) : null });
   });
 
   /* "Did the customer actually get their money" — the documented answer,

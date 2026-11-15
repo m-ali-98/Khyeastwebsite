@@ -60,6 +60,7 @@ const start = async () => {
       UPLOAD_DIR: path.join(DATA_DIR, 'uploads'),
       DB_FILE: DB,
       NODE_ENV: 'development',
+      PUBLIC_ORIGIN: BASE,
       /* Reach selected 429 paths quickly while leaving enough order slots for
          the many independent lifecycle fixtures in this one-process suite. */
       RL_MAX_MESSAGE: '5',
@@ -352,23 +353,15 @@ try {
         attempt.authority === reversalFixture.extra && attempt.status === 'reversing'),
     'Admin order responses expose the private per-attempt payment history',
   );
-  const publicReversalOrder = await (
-    await fetch(`${BASE}/api/shop-public/orders/${encodeURIComponent(reversalFixture.code)}?token=${encodeURIComponent(reversalFixture.token)}`)
-  ).json();
-  const trackingAllowedFields = new Set([
-    'code', 'items', 'customer', 'subtotal', 'shipping', 'total', 'currency', 'status', 'at',
-  ]);
-  const trackingForbiddenFields = [
-    'id', 'token', 'customerId', 'provider', 'payAuthority', 'payRef', 'adminNote',
-    'paidAt', 'autoCancelled', 'needsAttention', 'archived', 'paymentAttempts',
-  ];
-  check(
-    publicReversalOrder.order &&
-      Object.keys(publicReversalOrder.order).every((field) => trackingAllowedFields.has(field)) &&
-      trackingForbiddenFields.every((field) => !Object.hasOwn(publicReversalOrder.order, field)),
-    'token-authenticated tracking is an explicit customer-field allowlist',
-    JSON.stringify(Object.keys(publicReversalOrder.order || {})),
+  const publicReversalAnon = await fetch(
+    `${BASE}/api/shop-public/orders/${encodeURIComponent(reversalFixture.code)}?token=${encodeURIComponent(reversalFixture.token)}`,
   );
+  const publicReversalForeign = await fetch(
+    `${BASE}/api/shop-public/orders/${encodeURIComponent(reversalFixture.code)}`,
+    { headers: { Cookie: shopperCookie } },
+  );
+  check(publicReversalAnon.status === 401, 'a legacy tracking token in the URL no longer grants order access');
+  check(publicReversalForeign.status === 404, 'an authenticated customer cannot read an unowned order by code');
   const settledRefreshUrl =
     `/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(reversalFixture.code)}` +
     `&Authority=${encodeURIComponent(reversalFixture.main)}&Status=OK`;
@@ -526,8 +519,16 @@ try {
   const publicPayment = await (await fetch(`${BASE}/api/shop-public/payment`)).json();
   check(typeof publicPayment.paymentProvider === 'string', 'checkout payment identity has a route-local endpoint');
 
-  /* Duplicate slugs are one inventory claim, not independent lines. */
+  /* Order creation is a cookie-authenticated state change; a foreign browser
+     origin must not be able to reserve inventory on the customer's behalf. */
   await setStock(5);
+  const csrfOrder = await jpost('/api/shop-public/orders', {
+    items: [{ slug: SLUG, qty: 1 }], customer: CUSTOMER,
+  }, { Origin: 'https://evil.example' });
+  check(csrfOrder.status === 403, 'cross-origin order creation is refused');
+  check((await stockOf()) === 5, 'CSRF-rejected order creation leaves inventory untouched');
+
+  /* Duplicate slugs are one inventory claim, not independent lines. */
 
   /* JSON values that only become integers through JavaScript coercion are not
      cart quantities. Reject them before either stock or rate-limit state moves. */
@@ -621,15 +622,17 @@ try {
   check(invOrder.ok, 'inventory test order placed', `status ${invOrder.status}`);
 
   const { order } = await invOrder.json();
-  const trackedOrder = await (
-    await fetch(`${BASE}/api/shop-public/orders/${encodeURIComponent(order.code)}?token=${encodeURIComponent(order.token)}`)
-  ).json();
+  const trackedResponse = await fetch(`${BASE}/api/shop-public/orders/${encodeURIComponent(order.code)}`, {
+    headers: { Cookie: shopperCookie },
+  });
+  const trackedOrder = await trackedResponse.json();
   const publicCustomerFields = new Set(['name', 'phone', 'city', 'address', 'postal', 'note']);
   check(
-    trackedOrder.order?.customer?.phone === unverifiedReceiverPhone &&
+    trackedResponse.ok && trackedOrder.order?.customer?.phone === unverifiedReceiverPhone &&
       Object.keys(trackedOrder.order.customer).every((field) => publicCustomerFields.has(field)) &&
-      !Object.hasOwn(trackedOrder.order.customer, 'addressId'),
-    'tracking allowlists the receiver snapshot without leaking its internal address id',
+      !Object.hasOwn(trackedOrder.order.customer, 'addressId') &&
+      !Object.hasOwn(trackedOrder.order, 'token'),
+    'session-owned tracking allowlists the receiver snapshot without internal ids or bearer tokens',
     JSON.stringify(trackedOrder.order?.customer),
   );
   check((await orderLogs(order.code)).length === 0, 'creating an unpaid order does not send the order-registered SMS');
@@ -641,8 +644,9 @@ try {
   const paidOrderRows = await waitForOrderLogs(order.code, 1);
   check(paidOrderRows.length === 1, 'the first Admin-confirmed offline payment sends the order SMS');
   check(
-    paidOrderRows[0]?.text.includes(`token=${order.token}`),
-    'the offline-payment confirmation includes the private tracking link',
+    paidOrderRows[0]?.text.includes(`/shop/order/${order.code}`) &&
+      !paidOrderRows[0]?.text.includes('token='),
+    'the offline-payment confirmation links to the session-owned order page without a token',
   );
   check(
     paidOrderRows[0]?.phone === '989121234567',
@@ -1218,18 +1222,69 @@ try {
     `valid order returned ${goodOrder.status}`,
   );
 
-  /* Payment retry has its own cap before any gateway call. Invalid tokens are
-     counted by IP so the secret cannot be brute-forced for free. */
-  const goodOrderBody = goodOrder.ok ? await goodOrder.json() : null;
-  let retryLimited = null;
-  if (goodOrderBody?.order?.code) {
-    for (let attempt = 0; attempt < 5 && !retryLimited; attempt += 1) {
-      const response = await jpost(`/api/shop-public/orders/${goodOrderBody.order.code}/pay`, { token: `wrong-${attempt}` });
-      if (response.status === 429) retryLimited = response;
-    }
+  /* An invalid online-gateway credential degrades safely to a pending order,
+     but the response must tell the customer why payment did not start. */
+  const initialPaymentDb = await dbStore.openDB(DB);
+  const initialPreviousPayment = dbStore.getSetting(initialPaymentDb, 'shop.payment', {});
+  dbStore.setSetting(initialPaymentDb, 'shop.payment', { provider: 'zarinpal', callbackBase: BASE, zarinpalMerchant: 'invalid' });
+  initialPaymentDb.close();
+  let initialGatewayResponse;
+  try {
+    initialGatewayResponse = await jpost('/api/shop-public/orders', {
+      items: [{ slug: RL_SLUG, qty: 1 }], customer: CUSTOMER,
+    });
+  } finally {
+    const restoreDb = await dbStore.openDB(DB);
+    dbStore.setSetting(restoreDb, 'shop.payment', initialPreviousPayment);
+    restoreDb.close();
   }
-  check(retryLimited?.status === 429, 'payment retry is rate limited before gateway work');
-  check(Boolean(retryLimited?.headers.get('retry-after')), 'payment retry 429 includes Retry-After');
+  const initialGatewayBody = await initialGatewayResponse.json().catch(() => ({}));
+  check(
+    initialGatewayResponse.ok && initialGatewayBody.payment?.gatewayError === true && !initialGatewayBody.payment?.payUrl,
+    'an online-provider setup failure is surfaced on the new order response',
+    JSON.stringify(initialGatewayBody.payment),
+  );
+
+  /* Payment retry requires an authenticated owner. Identical ownership misses
+     stay indistinguishable, and an owner's repeated gateway attempts remain
+     bounded before any network work. */
+  const goodOrderBody = goodOrder.ok ? await goodOrder.json() : null;
+  if (goodOrderBody?.order?.code) {
+    const noSession = await fetch(`${BASE}/api/shop-public/orders/${goodOrderBody.order.code}/pay`, {
+      method: 'POST', headers: { Origin: BASE, 'X-Forwarded-For': '198.51.100.11' },
+    });
+    check(noSession.status === 401, 'payment retry requires the customer session');
+
+    const foreign = await jpost(`/api/shop-public/orders/${reversalFixture.code}/pay`, {}, { 'X-Forwarded-For': '198.51.100.12' });
+    const missing = await jpost('/api/shop-public/orders/KY-NOT-AN-ORDER/pay', {}, { 'X-Forwarded-For': '198.51.100.12' });
+    check(foreign.status === 404 && missing.status === 404, 'an unowned order code and an unknown code return the same response');
+
+    const paymentDb = await dbStore.openDB(DB);
+    const previousPayment = dbStore.getSetting(paymentDb, 'shop.payment', {});
+    dbStore.setSetting(paymentDb, 'shop.payment', { provider: 'zarinpal', callbackBase: BASE, zarinpalMerchant: 'invalid' });
+    paymentDb.close();
+    const retryStatuses = [];
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const response = await jpost(
+          `/api/shop-public/orders/${goodOrderBody.order.code}/pay`,
+          {},
+          { 'X-Forwarded-For': '198.51.100.13' },
+        );
+        retryStatuses.push({ status: response.status, retryAfter: response.headers.get('retry-after') });
+        if (response.status === 429) break;
+      }
+    } finally {
+      const restoreDb = await dbStore.openDB(DB);
+      dbStore.setSetting(restoreDb, 'shop.payment', previousPayment);
+      restoreDb.close();
+    }
+    const retryLimited = retryStatuses.find((result) => result.status === 429);
+    check(retryLimited && retryStatuses.slice(0, -1).every((result) => result.status === 502), 'owned payment retries hit the configured cap before gateway work', JSON.stringify(retryStatuses));
+    check(Boolean(retryLimited?.retryAfter), 'payment retry 429 includes Retry-After');
+  } else {
+    check(false, 'payment retry test order was created');
+  }
 
   /* ---- 4b. an Iranian keyboard must be able to buy things --------------- */
   /* ۰۹۱۲۳۴۵۶۷۸۹ is what a Persian layout produces, and the site is Persian

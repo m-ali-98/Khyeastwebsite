@@ -133,6 +133,8 @@ const G = await import(pathToFileURL(path.join(ROOT, 'shared/iranGeo.js')).href)
   check(cookie.includes('Secure'), 'Secure is set over https');
   check(!A.sessionCookie(token, { secure: false }).includes('Secure'), 'but not over plain http, or dev login breaks');
   check(A.clearCookie().includes('Max-Age=0'), 'logout expires the cookie');
+  check(A.clearCookie({ secure: true }).includes('Secure'), 'logout preserves the Secure attribute on a Secure session cookie');
+  check(!A.clearCookie({ secure: false }).includes('Secure'), 'development logout can clear a non-Secure session cookie');
 
   check(A.readCookie(`a=1; ${A.SESSION_COOKIE}=${token}; b=2`) === token, 'the cookie is read out of a crowded header');
   check(A.readCookie('') === null, 'no cookie, no session');

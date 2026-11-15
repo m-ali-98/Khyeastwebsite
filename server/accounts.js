@@ -194,7 +194,11 @@ export function sessionCookie(token, { secure, maxAgeMs = SESSION_TTL_MS } = {})
   return parts.join('; ');
 }
 
-export const clearCookie = () => `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export const clearCookie = ({ secure = false } = {}) => {
+  const parts = [`${SESSION_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+};
 
 export function readCookie(header, name = SESSION_COOKIE) {
   for (const part of String(header || '').split(';')) {

@@ -444,7 +444,9 @@ function schemaGraph(meta, view, origin, entity, shopOffer) {
           url: absoluteUrl(origin, `/shop/${shopOffer.slug}`),
           priceCurrency: 'IRR',
           price: String(Math.max(0, Number(shopOffer.price) || 0)),
-          availability: Number(shopOffer.stock) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+          availability: Number(shopOffer.stock) === -1 || Number(shopOffer.stock) > 0
+            ? 'https://schema.org/InStock'
+            : 'https://schema.org/OutOfStock',
           itemCondition: 'https://schema.org/NewCondition',
           seller: { '@id': `${origin}/#organization` },
         }
@@ -744,7 +746,7 @@ export function renderSeoHead(meta, options = {}) {
       ? '    <meta property="product:price:currency" content="IRR" />'
       : '',
     meta.kind === 'product' && meta.shopOffer?.active
-      ? `    <meta property="product:availability" content="${Number(meta.shopOffer.stock) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock'}" />`
+      ? `    <meta property="product:availability" content="${Number(meta.shopOffer.stock) === -1 || Number(meta.shopOffer.stock) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock'}" />`
       : '',
     '    <meta name="twitter:card" content="summary_large_image" />',
     `    <meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,

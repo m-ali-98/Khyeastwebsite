@@ -381,6 +381,24 @@ export const REFUND_MIN_RIAL = 20000;
 export const REFUND_METHODS = ['PAYA', 'CARD'];
 export const REFUND_REASONS = ['CUSTOMER_REQUEST', 'DUPLICATE_TRANSACTION', 'SUSPICIOUS_TRANSACTION', 'OTHER'];
 
+/** Our transaction description is assigned server-side at payment creation.
+ * It provides the stable order link because ZarinPal's refund API takes a
+ * terminal session id, while callbacks persist only ref_id/authority. */
+export function orderCodeFromTransactionDescription(description) {
+  const match = /^سفارش (KY-[A-Z0-9-]{1,120}) — خمیرمایه خوزستان$/.exec(String(description || ''));
+  return match?.[1] || '';
+}
+
+/** Only the transaction row returned by the terminal can associate a refund
+ * session with an order. An operator-supplied orderCode alone is not proof. */
+export function refundTransactionMatchesOrder(order, sessionId, transaction) {
+  if (!order || !transaction || !String(sessionId || '')) return false;
+  const amount = Number(transaction.amount);
+  return String(transaction.id || '') === String(sessionId) &&
+    orderCodeFromTransactionDescription(transaction.description) === String(order.code || '') &&
+    Number.isSafeInteger(amount) && amount === Number(order.total);
+}
+
 const needLedger = (cfg) =>
   cfg.zarinpalAccessToken && cfg.zarinpalTerminalId
     ? null

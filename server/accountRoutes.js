@@ -17,6 +17,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import * as db from './db.js';
+import { publicOrderView } from './orderViews.js';
 import { normalizePhone, toLocalPhone } from './sms.js';
 import { rateLimitResponse } from './rateLimits.js';
 import {
@@ -147,7 +148,7 @@ export function createAccountRouter({
   const accountOf = (row) => ({
     customer: profileOf(row),
     addresses: db.listAddresses(D, row.id),
-    orders: db.listOrdersForCustomer(D, row.id).map(({ token, ...o }) => ({ ...o, trackToken: token })),
+    orders: db.listOrdersForCustomer(D, row.id).map(publicOrderView),
   });
 
   r.use((_req, res, next) => {
@@ -447,10 +448,18 @@ export function createAccountRouter({
     res.json(accountOf(row));
   });
 
+  /* Order codes are identifiers, not credentials. A customer can read an
+     order only through the HttpOnly account session that owns it. */
+  r.get('/api/account/orders/:code', requireCustomer, (req, res) => {
+    const order = db.getOrderByCode(D, req.params.code);
+    if (!order || order.customerId !== req.customer.id) return res.status(404).json({ error: 'not found' });
+    res.json({ order: publicOrderView(order) });
+  });
+
   r.post('/api/account/logout', (req, res) => {
     const token = readCookie(req.headers.cookie);
     if (token) db.deleteSession(D, hashToken(token));
-    res.setHeader('Set-Cookie', clearCookie());
+    res.setHeader('Set-Cookie', clearCookie({ secure: isSecureRequest(req) }));
     res.json({ ok: true });
   });
 
@@ -463,12 +472,18 @@ export function createAccountRouter({
     const problems = passwordProblems(req.body?.password);
     if (problems.length) return res.status(400).json({ error: problems[0], problems });
     const passHash = await hashPasswordAsync(req.body.password);
-    const changed = db.updateCustomerPasswordIfCurrent(
-      D,
-      req.customer.id,
-      req.customer.pass_hash,
-      passHash,
-    );
+    const currentTokenHash = hashToken(String(readCookie(req.headers.cookie) || ''));
+    const changed = D.immediateTransaction(() => {
+      const updated = db.updateCustomerPasswordIfCurrent(
+        D,
+        req.customer.id,
+        req.customer.pass_hash,
+        passHash,
+      );
+      if (!updated) return false;
+      db.deleteOtherSessionsFor(D, req.customer.id, currentTokenHash);
+      return true;
+    })();
     if (!changed) {
       return res.status(409).json({ error: 'رمز عبور هم‌زمان تغییر کرده است؛ دوباره وارد شوید.' });
     }

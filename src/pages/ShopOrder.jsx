@@ -1,25 +1,47 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { m as mo } from 'framer-motion';
 import { Icons, Reveal, faNum } from '../components/ui';
 import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
-import { useShop, orderTokenGet } from '../shop/ShopContext';
+import { useShop } from '../shop/ShopContext';
 
 const FLOW = ['pending_payment', 'paid', 'shipped', 'delivered'];
 
 export default function ShopOrder() {
   const { code } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const { t } = useContent();
   const { money, paymentProvider, loadPaymentProvider } = useShop();
   const [order, setOrder] = useState(null);
-  const [state, setState] = useState('loading'); // loading | notfound | ok
+  const [state, setState] = useState('loading'); // loading | unauthenticated | notfound | ok
   const [busy, setBusy] = useState(false);
+  const [payError, setPayError] = useState('');
 
-  const token = orderTokenGet(code) || params.get('token') || '';
   const pay = params.get('pay');
   const isNew = params.get('new') === '1';
+  const gatewayError = params.get('gateway') === 'error';
+  const loginParams = new URLSearchParams(location.search);
+  loginParams.delete('token');
+  const loginNext = `${location.pathname}${loginParams.size ? `?${loginParams.toString()}` : ''}`;
+  const loginHref = `/shop/login?next=${encodeURIComponent(loginNext)}`;
+
+  /* Old SMS/history links carried a bearer token. Remove it from the current
+     address before any page effects can issue same-origin requests with that
+     URL as their referrer; all newly generated links are token-free. */
+  useLayoutEffect(() => {
+    if (!params.has('token')) return;
+    const clean = new URLSearchParams(location.search);
+    clean.delete('token');
+    const search = clean.toString();
+    navigate({
+      pathname: location.pathname,
+      search: search ? `?${search}` : '',
+      hash: location.hash,
+    }, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate, params]);
 
   useEffect(() => {
     loadPaymentProvider();
@@ -27,34 +49,50 @@ export default function ShopOrder() {
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/shop-public/orders/${encodeURIComponent(code)}?token=${encodeURIComponent(token)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => {
+    fetch(`/api/account/orders/${encodeURIComponent(code)}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    })
+      .then(async (response) => {
+        if (response.status === 401) return { unauthenticated: true };
+        if (!response.ok) throw new Error('order not found');
+        return response.json();
+      })
+      .then((data) => {
         if (!alive) return;
-        setOrder(d.order);
+        if (data.unauthenticated) {
+          setState('unauthenticated');
+          return;
+        }
+        setOrder(data.order);
         setState('ok');
       })
       .catch(() => alive && setState('notfound'));
     return () => {
       alive = false;
     };
-  }, [code, token]);
+  }, [code]);
 
   const payNow = async () => {
+    if (busy) return;
     setBusy(true);
+    setPayError('');
     try {
       const res = await fetch(`/api/shop-public/orders/${encodeURIComponent(code)}/pay`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.payment?.payUrl) {
         window.location.assign(data.payment.payUrl);
         return;
       }
-      setBusy(false);
+      setPayError(data.error || t('shop.checkout.errServer'));
     } catch {
+      setPayError(t('shop.checkout.errServer'));
+    } finally {
       setBusy(false);
     }
   };
@@ -66,6 +104,19 @@ export default function ShopOrder() {
     <section className="section">
       <div className="container">
         {state === 'loading' && <PagePending label={t('shop.order.track')} />}
+
+        {state === 'unauthenticated' && (
+          <Reveal className="cart-empty">
+            <span className="ico">
+              <Icons.users size={40} />
+            </span>
+            <h2>برای مشاهده سفارش وارد حساب کاربری خود شوید.</h2>
+            <Link to={loginHref} className="btn btn--primary">
+              ورود به حساب
+              <Icons.arrow size={17} />
+            </Link>
+          </Reveal>
+        )}
 
         {state === 'notfound' && (
           <Reveal className="cart-empty">
@@ -95,7 +146,13 @@ export default function ShopOrder() {
 
             {pay === 'ok' && <div className="order-banner ok">{t('shop.order.payOk')}</div>}
             {pay === 'fail' && <div className="order-banner fail">{t('shop.order.payFail')}</div>}
-            {!pay && order.status === 'pending_payment' && paymentProvider && paymentProvider !== 'offline' && (
+            {gatewayError && order.status === 'pending_payment' && (
+              <div className="order-banner fail" role="alert">
+                درگاه پرداخت آماده نیست یا پاسخ نمی‌دهد؛ سفارش ثبت شده اما پرداخت نشده است. می‌توانید پس از بررسی تنظیمات، دوباره تلاش کنید.
+              </div>
+            )}
+            {payError && <div className="order-banner fail" role="alert">{payError}</div>}
+            {!pay && !gatewayError && order.status === 'pending_payment' && paymentProvider && paymentProvider !== 'offline' && (
               <div className="order-banner fail">{t('shop.order.awaitPay')}</div>
             )}
 

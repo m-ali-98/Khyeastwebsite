@@ -25,7 +25,7 @@ import {
 import { canonicalVideoEmbedUrl, getVideoEmbedProvider } from '../../shared/videoEmbeds.js';
 
 /* ---------------- simple field ---------------- */
-export function Field({ label, value, onChange, type = 'text', dir, textarea, rows = 3, options }) {
+export function Field({ label, value, onChange, type = 'text', dir, textarea, rows = 3, options, autoComplete }) {
   return (
     <label className="field" style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: 0 }}>
       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>{label}</span>
@@ -40,7 +40,7 @@ export function Field({ label, value, onChange, type = 'text', dir, textarea, ro
           ))}
         </select>
       ) : (
-        <input type={type} dir={dir} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+        <input type={type} dir={dir} autoComplete={autoComplete} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
       )}
     </label>
   );
@@ -512,10 +512,10 @@ function EditorDialog({ title, onClose, children, wide = false }) {
   );
 }
 
-function textStatistics(html) {
+export function textStatistics(html) {
   if (typeof document === 'undefined') return { words: 0, characters: 0 };
   const holder = document.createElement('div');
-  holder.innerHTML = html || '';
+  holder.innerHTML = sanitizeHtml(html || '');
   holder.querySelectorAll('p,h2,h3,h4,li,blockquote,figcaption,caption,th,td,br').forEach((element) => element.append(' '));
   const text = (holder.textContent || '').replace(/\s+/g, ' ').trim();
   return {

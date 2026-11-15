@@ -65,6 +65,17 @@ check(arQuality.lang === 'ar' && arQuality.dir === 'rtl', 'Arabic language and d
 check(new Set([home.description, enAbout.description, arQuality.description]).size === 3, 'descriptions are route/locale specific');
 check(product.schema?.['@graph']?.some((item) => item['@type'] === 'Product'), 'Product JSON-LD');
 check(product.schema?.['@graph']?.some((item) => item['@type'] === 'Product' && item.offers?.priceCurrency === 'IRR'), 'Product Offer in IRR');
+for (const [stock, availability] of [
+  [-1, 'https://schema.org/InStock'],
+  [0, 'https://schema.org/OutOfStock'],
+  [4, 'https://schema.org/InStock'],
+]) {
+  const state = structuredClone(DEFAULT_STATE);
+  state.shop.products.find((item) => item.productSlug === 'dezmaye-gold-80').stock = stock;
+  const offer = resolveSeo('/products/dezmaye-gold-80', state, ORIGIN).schema?.['@graph']
+    ?.find((item) => item['@type'] === 'Product')?.offers;
+  check(offer?.availability === availability, `shop inventory ${stock} maps to correct Product availability`, offer?.availability);
+}
 check(article.schema?.['@graph']?.some((item) => item['@type'] === 'BlogPosting'), 'BlogPosting JSON-LD');
 check(article.schema?.['@graph']?.some((item) => item['@type'] === 'WebPage'), 'article is attached to a valid WebPage schema type');
 check(article.schema?.['@graph']?.some((item) => item['@type'] === 'BlogPosting' && item.datePublished === '2026-08-16'), 'article ISO publication date');

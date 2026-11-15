@@ -300,7 +300,7 @@ export default function ShopProduct() {
                 <div className={`sp-buy__stock ${out ? 'is-out' : ''}`}>
                   {out
                     ? t('shop.detail.stockOut')
-                    : Number(p.stock) <= 10
+                    : Number(p.stock) > 0 && Number(p.stock) <= 10
                       ? t('shop.card.lowStock')
                       : t('shop.card.inStock')}
                 </div>

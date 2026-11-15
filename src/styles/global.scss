@@ -839,6 +839,26 @@ input, select, textarea { font-family: inherit; }
   color: #fff;
 }
 
+.skip-link {
+  position: fixed;
+  z-index: 1001;
+  inset-block-start: 8px;
+  inset-inline-start: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--inverse);
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+  transform: translateY(-160%);
+  transition: transform 0.16s ease;
+}
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 3px solid var(--crimson-bright);
+  outline-offset: 2px;
+}
+
 /* The full-screen panel is opaque. While it is open, do not composite the
    covered route underneath it — especially the shop's image track and blur
    controls. Besides making the first frame cheaper, visibility removes the

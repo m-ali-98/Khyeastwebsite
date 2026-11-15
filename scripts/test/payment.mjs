@@ -9,9 +9,8 @@
       A gateway (or anyone able to spoof one) could then settle a 910,000 rial
       order having collected nothing at all.
 
-   2. Callback origins must not come from the client's Host header, or an
-      attacker can point the gateway's return URL at a host they control and
-      capture the order token from its query string.
+   2. Callback origins must not come from the client's Host header, or a
+      forged host could redirect gateway customers and SMS links off-site.
    ========================================================================== */
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -38,6 +37,7 @@ const check = (ok, name, detail = '') => {
    starts with a drive letter and Node rejects it as an unknown "c:" scheme
    (ERR_UNSUPPORTED_ESM_URL_SCHEME). pathToFileURL works on every platform. */
 const { verifyPayment } = await import(pathToFileURL(path.join(ROOT, 'server', 'payment.js')).href);
+const { isTrustedCallbackBase, safeOrigin } = await import(pathToFileURL(path.join(ROOT, 'server', 'siteOrigin.js')).href);
 /* Orders are priced in rial, and ZarinPal is billed in rial. There is no
    conversion left anywhere in this file — that is the point. */
 const EXPECTED_RIAL = 910000;
@@ -691,57 +691,34 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
 }
 
 /* ---- 2. callback origin must ignore a hostile Host header ----------------- */
-
-/* safeOrigin lives inside shop.js, which pulls in the database on import, so
-   the function is extracted and evaluated on its own rather than importing
-   the whole module. */
-const shopSrc = fs.readFileSync(path.join(ROOT, 'server', 'shop.js'), 'utf8');
-const start = shopSrc.indexOf('function safeOrigin');
-const end = shopSrc.indexOf('\n}', start) + 2;
-
-if (start === -1 || end < start) {
-  check(false, 'safeOrigin present in server/shop.js');
-} else {
-  const body = shopSrc.slice(start, end);
-  const makeOrigin = (env) =>
-    new Function('process', body + '; return safeOrigin;')({ env });
+{
   const req = (host, protocol = 'https') => ({
     protocol,
-    get: (k) => (k === 'host' ? host : null),
+    get: (key) => (key === 'host' ? host : null),
   });
+  const good = 'khuzestanyeast-co.com';
+  const productionPinned = { NODE_ENV: 'production', PUBLIC_ORIGIN: `https://${good}` };
+  check(safeOrigin(req('evil.com'), '', productionPinned) === `https://${good}`, 'PUBLIC_ORIGIN overrides a hostile Host header');
+  check(isTrustedCallbackBase(`https://${good}`, req('evil.com'), productionPinned), 'pinned callback origin is trusted');
+  check(!isTrustedCallbackBase('https://configured.example', req(good), productionPinned), 'a foreign callback base is rejected');
+  check(safeOrigin(req(good), 'https://configured.example', productionPinned) === '', 'a stale untrusted callback base fails closed');
 
-  const GOOD = 'khuzestanyeast-co.com';
+  const guarded = { NODE_ENV: 'production', TRUSTED_HOSTS: good };
+  check(safeOrigin(req(good), '', guarded) === `https://${good}`, 'trusted-host-only production origin is accepted');
+  check(safeOrigin(req('evil.com'), '', guarded) === '', 'a foreign Host header is rejected');
+  check(safeOrigin(req(`${good}.evil.com`), '', guarded) === '', 'suffix-confusion hosts are rejected');
+  check(safeOrigin(req(good, 'http'), '', guarded) === '', 'production callbacks require HTTPS');
+  check(safeOrigin(req(''), '', guarded) === '', 'an empty Host is rejected');
 
-  /* With an allowlist, only the listed host may build the origin. */
-  const guarded = makeOrigin({ TRUSTED_HOSTS: GOOD });
-  check(guarded(req(GOOD)) === `https://${GOOD}`, 'allowlisted host accepted');
-  check(guarded(req('evil.com')) === '', 'foreign Host header rejected');
-  check(
-    guarded(req(`${GOOD}.evil.com`)) === '',
-    'suffix-confusion host rejected',
-  );
-  check(guarded(req('')) === '', 'empty Host rejected');
+  const aliases = { ...productionPinned, TRUSTED_HOSTS: `www.${good}` };
+  check(isTrustedCallbackBase(`https://www.${good}`, req(good), aliases), 'an explicitly trusted HTTPS alias is accepted');
+  check(!isTrustedCallbackBase(`http://www.${good}`, req(good), aliases), 'an HTTP alias is rejected in production');
 
-  /* PUBLIC_ORIGIN always wins, whatever the client claims. */
-  const pinned = makeOrigin({ PUBLIC_ORIGIN: `https://${GOOD}` });
-  check(
-    pinned(req('evil.com')) === `https://${GOOD}`,
-    'PUBLIC_ORIGIN overrides Host header',
-  );
-
-  /* An admin-configured callbackBase outranks everything. */
-  check(
-    pinned(req('evil.com'), 'https://configured.example') ===
-      'https://configured.example',
-    'configured callbackBase wins',
-  );
-
-  /* Header-injection characters can never reach a URL. */
-  const open = makeOrigin({});
-  for (const bad of ['evil.com\r\nX: 1', 'evil.com/path', 'evil.com?a=b', 'evil.com#f']) {
-    check(open(req(bad)) === '', `malformed Host rejected: ${JSON.stringify(bad)}`);
+  const development = { NODE_ENV: 'development' };
+  check(safeOrigin(req('localhost:4175', 'http'), '', development) === 'http://localhost:4175', 'local development can use a valid request origin');
+  for (const host of ['evil.com\r\nX: 1', 'evil.com/path', 'evil.com?a=b', 'evil.com#f']) {
+    check(safeOrigin(req(host, 'http'), '', development) === '', `malformed Host rejected: ${JSON.stringify(host)}`);
   }
 }
-
 console.log(`${pass}/${pass + fail}`);
 if (fail) process.exitCode = 1;

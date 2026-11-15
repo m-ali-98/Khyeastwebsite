@@ -145,7 +145,7 @@ export function smsReadiness(cfg) {
  *  (if one is ever added) cannot drift apart. */
 export function orderStatusUrl(origin, order) {
   const base = String(origin || '').replace(/\/+$/, '');
-  return `${base}/shop/order/${order.code}?token=${order.token}`;
+  return `${base}/shop/order/${encodeURIComponent(String(order.code || ''))}`;
 }
 
 /* Persian digits read naturally in an SMS to an Iranian customer, and the

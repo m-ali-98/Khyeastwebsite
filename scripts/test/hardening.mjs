@@ -31,6 +31,9 @@ const PORT = 8973;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-harden-test-'));
 const DB = path.join(DATA_DIR, 'hardening.db');
+const HARDEN_ADMIN_USER = 'hardening-admin';
+const HARDEN_ADMIN_PASS = 'hardening-test-admin-1404';
+const HARDEN_ADMIN_SECRET = 'hardening-test-secret-0123456789abcdef0123456789';
 
 let pass = 0;
 let fail = 0;
@@ -84,6 +87,9 @@ const start = async () => {
       DB_FILE: DB,
       PUBLIC_ORIGIN: BASE,
       NODE_ENV: 'development',
+      ADMIN_USER: HARDEN_ADMIN_USER,
+      ADMIN_PASS: HARDEN_ADMIN_PASS,
+      ADMIN_SECRET: HARDEN_ADMIN_SECRET,
     },
     stdio: 'ignore',
   });
@@ -189,6 +195,38 @@ try {
     'malformed JSON returns JSON, not an HTML error page',
   );
 
+  const largePublicBody = JSON.stringify({ text: 'x'.repeat(120 * 1024) });
+  const largePublic = await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: largePublicBody,
+  });
+  const largePublicText = await largePublic.text();
+  check(largePublic.status === 413, 'unauthenticated public JSON is limited to a small body', `status ${largePublic.status}`);
+  check(!STACKY.test(largePublicText), 'oversized public JSON leaks no parser internals', largePublicText.slice(0, 100));
+
+  const adminLogin = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: BASE },
+    body: JSON.stringify({ user: HARDEN_ADMIN_USER, pass: HARDEN_ADMIN_PASS }),
+  });
+  const largeAdminCookie = (adminLogin.headers.get('set-cookie') || '').split(';')[0];
+  const contentSnapshot = await fetch(`${BASE}/api/content`);
+  const largeContentRevision = contentSnapshot.headers.get(CONTENT_REVISION_HEADER);
+  const largeAdminBody = JSON.stringify({ changes: { texts: { largeReviewFixture: 'x'.repeat(120 * 1024) } } });
+  const largeAdmin = await fetch(`${BASE}/api/content`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: BASE,
+      Cookie: largeAdminCookie,
+      [CONTENT_REVISION_HEADER]: largeContentRevision,
+    },
+    body: largeAdminBody,
+  });
+  const largeAdminText = await largeAdmin.text();
+  check(Boolean(largeAdminCookie) && largeAdmin.status === 200, 'authenticated editorial JSON retains its larger request allowance', `login ${adminLogin.status}, save ${largeAdmin.status}: ${largeAdminText.slice(0, 120)}`);
+
   const badUri = await fetch(`${BASE}/api/shop-public/orders/%FF%FE`);
   const badUriBody = await badUri.text();
   check(!STACKY.test(badUriBody), 'malformed URL leaks no stack', badUriBody.slice(0, 90));
@@ -246,7 +284,7 @@ try {
   const plainLogin = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user: 'admin', pass: 'khyeast-1404' }),
+    body: JSON.stringify({ user: HARDEN_ADMIN_USER, pass: HARDEN_ADMIN_PASS }),
   });
   const plainCookie = plainLogin.headers.get('set-cookie') || '';
   const plainCookiePair = plainCookie.split(';')[0];
@@ -264,7 +302,7 @@ try {
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Forwarded-Proto': 'https' },
-    body: JSON.stringify({ user: 'admin', pass: 'khyeast-1404' }),
+    body: JSON.stringify({ user: HARDEN_ADMIN_USER, pass: HARDEN_ADMIN_PASS }),
   });
   const loginBody = await login.json();
   const adminCookie = login.headers.get('set-cookie') || '';

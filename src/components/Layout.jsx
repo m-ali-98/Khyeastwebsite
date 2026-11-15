@@ -74,6 +74,11 @@ const THEME_ACTION = {
   ar: { light: 'التبديل إلى الوضع الفاتح', dark: 'التبديل إلى الوضع الداكن' },
 };
 
+const mobileMenuFocusable = (menu) => menu
+  ? Array.from(menu.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]'))
+    .filter((element) => element.tabIndex >= 0 && !element.closest('[hidden], [aria-hidden="true"]'))
+  : [];
+
 function ThemeToggle() {
   const { locale, isDark, toggleTheme } = useLocale();
   const label = THEME_ACTION[locale]?.[isDark ? 'light' : 'dark'] || THEME_ACTION.en[isDark ? 'light' : 'dark'];
@@ -99,6 +104,9 @@ function Navbar() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [mobileAboutOpen, setMobileAboutOpen] = useState(false);
   const aboutTriggerRef = useRef(null);
+  const mobileMenuRef = useRef(null);
+  const burgerRef = useRef(null);
+  const menuWasOpen = useRef(false);
   const location = useLocation();
   const { t, l, col } = useContent();
   const { count, display } = useShop() || { count: 0, display: {} };
@@ -213,19 +221,42 @@ function Navbar() {
     return () => window.removeEventListener('keydown', closeDesktopAbout);
   }, [aboutOpen]);
 
+  const trapMobileMenuFocus = (event) => {
+    if (event.key !== 'Tab') return;
+    const items = mobileMenuFocusable(mobileMenuRef.current);
+    if (!items.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    const inside = mobileMenuRef.current?.contains(active);
+    if (event.shiftKey && (!inside || active === first)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (!inside || active === last)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   /* Apply the modal page state before the browser paints the opened menu.
-     The shop showcase keeps a large composited image track and several blur
-     layers alive; leaving those visible underneath an animating full-screen
-     panel made the first mobile menu frame noticeably late on that route.
-     The menu background is opaque, so suspending the covered page is visually
-     identical and gives the tap response the same budget on every page. */
+     Focus stays within the drawer while it is open and returns to the trigger
+     when it closes, including when a link changes routes. */
   useLayoutEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
     document.body.classList.toggle('is-mobile-menu-open', open);
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') setOpen(false);
     };
-    if (open) window.addEventListener('keydown', closeOnEscape);
+    if (open) {
+      mobileMenuFocusable(mobileMenuRef.current)[0]?.focus();
+      window.addEventListener('keydown', closeOnEscape);
+    } else if (menuWasOpen.current) {
+      burgerRef.current?.focus();
+    }
+    menuWasOpen.current = open;
     return () => {
       document.body.style.overflow = '';
       document.body.classList.remove('is-mobile-menu-open');
@@ -363,6 +394,7 @@ function Navbar() {
             </Link>
 
             <button
+              ref={burgerRef}
               className={`nav__burger ${open ? 'is-open' : ''}`}
               onClick={() => {
                 setAboutOpen(false);
@@ -383,8 +415,10 @@ function Navbar() {
       <AnimatePresence>
         {open && (
           <mo.nav
+            ref={mobileMenuRef}
             id="mobile-navigation"
             className="mobile-menu"
+            onKeyDown={trapMobileMenuFocus}
             aria-label={t('nav.mobile')}
             initial={{ opacity: 0, x: menuOffset }}
             animate={{ opacity: 1, x: 0 }}
@@ -658,6 +692,12 @@ function Footer() {
 
 export default function Layout({ children }) {
   const { pathname } = useLocation();
+  const { locale } = useLocale();
+  const skipLabel = {
+    fa: 'پرش به محتوای اصلی',
+    en: 'Skip to main content',
+    ar: 'تخطّي إلى المحتوى الرئيسي',
+  }[locale] || 'Skip to main content';
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
@@ -665,6 +705,7 @@ export default function Layout({ children }) {
 
   return (
     <>
+      <a className="skip-link" href="#main-content">{skipLabel}</a>
       <Navbar />
       {children}
       <Footer />

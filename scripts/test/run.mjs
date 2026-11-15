@@ -136,6 +136,7 @@ await reportSuite('sanitizer.mjs', 40000);
 
 console.log('\nPayment — the money path must fail closed');
 await reportSuite('payment.mjs', 40000, 'amount + callback-origin cases');
+await reportSuite('shop-security.mjs', 60000, 'redirect, origin, order projection and refund ownership checks');
 
 console.log('\nSMS — a message that cannot be sent must not cost an order');
 await reportSuite('sms.mjs', 40000, 'phone, secret and transport cases');

@@ -65,7 +65,7 @@ function PublicRoutes() {
       <Route path="/products" element={<Products />} />
       <Route path="/products/:slug" element={<ProductDetail />} />
       {storefrontEnabled && <Route path="/shop" element={<Shop />} />}
-      {shopEnabled && (
+      {storefrontEnabled && (
         <>
           <Route path="/shop/cart" element={<ShopCart />} />
           <Route path="/shop/checkout" element={<ShopCheckout />} />
@@ -176,6 +176,8 @@ function NavigationRoutes() {
       <Layout>
         {loaderVisible && <RouteFallback />}
         <main
+          id="main-content"
+          tabIndex={-1}
           key={routeKey}
           aria-hidden={loaderVisible ? 'true' : undefined}
           inert={loaderVisible ? true : undefined}

@@ -11,6 +11,7 @@ import { Icons, Reveal, PageHero, PasswordInput } from '../components/ui';
 import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
+import { safeShopNext } from '../../shared/shopRedirect.js';
 
 const faDigits = (s) => String(s).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
@@ -19,7 +20,7 @@ export default function ShopAuth() {
   const account = useAccount();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get('next') || '/shop/account';
+  const next = safeShopNext(params.get('next'));
 
   const [mode, setMode] = useState(params.get('mode') === 'register' ? 'register' : 'login');
   const [step, setStep] = useState('phone'); // phone → code → details

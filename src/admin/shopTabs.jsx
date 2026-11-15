@@ -1460,17 +1460,25 @@ export function ShopPaymentTab() {
 
   const openRefund = (row) => {
     setRefundFor(row);
-    setRefund({ amount: String(row.amount || ''), orderCode: '', method: 'PAYA', reason: 'CUSTOMER_REQUEST', description: '' });
+    setRefund({ amount: String(row.amount || ''), orderCode: String(row.orderCode || ''), method: 'PAYA', reason: 'CUSTOMER_REQUEST', description: '' });
   };
 
   const sendRefund = async () => {
     try {
-      await api('/api/shop-admin/payment/refunds', {
+      const result = await api('/api/shop-admin/payment/refunds', {
         method: 'POST',
         body: { sessionId: refundFor.id, ...refund },
         auth: true,
       });
-      say('ok', `برگشت وجه ثبت شد${refund.orderCode ? ` و سفارش ${refund.orderCode} لغو شد` : ''}.`);
+      const linkedOrder = result.order;
+      const orderNotice = linkedOrder
+        ? linkedOrder.status === 'cancelled'
+          ? ` و سفارش ${linkedOrder.code} لغو شد`
+          : linkedOrder.needsAttention
+            ? `؛ سفارش ${linkedOrder.code} لغو نشد و برای رسیدگی علامت‌گذاری شد`
+            : ''
+        : '';
+      say('ok', `برگشت وجه ثبت شد${orderNotice}.`);
       /* Prefill the status box with the session just refunded, so checking
          it is one click rather than copying an id around. */
       setStatusId(String(refundFor.id));
@@ -1536,6 +1544,8 @@ export function ShopPaymentTab() {
               <Field
                 label={cfg.hasZarinpalMerchant ? 'Merchant ID — برای تغییر، شناسه جدید را وارد کنید' : 'Merchant ID'}
                 dir="ltr"
+                type="password"
+                autoComplete="new-password"
                 value={cfg.zarinpalMerchant}
                 onChange={(v) => setCfg({ ...cfg, zarinpalMerchant: v })}
               />
@@ -1558,6 +1568,8 @@ export function ShopPaymentTab() {
                   <Field
                     label={cfg.hasZarinpalAccessToken ? 'Access Token — برای تغییر، مقدار جدید را وارد کنید' : 'Access Token'}
                     dir="ltr"
+                    type="password"
+                    autoComplete="new-password"
                     value={cfg.zarinpalAccessToken}
                     onChange={(v) => setCfg({ ...cfg, zarinpalAccessToken: v })}
                   />
@@ -1956,6 +1968,8 @@ export function ShopSmsTab() {
               <Field
                 label={cfg.hasApiKey ? 'API Key — برای تغییر، کلید جدید را وارد کنید' : 'API Key'}
                 dir="ltr"
+                type="password"
+                autoComplete="new-password"
                 value={cfg.apiKey}
                 onChange={(v) => setCfg({ ...cfg, apiKey: v })}
               />

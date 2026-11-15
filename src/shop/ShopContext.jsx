@@ -4,7 +4,6 @@ import { productOrderLimit, reconcileCart } from '../../shared/cartAvailability.
 
 const Ctx = createContext(null);
 const CART_KEY = 'ky_shop_cart_v1';
-const ORDERS_KEY = 'ky_shop_orders_v1';
 
 const isPlainRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const parseStoredRecord = (value) => {
@@ -41,10 +40,6 @@ export const formatMoney = (rial, unit = 'rial', withLabel = true) => {
   const value = rialToUnit(rial, unit).toLocaleString('fa-IR');
   return withLabel ? `${value} ${unit === 'toman' ? 'تومان' : 'ریال'}` : value;
 };
-export const orderTokensGet = () => readLS(ORDERS_KEY, {});
-export const orderTokenSave = (code, token) => writeLS(ORDERS_KEY, { ...orderTokensGet(), [code]: token });
-export const orderTokenGet = (code) => orderTokensGet()[code] || '';
-
 const publicProducts = async () => {
   const response = await fetch('/api/shop-products', {
     cache: 'no-store',
@@ -78,6 +73,13 @@ export function ShopProvider({ children }) {
   useEffect(() => {
     setCart(readLS(CART_KEY, {}));
     setCartHydrated(true);
+    try {
+      /* Order access now belongs to the HttpOnly account session; discard the
+         older per-order bearer tokens that were kept in browser storage. */
+      localStorage.removeItem('ky_shop_orders_v1');
+    } catch {
+      // Storage can be unavailable; the session-based API does not depend on it.
+    }
 
     /* `storage` fires in every other same-origin tab. Without this listener an
        older tab keeps its mount-time cart and its next click can replace newer
@@ -240,7 +242,11 @@ export function ShopProvider({ children }) {
     setAvailabilityRefreshing(true);
     try {
       const latestProducts = await publicProducts();
-      const result = reconcileCart(cart, latestProducts, { knownProducts: products });
+      /* The tab may have received a newer storage event while the inventory
+         request was in flight. Re-read localStorage at the moment of applying
+         the response instead of reconciling the stale render closure. */
+      const latestCart = latestCartForMutation();
+      const result = reconcileCart(latestCart, latestProducts, { knownProducts: products });
       /* Tie the direct response to the content array it refreshed. A later
          route-level content response supersedes it synchronously, without one
          render against an older checkout snapshot. This exact result is
@@ -260,7 +266,7 @@ export function ShopProvider({ children }) {
     } finally {
       setAvailabilityRefreshing(false);
     }
-  }, [cart, products, contentProducts, applyReconciliation]);
+  }, [latestCartForMutation, products, contentProducts, applyReconciliation]);
 
   /* A storage event can carry a slug that this long-lived tab has never seen.
      Refresh live inventory before deciding that the line is missing, then

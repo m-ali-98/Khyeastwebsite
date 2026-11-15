@@ -15,6 +15,7 @@
       address — editing the address afterwards must not rewrite history.
    ========================================================================== */
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -47,6 +48,9 @@ const start = async () => {
       PORT: String(PORT),
       DB_FILE: DB,
       NODE_ENV: 'development',
+      PUBLIC_ORIGIN: '',
+      TRUSTED_HOSTS: `127.0.0.1:${PORT}`,
+      TRUST_PROXY: 'loopback',
       ADMIN_USER: ADMIN.user,
       ADMIN_PASS: ADMIN.pass,
       ADMIN_SECRET: 'account-test-secret-0123456789abcdef',
@@ -68,7 +72,7 @@ const start = async () => {
    to the site's own origin. The tests send the honest one by default. */
 const ORIGIN = BASE;
 
-const call = (method, url, body, { cookie, origin = ORIGIN, auth } = {}) =>
+const call = (method, url, body, { cookie, origin = ORIGIN, auth, headers: extraHeaders = {} } = {}) =>
   fetch(BASE + url, {
     method,
     headers: {
@@ -76,11 +80,24 @@ const call = (method, url, body, { cookie, origin = ORIGIN, auth } = {}) =>
       ...(origin ? { Origin: origin } : {}),
       ...(cookie ? { Cookie: cookie } : {}),
       ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
 const json = async (res) => ({ status: res.status, body: await res.json().catch(() => ({})), res });
+const rawStatus = ({ path: requestPath, method, headers, body = '' }) => new Promise((resolve, reject) => {
+  const request = http.request({ host: '127.0.0.1', port: PORT, path: requestPath, method, headers: {
+    ...headers,
+    ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}),
+  } }, (response) => {
+    response.resume();
+    response.on('end', () => resolve(response.statusCode || 0));
+  });
+  request.on('error', reject);
+  if (body) request.write(body);
+  request.end();
+});
 
 let adminCookie = '';
 /* The customer's inbox, as the admin sees it. */
@@ -213,6 +230,43 @@ try {
   /* CSRF: a cross-site POST that somehow carried the cookie is refused. */
   const csrf = await json(await call('POST', '/api/account/password', { current: PASS, password: 'another-good-1404' }, { cookie: cookie1, origin: 'https://evil.example' }));
   check(csrf.status === 403, 'a request from a foreign origin is refused', String(csrf.status));
+  const hostPoisonedCsrf = await rawStatus({
+    path: '/api/account/password',
+    method: 'POST',
+    headers: {
+      Host: 'evil.example',
+      Origin: 'http://evil.example',
+      Cookie: cookie1,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ current: PASS, password: 'another-good-1404' }),
+  });
+  check(hostPoisonedCsrf === 403, 'a client Host header cannot redefine the account CSRF origin', `status ${hostPoisonedCsrf}`);
+  const hostPoisonedAdminCsrf = await rawStatus({
+    path: '/api/admin/security',
+    method: 'PUT',
+    headers: {
+      Host: 'evil.example',
+      Origin: 'http://evil.example',
+      Cookie: adminCookie,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ rateLimits: { enabled: false } }),
+  });
+  check(hostPoisonedAdminCsrf === 403, 'a client Host header cannot redefine the Admin CSRF origin', `status ${hostPoisonedAdminCsrf}`);
+
+  const secureOrigin = `https://127.0.0.1:${PORT}`;
+  const secureLogin = await json(await call(
+    'POST', '/api/account/login', { phone: PHONE, password: PASS },
+    { origin: secureOrigin, headers: { 'X-Forwarded-Proto': 'https' } },
+  ));
+  const secureCookie = cookieOf(secureLogin.res);
+  check((secureLogin.res.headers.get('set-cookie') || '').includes('Secure'), 'a trusted HTTPS proxy sets the Secure customer cookie');
+  const secureLogout = await json(await call(
+    'POST', '/api/account/logout', {},
+    { cookie: secureCookie, origin: secureOrigin, headers: { 'X-Forwarded-Proto': 'https' } },
+  ));
+  check(secureLogout.status === 200 && (secureLogout.res.headers.get('set-cookie') || '').includes('Secure'), 'logout clears the Secure cookie with matching attributes');
 
   /* ------------------------------------------------------- 4. addresses */
   const ADDR = {
@@ -272,10 +326,49 @@ try {
   check((mine.body.orders || []).some((o) => o.code === order.body.order.code), 'the order appears in the account');
   const placed = (mine.body.orders || []).find((o) => o.code === order.body.order.code);
   check(placed.customer.address.includes('دزفول'), 'the order carries the address it was sent to', placed.customer.address);
-  check(Boolean(placed.trackToken), 'the account can reach its own tracking page');
+  check(
+    placed && ['code', 'items', 'customer', 'subtotal', 'shipping', 'total', 'currency', 'status', 'at']
+      .every((field) => Object.hasOwn(placed, field)) &&
+      ['id', 'token', 'trackToken', 'customerId', 'provider', 'payAuthority', 'payRef', 'adminNote', 'paidAt']
+        .every((field) => !Object.hasOwn(placed, field)),
+    'the account order projection contains only customer-facing fields',
+    JSON.stringify(Object.keys(placed || {})),
+  );
+  const ownedOrder = await json(await call('GET', `/api/account/orders/${encodeURIComponent(order.body.order.code)}`, undefined, { cookie: cookie1 }));
+  check(ownedOrder.status === 200 && ownedOrder.body.order?.code === order.body.order.code, 'the owner can open an order through the account session');
+  check(
+    !Object.hasOwn(ownedOrder.body.order || {}, 'token') &&
+      !Object.hasOwn(ownedOrder.body.order || {}, 'trackToken'),
+    'the owner response contains no bearer token fields',
+  );
+  const anonOrder = await json(await call('GET', `/api/account/orders/${encodeURIComponent(order.body.order.code)}`));
+  check(anonOrder.status === 401, 'order codes alone do not authorize customer views');
+  const otherOwnerOrder = await json(await call('GET', `/api/account/orders/${encodeURIComponent(order.body.order.code)}`, undefined, { cookie: s2.cookie }));
+  check(otherOwnerOrder.status === 404, 'a different account cannot read an order by code');
+  const legacyOwnerView = await json(await call('GET', `/api/shop-public/orders/${encodeURIComponent(order.body.order.code)}`, undefined, { cookie: cookie1 }));
+  check(legacyOwnerView.status === 200 && !JSON.stringify(legacyOwnerView.body).includes('trackToken'), 'the legacy tracking path is retained only as an authenticated owner view');
+  const legacyTokenProbe = await json(await call('GET', `/api/shop-public/orders/${encodeURIComponent(order.body.order.code)}?token=anything`));
+  check(legacyTokenProbe.status === 401, 'old token links cannot authorize tracking without the customer session');
 
   const others = await json(await call('GET', '/api/account/me', undefined, { cookie: s2.cookie }));
   check((others.body.orders || []).length === 0, 'another customer does not see that order');
+
+  /* Changing a password keeps the current session but revokes every other
+     device, including the older registration session. */
+  const SECOND_PHONE = '09120000002';
+  const SECOND_PASS = 'second-customer-1404';
+  const secondLogin = await json(await call('POST', '/api/account/login', { phone: SECOND_PHONE, password: SECOND_PASS }));
+  const secondCurrentCookie = cookieOf(secondLogin.res);
+  const passwordChange = await json(await call(
+    'POST', '/api/account/password',
+    { current: SECOND_PASS, password: 'second-password-changed-1404' },
+    { cookie: secondCurrentCookie },
+  ));
+  check(passwordChange.status === 200, 'changing a password succeeds for the current session');
+  const currentSessionAfterChange = await json(await call('GET', '/api/account/me', undefined, { cookie: secondCurrentCookie }));
+  const revokedSessionAfterChange = await json(await call('GET', '/api/account/me', undefined, { cookie: s2.cookie }));
+  check(currentSessionAfterChange.body.customer?.phone === '989120000002', 'the password-changing session remains active');
+  check(revokedSessionAfterChange.body.customer === null, 'other customer sessions are revoked immediately');
 
   /* The snapshot: editing the address must not rewrite where a past parcel
      went. This is the whole reason the order copies the address. */
@@ -318,18 +411,13 @@ try {
   const rv = await json(await call('POST', '/api/account/otp/verify', { phone: PHONE, code: resetCode, purpose: 'reset' }));
   check(rv.status === 200, 'a reset code verifies');
 
-  /* A register ticket must not be usable as a reset ticket, or the two
-     flows become one. */
+  /* A reset ticket must not register an account, and the rejected cross-use
+     must not consume the ticket before the intended reset endpoint uses it. */
   const crossUse = await json(await call('POST', '/api/account/register', { ticket: rv.body.ticket, password: 'cross-use-1404', name: 'جابجا' }));
   check(crossUse.status === 400, 'a reset ticket cannot register an account');
 
-  await json(await call('POST', '/api/account/otp', { phone: PHONE, purpose: 'reset' }));
-  /* the resend window blocks an immediate second code — wait it out only if
-     the server actually refused */
-  let resetCode2 = await codeFor('0001');
-  const rv2 = await json(await call('POST', '/api/account/otp/verify', { phone: PHONE, code: resetCode2, purpose: 'reset' }));
   const NEWPASS = 'brand-new-1404-x';
-  const reset = await json(await call('POST', '/api/account/reset', { ticket: rv2.body.ticket, password: NEWPASS }));
+  const reset = await json(await call('POST', '/api/account/reset', { ticket: rv.body.ticket, password: NEWPASS }));
   check(reset.status === 200, 'the password is reset', JSON.stringify(reset.body).slice(0, 120));
 
   const oldPass = await json(await call('POST', '/api/account/login', { phone: PHONE, password: PASS }));

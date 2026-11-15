@@ -133,15 +133,13 @@ const {
 {
   const order = { code: 'KY-1404-0007', token: 'abc123', total: 9100000 };
   const url = orderStatusUrl('https://khuzestanyeast-co.com/', order);
-  check(url === 'https://khuzestanyeast-co.com/shop/order/KY-1404-0007?token=abc123', 'status url', url);
-  check(!url.includes('//shop'), 'a trailing slash on the origin does not double up');
+  check(url === 'https://khuzestanyeast-co.com/shop/order/KY-1404-0007', 'status url has no bearer token', url);
+  check(!url.includes('//shop') && !url.includes('?'), 'the SMS link has no duplicate slash or token query');
 
   const text = orderSmsText(order, url);
   check(text.includes(order.code), 'the code is in the message');
   check(text.includes(url), 'the link is in the message');
-  /* The token is the only thing protecting the tracking page, so the link
-     must carry it — a message without it is useless to the customer. */
-  check(text.includes('token=abc123'), 'the link carries the order token');
+  check(!text.includes(order.token) && !text.includes('token='), 'the SMS does not leak an order token');
   check(text.includes('۹٬۱۰۰٬۰۰۰') || /[۰-۹]/.test(text), 'the amount is in Persian digits');
 
   const shipped = shipmentSmsText(order);
@@ -263,7 +261,12 @@ const {
     check(dbStore.getOrderById(database, callbackOrder.id)?.status === 'paid', 'successful verification settles the order before SMS');
     check(paidLogs.length === 1, 'successful gateway payment sends one order-registered SMS', `got ${paidLogs.length}`);
     check(paidLogs[0]?.phone === account.phone, 'payment SMS uses the verified account phone');
-    check(paidLogs[0]?.text.includes(`token=${callbackOrder.token}`), 'payment SMS carries the private tracking link');
+    check(
+      paidLogs[0]?.text.includes(`/shop/order/${callbackOrder.code}`) &&
+        !paidLogs[0]?.text.includes(callbackOrder.token) &&
+        !paidLogs[0]?.text.includes('token='),
+      'payment SMS links to the session-owned order page without a bearer token',
+    );
     check(
       verificationCalls[0]?.provider === 'zarinpal' &&
         verificationCalls[0]?.expectedRial === callbackOrder.total &&
@@ -314,6 +317,43 @@ const {
     check(orderLogs(recoveredOrder.code).length === 1, 'rechecking a recovered paid order does not duplicate the SMS');
   } finally {
     await new Promise((resolve) => server.close(resolve));
+    database.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+/* ------------------------------------------------ 5b. atomic daily cap */
+{
+  const dbStore = await import(pathToFileURL(path.join(ROOT, 'server/db.js')).href);
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-sms-cap-test-'));
+  const database = await dbStore.openDB(path.join(dataDir, 'sms-cap.db'));
+  dbStore.initializeStore(database, { freshInstall: true });
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const first = dbStore.reserveSmsDailyCap(database, { cap: 2, since });
+    const second = dbStore.reserveSmsDailyCap(database, { cap: 2, since });
+    const full = dbStore.reserveSmsDailyCap(database, { cap: 2, since });
+    check(first.allowed && second.allowed, 'two in-flight workers reserve the last daily-cap slots');
+    check(!full.allowed, 'a concurrent send cannot pass a full in-flight daily cap');
+
+    const failed = dbStore.finishSmsDailyCapReservation(database, first.id, {
+      kind: 'otp', phone: '989123456789', provider: 'log', ok: false, error: 'provider unavailable',
+    });
+    const retry = dbStore.reserveSmsDailyCap(database, { cap: 2, since });
+    check(failed && retry.allowed, 'a failed send releases its reservation without charging the daily cap');
+    dbStore.finishSmsDailyCapReservation(database, second.id, {
+      kind: 'order', phone: '989123456789', provider: 'log', ok: true,
+    });
+    dbStore.finishSmsDailyCapReservation(database, retry.id, {
+      kind: 'shipped', phone: '989123456789', provider: 'log', ok: true,
+    });
+    check(!dbStore.reserveSmsDailyCap(database, { cap: 2, since }).allowed, 'successful sends consume the daily cap');
+    check(
+      dbStore.listSmsLog(database, 20).length === 3 &&
+        dbStore.listSmsLog(database, 20).every((row) => !row.kind.startsWith('__')),
+      'internal reservation rows never appear in the Admin SMS log',
+    );
+  } finally {
     database.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

@@ -54,6 +54,7 @@ import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { readCookie } from './accounts.js';
 import { sanitizeContentPayload, isRichTextValidationError } from './sanitize.js';
 import { createGracefulShutdown } from './gracefulShutdown.js';
+import { safeOrigin } from './siteOrigin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -402,19 +403,21 @@ const saveSessions = (sessions) => {
 
 const sessionStart = (exp) => {
   const sid = crypto.randomBytes(16).toString('hex');
-  saveSessions({ ...loadSessions(), [sid]: exp });
-  return sid;
+  return db.immediateTransaction(() => {
+    saveSessions({ ...loadSessions(), [sid]: exp });
+    return sid;
+  })();
 };
 
-const sessionEnd = (sid) => {
+const sessionEnd = (sid) => db.immediateTransaction(() => {
   const sessions = loadSessions();
   if (!(sid in sessions)) return false;
   delete sessions[sid];
   saveSessions(sessions);
   return true;
-};
+})();
 
-const sessionEndAll = () => store.setSetting(db, SESSION_KEY, {});
+const sessionEndAll = () => db.immediateTransaction(() => store.setSetting(db, SESSION_KEY, {}))();
 
 const sign = (payload) => {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -575,10 +578,7 @@ const clearAdminCookie = (req) => {
     serializeAdminCookie(LEGACY_ADMIN_COOKIE, '', { secure: mode.secure, maxAge: 0 }),
   ];
 };
-const ownOrigin = (req) => {
-  if (PUBLIC_ORIGIN_URL) return PUBLIC_ORIGIN_URL.origin;
-  return `${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`;
-};
+const ownOrigin = (req) => safeOrigin(req, '', process.env);
 const requireAuth = (req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   /* Bearer support remains for trusted scripts and existing integrations, but
@@ -837,7 +837,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '8mb' }));
+/* Keep public JSON requests small. Only authenticated editorial and shop-
+   catalogue saves use the larger parser, which is mounted after their auth
+   guard so anonymous clients cannot make the server parse multi-megabyte JSON. */
+const smallJsonBody = express.json({ limit: '100kb' });
+app.use((req, res, next) => {
+  const adminLargeJsonWrite = ['PUT', 'PATCH'].includes(req.method) &&
+    (req.path === '/api/content' || req.path === '/api/shop-admin/products');
+  if (adminLargeJsonWrite) return next();
+  return smallJsonBody(req, res, next);
+});
 
 /* ---------------- public ---------------- */
 /* `imageOptimiser` is here so a deployment can be checked without uploading
@@ -1321,8 +1330,9 @@ const contentWriteRoute = (partial) => (req, res, next) => {
     return next(error);
   });
 };
-app.put('/api/content', requireAuth, contentWriteRoute(false));
-app.patch('/api/content', requireAuth, contentWriteRoute(true));
+const largeAdminJsonBody = express.json({ limit: '8mb' });
+app.put('/api/content', requireAuth, largeAdminJsonBody, contentWriteRoute(false));
+app.patch('/api/content', requireAuth, largeAdminJsonBody, contentWriteRoute(true));
 
 /* ---------------- admin: messages ---------------- */
 app.get('/api/messages', requireAuth, (_req, res) => res.json(store.listMessages(db)));
@@ -1546,10 +1556,9 @@ const accountRouter = createAccountRouter({
   requireAdmin: requireAuth,
   rateLimiter,
   isSecureRequest: secureRequest,
-  /* Same rule as the payment callbacks: PUBLIC_ORIGIN wins, and a Host
-     header from the client is never trusted to describe us. */
-  selfOrigin: (req) =>
-    PUBLIC_ORIGIN_URL?.origin || `${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`,
+  /* Use the same deployment trust boundary as callback/SMS URLs; never let a
+     client-supplied Host define the CSRF origin in production. */
+  selfOrigin: (req) => safeOrigin(req, '', process.env),
 });
 shopRouter.useCustomer(accountRouter.currentCustomer);
 app.use(accountRouter);

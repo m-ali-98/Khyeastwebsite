@@ -21,7 +21,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
 
 const PORT = 8971;
+const PEER_PORT = 8972;
 const BASE = `http://127.0.0.1:${PORT}`;
+const PEER_BASE = `http://127.0.0.1:${PEER_PORT}`;
 const DB = path.join(os.tmpdir(), `ky-auth-test-${process.pid}.db`);
 const PASS = 'khyeast-1404';
 const SECRET = 'khyeast-content-secret-dev';
@@ -39,10 +41,21 @@ const check = (ok, name, detail = '') => {
 /* ---- server lifecycle ----------------------------------------------------- */
 
 let server;
+let peer;
+const serverEnv = (port) => ({
+  ...process.env,
+  PORT: String(port),
+  DB_FILE: DB,
+  NODE_ENV: 'development',
+  ADMIN_USER: 'admin',
+  ADMIN_PASS: PASS,
+  ADMIN_SECRET: SECRET,
+  RL_MAX_ADMIN_LOGIN: '30',
+});
 const start = async () => {
   server = spawn('node', ['server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), DB_FILE: DB, NODE_ENV: 'development' },
+    env: serverEnv(PORT),
     stdio: 'ignore',
   });
   for (let i = 0; i < 100; i += 1) {
@@ -57,7 +70,30 @@ const start = async () => {
   throw new Error('server did not start');
 };
 
+const startPeer = async () => {
+  peer = spawn('node', ['server/index.js'], {
+    cwd: ROOT,
+    env: serverEnv(PEER_PORT),
+    stdio: 'ignore',
+  });
+  for (let i = 0; i < 100; i += 1) {
+    try {
+      if ((await fetch(`${PEER_BASE}/api/health`)).ok) return;
+    } catch {
+      /* not listening yet */
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error('peer server did not start');
+};
+
+const stopPeer = () => {
+  if (peer) peer.kill('SIGKILL');
+  peer = null;
+};
+
 const stop = () => {
+  stopPeer();
   if (server) server.kill('SIGKILL');
   for (const f of [DB, `${DB}-wal`, `${DB}-shm`]) {
     try {
@@ -68,8 +104,8 @@ const stop = () => {
   }
 };
 
-const login = async () => {
-  const r = await fetch(`${BASE}/api/auth/login`, {
+const loginAt = async (base) => {
+  const r = await fetch(`${base}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user: 'admin', pass: PASS }),
@@ -78,10 +114,12 @@ const login = async () => {
   const cookie = r.headers.get('set-cookie') || '';
   return cookie.match(/(?:^|;\s*)(?:__Host-ky_admin|ky_admin_dev)=([^;]+)/)?.[1] || '';
 };
+const login = () => loginAt(BASE);
 
 /* Status of an authenticated probe carrying `token`. */
-const probe = async (token, url = '/api/auth/me') =>
-  (await fetch(BASE + url, { headers: { Authorization: `Bearer ${token}` } })).status;
+const probeAt = async (base, token, url = '/api/auth/me') =>
+  (await fetch(base + url, { headers: { Authorization: `Bearer ${token}` } })).status;
+const probe = (token, url = '/api/auth/me') => probeAt(BASE, token, url);
 
 const post = (token, url) =>
   fetch(BASE + url, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
@@ -143,6 +181,19 @@ try {
   for (const [name, payload] of FORGED) {
     check((await probe(forge(payload))) === 401, `forged token rejected: ${name}`);
   }
+
+  /* Two Passenger-style workers share one SQLite-backed JSON session map.
+     Concurrent logins must not lose each other's read-modify-write updates. */
+  await startPeer();
+  const concurrentTokens = await Promise.all(Array.from({ length: 12 }, (_, index) =>
+    loginAt(index % 2 ? BASE : PEER_BASE),
+  ));
+  check(concurrentTokens.every(Boolean) && new Set(concurrentTokens).size === concurrentTokens.length, 'parallel worker logins each receive a unique token');
+  const concurrentStatuses = await Promise.all(concurrentTokens.map((token, index) =>
+    probeAt(index % 2 ? PEER_BASE : BASE, token),
+  ));
+  check(concurrentStatuses.every((status) => status === 200), 'every concurrently-created session survives cross-worker reads', JSON.stringify(concurrentStatuses));
+  stopPeer();
 
   /* Sessions live in the database, so a deploy or crash must not log the
      admin out. */

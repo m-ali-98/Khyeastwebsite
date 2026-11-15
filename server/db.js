@@ -1710,6 +1710,57 @@ export function initializeStore(db, { freshInstall = false } = {}) {
 }
 
 /* ------------------------------------------------------------------ sms */
+const SMS_CAP_RESERVATION_KIND = '__daily_cap_reservation__';
+const SMS_CAP_RESERVATION_MARKER = '__khyeast_sms_cap_pending__';
+
+/** Reserve one of today's SMS sends under SQLite's writer lock. Successful
+ * sends and in-flight reservations share one cap across every server worker;
+ * a failed send releases its reservation when the row is finalized. */
+export function reserveSmsDailyCap(db, { cap, since, at = new Date().toISOString() } = {}) {
+  const maximum = Math.max(0, Math.floor(Number(cap) || 0));
+  if (!maximum) return { allowed: true, id: null };
+  return db.immediateTransaction(() => {
+    const sent = Number(db.prepare(
+      'SELECT COUNT(*) AS n FROM sms_log WHERE at >= ? AND ok = 1 AND kind <> ?',
+    ).get(String(since || ''), SMS_CAP_RESERVATION_KIND)?.n || 0);
+    const pending = Number(db.prepare(
+      'SELECT COUNT(*) AS n FROM sms_log WHERE at >= ? AND kind = ? AND error = ?',
+    ).get(String(since || ''), SMS_CAP_RESERVATION_KIND, SMS_CAP_RESERVATION_MARKER)?.n || 0);
+    if (sent + pending >= maximum) return { allowed: false, id: null };
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO sms_log (id, at, kind, phone, text, provider, environment, ok, error, message_id, ref)
+       VALUES (?, ?, ?, '', '', 'internal', 'system', 0, ?, NULL, '')`,
+    ).run(id, String(at), SMS_CAP_RESERVATION_KIND, SMS_CAP_RESERVATION_MARKER);
+    return { allowed: true, id };
+  })();
+}
+
+export function finishSmsDailyCapReservation(db, id, row = {}) {
+  const result = db.prepare(
+    `UPDATE sms_log
+        SET at = @at, kind = @kind, phone = @phone, text = @text, provider = @provider,
+            environment = @environment, ok = @ok, error = @error, message_id = @message_id, ref = @ref
+      WHERE id = @id AND kind = @reservation_kind AND error = @reservation_marker`,
+  ).run({
+    id: String(id || ''),
+    reservation_kind: SMS_CAP_RESERVATION_KIND,
+    reservation_marker: SMS_CAP_RESERVATION_MARKER,
+    at: row.at || new Date().toISOString(),
+    kind: row.kind || 'other',
+    phone: row.phone || '',
+    text: row.text || '',
+    provider: row.provider || 'log',
+    environment: row.environment || 'sandbox',
+    ok: row.ok ? 1 : 0,
+    error: row.error || '',
+    message_id: row.messageId == null ? null : String(row.messageId),
+    ref: row.ref || '',
+  });
+  return result.changes === 1;
+}
+
 export function insertSmsLog(db, row) {
   db.prepare(
     `INSERT INTO sms_log (id, at, kind, phone, text, provider, environment, ok, error, message_id, ref)
@@ -1739,8 +1790,8 @@ export function countSmsSince(db, iso) {
 
 export function listSmsLog(db, limit = 50) {
   return db
-    .prepare('SELECT * FROM sms_log ORDER BY at DESC LIMIT ?')
-    .all(Math.max(1, Math.min(500, Number(limit) || 50)))
+    .prepare('SELECT * FROM sms_log WHERE kind <> ? ORDER BY at DESC LIMIT ?')
+    .all('__daily_cap_reservation__', Math.max(1, Math.min(500, Number(limit) || 50)))
     .map((r) => ({
       id: r.id,
       at: r.at,
@@ -1844,6 +1895,12 @@ export function deleteSessionsFor(db, customerId) {
   db.prepare('DELETE FROM customer_sessions WHERE customer_id = ?').run(String(customerId || ''));
 }
 
+export function deleteOtherSessionsFor(db, customerId, currentTokenHash) {
+  return db.prepare(
+    'DELETE FROM customer_sessions WHERE customer_id = ? AND token_hash <> ?',
+  ).run(String(customerId || ''), String(currentTokenHash || '')).changes;
+}
+
 export function sweepSessions(db) {
   db.prepare('DELETE FROM customer_sessions WHERE expires_at <= ?').run(new Date().toISOString());
   db.prepare('DELETE FROM otps WHERE expires_at <= ?').run(new Date(Date.now() - 3600_000).toISOString());
@@ -1884,12 +1941,19 @@ export function putTicket(db, { ticketHash, phone, purpose, expiresAt }) {
 /** Single use: the row is deleted as it is read, so the same proof cannot
  *  register two accounts or reset a password twice. */
 export function consumeTicket(db, ticketHash, purpose) {
-  const row = db.prepare('SELECT * FROM otp_tickets WHERE ticket_hash = ?').get(String(ticketHash || ''));
-  if (!row) return null;
-  db.prepare('DELETE FROM otp_tickets WHERE ticket_hash = ?').run(String(ticketHash));
-  if (row.purpose !== purpose) return null;
-  if (new Date(row.expires_at).getTime() <= Date.now()) return null;
-  return row;
+  const hash = String(ticketHash || '');
+  return db.immediateTransaction(() => {
+    const now = new Date().toISOString();
+    const row = db.prepare(
+      'SELECT * FROM otp_tickets WHERE ticket_hash = ? AND purpose = ? AND expires_at > ?',
+    ).get(hash, String(purpose || ''), now);
+    if (!row) return null;
+    const removed = db.prepare(
+      'DELETE FROM otp_tickets WHERE ticket_hash = ? AND purpose = ? AND expires_at > ?',
+    ).run(hash, String(purpose || ''), now);
+    if (removed.changes !== 1) return null;
+    return row;
+  })();
 }
 
 /** Successful OTP sends to one phone since a timestamp — the per-phone
