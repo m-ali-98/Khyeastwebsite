@@ -872,17 +872,37 @@ export function restoreStock(db, lines) {
 export function updateProductStock(db, slug, stock, expectedStock) {
   const next = Number(stock);
   const expected = Number(expectedStock);
+  const key = String(slug || '');
   if ((!Number.isSafeInteger(next) || next < -1) || (!Number.isSafeInteger(expected) || expected < -1)) {
     return { ok: false, error: 'invalid stock' };
   }
-  const result = db
-    .prepare('UPDATE products SET stock = ? WHERE slug = ? AND stock = ?')
-    .run(next, String(slug || ''), expected);
-  if (result.changes === 1) return { ok: true, stock: next };
-  const current = db.prepare('SELECT stock FROM products WHERE slug = ?').get(String(slug || ''));
-  return current
-    ? { ok: false, error: 'stock changed', stock: current.stock }
-    : { ok: false, error: 'not found' };
+  return db.immediateTransaction(() => {
+    const current = db.prepare('SELECT stock FROM products WHERE slug = ?').get(key);
+    if (!current) return { ok: false, error: 'not found' };
+    if (current.stock !== expected) return { ok: false, error: 'stock changed', stock: current.stock };
+
+    /* While stock is unlimited, orders did not deduct units. Do not invent a
+       finite baseline until every order that could depend on that unreserved
+       stock has been resolved. */
+    if (current.stock === -1 && next >= 0) {
+      const active = db.prepare(
+        `SELECT COUNT(DISTINCT o.id) AS count
+           FROM orders o
+           JOIN order_items i ON i.order_id = o.id
+          WHERE i.slug = ? AND o.status <> 'cancelled'`,
+      ).get(key);
+      const activeOrders = Number(active?.count || 0);
+      if (activeOrders > 0) {
+        return { ok: false, error: 'active orders', stock: current.stock, activeOrders };
+      }
+    }
+
+    const result = db.prepare('UPDATE products SET stock = ? WHERE slug = ? AND stock = ?')
+      .run(next, key, expected);
+    return result.changes === 1
+      ? { ok: true, stock: next }
+      : { ok: false, error: 'stock changed' };
+  })();
 }
 
 /* ================================================================ orders */
@@ -1244,13 +1264,14 @@ export function reserveAndInsertOrder(db, order) {
   }
 }
 
-export function updateOrder(db, id, patch) {
+export function updateOrder(db, id, patch = {}) {
+  const source = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {};
   /* Financial attention is always visible. Enforce this in the data layer as
      well as the HTTP route so a future caller cannot persist the contradictory
      state needs_attention=1 + archived=1. */
-  const effectivePatch = patch.needsAttention === true
-    ? { ...patch, archived: false }
-    : patch;
+  const effectivePatch = source.needsAttention === true
+    ? { ...source, archived: false }
+    : source;
   const map = {
     status: 'status',
     provider: 'provider',
@@ -1263,36 +1284,71 @@ export function updateOrder(db, id, patch) {
     archived: 'archived',
   };
   const sets = [];
-  const vals = [];
-  for (const [k, col] of Object.entries(map)) {
-    if (k in effectivePatch) {
-      sets.push(`${col} = ?`);
-      vals.push(
-        ['autoCancelled', 'needsAttention', 'archived'].includes(k)
-          ? bool(effectivePatch[k])
-          : effectivePatch[k],
-      );
-    }
+  const values = [];
+  for (const [key, column] of Object.entries(map)) {
+    if (!(key in effectivePatch)) continue;
+    sets.push(`${column} = ?`);
+    values.push(
+      ['autoCancelled', 'needsAttention', 'archived'].includes(key)
+        ? bool(effectivePatch[key])
+        : effectivePatch[key],
+    );
   }
-  if (!sets.length) return;
-  const orderId = String(id);
-  vals.push(orderId);
-  const apply = () => {
+  if (!sets.length) return { ok: true, changed: false };
+
+  const orderId = String(id || '');
+  return db.immediateTransaction(() => {
+    const current = db.prepare(
+      'SELECT status, provider, needs_attention FROM orders WHERE id = ?',
+    ).get(orderId);
+    if (!current) return { ok: false, error: 'not found' };
+    /* Keep the established two-step acknowledgement rule: an order whose
+       attention flag was set by another worker cannot be archived in the same
+       write that clears the warning. */
+    if (effectivePatch.archived === true && current.needs_attention) {
+      return { ok: false, error: 'unresolved payment attention' };
+    }
+
+    /* A non-cancelled order owns its stock reservation; a cancelled one does
+       not. Make each transition across that boundary part of the same
+       BEGIN IMMEDIATE transaction as the status write, so even direct callers
+       cannot restore twice or revive an order without re-reserving its units. */
+    if ('status' in effectivePatch && current.status !== effectivePatch.status) {
+      const lines = db.prepare(
+        'SELECT slug, qty FROM order_items WHERE order_id = ?',
+      ).all(orderId);
+      if (current.status === 'cancelled' && effectivePatch.status !== 'cancelled') {
+        const reserved = reserveStock(db, lines);
+        if (!reserved.ok) {
+          return { ok: false, error: 'insufficient stock', detail: reserved.error };
+        }
+      } else if (current.status !== 'cancelled' && effectivePatch.status === 'cancelled') {
+        restoreStock(db, lines);
+      }
+    }
+
     if (effectivePatch.payAuthority) {
-      const existing = db.prepare('SELECT provider FROM orders WHERE id = ?').get(orderId);
-      if (!existing) return false;
       ensurePaymentAttempt(db, orderId, {
         authority: effectivePatch.payAuthority,
-        provider: effectivePatch.provider || existing.provider,
+        provider: effectivePatch.provider || current.provider,
         at: new Date().toISOString(),
       });
     }
+
     const archiveGuard = effectivePatch.archived === true ? ' AND needs_attention = 0' : '';
-    return db.prepare(
+    const updated = db.prepare(
       `UPDATE orders SET ${sets.join(', ')} WHERE id = ?${archiveGuard}`,
-    ).run(...vals).changes > 0;
-  };
-  return effectivePatch.payAuthority ? db.transaction(apply)() : apply();
+    ).run(...values, orderId);
+    if (updated.changes !== 1) {
+      /* With the writer lock and checks above this normally means a database
+         trigger or a deliberately incompatible row. Throwing rolls back any
+         stock movement instead of committing inventory without its status. */
+      throw Object.assign(new Error('order changed during atomic update'), {
+        code: 'ORDER_UPDATE_CONFLICT',
+      });
+    }
+    return { ok: true, changed: true };
+  })();
 }
 
 /** Settle only the still-pending order that owns this authority. The route also
@@ -1352,7 +1408,10 @@ export function expirePendingOrders(db, cutoffIso, atIso = new Date().toISOStrin
   const inc = db.prepare('UPDATE products SET stock = stock + ? WHERE slug = ? AND stock >= 0');
   const note = `لغو خودکار: مهلت پرداخت ۳۰ دقیقه‌ای در ${atIso} پایان یافت.`;
 
-  return db.transaction((cutoff) => {
+  /* Reserve SQLite's writer slot before reading candidates. Otherwise two
+     workers can both snapshot the same pending rows, and one may hit a WAL
+     busy-snapshot error while trying to cancel and restore stock. */
+  return db.immediateTransaction((cutoff) => {
     const expired = [];
     for (const row of candidates.all(String(cutoff))) {
       const adminNote = [row.admin_note, note].filter(Boolean).join('\n');

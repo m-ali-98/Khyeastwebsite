@@ -1218,6 +1218,14 @@ export function createShopRouter({
         detail: 'موجودی پس از باز شدن این صفحه تغییر کرده است؛ اطلاعات را بروزرسانی و دوباره تلاش کنید.',
       });
     }
+    if (result.error === 'active orders') {
+      return res.status(409).json({
+        error: 'active orders',
+        activeOrders: result.activeOrders,
+        currentStock: result.stock,
+        detail: 'تا زمان تعیین‌تکلیف سفارش‌های فعال این محصول، موجودی نامحدود را نمی‌توان به مقدار محدود تغییر داد.',
+      });
+    }
     return res.status(400).json({ error: result.error });
   });
 
@@ -1264,31 +1272,8 @@ export function createShopRouter({
       patch.archived = b.archived;
     }
     if ('status' in b && ORDER_STATUS.includes(b.status)) {
-      /* The invariant: an order holds its reserved stock for as long as it is
-         not cancelled. Only the transition ACROSS that line may move stock, and
-         it has to move in both directions.
-
-         Restoring on cancel but never re-reserving on un-cancel let an admin
-         mint inventory: cancel (stock back) then set the order live again and
-         the units are counted as sellable while still owed to a real customer.
-         Deleting that order then credited them a second time, because DELETE
-         judges by the current status — so 10 units became 13. */
-      const wasHolding = order.status !== 'cancelled';
-      const willHold = b.status !== 'cancelled';
-
-      if (wasHolding && !willHold) db.restoreStock(D, order.items);
-      else if (!wasHolding && willHold) {
-        /* Re-reserving can legitimately fail: the units may have been sold
-           while the order sat cancelled. Refuse the change rather than let the
-           catalogue go negative or oversell — the admin gets a clear 409. */
-        const again = db.reserveStock(D, order.items);
-        if (!again.ok)
-          return res.status(409).json({
-            error: 'insufficient stock',
-            detail: 'موجودی برای بازگرداندن این سفارش کافی نیست؛ ابتدا موجودی محصول را افزایش دهید.',
-          });
-      }
-
+      /* The database enforces that non-cancelled orders hold stock, and moves
+         status plus inventory together in one immediate transaction. */
       patch.status = b.status;
       if (b.status !== order.status) patch.archived = false;
       /* A real admin transition supersedes an automatic timeout marker. Merely
@@ -1301,14 +1286,25 @@ export function createShopRouter({
     /* Acknowledgement is intentionally explicit: changing status or editing a
        note must never make unresolved refund work disappear by accident. */
     if (changesAttention) patch.needsAttention = b.needsAttention;
-    const updated = db.updateOrder(D, order.id, patch);
-    if (patch.archived === true && !updated) {
-      return res.status(409).json({
-        error: 'unresolved payment attention',
-        code: 'attention-order-cannot-be-archived',
-        detail: 'هشدار مالی هم‌زمان فعال شد؛ سفارش بایگانی نشد.',
-      });
+    const updateResult = db.updateOrder(D, order.id, patch);
+    if (!updateResult.ok) {
+      if (updateResult.error === 'not found') return res.status(404).json({ error: 'not found' });
+      if (updateResult.error === 'insufficient stock') {
+        return res.status(409).json({
+          error: 'insufficient stock',
+          detail: 'موجودی برای بازگرداندن این سفارش کافی نیست؛ ابتدا موجودی محصول را افزایش دهید.',
+        });
+      }
+      if (updateResult.error === 'unresolved payment attention' || patch.archived === true) {
+        return res.status(409).json({
+          error: 'unresolved payment attention',
+          code: 'attention-order-cannot-be-archived',
+          detail: 'هشدار مالی هم‌زمان فعال شد؛ سفارش بایگانی نشد.',
+        });
+      }
+      return res.status(409).json({ error: updateResult.error || 'order changed' });
     }
+    const updated = updateResult.changed;
 
     /* Online payment sends this message from the verified callback. Offline
        payment has no callback, so the first deliberate Admin transition that
@@ -1592,7 +1588,6 @@ export function createShopRouter({
     /* A reversed payment is a cancelled order, and cancelling is what puts
        the stock back — doing one without the other leaves the shop holding
        reserved stock for an order nobody paid for. */
-    if (order.status !== 'cancelled') db.restoreStock(D, order.items);
     db.updateOrder(D, order.id, {
       status: 'cancelled',
       autoCancelled: false,
@@ -1625,7 +1620,6 @@ export function createShopRouter({
     const code = String(req.body?.orderCode || '').trim();
     const order = code ? db.getOrderByCode(D, code) : null;
     if (order) {
-      if (order.status !== 'cancelled') db.restoreStock(D, order.items);
       db.updateOrder(D, order.id, {
         status: 'cancelled',
         autoCancelled: false,

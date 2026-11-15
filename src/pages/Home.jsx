@@ -5,6 +5,7 @@ import { Icons, Reveal, SectionHead, Counter, CTABand, hl, useNum } from '../com
 import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { resolveHomeStats } from '../../shared/homeStats.js';
+import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
 import { useLocale } from '../i18n/LocaleContext';
 import { useShop } from '../shop/ShopContext';
 import { ShopCard } from '../shop/parts';
@@ -16,7 +17,7 @@ function Hero() {
   const { t, m } = useContent();
   const { shopEnabled } = useLocale();
   const { display } = useShop();
-  const storefrontEnabled = shopEnabled && display.enabled !== false;
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, display);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
   /* Parallax is scroll-linked motion, which MotionConfig's reducedMotion
      setting does not cover — it only governs time-based animations. A visitor
@@ -117,7 +118,7 @@ function HomeShopShelf() {
   const shelfProducts = products
     .filter((product) => product.active && product.featured)
     .slice(0, 3);
-  const storefrontEnabled = shopEnabled && display.enabled !== false;
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, display);
 
   if (!storefrontEnabled || shelfProducts.length === 0) return null;
 

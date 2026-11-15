@@ -7,6 +7,7 @@ import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
 import { useLocale } from '../i18n/LocaleContext';
 import { activeTrustSeals } from '../../shared/trustSeals.js';
+import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
 
 export const NAV_LINKS = [
   { to: '/', key: 'nav.home', end: true },
@@ -102,7 +103,7 @@ function Navbar() {
   const { t, l, col } = useContent();
   const { count, display } = useShop() || { count: 0, display: {} };
   const { shopEnabled, isRTL, locale } = useLocale();
-  const storefrontEnabled = shopEnabled && display.enabled !== false;
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, display);
   const navItems = HEADER_NAV_ITEMS.filter((item) =>
     (!item.shopOnly || storefrontEnabled) && (!item.faOnly || locale === 'fa')
   );
@@ -537,8 +538,9 @@ function TrustSealLink({ seal }) {
 }
 
 function Footer() {
-  const { t, l, col, brands } = useContent();
+  const { t, l, col, brands, state } = useContent();
   const { shopEnabled, locale } = useLocale();
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
   const socials = col('socials');
   const trustSeals = activeTrustSeals(col('trustSeals'));
   return (
@@ -571,7 +573,7 @@ function Footer() {
             <h2>{t('footer.quickTitle')}</h2>
             <ul>
               {NAV_LINKS.filter((link) =>
-                link.to !== '/' && (!link.shopOnly || shopEnabled) && (!link.faOnly || locale === 'fa')
+                link.to !== '/' && (!link.shopOnly || storefrontEnabled) && (!link.faOnly || locale === 'fa')
               ).map((link) => (
                 <li key={link.to}>
                   <Link to={link.to}>

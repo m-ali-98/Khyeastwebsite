@@ -371,9 +371,56 @@ try {
   check(cancelled.status === 'cancelled' && cancelled.autoCancelled, 'swept order records automatic cancellation');
   check(db.getProduct(D, 'limited').stock === 5, 'sweeper restores held stock');
 
-  const again = db.expirePendingOrders(D, new Date().toISOString());
+  let immediateTransactions = 0;
+  const observedDb = new Proxy(D, {
+    get(target, key) {
+      if (key === 'immediateTransaction') {
+        return (operation) => {
+          immediateTransactions += 1;
+          return target.immediateTransaction(operation);
+        };
+      }
+      const value = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const again = db.expirePendingOrders(observedDb, new Date().toISOString());
   check(again.length === 0, 'repeated sweeps do not cancel twice');
+  check(immediateTransactions === 1, 'expiry candidate reads begin after an immediate writer reservation');
   check(db.getProduct(D, 'limited').stock === 5, 'repeated sweeps cannot mint stock');
+
+  const directTransition = order({
+    id: crypto.randomUUID(),
+    code: `KY-DIRECT-TRANSITION-${Date.now()}`,
+    status: 'cancelled',
+    items: [line('nested-a', 3)],
+  });
+  db.insertOrder(D, directTransition);
+  const directRevival = db.updateOrder(D, directTransition.id, { status: 'paid' });
+  check(
+    directRevival.ok && db.getOrderById(D, directTransition.id).status === 'paid' &&
+      db.getProduct(D, 'nested-a').stock === 2,
+    'a direct status update atomically re-reserves a cancelled order',
+  );
+  const directCancellation = db.updateOrder(D, directTransition.id, { status: 'cancelled' });
+  check(
+    directCancellation.ok && db.getProduct(D, 'nested-a').stock === 5,
+    'a direct status update atomically restores stock when cancelling',
+  );
+  const unavailableRevival = order({
+    id: crypto.randomUUID(),
+    code: `KY-DIRECT-INSUFFICIENT-${Date.now()}`,
+    status: 'cancelled',
+    items: [line('nested-a', 6)],
+  });
+  db.insertOrder(D, unavailableRevival);
+  const refusedRevival = db.updateOrder(D, unavailableRevival.id, { status: 'paid' });
+  check(
+    !refusedRevival.ok && refusedRevival.error === 'insufficient stock' &&
+      db.getOrderById(D, unavailableRevival.id).status === 'cancelled' &&
+      db.getProduct(D, 'nested-a').stock === 5,
+    'an unavailable direct revival leaves both order status and inventory unchanged',
+  );
 
   const late = order({
     id: crypto.randomUUID(),
@@ -448,6 +495,30 @@ try {
 
   check(db.reserveStock(D, [{ slug: 'unlimited', qty: 50_000 }]).ok, 'unlimited stock accepts a large valid claim');
   check(db.getProduct(D, 'unlimited').stock === -1, 'unlimited stock remains -1 after reserve');
+  const unlimitedOrder = order({
+    id: crypto.randomUUID(),
+    code: `KY-UNLIMITED-${Date.now()}`,
+    status: 'paid',
+    paidAt: new Date().toISOString(),
+    items: [line('unlimited', 4)],
+  });
+  check(db.reserveAndInsertOrder(D, unlimitedOrder).ok, 'an active order can be placed against unlimited stock');
+  const refusedFiniteStock = db.updateProductStock(D, 'unlimited', 12, -1);
+  check(
+    !refusedFiniteStock.ok && refusedFiniteStock.error === 'active orders' &&
+      refusedFiniteStock.activeOrders === 1 && db.getProduct(D, 'unlimited').stock === -1,
+    'unlimited stock cannot become finite while an active unreserved order depends on it',
+  );
+  const canceledUnlimitedOrder = db.updateOrder(D, unlimitedOrder.id, { status: 'cancelled' });
+  check(
+    canceledUnlimitedOrder.ok && db.getProduct(D, 'unlimited').stock === -1,
+    'cancelling an unlimited-stock order does not fabricate finite inventory',
+  );
+  const finiteAfterResolution = db.updateProductStock(D, 'unlimited', 12, -1);
+  check(
+    finiteAfterResolution.ok && db.getProduct(D, 'unlimited').stock === 12,
+    'unlimited inventory may become finite after its active orders are resolved',
+  );
 
   /* Prove the HTTP server actually invokes the sweeper at startup, including
      orders abandoned while Node was offline. */

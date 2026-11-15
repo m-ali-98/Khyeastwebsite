@@ -8,6 +8,7 @@ import { useLocale } from '../i18n/LocaleContext';
 import NotFound from './NotFound';
 import ProductGallery from '../components/ProductGallery';
 import { catalogueShopPath } from '../../shared/shopLinks.js';
+import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
 
 export default function ProductDetail() {
   const { slug } = useParams();
@@ -18,7 +19,7 @@ export default function ProductDetail() {
   const product = products.find((p) => p.slug === slug);
   if (!product) return <NotFound />;
   const brand = brands.find((b) => b.id === product.brand);
-  const storefrontEnabled = shopEnabled && state.shop?.display?.enabled !== false;
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
   const shopPath = catalogueShopPath(product.slug, state.shop?.products);
 
   /* Same brand first. Someone looking at a 500g دزمایه is far more likely to

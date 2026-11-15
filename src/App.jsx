@@ -5,6 +5,7 @@ import RouteFallback from './components/RouteFallback';
 import SeoHead from './components/SeoHead';
 import { useContent } from './content/ContentContext';
 import { useLocale, localePath } from './i18n/LocaleContext';
+import { isStorefrontEnabled } from '../shared/shopAvailability.js';
 import { dismissBootSplash } from './lib/bootSplash';
 import useLoadingGate from './hooks/useLoadingGate';
 import Home from './pages/Home'; // landing page stays in the main bundle
@@ -55,7 +56,7 @@ function PublicRoutes() {
      are simply not mounted and fall through to the 404 page. */
   const { shopEnabled, locale } = useLocale();
   const { state } = useContent();
-  const storefrontEnabled = shopEnabled && state.shop?.display?.enabled !== false;
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
   const persianSite = locale === 'fa';
   return (
     <Routes>

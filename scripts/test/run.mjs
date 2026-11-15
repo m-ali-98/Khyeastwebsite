@@ -198,6 +198,9 @@ await reportSuite('shop-product-draft.mjs', 10000, 'catalogue-to-shop autofill c
 console.log('\nShop links — purchase actions should respect explicit catalogue relationships');
 await reportSuite('shop-links.mjs', 10000, 'catalogue purchase destination checks');
 
+console.log('\nStorefront pause — catalogue details stay public while shopping controls disappear');
+await reportSuite('storefront-disabled.mjs', 30000, 'M10 product-detail and navigation regression');
+
 console.log('\nProduct images — legacy media, ordered galleries and SQLite persistence');
 await reportSuite('product-images.mjs', 40000, 'gallery compatibility and persistence checks');
 
