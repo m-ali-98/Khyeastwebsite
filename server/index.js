@@ -51,10 +51,10 @@ import { socialLinkOverridesProblem, socialLinksProblem } from '../shared/social
 import { VIDEO_EMBED_FRAME_SOURCES } from '../shared/videoEmbeds.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
-import { readCookie } from './accounts.js';
+import { originAllowed, readCookie } from './accounts.js';
 import { sanitizeContentPayload, isRichTextValidationError } from './sanitize.js';
 import { createGracefulShutdown } from './gracefulShutdown.js';
-import { safeOrigin } from './siteOrigin.js';
+import { trustedCsrfOrigins } from './siteOrigin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -578,7 +578,7 @@ const clearAdminCookie = (req) => {
     serializeAdminCookie(LEGACY_ADMIN_COOKIE, '', { secure: mode.secure, maxAge: 0 }),
   ];
 };
-const ownOrigin = (req) => safeOrigin(req, '', process.env);
+const ownOrigins = (req) => trustedCsrfOrigins(req, process.env);
 const requireAuth = (req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   /* Bearer support remains for trusted scripts and existing integrations, but
@@ -595,11 +595,11 @@ const requireAuth = (req, res, next) => {
   if (!payload) return res.status(401).json({ error: 'unauthorized' });
 
   /* Cookie authentication needs an explicit CSRF boundary in addition to
-     SameSite=Strict. Native tools omit Origin and use Bearer; a browser that
-     sends an Origin on a state change must name this exact site. */
+     SameSite=Strict. Native tools omit Origin and use Bearer; browser writes
+     must name the canonical site or an explicitly trusted HTTPS alias. */
   if (!bearerToken && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     const origin = req.get('origin');
-    if (origin && origin !== ownOrigin(req)) return res.status(403).json({ error: 'forbidden' });
+    if (origin && !originAllowed(req, ownOrigins(req))) return res.status(403).json({ error: 'forbidden' });
   }
   req.session = payload;
   next();
@@ -624,17 +624,48 @@ const MAGIC = [
   { ext: '.jpg', test: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   { ext: '.gif', test: (b) => b.subarray(0, 6).toString('latin1').match(/^GIF8[79]a$/) },
   { ext: '.webp', test: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP' },
-  { ext: '.avif', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
-  { ext: '.mp4', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
-  { ext: '.m4v', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
-  { ext: '.mov', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
   { ext: '.webm', test: (b) => b.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) },
 ];
+
+/* ISO BMFF files all begin with `ftyp`; that marker alone also admits HEIC,
+   audio, and arbitrary polyglot data. Validate the complete bounded file-type
+   box, then require brands for the declared upload extension. */
+const isoFileBrands = (buffer) => {
+  if (!buffer || buffer.length < 16 || buffer.subarray(4, 8).toString('latin1') !== 'ftyp') return null;
+  let headerSize = 8;
+  let boxSize = buffer.readUInt32BE(0);
+  if (boxSize === 1) {
+    if (buffer.length < 24) return null;
+    const largeSize = buffer.readBigUInt64BE(8);
+    if (largeSize > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    boxSize = Number(largeSize);
+    headerSize = 16;
+  }
+  if (
+    boxSize === 0 || boxSize < headerSize + 8 || boxSize > buffer.length ||
+    (boxSize - (headerSize + 8)) % 4 !== 0
+  ) return null;
+
+  const brands = [buffer.subarray(headerSize, headerSize + 4).toString('latin1')];
+  const compatibleStart = headerSize + 8;
+  for (let offset = compatibleStart; offset < boxSize; offset += 4) {
+    brands.push(buffer.subarray(offset, offset + 4).toString('latin1'));
+  }
+  return brands;
+};
+const ISO_BRANDS_BY_EXT = {
+  '.avif': new Set(['avif', 'avis']),
+  '.mp4': new Set(['isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'iso7', 'iso8', 'iso9', 'mp41', 'mp42', 'avc1', 'M4V ']),
+  '.m4v': new Set(['M4V ', 'M4VH', 'M4VP', 'mp42', 'isom', 'iso2']),
+  '.mov': new Set(['qt  ']),
+};
 
 /** Does the file's content actually match the extension it claims? */
 const contentMatchesExt = (buf, ext) => {
   if (!buf || buf.length < 12) return false;
   const key = ext === '.jpeg' ? '.jpg' : ext;
+  const isoBrands = ISO_BRANDS_BY_EXT[key];
+  if (isoBrands) return (isoFileBrands(buf) || []).some((brand) => isoBrands.has(brand));
   const sigs = MAGIC.filter((m) => m.ext === key);
   return sigs.length ? sigs.some((m) => Boolean(m.test(buf))) : false;
 };
@@ -711,7 +742,7 @@ const reserveUploadSlot = (req, res, next) => {
   next();
 };
 
-const readFilePrefix = async (file, length = 16) => {
+const readFilePrefix = async (file, length = 4096) => {
   const handle = await fs.promises.open(file, 'r');
   try {
     const buffer = Buffer.alloc(length);
@@ -1543,6 +1574,7 @@ const shopRouter = createShopRouter({
   contentMutation: runContentMutation,
   assertContentAvailable: () => readContentStrict(),
   trustedImageOrigins: () => trustSealImageOrigins(readContentStrict().collections?.trustSeals),
+  selfOrigin: (req) => trustedCsrfOrigins(req, process.env),
 });
 app.use(shopRouter);
 
@@ -1558,7 +1590,7 @@ const accountRouter = createAccountRouter({
   isSecureRequest: secureRequest,
   /* Use the same deployment trust boundary as callback/SMS URLs; never let a
      client-supplied Host define the CSRF origin in production. */
-  selfOrigin: (req) => safeOrigin(req, '', process.env),
+  selfOrigin: (req) => trustedCsrfOrigins(req, process.env),
 });
 shopRouter.useCustomer(accountRouter.currentCustomer);
 app.use(accountRouter);

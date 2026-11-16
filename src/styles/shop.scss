@@ -1692,6 +1692,11 @@
   text-align: center;
   padding: 34px 0 8px;
 
+  &.is-paid .tick {
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
+
   .tick {
     width: 84px;
     height: 84px;

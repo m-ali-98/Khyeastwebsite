@@ -457,6 +457,7 @@ export function createAccountRouter({
   });
 
   r.post('/api/account/logout', (req, res) => {
+    if (!sameOrigin(req, res)) return;
     const token = readCookie(req.headers.cookie);
     if (token) db.deleteSession(D, hashToken(token));
     res.setHeader('Set-Cookie', clearCookie({ secure: isSecureRequest(req) }));

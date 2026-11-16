@@ -72,3 +72,23 @@ export function safeOrigin(req, configuredBase, env = process.env) {
   if (!origin || (production && (!origin.startsWith('https://') || !trusted.length))) return '';
   return origin;
 }
+
+/** Origins allowed to accompany browser state changes. A canonical origin is
+ * always accepted, while explicitly trusted production aliases are HTTPS-only
+ * and are validated independently of the request Host. The validated current
+ * origin remains available in development and TRUSTED_HOSTS-only deployments. */
+export function trustedCsrfOrigins(req, env = process.env) {
+  const allowed = new Set();
+  const production = env?.NODE_ENV === 'production';
+  const pinned = parseSiteOrigin(env?.PUBLIC_ORIGIN);
+  if (pinned && (!production || pinned.startsWith('https://'))) allowed.add(pinned);
+
+  const current = safeOrigin(req, '', env);
+  if (current && (!production || current.startsWith('https://'))) allowed.add(current);
+
+  for (const host of trustedHosts(env)) {
+    const alias = parseSiteOrigin(`https://${host}`);
+    if (alias) allowed.add(alias);
+  }
+  return [...allowed];
+}

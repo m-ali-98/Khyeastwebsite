@@ -129,9 +129,18 @@ const closedShopState = structuredClone(DEFAULT_STATE);
 closedShopState.shop.display.enabled = false;
 check(resolveSeo('/shop', closedShopState, ORIGIN).status === 404 && !listRoutablePaths(closedShopState).includes('/shop'), 'disabled storefront leaves no indexable shop shell');
 const pausedOrderRoute = resolveSeo('/shop/order/KY-PRIVATE-123', closedShopState, ORIGIN);
+const pausedLoginRoute = resolveSeo('/shop/login', closedShopState, ORIGIN);
+const pausedAccountRoute = resolveSeo('/shop/account', closedShopState, ORIGIN);
 check(
-  pausedOrderRoute.kind === 'private' && !pausedOrderRoute.indexable && !pausedOrderRoute.canonical,
-  'existing customer order routes remain private and noindex while the public storefront is paused',
+  pausedOrderRoute.kind === 'private' && !pausedOrderRoute.indexable && !pausedOrderRoute.canonical &&
+    pausedLoginRoute.kind === 'private' && !pausedLoginRoute.indexable &&
+    pausedAccountRoute.kind === 'private' && !pausedAccountRoute.indexable,
+  'login, account and existing order routes stay private and noindex while the storefront is paused',
+);
+check(
+  resolveSeo('/shop/cart', closedShopState, ORIGIN).status === 404 &&
+    resolveSeo('/shop/checkout', closedShopState, ORIGIN).status === 404,
+  'paused cart and checkout SSR routes return 404 like the client router',
 );
 check(redirectPath('/dezmaye') === '/products/dezmaye-gold-80', 'legacy brand permanent target');
 check(redirectPath('/en/dezmaye') === '/en/products/dezmaye-gold-80', 'localized legacy target');

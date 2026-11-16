@@ -91,6 +91,11 @@ export default function ShopOrder() {
         window.location.assign(data.payment.payUrl);
         return;
       }
+      if (res.status === 401) {
+        setPayError('');
+        setState('unauthenticated');
+        return;
+      }
       setPayError(data.error || t('shop.checkout.errServer'));
     } catch {
       setPayError(t('shop.checkout.errServer'));
@@ -102,6 +107,7 @@ export default function ShopOrder() {
 
   const currentIdx = order ? FLOW.indexOf(order.status) : -1;
   const cancelled = order?.status === 'cancelled';
+  const orderPaid = ['paid', 'shipped', 'delivered'].includes(order?.status);
 
   return (
     <section className="section">
@@ -136,11 +142,19 @@ export default function ShopOrder() {
 
         {state === 'ok' && order && (
           <>
-            <mo.div className="order-hero" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
+            <mo.div className={`order-hero ${orderPaid ? 'is-paid' : 'is-pending'}`} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
               <span className="tick">
-                <Icons.check size={40} />
+                {orderPaid ? <Icons.check size={40} /> : <Icons.clock size={40} />}
               </span>
-              <h1>{isNew ? t('shop.order.thanks') : t('shop.order.track')}</h1>
+              <h1>
+                {cancelled
+                  ? t('shop.order.st.cancelled')
+                  : orderPaid && isNew
+                    ? t('shop.order.thanks')
+                    : orderPaid
+                      ? t('shop.order.track')
+                      : t('shop.order.st.pending_payment')}
+              </h1>
               <div>
                 <span className="code">{order.code}</span>
               </div>

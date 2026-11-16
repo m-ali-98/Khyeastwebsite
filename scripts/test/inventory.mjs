@@ -358,7 +358,7 @@ try {
 
   let duplicateInsertRejected = false;
   try {
-    db.reserveAndInsertOrder(D, order({ id: expiring.id, code: `KY-CONFLICT-${Date.now()}`, items: [line('limited', 1)] }));
+    db.reserveAndInsertOrder(D, order({ id: crypto.randomUUID(), code: expiring.code, items: [line('limited', 1)] }));
   } catch {
     duplicateInsertRejected = true;
   }
@@ -501,7 +501,10 @@ try {
   });
   const claimedForRefund = db.getOrderById(D, lateEmpty.id);
   check(noStockClaim.ok && !noStockClaim.reserved, 'late payment without inventory is claimed for one refund worker');
-  check(claimedForRefund.status === 'cancelled' && claimedForRefund.autoCancelled, 'refund-pending claim does not pretend to hold stock');
+  check(
+    claimedForRefund.status === 'cancelled' && claimedForRefund.autoCancelled && claimedForRefund.autoCancelState === 2,
+    'refund-pending claim retains its exact transient marker without pretending to hold stock',
+  );
   check(claimedForRefund.adminNote === 'refund pending', 'refund-pending claim leaves an urgent durable note');
   check(claimedForRefund.needsAttention, 'unresolved late refund raises a durable attention flag before external refund work');
   check(!db.claimExpiredPayment(D, lateEmpty.id, {

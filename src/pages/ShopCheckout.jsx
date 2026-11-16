@@ -7,6 +7,7 @@ import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
 import CartAvailabilityNotice from '../shop/CartAvailabilityNotice';
 import { useAccount } from '../shop/AccountContext';
+import { checkoutOrderId, clearCheckoutOrderId } from '../shop/orderIntent';
 
 export default function ShopCheckout() {
   const { t } = useContent();
@@ -70,10 +71,20 @@ export default function ShopCheckout() {
         return;
       }
 
+      const orderIntent = {
+        customerId: String(account.customer?.id || ''),
+        items: current.rows
+          .map((r) => ({ slug: r.product.slug, qty: r.qty }))
+          .sort((a, b) => a.slug.localeCompare(b.slug)),
+        addressId,
+        note: noteText.trim(),
+      };
+      const idempotencyKey = await checkoutOrderId(orderIntent);
       const res = await fetch('/api/shop-public/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          idempotencyKey,
           items: current.rows.map((r) => ({ slug: r.product.slug, qty: r.qty })),
           /* The address is identified, not re-typed: the server copies the
              saved one into the order, so what ships is what the customer
@@ -117,6 +128,8 @@ export default function ShopCheckout() {
         throw Object.assign(new Error(msg), { handled: true });
       }
       const data = await res.json();
+      if (!data?.order?.code) throw new Error('invalid order response');
+      clearCheckoutOrderId(idempotencyKey);
       clear();
       if (data.payment?.payUrl) {
         leavingCheckout = true;

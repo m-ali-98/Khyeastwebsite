@@ -506,7 +506,9 @@ export function resolveSeo(pathname, state, requestedOrigin = DEFAULT_SITE_ORIGI
   let entity = null;
   let shopOffer = null;
 
-  const rawPrivate = /^\/admin(?:\/|$)/.test(path) || (shopEnabled(locale) && PRIVATE_SHOP_ROUTE.test(relative));
+  const pausedCartOrCheckout = !storefrontAvailable && /^\/shop\/(?:cart|checkout)$/.test(relative);
+  const rawPrivate = /^\/admin(?:\/|$)/.test(path) ||
+    (shopEnabled(locale) && PRIVATE_SHOP_ROUTE.test(relative) && !pausedCartOrCheckout);
   if (rawPrivate) {
     const titleKey = PRIVATE_TITLE_KEYS.find(([pattern]) => pattern.test(relative) || pattern.test(path))?.[1];
     const privateTitle = titleKey === 'admin' ? 'Admin' : plainText(texts[titleKey] || site);

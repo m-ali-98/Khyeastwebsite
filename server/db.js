@@ -909,7 +909,8 @@ export function updateProductStock(db, slug, stock, expectedStock) {
 const orderOut = (r, items) => ({
   id: r.id,
   code: r.code,
-  token: r.token,
+  /* `orders.token` is a retained legacy schema column. Order links no longer
+     use bearer tokens; do not select it into application responses. */
   items,
   customer: J(r.customer, {}),
   subtotal: r.subtotal,
@@ -927,6 +928,9 @@ const orderOut = (r, items) => ({
   paidAt: r.paid_at,
   customerId: r.customer_id || null,
   autoCancelled: Boolean(r.auto_cancelled),
+  /* Preserve the transient 2 marker for callback recovery. Admin/client views
+     can keep using the backward-compatible boolean above. */
+  autoCancelState: Number(r.auto_cancelled || 0),
   needsAttention: Boolean(r.needs_attention),
   archived: Boolean(r.archived),
 });
@@ -1268,7 +1272,7 @@ export function insertOrder(db, o) {
     ins.run({
       id: o.id,
       code: o.code,
-      token: o.token,
+      token: '',
       customer: JSON.stringify(o.customer || {}),
       subtotal: o.subtotal,
       shipping: o.shipping,
@@ -1311,22 +1315,24 @@ export function insertOrder(db, o) {
  *  A process crash can therefore leave either both the stock hold and its
  *  sweepable order, or neither — never an invisible permanent reservation. */
 export function reserveAndInsertOrder(db, order) {
-  const run = db.transaction(() => {
-    const reserved = reserveStock(db, order?.items);
-    if (!reserved.ok) {
-      const error = new Error(reserved.error || 'stock reservation failed');
-      error.inventoryFailure = true;
-      throw error;
+  return db.immediateTransaction(() => {
+    const orderId = String(order?.id || '');
+    const existingRow = orderId
+      ? db.prepare('SELECT customer_id FROM orders WHERE id = ?').get(orderId)
+      : null;
+    if (existingRow) {
+      const existing = getOrderById(db, orderId);
+      if (existing && existing.customerId === (order?.customerId || null)) {
+        return { ok: true, duplicate: true, order: existing };
+      }
+      return { ok: false, error: 'idempotency key conflict' };
     }
+
+    const reserved = reserveStock(db, order?.items);
+    if (!reserved.ok) return { ok: false, error: reserved.error || 'stock reservation failed' };
     insertOrder(db, order);
-  });
-  try {
-    run();
-    return { ok: true };
-  } catch (error) {
-    if (error?.inventoryFailure) return { ok: false, error: error.message };
-    throw error;
-  }
+    return { ok: true, duplicate: false };
+  })();
 }
 
 export function updateOrder(db, id, patch = {}) {

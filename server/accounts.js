@@ -217,7 +217,8 @@ export function readCookie(header, name = SESSION_COOKIE) {
 export function originAllowed(req, selfOrigin) {
   const origin = req.get?.('origin') || req.headers?.origin;
   if (!origin) return true;
-  return origin === selfOrigin;
+  const allowed = Array.isArray(selfOrigin) ? selfOrigin : [selfOrigin];
+  return allowed.some((candidate) => typeof candidate === 'string' && origin === candidate);
 }
 
 /* ------------------------------------------------------------- addresses */

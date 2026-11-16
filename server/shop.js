@@ -58,8 +58,11 @@ export { SHOP_SEED } from './seed.js';
 
 const ORDER_STATUS = ['pending_payment', 'paid', 'shipped', 'delivered', 'cancelled'];
 const rand = (n) => crypto.randomBytes(n).toString('hex');
+const ORDER_IDEMPOTENCY_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PUBLIC_COMMENT_PAGE_SIZE = 8;
 const PUBLIC_COMMENT_PAGE_MAX = 20;
+const REFUND_LEDGER_PAGE_SIZE = 100;
+const REFUND_LEDGER_MAX_PAGES = 100;
 
 /** Explicit customer-field allowlist shared with the account API. */
 export const publicTrackingOrder = publicOrderView;
@@ -334,13 +337,48 @@ export function createShopRouter({
     });
   }
 
+  /** Complete the durable marker left by a late-payment stock claim only
+   * after the exact attempt is terminally reversed. A crash between gateway
+   * success and this cleanup is repaired by the next callback/Admin retry. */
+  function finalizeLatePaymentReversal(orderId, authority) {
+    return D.immediateTransaction(() => {
+      const current = db.getOrderById(D, orderId);
+      if (
+        current?.status === 'cancelled' && current.autoCancelState === 2 &&
+        paymentAuthorityMatches(authority, current.payAuthority)
+      ) {
+        const note = 'پرداخت دیرهنگام به‌طور خودکار بازگردانده شد.';
+        const adminNote = current.adminNote.includes(note)
+          ? current.adminNote
+          : [current.adminNote, note].filter(Boolean).join('\n');
+        const updated = db.updateOrder(D, orderId, {
+          autoCancelled: false,
+          adminNote,
+        });
+        if (!updated.ok) {
+          db.appendOrderAdminNote(
+            D,
+            orderId,
+            'هشدار: وجه پرداخت دیرهنگام بازگردانده شد اما نشانگر انقضای سفارش پاک نشد؛ پیگیری لازم است.',
+            { needsAttention: true },
+          );
+        }
+      }
+      db.clearOrderPaymentAttentionIfResolved(D, orderId);
+      return db.getOrderById(D, orderId);
+    })();
+  }
+
   /** A second authority for an already-paid/cancelled order represents a real
    * extra charge, not an idempotent callback. Reverse that exact authority and
    * leave a durable Admin alert when the gateway cannot do so automatically. */
   async function reverseUnusablePayment(order, authority, refId, reason) {
     const attempt = db.getOrderPaymentAttempt(D, order.id, authority);
     if (!attempt) return { ok: false, error: 'payment attempt is not mapped' };
-    if (attempt.status === 'reversed') return { ok: true, alreadyReversed: true };
+    if (attempt.status === 'reversed') {
+      finalizeLatePaymentReversal(order.id, authority);
+      return { ok: true, alreadyReversed: true };
+    }
 
     /* Only one process may call the external reversal endpoint. A duplicate
        callback sees `reversing` and waits for that owner instead of issuing a
@@ -350,7 +388,10 @@ export function createShopRouter({
       verifiedAt: attempt.verifiedAt || new Date().toISOString(),
     });
     if (!claim.claimed) {
-      if (claim.attempt?.status === 'reversed') return { ok: true, alreadyReversed: true };
+      if (claim.attempt?.status === 'reversed') {
+        finalizeLatePaymentReversal(order.id, authority);
+        return { ok: true, alreadyReversed: true };
+      }
       if (claim.attempt?.status === 'reversing') {
         const started = new Date(claim.attempt.reversalStartedAt || 0).getTime();
         const retryAfter = Number.isFinite(started)
@@ -377,16 +418,25 @@ export function createShopRouter({
     );
 
     const claimedAt = claim.attempt?.reversalStartedAt;
-    const reversed = await paymentReverser(payment(), authority);
-    if (reversed.ok) {
+    let reversed;
+    try {
+      reversed = await paymentReverser(payment(), authority);
+    } catch (error) {
+      reversed = { ok: false, error: error?.message || 'gateway reversal failed' };
+    }
+    if (reversed?.ok) {
       /* Success is terminal financial evidence. It may safely finish after a
          lease was reclaimed, while the failed stale owner below is fenced by
          its exact claimedAt token and cannot overwrite this result. */
-      const finished = db.finishOrderPaymentReversal(D, order.id, authority, {
-        claimedAt,
-        ok: true,
-        reversedAt: new Date().toISOString(),
-      });
+      const finished = D.immediateTransaction(() => {
+        const result = db.finishOrderPaymentReversal(D, order.id, authority, {
+          claimedAt,
+          ok: true,
+          reversedAt: new Date().toISOString(),
+        });
+        if (result.attempt?.status === 'reversed') finalizeLatePaymentReversal(order.id, authority);
+        return result;
+      })();
       if (!finished.finished && finished.attempt?.status !== 'reversed') {
         db.appendOrderAdminNote(
           D,
@@ -423,7 +473,7 @@ export function createShopRouter({
          replacement worker and must not turn that worker's success into a
          false reversal_failed alert. */
       if (finished.attempt?.status === 'reversed') {
-        db.clearOrderPaymentAttentionIfResolved(D, order.id);
+        finalizeLatePaymentReversal(order.id, authority);
         return { ok: true, reversed: true, alreadyReversed: true, reclaimed: claim.reclaimed };
       }
       if (finished.attempt?.status === 'reversing') {
@@ -515,7 +565,8 @@ export function createShopRouter({
     const product = db.getProduct(D, slug);
     if (!product || !product.active) return res.status(404).json({ error: 'product not found' });
     const d = display();
-    if (!d.commentsEnabled || product.commentsLocked) return res.status(403).json({ error: 'comments closed' });
+    if (d.enabled === false || !d.commentsEnabled || product.commentsLocked)
+      return res.status(403).json({ error: 'comments closed' });
     const attempt = rateLimiter.reserve('comment', req.ip);
     if (attempt.limited) return rateLimitResponse(res, attempt.retryAfter);
     const item = {
@@ -553,6 +604,29 @@ export function createShopRouter({
        that typed contact is never treated as proof of ownership. */
     const account = getCustomer(req);
     if (!account) return res.status(401).json({ error: 'برای ثبت سفارش وارد حساب خود شوید.' });
+
+    const suppliedIdempotencyKey = req.body?.idempotencyKey;
+    if (
+      suppliedIdempotencyKey !== undefined &&
+      (typeof suppliedIdempotencyKey !== 'string' || !ORDER_IDEMPOTENCY_KEY_RE.test(suppliedIdempotencyKey))
+    ) return res.status(400).json({ error: 'invalid idempotency key' });
+    const orderId = suppliedIdempotencyKey ? suppliedIdempotencyKey.toLowerCase() : crypto.randomUUID();
+    const replayOrder = (existing) => res.json({
+      ok: true,
+      duplicate: true,
+      order: {
+        code: existing.code,
+        total: existing.total,
+        status: existing.status,
+        provider: existing.provider,
+      },
+      payment: { provider: payment().provider, payUrl: null, gatewayError: false },
+    });
+    const priorOrder = db.getOrderById(D, orderId);
+    if (priorOrder) {
+      if (priorOrder.customerId !== account.id) return res.status(409).json({ error: 'idempotency key conflict' });
+      return replayOrder(priorOrder);
+    }
 
     const c = customer || {};
     /* A saved address is copied into the order as a snapshot. Pointing at
@@ -626,9 +700,8 @@ export function createShopRouter({
       return res.status(400).json({ error: 'invalid order total' });
 
     const order = {
-      id: crypto.randomUUID(),
+      id: orderId,
       code: orderCode(),
-      token: rand(16),
       customerId: account.id,
       items: lines,
       customer: {
@@ -668,8 +741,15 @@ export function createShopRouter({
       throw error;
     }
     if (!placed.ok) {
-      const status = placed.error === 'insufficient stock' ? 409 : 400;
+      const status = ['insufficient stock', 'idempotency key conflict'].includes(placed.error) ? 409 : 400;
       return res.status(status).json({ error: placed.error });
+    }
+    if (placed.duplicate) {
+      const existing = placed.order || db.getOrderById(D, orderId);
+      if (!existing || existing.customerId !== account.id) {
+        return res.status(409).json({ error: 'idempotency key conflict' });
+      }
+      return replayOrder(existing);
     }
 
     /* payment */
@@ -819,10 +899,9 @@ export function createShopRouter({
        a route we should be running verification for. */
     if (req.params.provider !== 'zarinpal') return res.redirect(302, '/shop');
     const provider = req.params.provider;
-    if (provider !== 'zarinpal') return res.status(404).send('unknown gateway');
-    const code = provider === 'zarinpal' ? String(req.query.code || '') : String(req.query.order_id || '');
+    const code = String(req.query.code || '');
     const order = db.getOrderByCode(D, code);
-    if (!order) return res.status(404).send('unknown order');
+    if (!order) return res.redirect(302, '/shop');
     const callbackAuthority = String(req.query.Authority || req.query.authority || '');
     /* Equal totals do not bind a payment to an order. Ownership comes from the
        database-enforced attempt ledger; the explicit digest comparison stays
@@ -830,7 +909,7 @@ export function createShopRouter({
     const attempt = mappedPaymentAttempt(order.id, callbackAuthority);
     if (!attempt || attempt.provider !== provider) {
       console.warn(`[shop] rejected payment authority/provider mismatch for ${order.code}`);
-      return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
+      return res.redirect(302, '/shop');
     }
 
     /* Refreshing the browser after this exact attempt already settled is a
@@ -844,6 +923,14 @@ export function createShopRouter({
       return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=ok`);
     }
     if (attempt.status === 'reversed') {
+      if (order.status === 'cancelled' && order.autoCancelState === 2) {
+        await reverseUnusablePayment(
+          order,
+          callbackAuthority,
+          attempt.refId,
+          'هشدار: تکمیل وضعیت بازپرداخت پرداخت دیرهنگام بازیابی شد.',
+        );
+      }
       return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
     }
 
@@ -859,6 +946,24 @@ export function createShopRouter({
         retryAfter: callbackLimit.retryAfter,
         orderCode: order.code,
       });
+    }
+
+    /* `auto_cancelled=2` means a prior verified late-payment worker already
+       claimed the expiry transition. The persisted verification is authority
+       to retry the safe, fenced reversal without re-verifying or reserving
+       inventory a second time. */
+    if (
+      order.status === 'cancelled' && order.autoCancelState === 2 &&
+      ['verified', 'reversal_failed', 'reversing'].includes(attempt.status)
+    ) {
+      callbackLimit.finish(true);
+      await reverseUnusablePayment(
+        order,
+        callbackAuthority,
+        attempt.refId,
+        'هشدار: بازگرداندن پرداخت دیرهنگامِ ثبت‌شده در انتظار تکمیل است.',
+      );
+      return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
     }
 
     let ok = false;
@@ -962,7 +1067,22 @@ export function createShopRouter({
             break;
           }
 
-          if (current.status === 'cancelled' && current.autoCancelled) {
+          if (current.status === 'cancelled' && current.autoCancelState === 2) {
+            const lateAttempt = mappedPaymentAttempt(current.id, callbackAuthority);
+            if (['verified', 'reversal_failed', 'reversing'].includes(lateAttempt?.status)) {
+              await reverseUnusablePayment(
+                current,
+                callbackAuthority,
+                refId || lateAttempt.refId,
+                'هشدار: سفارش در حال بازیابی reverse پرداخت دیرهنگام است.',
+              );
+              ok = false;
+              resolved = true;
+              break;
+            }
+          }
+
+          if (current.status === 'cancelled' && current.autoCancelState === 1) {
             /* The customer completed payment on the expiry boundary. Claim the
                callback and re-reserve in one database transaction so duplicate
                workers cannot deduct the same units twice. */
@@ -986,10 +1106,26 @@ export function createShopRouter({
             });
 
             if (!claimed.ok) {
-              /* Another worker may have completed the state transition. If it
-                 still holds the transient claim, it alone owns refund work. */
+              /* Another worker may have completed the state transition. A
+                 marker 2 plus verified ledger evidence means refund work is
+                 recoverable; the fenced helper either claims it or reports an
+                 active Admin/worker claim without duplicating the gateway call. */
               current = db.getOrderById(D, current.id);
-              if (current?.status === 'cancelled' && current.autoCancelled) {
+              if (current?.status === 'cancelled' && current.autoCancelState === 2) {
+                const lateAttempt = mappedPaymentAttempt(current.id, callbackAuthority);
+                if (['verified', 'reversal_failed', 'reversing'].includes(lateAttempt?.status)) {
+                  await reverseUnusablePayment(
+                    current,
+                    callbackAuthority,
+                    refId || lateAttempt.refId,
+                    'هشدار: بازیابی بازگرداندن پرداخت دیرهنگام پس از claim هم‌زمان.',
+                  );
+                  ok = false;
+                  resolved = true;
+                  break;
+                }
+              }
+              if (current?.status === 'cancelled' && current.autoCancelState === 1) {
                 ok = false;
                 resolved = true;
               }
@@ -1003,38 +1139,16 @@ export function createShopRouter({
               break;
             }
 
-            const reversed = await paymentReverser(payment(), callbackAuthority);
-            if (reversed.ok) {
-              D.immediateTransaction(() => {
-                db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
-                  status: 'reversed',
-                  reversedAt: new Date().toISOString(),
-                  lastError: '',
-                });
-                db.updateOrder(D, current.id, {
-                  status: 'cancelled',
-                  autoCancelled: false,
-                  adminNote: [lateFailure, 'پرداخت دیرهنگام خودکار بازگردانده شد.'].join('\n'),
-                });
-                db.clearOrderPaymentAttentionIfResolved(D, current.id);
-              })();
-            } else {
-              const reversalError = String(reversed.message || reversed.error || 'automatic reversal failed');
-              D.immediateTransaction(() => {
-                db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
-                  status: 'reversal_failed',
-                  lastError: reversalError.slice(0, 300),
-                });
-                db.updateOrder(D, current.id, {
-                  /* Inventory could not be reclaimed, so this order must remain
-                     cancelled and visibly require Admin attention. */
-                  status: 'cancelled',
-                  autoCancelled: false,
-                  needsAttention: true,
-                  adminNote: [lateFailure, 'بازگرداندن خودکار وجه ناموفق بود؛ پیگیری فوری لازم است.'].join('\n'),
-                });
-              })();
-            }
+            /* A stock miss is still a verified financial attempt. Use the
+               same ledger claim/fencing path as every other unusable payment;
+               marker 2 remains durable on failure so a later callback or
+               Admin retry can safely recover it. */
+            await reverseUnusablePayment(
+              db.getOrderById(D, current.id) || current,
+              callbackAuthority,
+              refId,
+              'هشدار فوری: پرداخت دیرهنگام بود و موجودی کافی برای رزرو دوباره وجود نداشت.',
+            );
             ok = false;
             resolved = true;
             break;
@@ -1541,7 +1655,9 @@ export function createShopRouter({
     if (attempt.provider !== 'zarinpal') {
       return res.status(409).json({ error: 'بازگرداندن خودکار برای این درگاه پشتیبانی نمی‌شود.' });
     }
-    if (attempt.status === 'settled' || paymentAuthorityMatches(authority, order.payAuthority)) {
+    const recoverableLateAttempt = order.status === 'cancelled' && order.autoCancelState === 2 &&
+      ['verified', 'reversal_failed', 'reversing', 'reversed'].includes(attempt.status);
+    if (attempt.status === 'settled' || (paymentAuthorityMatches(authority, order.payAuthority) && !recoverableLateAttempt)) {
       return res.status(409).json({
         error: 'این authority پرداخت اصلی سفارش است؛ از دکمه بازگرداندن وجه سفارش استفاده کنید.',
       });
@@ -1730,15 +1846,43 @@ export function createShopRouter({
     const requestedCode = String(req.body?.orderCode || '').trim();
     if (!sessionId) return res.status(400).json({ error: 'شناسه تراکنش لازم است.' });
 
-    /* The refund API takes a terminal session id, not our stored ref_id. Fetch
-       the gateway's own row and verify its server-authored order description
-       and amount before an order is cancelled or its stock is released. */
-    const ledger = await transactionLister(payment(), { limit: 100, offset: 0 });
-    if (!ledger.ok) return res.status(409).json({ error: ledger.error || 'تراکنش برای تطبیق قابل دریافت نیست.' });
-    const transaction = (ledger.transactions || []).find(
-      (row) => String(row?.id ?? '') === sessionId,
-    );
-    if (!transaction) return res.status(409).json({ error: 'تراکنش در فهرست ترمینال پیدا نشد.' });
+    /* The refund API takes a terminal session id, not our stored ref_id. Page
+       through the gateway ledger until the exact row is found (or the ledger
+       ends) instead of silently limiting order matching to its newest 100. */
+    let transaction = null;
+    let pageOffset = 0;
+    let lastPageSignature = '';
+    let scanLimitReached = true;
+    for (let page = 0; page < REFUND_LEDGER_MAX_PAGES; page += 1) {
+      const ledger = await transactionLister(payment(), {
+        limit: REFUND_LEDGER_PAGE_SIZE,
+        offset: pageOffset,
+      });
+      if (!ledger.ok) {
+        return res.status(409).json({ error: ledger.error || 'تراکنش برای تطبیق قابل دریافت نیست.' });
+      }
+      const rows = Array.isArray(ledger.transactions) ? ledger.transactions : [];
+      transaction = rows.find((row) => String(row?.id ?? '') === sessionId) || null;
+      if (transaction) break;
+      if (rows.length < REFUND_LEDGER_PAGE_SIZE) {
+        scanLimitReached = false;
+        break;
+      }
+      const signature = rows.map((row) => String(row?.id ?? '')).join('\n');
+      if (signature === lastPageSignature) {
+        scanLimitReached = false;
+        break;
+      }
+      lastPageSignature = signature;
+      pageOffset += rows.length;
+    }
+    if (!transaction) {
+      return res.status(409).json({
+        error: scanLimitReached
+          ? 'تراکنش در محدوده امن جست‌وجوی دفتر ترمینال پیدا نشد؛ بررسی دستی لازم است.'
+          : 'تراکنش در فهرست ترمینال پیدا نشد.',
+      });
+    }
     const transactionAmount = Number(transaction.amount);
     const refundAmount = Number(req.body?.amount);
     if (

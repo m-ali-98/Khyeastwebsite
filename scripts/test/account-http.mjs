@@ -388,6 +388,15 @@ try {
   check(order.body.order.status === 'pending_payment', 'the silent order is still waiting for successful payment');
 
   /* --------------------------------------------------------- 7. logout */
+  const csrfLogout = await json(await call('POST', '/api/account/logout', {}, {
+    cookie: cookie1,
+    origin: 'https://evil.example',
+  }));
+  const afterCsrfLogout = await json(await call('GET', '/api/account/me', undefined, { cookie: cookie1 }));
+  check(
+    csrfLogout.status === 403 && afterCsrfLogout.body.customer !== null,
+    'a cross-origin logout cannot revoke or clear the customer session',
+  );
   const out = await json(await call('POST', '/api/account/logout', {}, { cookie: cookie1 }));
   check(out.status === 200, 'logout succeeds');
   const afterOut = await json(await call('GET', '/api/account/me', undefined, { cookie: cookie1 }));

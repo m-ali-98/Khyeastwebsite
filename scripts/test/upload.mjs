@@ -129,8 +129,30 @@ const photo = (w, h, fmt = 'jpeg') => {
 const mp4Fixture = (fill = 7) => Buffer.concat([
   Buffer.from([0, 0, 0, 0x18]),
   Buffer.from('ftypisom', 'latin1'),
+  Buffer.from([0, 0, 0, 0]),
+  Buffer.from('isommp42', 'latin1'),
   Buffer.alloc(64, fill),
 ]);
+const heicFixture = () => Buffer.concat([
+  Buffer.from([0, 0, 0, 0x14]),
+  Buffer.from('ftypheic', 'latin1'),
+  Buffer.from([0, 0, 0, 0]),
+  Buffer.from('heic', 'latin1'),
+  Buffer.alloc(32, 9),
+]);
+const isoFixture = (majorBrand, compatibleBrands = [], fill = 5) => {
+  const size = 16 + compatibleBrands.length * 4;
+  const sizeBytes = Buffer.alloc(4);
+  sizeBytes.writeUInt32BE(size);
+  return Buffer.concat([
+    sizeBytes,
+    Buffer.from('ftyp', 'latin1'),
+    Buffer.from(majorBrand, 'latin1'),
+    Buffer.from([0, 0, 0, 0]),
+    ...compatibleBrands.map((brand) => Buffer.from(brand, 'latin1')),
+    Buffer.alloc(32, fill),
+  ]);
+};
 
 const onDisk = (url) => path.join(UPLOADS, url.replace(/^\/uploads\//, ''));
 const incomingFiles = () => (fs.existsSync(INCOMING) ? fs.readdirSync(INCOMING) : []);
@@ -476,7 +498,7 @@ try {
 
   /* ---- a video is still stored byte for byte --------------------------- */
   {
-    /* Smallest thing that passes the magic-byte check for .mp4. */
+    /* A valid minimal ISO BMFF ftyp box with MP4 major/compatible brands. */
     const mp4 = mp4Fixture();
     const { status, body } = await send(token, mp4, 'clip.mp4', 'video/mp4');
     check(status === 200, 'a video uploads', String(status));
@@ -497,6 +519,20 @@ try {
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
     const r2 = await send(token, svg, 'logo.svg', 'image/svg+xml');
     check(r2.status === 415, 'svg is still refused outright', String(r2.status));
+
+    const heicAsMp4 = await send(token, heicFixture(), 'not-a-video.mp4', 'video/mp4');
+    check(heicAsMp4.status === 415, 'an unrelated HEIF ftyp brand is not accepted as MP4', String(heicAsMp4.status));
+    const mp4AsAvif = await send(token, mp4Fixture(), 'not-an-image.avif', 'image/avif');
+    check(mp4AsAvif.status === 415, 'MP4 brands are not accepted as AVIF image bytes', String(mp4AsAvif.status));
+    const compatibleAvif = await send(token, isoFixture('mif1', ['avif']), 'compatible-brand.avif', 'image/avif');
+    check(compatibleAvif.status === 200 && compatibleAvif.body.url?.endsWith('.avif'), 'an AVIF-compatible brand is accepted for an AVIF upload', String(compatibleAvif.status));
+    const m4v = await send(token, isoFixture('M4V '), 'clip.m4v', 'video/x-m4v');
+    check(m4v.status === 200 && m4v.body.url?.endsWith('.m4v'), 'the M4V brand is accepted for an M4V container', String(m4v.status));
+    const quickTime = await send(token, isoFixture('qt  '), 'clip.mov', 'video/quicktime');
+    check(quickTime.status === 200 && quickTime.body.url?.endsWith('.mov'), 'the QuickTime brand is accepted for a MOV container', String(quickTime.status));
+    for (const result of [compatibleAvif, m4v, quickTime]) {
+      if (result.body.url) fs.rmSync(onDisk(result.body.url), { force: true });
+    }
     check(incomingFiles().length === 0, 'rejected uploads remove their staged files', incomingFiles().join(', '));
 
     const wrongField = new FormData();

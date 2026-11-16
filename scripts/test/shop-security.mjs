@@ -8,7 +8,9 @@ import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { safeShopNext } from '../../shared/shopRedirect.js';
 import { publicOrderView } from '../../server/orderViews.js';
-import { isTrustedCallbackBase, safeOrigin } from '../../server/siteOrigin.js';
+import { checkoutOrderId, clearCheckoutOrderId } from '../../src/shop/orderIntent.js';
+import { isTrustedCallbackBase, safeOrigin, trustedCsrfOrigins } from '../../server/siteOrigin.js';
+import { originAllowed } from '../../server/accounts.js';
 import {
   orderCodeFromTransactionDescription,
   refundTransactionMatchesOrder,
@@ -70,6 +72,29 @@ const check = (ok, name, detail = '') => {
   const alias = { ...pinned, TRUSTED_HOSTS: 'www.shop.example.test' };
   check(isTrustedCallbackBase('https://www.shop.example.test', req('shop.example.test'), alias), 'an explicitly allowlisted HTTPS alias is accepted');
   check(!isTrustedCallbackBase('http://www.shop.example.test', req('shop.example.test', 'https'), alias), 'production callback origins must use HTTPS');
+  const csrfOrigins = trustedCsrfOrigins(req('shop.example.test'), alias);
+  const canonicalOriginRequest = {
+    ...req('shop.example.test'),
+    get: (name) => name === 'origin' ? 'https://shop.example.test' : name === 'host' ? 'shop.example.test' : '',
+  };
+  const aliasOriginRequest = {
+    ...req('shop.example.test'),
+    get: (name) => name === 'origin' ? 'https://www.shop.example.test' : name === 'host' ? 'shop.example.test' : '',
+  };
+  const insecureAliasRequest = {
+    ...req('shop.example.test'),
+    get: (name) => name === 'origin' ? 'http://www.shop.example.test' : name === 'host' ? 'shop.example.test' : '',
+  };
+  check(
+    csrfOrigins.includes(pinned.PUBLIC_ORIGIN) && csrfOrigins.includes('https://www.shop.example.test') &&
+      originAllowed(canonicalOriginRequest, csrfOrigins) && originAllowed(aliasOriginRequest, csrfOrigins),
+    'CSRF accepts the canonical origin and an explicitly trusted HTTPS alias',
+  );
+  check(
+    !originAllowed(insecureAliasRequest, csrfOrigins) &&
+      !csrfOrigins.includes('https://attacker.example'),
+    'CSRF excludes insecure aliases and unrelated origins',
+  );
   const allowlisted = { NODE_ENV: 'production', TRUSTED_HOSTS: 'shop.example.test' };
   check(safeOrigin(req('shop.example.test'), '', allowlisted) === 'https://shop.example.test', 'trusted-host-only production config resolves the matching HTTPS origin');
   check(safeOrigin(req('attacker.example'), '', allowlisted) === '', 'a non-allowlisted production Host is refused');
@@ -77,6 +102,39 @@ const check = (ok, name, detail = '') => {
   const development = { NODE_ENV: 'development' };
   check(safeOrigin(req('localhost:4175', 'http'), '', development) === 'http://localhost:4175', 'local development may use its validated request origin');
   check(!isTrustedCallbackBase('https://shop.example.test/path', req('shop.example.test'), pinned), 'callback settings cannot contain a path');
+}
+
+/* --------------------------------------------- N9: checkout idempotency */
+{
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  let lockTail = Promise.resolve();
+  const locks = {
+    request: (_name, _options, callback) => {
+      const run = lockTail.then(callback);
+      lockTail = run.then(() => undefined, () => undefined);
+      return run;
+    },
+  };
+  const payload = { customerId: 'customer-a', items: [{ slug: 'yeast', qty: 2 }], addressId: 'home', note: '' };
+  const [first, concurrent] = await Promise.all([
+    checkoutOrderId(payload, { storage, locks, cryptoApi: crypto.webcrypto, now: 1_800_000_000_000 }),
+    checkoutOrderId(payload, { storage, locks, cryptoApi: crypto.webcrypto, now: 1_800_000_000_000 }),
+  ]);
+  const changedIntent = await checkoutOrderId({ ...payload, note: 'leave at the door' }, {
+    storage, locks, cryptoApi: crypto.webcrypto, now: 1_800_000_000_000,
+  });
+  check(first === concurrent, 'same-payload checkout tabs converge on one locked local idempotency key');
+  check(first !== changedIntent, 'a materially different checkout intent receives a fresh key');
+  clearCheckoutOrderId(changedIntent, storage);
+  const renewed = await checkoutOrderId({ ...payload, note: 'leave at the door' }, {
+    storage, locks, cryptoApi: crypto.webcrypto, now: 1_800_000_000_001,
+  });
+  check(renewed !== changedIntent, 'a completed checkout clears its local idempotency key');
 }
 
 /* ------------------------------------------------ M8: session association */
@@ -106,6 +164,8 @@ const check = (ok, name, detail = '') => {
   const product = dbStore.listProducts(database).find((entry) => entry.active && Number(entry.stock) >= 2);
   let refundCalls = 0;
   const rows = [];
+  const transactionOffsets = [];
+  let transactionListBehavior = null;
   const addPaidOrder = (code, sessionId) => {
     const now = new Date().toISOString();
     const order = {
@@ -128,17 +188,23 @@ const check = (ok, name, detail = '') => {
   const permit = () => ({ limited: false, retryAfter: 0, finish() {} });
   let reverseCalls = 0;
   let verifyCalls = 0;
+  let verifyBehavior = async () => ({ ok: false });
   let reverseBehavior = async () => ({ ok: true });
+  let checkoutCustomerId = 'shop-security-customer';
   let origin = '';
   const router = createShopRouter({
     database,
     requireAuth: (_req, _res, next) => next(),
     rateLimiter: { check: permit, reserve: permit },
     selfOrigin: () => origin,
-    transactionLister: async () => ({ ok: true, transactions: rows }),
-    paymentVerifier: async () => {
+    transactionLister: async (_payment, { limit = 100, offset = 0 } = {}) => {
+      transactionOffsets.push(offset);
+      if (transactionListBehavior) return transactionListBehavior({ limit, offset });
+      return { ok: true, transactions: rows.slice(offset, offset + limit) };
+    },
+    paymentVerifier: async (...args) => {
       verifyCalls += 1;
-      return { ok: false };
+      return verifyBehavior(...args);
     },
     paymentReverser: async (...args) => {
       reverseCalls += 1;
@@ -146,6 +212,7 @@ const check = (ok, name, detail = '') => {
     },
     refundCreator: async () => { refundCalls += 1; return { ok: true, id: 'refund-ok' }; },
   });
+  router.useCustomer((request) => ({ id: request.get('x-test-customer') || checkoutCustomerId }));
   const app = express();
   app.use(express.json());
   app.use(router);
@@ -162,6 +229,14 @@ const check = (ok, name, detail = '') => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
+  const sendAttemptReverse = (orderId, authority) => fetch(
+    `${origin}/api/shop-admin/orders/${encodeURIComponent(orderId)}/payment-attempts/${encodeURIComponent(authority)}/reverse`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+  );
+  const sendPaymentCallback = (code, authority) => fetch(
+    `${origin}/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(code)}&Authority=${encodeURIComponent(authority)}&Status=OK`,
+    { redirect: 'manual' },
+  );
   const sendComment = (comment, requestOrigin = origin) => fetch(`${origin}/api/shop-public/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: requestOrigin },
@@ -171,6 +246,20 @@ const check = (ok, name, detail = '') => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: requestOrigin },
     body: JSON.stringify({}),
+  });
+  const sendCheckoutOrder = (idempotencyKey, customerId = checkoutCustomerId) => fetch(`${origin}/api/shop-public/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, 'X-Test-Customer': customerId },
+    body: JSON.stringify({
+      idempotencyKey,
+      items: [{ slug: product.slug, qty: 1 }],
+      customer: {
+        name: 'Shop Security Test',
+        phone: '09121234567',
+        city: 'اهواز',
+        address: 'خیابان تست، پلاک ۱۲۳',
+      },
+    }),
   });
   try {
     const wrongProviderOrder = {
@@ -197,10 +286,26 @@ const check = (ok, name, detail = '') => {
         `&Authority=${encodeURIComponent(wrongProviderOrder.payAuthority)}&Status=OK`,
       { redirect: 'manual' },
     );
+    const invalidAuthorityCallback = await fetch(
+      `${origin}/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(wrongProviderOrder.code)}` +
+        `&Authority=unmapped-authority&Status=OK`,
+      { redirect: 'manual' },
+    );
+    const unknownOrderCallback = await fetch(
+      `${origin}/api/shop-pay/zarinpal/callback?code=KY-UNKNOWN-ORDER&Authority=unmapped-authority&Status=OK`,
+      { redirect: 'manual' },
+    );
+    const callbackBodies = await Promise.all([
+      wrongProviderCallback.text(),
+      invalidAuthorityCallback.text(),
+      unknownOrderCallback.text(),
+    ]);
     check(
-      wrongProviderCallback.status === 302 &&
-        wrongProviderCallback.headers.get('location')?.includes('pay=fail') && verifyCalls === 0,
-      'a ZarinPal callback cannot verify an authority recorded for a different payment provider',
+      [wrongProviderCallback, invalidAuthorityCallback, unknownOrderCallback]
+        .every((response) => response.status === 302 && response.headers.get('location') === '/shop') &&
+        callbackBodies.every((body) => body === callbackBodies[0]) && verifyCalls === 0,
+      'unknown order codes and known orders with invalid authority/provider share one non-oracular callback response',
+      JSON.stringify([wrongProviderCallback.status, invalidAuthorityCallback.status, unknownOrderCallback.status]),
     );
     const wrongProviderAdminVerify = await fetch(
       `${origin}/api/shop-admin/payment/unverified/${encodeURIComponent(wrongProviderOrder.payAuthority)}/verify`,
@@ -219,10 +324,18 @@ const check = (ok, name, detail = '') => {
     );
 
     const previousDisplay = dbStore.getSetting(database, 'shop.display') || {};
+    const commentsBeforePause = dbStore.listComments(database).length;
     dbStore.setSetting(database, 'shop.display', { ...previousDisplay, enabled: false });
     const pausedOrder = await sendNewOrder();
+    const pausedComment = await sendComment({ slug: product.slug, name: 'مهمان', text: 'نظر هنگام توقف فروشگاه' });
     dbStore.setSetting(database, 'shop.display', { ...previousDisplay, enabled: true });
     check(pausedOrder.status === 403, 'the server rejects new orders while the public storefront is paused');
+    check(
+      pausedComment.status === 403 && dbStore.listComments(database).length === commentsBeforePause,
+      'comment writes are rejected while the storefront is paused without changing comment flags',
+    );
+    const sameOriginComment = await sendComment({ slug: product.slug, name: 'مهمان', text: 'نظر هم‌مبدأ' });
+    check(sameOriginComment.ok, 'same-origin comment writes remain enabled when the storefront is open');
 
     const mismatched = await sendRefund({ sessionId: 'session-A', orderCode: second.code, amount: first.total });
     check(mismatched.status === 409 && refundCalls === 0, 'wrong orderCode is rejected before the external refund call');
@@ -337,6 +450,299 @@ const check = (ok, name, detail = '') => {
         dbStore.getProduct(database, product.slug).stock === stockAtFailedReverse + 1,
       'an Admin can retry a failed claim and release stock exactly once after gateway success',
     );
+
+    const stockBeforeLateCallbacks = dbStore.getProduct(database, product.slug).stock;
+    const addExpiredLateOrder = (suffix, authority) => {
+      const now = new Date().toISOString();
+      const code = `KY-LATE-REVERSE-${suffix}`;
+      const lateOrder = {
+        id: crypto.randomUUID(),
+        code,
+        items: [{ slug: product.slug, title: product.title, unit: product.unit || '', price: product.price, qty: 1, sum: product.price }],
+        customer: {}, subtotal: product.price, shipping: 0, total: product.price, currency: 'IRR',
+        status: 'pending_payment', provider: 'zarinpal', payAuthority: authority, payRef: null,
+        adminNote: '', at: now, paidAt: null,
+      };
+      dbStore.insertOrder(database, lateOrder);
+      const expired = dbStore.expirePendingOrders(database, new Date(Date.now() + 60_000).toISOString());
+      if (!expired.some((entry) => entry.id === lateOrder.id)) throw new Error('late-payment fixture did not expire');
+      database.prepare('UPDATE products SET stock = 0 WHERE slug = ?').run(product.slug);
+      return lateOrder;
+    };
+
+    const failedLateOrder = addExpiredLateOrder('RETRY', 'AUTH-LATE-RETRY-001');
+    const verifierCallsBeforeLate = verifyCalls;
+    const reversalsBeforeLate = reverseCalls;
+    verifyBehavior = async () => ({ ok: true, refId: 'REF-LATE-RETRY' });
+    reverseBehavior = async () => ({ ok: false, message: 'temporary late-payment reversal outage' });
+    const failedLateCallback = await sendPaymentCallback(failedLateOrder.code, 'AUTH-LATE-RETRY-001');
+    const failedLateAttempt = dbStore.getOrderPaymentAttempt(database, failedLateOrder.id, 'AUTH-LATE-RETRY-001');
+    const failedLateState = dbStore.getOrderById(database, failedLateOrder.id);
+    check(
+      failedLateCallback.status === 302 && failedLateAttempt?.status === 'reversal_failed' &&
+        failedLateState.autoCancelState === 2 && failedLateState.status === 'cancelled' &&
+        reverseCalls === reversalsBeforeLate + 1,
+      'a no-stock late payment reverses through the claimed ledger path and retains marker 2 on failure',
+    );
+    const verifyCallsAfterLateFailure = verifyCalls;
+    reverseBehavior = async () => ({ ok: true });
+    const retriedLateCallback = await sendPaymentCallback(failedLateOrder.code, 'AUTH-LATE-RETRY-001');
+    const retriedLateAttempt = dbStore.getOrderPaymentAttempt(database, failedLateOrder.id, 'AUTH-LATE-RETRY-001');
+    const retriedLateState = dbStore.getOrderById(database, failedLateOrder.id);
+    check(
+      retriedLateCallback.status === 302 && retriedLateAttempt?.status === 'reversed' &&
+        retriedLateState.autoCancelState === 0 && !retriedLateState.autoCancelled &&
+        verifyCalls === verifyCallsAfterLateFailure && reverseCalls === reversalsBeforeLate + 2 &&
+        dbStore.getProduct(database, product.slug).stock === 0,
+      'a later callback retries reversal_failed without re-verification or inventory mutation',
+    );
+
+    const crashedLateOrder = addExpiredLateOrder('CRASH-RECOVERY', 'AUTH-LATE-CRASH-001');
+    const claimBeforeWorkerFailure = dbStore.claimExpiredPayment(database, crashedLateOrder.id, {
+      provider: 'zarinpal',
+      authority: 'AUTH-LATE-CRASH-001',
+      payRef: 'REF-LATE-CRASH',
+      paidAt: new Date().toISOString(),
+      successNote: 'late payment was verified',
+      failureNote: 'late payment awaits reversal',
+    });
+    check(
+      claimBeforeWorkerFailure.ok && !claimBeforeWorkerFailure.reserved &&
+        dbStore.getOrderById(database, crashedLateOrder.id).autoCancelState === 2 &&
+        dbStore.getOrderPaymentAttempt(database, crashedLateOrder.id, 'AUTH-LATE-CRASH-001')?.status === 'verified',
+      'a worker crash after the no-stock claim leaves recoverable verified evidence',
+    );
+
+    let signalLateReverseStarted;
+    let releaseLateReverse;
+    const lateReverseStarted = new Promise((resolve) => { signalLateReverseStarted = resolve; });
+    const lateReverseResult = new Promise((resolve) => { releaseLateReverse = resolve; });
+    reverseBehavior = async () => {
+      signalLateReverseStarted();
+      return lateReverseResult;
+    };
+    const verifyCallsBeforeRecovery = verifyCalls;
+    const reversalsBeforeRecovery = reverseCalls;
+    const recoveringCallbackPromise = sendPaymentCallback(crashedLateOrder.code, 'AUTH-LATE-CRASH-001');
+    await lateReverseStarted;
+    const adminRacingReverse = await sendAttemptReverse(crashedLateOrder.id, 'AUTH-LATE-CRASH-001');
+    const adminRacingBody = await adminRacingReverse.json();
+    check(
+      adminRacingReverse.status === 409 && adminRacingBody.code === 'reversal-in-progress' &&
+        reverseCalls === reversalsBeforeRecovery + 1,
+      'an Admin reverse racing callback recovery cannot issue a second gateway reversal',
+    );
+    releaseLateReverse({ ok: true });
+    const recoveredLateCallback = await recoveringCallbackPromise;
+    const recoveredLateState = dbStore.getOrderById(database, crashedLateOrder.id);
+    check(
+      recoveredLateCallback.status === 302 && recoveredLateState.autoCancelState === 0 &&
+        dbStore.getOrderPaymentAttempt(database, crashedLateOrder.id, 'AUTH-LATE-CRASH-001')?.status === 'reversed' &&
+        verifyCalls === verifyCallsBeforeRecovery && reverseCalls === reversalsBeforeRecovery + 1 &&
+        dbStore.getProduct(database, product.slug).stock === 0,
+      'a callback reclaims verified crash-state through the fenced path and atomically clears marker 2',
+    );
+
+    const orderLevelLateOrder = addExpiredLateOrder('ORDER-LEVEL-RACE', 'AUTH-LATE-ORDER-LEVEL-001');
+    const orderLevelLateClaim = dbStore.claimExpiredPayment(database, orderLevelLateOrder.id, {
+      provider: 'zarinpal', authority: 'AUTH-LATE-ORDER-LEVEL-001', payRef: 'REF-LATE-ORDER-LEVEL',
+      paidAt: new Date().toISOString(), successNote: 'late success', failureNote: 'late refund needed',
+    });
+    check(orderLevelLateClaim.ok && !orderLevelLateClaim.reserved, 'order-level reverse race fixture is in recoverable marker 2');
+    let signalOrderReverseStarted;
+    let releaseOrderReverse;
+    const orderReverseStarted = new Promise((resolve) => { signalOrderReverseStarted = resolve; });
+    const orderReverseResult = new Promise((resolve) => { releaseOrderReverse = resolve; });
+    reverseBehavior = async () => {
+      signalOrderReverseStarted();
+      return orderReverseResult;
+    };
+    const orderLevelCallsBefore = reverseCalls;
+    const orderLevelCallbackPromise = sendPaymentCallback(orderLevelLateOrder.code, 'AUTH-LATE-ORDER-LEVEL-001');
+    await orderReverseStarted;
+    const adminOrderReverseRace = await sendReverse(orderLevelLateOrder.id);
+    const adminOrderReverseRaceBody = await adminOrderReverseRace.json();
+    check(
+      adminOrderReverseRace.status === 409 && adminOrderReverseRaceBody.code === 'reversal-in-progress' &&
+        reverseCalls === orderLevelCallsBefore + 1,
+      'the order-level Admin reverse shares the callback claim and cannot issue a second reversal',
+    );
+    releaseOrderReverse({ ok: true });
+    await orderLevelCallbackPromise;
+    check(
+      dbStore.getOrderById(database, orderLevelLateOrder.id).autoCancelState === 0 &&
+        dbStore.getOrderPaymentAttempt(database, orderLevelLateOrder.id, 'AUTH-LATE-ORDER-LEVEL-001')?.status === 'reversed' &&
+        dbStore.getProduct(database, product.slug).stock === 0,
+      'callback completion and order-level Admin recovery leave one reversed ledger row and unchanged stock',
+    );
+
+    const adminRetryLateOrder = addExpiredLateOrder('ADMIN-RETRY', 'AUTH-LATE-ADMIN-RETRY-001');
+    const adminRetryLateClaim = dbStore.claimExpiredPayment(database, adminRetryLateOrder.id, {
+      provider: 'zarinpal', authority: 'AUTH-LATE-ADMIN-RETRY-001', payRef: 'REF-LATE-ADMIN-RETRY',
+      paidAt: new Date().toISOString(), successNote: 'late payment was verified', failureNote: 'late payment awaits reversal',
+    });
+    check(adminRetryLateClaim.ok && !adminRetryLateClaim.reserved, 'attempt-level Admin retry fixture retains marker 2 after no-stock claim');
+    reverseBehavior = async () => ({ ok: false, message: 'temporary late-payment outage before Admin retry' });
+    const failedAdminRetryCallback = await sendPaymentCallback(adminRetryLateOrder.code, 'AUTH-LATE-ADMIN-RETRY-001');
+    const adminRetryFailure = dbStore.getOrderPaymentAttempt(database, adminRetryLateOrder.id, 'AUTH-LATE-ADMIN-RETRY-001');
+    check(
+      failedAdminRetryCallback.status === 302 && adminRetryFailure?.status === 'reversal_failed' &&
+        dbStore.getOrderById(database, adminRetryLateOrder.id).autoCancelState === 2,
+      'a failed late-payment callback leaves the attempt specifically available to Admin recovery',
+    );
+    const verifiesBeforeAdminRetry = verifyCalls;
+    const reversalsBeforeAdminRetry = reverseCalls;
+    reverseBehavior = async () => ({ ok: true });
+    const adminLateRetry = await sendAttemptReverse(adminRetryLateOrder.id, 'AUTH-LATE-ADMIN-RETRY-001');
+    const adminLateRetryBody = await adminLateRetry.json();
+    check(
+      adminLateRetry.ok && adminLateRetryBody.attempt?.status === 'reversed' &&
+        adminLateRetryBody.order?.autoCancelState === 0 && !adminLateRetryBody.order?.autoCancelled &&
+        !adminLateRetryBody.order?.needsAttention && verifyCalls === verifiesBeforeAdminRetry &&
+        reverseCalls === reversalsBeforeAdminRetry + 1 && dbStore.getProduct(database, product.slug).stock === 0,
+      'the attempt-level Admin retry finalizes marker 2 without re-verification or inventory mutation',
+    );
+
+    const postSuccessCrashOrder = addExpiredLateOrder('POST-SUCCESS-CRASH', 'AUTH-LATE-POST-SUCCESS-001');
+    const postSuccessClaim = dbStore.claimExpiredPayment(database, postSuccessCrashOrder.id, {
+      provider: 'zarinpal', authority: 'AUTH-LATE-POST-SUCCESS-001', payRef: 'REF-LATE-POST-SUCCESS',
+      paidAt: new Date().toISOString(), successNote: 'late payment was verified', failureNote: 'late payment awaits reversal',
+    });
+    const reversalClaimBeforeCrash = dbStore.claimOrderPaymentReversal(database, postSuccessCrashOrder.id, 'AUTH-LATE-POST-SUCCESS-001', {
+      refId: 'REF-LATE-POST-SUCCESS', verifiedAt: new Date().toISOString(),
+    });
+    const ledgerSuccessBeforeCrash = dbStore.finishOrderPaymentReversal(database, postSuccessCrashOrder.id, 'AUTH-LATE-POST-SUCCESS-001', {
+      claimedAt: reversalClaimBeforeCrash.attempt?.reversalStartedAt,
+      ok: true,
+    });
+    const reversalsBeforeMarkerRepair = reverseCalls;
+    const markerRepairCallback = await sendPaymentCallback(postSuccessCrashOrder.code, 'AUTH-LATE-POST-SUCCESS-001');
+    const repairedPostSuccessOrder = dbStore.getOrderById(database, postSuccessCrashOrder.id);
+    check(
+      postSuccessClaim.ok && !postSuccessClaim.reserved && reversalClaimBeforeCrash.claimed && ledgerSuccessBeforeCrash.finished &&
+        markerRepairCallback.status === 302 && repairedPostSuccessOrder.autoCancelState === 0 &&
+        dbStore.getOrderPaymentAttempt(database, postSuccessCrashOrder.id, 'AUTH-LATE-POST-SUCCESS-001')?.status === 'reversed' &&
+        reverseCalls === reversalsBeforeMarkerRepair && dbStore.getProduct(database, product.slug).stock === 0,
+      'a callback repairs the durable marker after gateway success was recorded but the worker crashed before cleanup',
+    );
+    database.prepare('UPDATE products SET stock = ? WHERE slug = ?').run(stockBeforeLateCallbacks, product.slug);
+
+    const olderLedgerOrder = addPaidOrder('KY-REFUND-OLDER-LEDGER', 'session-older-ledger');
+    const olderLedgerRowIndex = rows.findIndex((row) => row.id === 'session-older-ledger');
+    const olderLedgerRow = rows.splice(olderLedgerRowIndex, 1)[0];
+    rows.push(...Array.from({ length: 110 }, (_unused, index) => ({
+      id: `filler-${index}`,
+      status: 'ACTIVE',
+      amount: 1,
+      description: 'unrelated terminal transaction',
+    })), olderLedgerRow);
+    transactionOffsets.length = 0;
+    const olderLedgerRefund = await sendRefund({
+      sessionId: 'session-older-ledger',
+      orderCode: olderLedgerOrder.code,
+      amount: olderLedgerOrder.total,
+    });
+    const olderLedgerRefundBody = await olderLedgerRefund.json();
+    check(
+      olderLedgerRefund.ok && olderLedgerRefundBody.order?.status === 'cancelled' &&
+        transactionOffsets.includes(100),
+      'refund verification paginates beyond the newest 100 terminal transactions',
+      JSON.stringify(transactionOffsets),
+    );
+
+    transactionOffsets.length = 0;
+    transactionListBehavior = ({ limit, offset }) => ({
+      ok: true,
+      transactions: Array.from({ length: limit }, (_unused, index) => ({
+        id: `cap-${offset + index}`,
+        status: 'ACTIVE',
+        amount: 1,
+        description: 'unrelated terminal transaction',
+      })),
+    });
+    const refundCallsBeforeLedgerCap = refundCalls;
+    const cappedLedgerRefund = await sendRefund({ sessionId: 'missing-beyond-ledger-cap', amount: 1 });
+    const cappedLedgerBody = await cappedLedgerRefund.json();
+    check(
+      cappedLedgerRefund.status === 409 && cappedLedgerBody.error?.includes('محدوده امن') &&
+        transactionOffsets.length === 100 && transactionOffsets.at(-1) === 9900 &&
+        refundCalls === refundCallsBeforeLedgerCap,
+      'refund matching stops at 100 ledger pages and requests manual review without issuing a refund',
+      JSON.stringify({ pages: transactionOffsets.length, lastOffset: transactionOffsets.at(-1), error: cappedLedgerBody.error }),
+    );
+
+    transactionOffsets.length = 0;
+    transactionListBehavior = ({ limit }) => ({
+      ok: true,
+      transactions: Array.from({ length: limit }, (_unused, index) => ({
+        id: `stuck-page-${index}`,
+        status: 'ACTIVE',
+        amount: 1,
+        description: 'unrelated terminal transaction',
+      })),
+    });
+    const repeatedLedgerRefund = await sendRefund({ sessionId: 'missing-from-repeated-page', amount: 1 });
+    const repeatedLedgerBody = await repeatedLedgerRefund.json();
+    check(
+      repeatedLedgerRefund.status === 409 && !repeatedLedgerBody.error?.includes('محدوده امن') &&
+        transactionOffsets.length === 2 && transactionOffsets[0] === 0 && transactionOffsets[1] === 100,
+      'refund matching detects a repeated ledger page instead of scanning it 100 times',
+      JSON.stringify(transactionOffsets),
+    );
+    transactionListBehavior = null;
+
+    const orderIdempotencyKey = crypto.randomUUID();
+    const stockBeforeIdempotentOrder = dbStore.getProduct(database, product.slug).stock;
+    const [firstOrderResponse, replayOrderResponse] = await Promise.all([
+      sendCheckoutOrder(orderIdempotencyKey),
+      sendCheckoutOrder(orderIdempotencyKey),
+    ]);
+    const [firstOrderBody, replayOrderBody] = await Promise.all([
+      firstOrderResponse.json(),
+      replayOrderResponse.json(),
+    ]);
+    const storedIdempotentOrder = dbStore.getOrderById(database, orderIdempotencyKey);
+    const stockAfterIdempotentOrder = dbStore.getProduct(database, product.slug).stock;
+    check(
+      firstOrderResponse.ok && replayOrderResponse.ok &&
+        firstOrderBody.order?.code === replayOrderBody.order?.code &&
+        [firstOrderBody.duplicate, replayOrderBody.duplicate].filter(Boolean).length === 1 &&
+        storedIdempotentOrder?.customerId === checkoutCustomerId,
+      'cross-tab order replays share one server idempotency key and the same order',
+      JSON.stringify({ first: firstOrderBody, replay: replayOrderBody }),
+    );
+    check(
+      stockAfterIdempotentOrder === (stockBeforeIdempotentOrder >= 0 ? stockBeforeIdempotentOrder - 1 : stockBeforeIdempotentOrder) &&
+        !Object.hasOwn(storedIdempotentOrder || {}, 'token') &&
+        database.prepare('SELECT token FROM orders WHERE id = ?').get(orderIdempotencyKey)?.token === '',
+      'an idempotent replay reserves stock once and new orders mint no legacy bearer token',
+    );
+    checkoutCustomerId = 'different-shopper';
+    const foreignIdempotencyReplay = await sendCheckoutOrder(orderIdempotencyKey);
+    check(foreignIdempotencyReplay.status === 409, 'an idempotency key cannot reveal another customer’s order');
+
+    const contestedIdempotencyKey = crypto.randomUUID();
+    const stockBeforeContestedIdempotency = dbStore.getProduct(database, product.slug).stock;
+    const [contestedA, contestedB] = await Promise.all([
+      sendCheckoutOrder(contestedIdempotencyKey, 'customer-race-a'),
+      sendCheckoutOrder(contestedIdempotencyKey, 'customer-race-b'),
+    ]);
+    const [contestedBodyA, contestedBodyB] = await Promise.all([contestedA.json(), contestedB.json()]);
+    const contestedOrder = dbStore.getOrderById(database, contestedIdempotencyKey);
+    const contestedSuccessIndex = [contestedA, contestedB].findIndex((response) => response.status === 200);
+    check(
+      [contestedA.status, contestedB.status].filter((status) => status === 200).length === 1 &&
+        [contestedA.status, contestedB.status].filter((status) => status === 409).length === 1 &&
+        contestedOrder?.customerId === (contestedSuccessIndex === 0 ? 'customer-race-a' : 'customer-race-b') &&
+        !('order' in (contestedSuccessIndex === 0 ? contestedBodyB : contestedBodyA)),
+      'simultaneous customers competing for one idempotency key produce one owner and no foreign order disclosure',
+      JSON.stringify([contestedA.status, contestedB.status]),
+    );
+    check(
+      dbStore.getProduct(database, product.slug).stock ===
+        (stockBeforeContestedIdempotency >= 0 ? stockBeforeContestedIdempotency - 1 : stockBeforeContestedIdempotency),
+      'a different-customer idempotency conflict does not reserve inventory a second time',
+    );
   } finally {
     await new Promise((resolve) => server.close(resolve));
     database.close();
@@ -361,6 +767,11 @@ const check = (ok, name, detail = '') => {
 
   const checkout = source('src/pages/ShopCheckout.jsx');
   check(checkout.includes('if (submitLock.current) return;'), 'checkout ignores same-tick duplicate submissions');
+  check(
+    checkout.includes('checkoutOrderId(orderIntent)') && checkout.includes('idempotencyKey') &&
+      checkout.includes('clearCheckoutOrderId(idempotencyKey)'),
+    'checkout sends and clears a cross-tab-safe server idempotency key',
+  );
   check(checkout.includes('if (!leavingCheckout)') && checkout.includes('window.location.assign(data.payment.payUrl)'), 'successful navigation keeps the checkout submission locked');
 
   const layout = source('src/components/Layout.jsx');
@@ -372,6 +783,16 @@ const check = (ok, name, detail = '') => {
   check(orderPage.includes("params.get('gateway') === 'error'") && orderPage.includes('role="alert"'), 'gateway creation failures and retry errors are visible to the customer');
   check(orderPage.includes("clean.delete('token')") && orderPage.includes('replace: true'), 'legacy bearer tokens are removed from the browser URL and history');
   check(orderPage.includes('setPayError(data.error || t('), 'payment retry errors are not silently swallowed');
+  check(
+    orderPage.includes('if (res.status === 401)') && orderPage.includes("setState('unauthenticated')") &&
+      orderPage.includes('const loginHref = `/shop/login?next=${encodeURIComponent(loginNext)}`'),
+    'Pay Now session expiry restores the login flow with the exact order URL as next',
+  );
+  check(
+    orderPage.includes("const orderPaid = ['paid', 'shipped', 'delivered']") &&
+      orderPage.includes('<Icons.clock size={40} />') && orderPage.includes('orderPaid && isNew'),
+    'failed and unpaid orders use pending/cancelled hero chrome instead of a success check',
+  );
   check(
     orderPage.includes("order.status === 'pending_payment' && paymentProvider !== 'offline'") && orderPage.includes('const payLock = useRef(false)'),
     'pending orders keep Pay Now available when metadata is unknown and ignore same-tick duplicate clicks',
