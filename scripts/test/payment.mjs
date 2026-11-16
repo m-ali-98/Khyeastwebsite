@@ -309,6 +309,7 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
 
   const {
     PAYMENT_VERIFICATION_AUTO_RETRY_LIMIT,
+    paymentCallbackRateLimitedResponse,
     paymentVerificationRetryPlan,
     retryablePaymentVerificationResponse,
   } = await import(pathToFileURL(path.join(ROOT, 'server', 'shop.js')).href);
@@ -370,6 +371,29 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
       !terminalPlan.manualUrl.includes('_kyVerifyRetry'),
     'callback: automatic verification retries stop at a finite limit and leave a manual action',
     JSON.stringify({ terminal, terminalHeaders, terminalPlan }),
+  );
+
+  const limitedHeaders = {};
+  const limited = { code: 0, type: '', body: '' };
+  const limitedResponse = {
+    setHeader(name, value) { limitedHeaders[name.toLowerCase()] = String(value); },
+    status(code) { limited.code = code; return this; },
+    type(value) { limited.type = value; return this; },
+    send(value) { limited.body = String(value); return this; },
+  };
+  paymentCallbackRateLimitedResponse(limitedResponse, {
+    retryAfter: 37,
+    orderCode: 'KY-TEST-123',
+  });
+  check(
+    limited.code === 429 && limited.type === 'html' &&
+      limitedHeaders['retry-after'] === '37' &&
+      limitedHeaders['cache-control']?.includes('no-store') &&
+      limitedHeaders['x-robots-tag']?.includes('noindex') &&
+      limited.body.includes('KY-TEST-123') &&
+      limited.body.includes('لطفاً پرداخت تازه‌ای انجام ندهید'),
+    'callback: rate limiting gives the customer a private, actionable wait page instead of raw JSON',
+    JSON.stringify({ limited, limitedHeaders }),
   );
 
   const fallbackHtml = fs.readFileSync(path.join(ROOT, 'ops', 'payment-callback-unavailable.html'), 'utf8');

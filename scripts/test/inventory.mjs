@@ -431,6 +431,10 @@ try {
   });
   check(db.reserveAndInsertOrder(D, late).ok, 'late-callback fixture is atomically reserved and inserted');
   db.recordOrderPaymentAttempt(D, late.id, { authority: 'AUTH-LATE-RETRY', provider: 'zarinpal' });
+  db.updateOrderPaymentAttempt(D, late.id, 'AUTH-LATE-RETRY', {
+    status: 'reversal_failed',
+    lastError: 'second attempt still unresolved',
+  });
   check(db.expirePendingOrders(D, new Date().toISOString()).length === 1, 'late-callback fixture first expires');
   const lateClaim = db.claimExpiredPayment(D, late.id, {
     provider: 'zarinpal',
@@ -445,12 +449,37 @@ try {
     db.getOrderById(D, late.id).status === 'paid' && db.getOrderById(D, late.id).payAuthority === 'AUTH-LATE',
     'claimed late payment becomes paid under the authority that actually settled',
   );
-  check(!db.getOrderById(D, late.id).needsAttention, 'successful late-payment recovery clears its transient attention flag');
+  check(
+    db.getOrderById(D, late.id).needsAttention,
+    'successful late-payment recovery does not clear an unresolved second-attempt reversal warning',
+  );
   check(db.getProduct(D, 'late').stock === 2, 'late-payment claim reserves its units exactly once');
   const duplicateClaim = db.claimExpiredPayment(D, late.id, {
     provider: 'zarinpal', authority: 'AUTH-LATE', payRef: 'again', paidAt: new Date().toISOString(), successNote: 'again', failureNote: 'again',
   });
   check(!duplicateClaim.ok && db.getProduct(D, 'late').stock === 2, 'duplicate callback cannot reserve late-payment stock twice');
+
+  const lateClean = order({
+    id: crypto.randomUUID(),
+    code: `KY-LATE-CLEAN-${Date.now()}`,
+    provider: 'zarinpal',
+    payAuthority: 'AUTH-LATE-CLEAN',
+    items: [line('late', 1)],
+  });
+  check(db.reserveAndInsertOrder(D, lateClean).ok, 'clean late-payment fixture is reserved');
+  db.expirePendingOrders(D, new Date().toISOString());
+  const cleanLateClaim = db.claimExpiredPayment(D, lateClean.id, {
+    provider: 'zarinpal',
+    authority: 'AUTH-LATE-CLEAN',
+    payRef: 'clean-late-ref',
+    paidAt: new Date().toISOString(),
+    successNote: 'clean late success',
+    failureNote: 'clean late failure',
+  });
+  check(
+    cleanLateClaim.ok && cleanLateClaim.reserved && !db.getOrderById(D, lateClean.id).needsAttention,
+    'successful late payment clears only its resolved transient warning when no other attempt is unresolved',
+  );
 
   const lateEmpty = order({
     id: crypto.randomUUID(),

@@ -129,13 +129,19 @@ export function ShopProvider({ children }) {
       headers: { Accept: 'application/json' },
     })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error('shop payment api'))))
-      .then((payload) => payload?.paymentProvider || 'offline')
-      .catch(() => 'offline')
-      .then((provider) => {
+      .then((payload) => {
+        const provider = payload?.paymentProvider;
+        if (typeof provider !== 'string' || !provider.trim()) {
+          throw new Error('invalid shop payment provider');
+        }
         paymentProviderRef.current = provider;
         setPaymentProvider(provider);
         return provider;
       })
+      /* A transport or response failure is not evidence that online payments
+         are disabled. Leave the cache empty so a later call can retry; callers
+         must let the payment endpoint decide whether a retry is available. */
+      .catch(() => null)
       .finally(() => { paymentProviderRequest.current = null; });
     return paymentProviderRequest.current;
   }, []);

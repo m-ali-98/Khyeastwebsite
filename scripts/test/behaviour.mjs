@@ -339,9 +339,12 @@ try {
     'unknown callback probes cannot consume a mapped authority’s legitimate allowance',
     JSON.stringify({ wrongCallbackStatuses, first: firstMappedCallback.status, second: secondMappedCallback.status }),
   );
+  const limitedCallbackHtml = await limitedMappedCallback.text();
   check(
-    limitedMappedCallback.status === 429 && Number(limitedMappedCallback.headers.get('retry-after')) > 0,
-    'the dedicated mapped payment-callback bucket returns an actionable 429',
+    limitedMappedCallback.status === 429 && Number(limitedMappedCallback.headers.get('retry-after')) > 0 &&
+      limitedMappedCallback.headers.get('content-type')?.includes('text/html') &&
+      limitedCallbackHtml.includes('درخواست بررسی زیاد است') && limitedCallbackHtml.includes('پرداخت تازه‌ای انجام ندهید'),
+    'the dedicated mapped payment-callback bucket returns a helpful, retryable customer page',
     `got ${limitedMappedCallback.status}`,
   );
 

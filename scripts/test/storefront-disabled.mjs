@@ -2,6 +2,7 @@
    controls without taking public catalogue product details offline. Render the
    real page component in a MemoryRouter so this check does not depend on the
    route-one harness's browser globals. */
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
@@ -26,6 +27,14 @@ const check = (ok, name, detail = '') => {
 check(!isStorefrontEnabled(true, { enabled: false }), 'an operator-disabled storefront is unavailable');
 check(isStorefrontEnabled(true, { enabled: true }), 'an enabled Persian storefront remains available');
 check(!isStorefrontEnabled(false, { enabled: true }), 'the storefront remains locale-gated');
+const appSource = fs.readFileSync(path.join(ROOT, 'src/App.jsx'), 'utf8');
+check(
+  appSource.includes('{shopEnabled && (') &&
+    appSource.includes('<Route path="/shop/order/:code"') &&
+    appSource.includes('<Route path="/shop/login"') &&
+    appSource.includes('<Route path="/shop/account"'),
+  'existing order history, login and account routes stay available while sales are paused',
+);
 
 const vite = await createServer({
   root: ROOT,

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { m as mo } from 'framer-motion';
 import { Icons, Reveal, faNum } from '../components/ui';
@@ -18,6 +18,7 @@ export default function ShopOrder() {
   const [order, setOrder] = useState(null);
   const [state, setState] = useState('loading'); // loading | unauthenticated | notfound | ok
   const [busy, setBusy] = useState(false);
+  const payLock = useRef(false);
   const [payError, setPayError] = useState('');
 
   const pay = params.get('pay');
@@ -75,7 +76,8 @@ export default function ShopOrder() {
   }, [code]);
 
   const payNow = async () => {
-    if (busy) return;
+    if (payLock.current) return;
+    payLock.current = true;
     setBusy(true);
     setPayError('');
     try {
@@ -93,6 +95,7 @@ export default function ShopOrder() {
     } catch {
       setPayError(t('shop.checkout.errServer'));
     } finally {
+      payLock.current = false;
       setBusy(false);
     }
   };
@@ -154,6 +157,9 @@ export default function ShopOrder() {
             {payError && <div className="order-banner fail" role="alert">{payError}</div>}
             {!pay && !gatewayError && order.status === 'pending_payment' && paymentProvider && paymentProvider !== 'offline' && (
               <div className="order-banner fail">{t('shop.order.awaitPay')}</div>
+            )}
+            {order.status === 'pending_payment' && paymentProvider === 'offline' && (
+              <div className="order-banner fail" role="status">پرداخت آنلاین برای این سفارش در دسترس نیست. با پشتیبانی تماس بگیرید.</div>
             )}
 
             <div className={`order-timeline ${cancelled ? 'cancelled' : ''}`}>
@@ -253,7 +259,7 @@ export default function ShopOrder() {
             </div>
 
             <div className="order-actions">
-              {order.status === 'pending_payment' && paymentProvider && paymentProvider !== 'offline' && (
+              {order.status === 'pending_payment' && paymentProvider !== 'offline' && (
                 <mo.button className="btn btn--primary" onClick={payNow} disabled={busy} whileTap={{ scale: 0.97 }}>
                   <Icons.shield size={18} />
                   {busy ? '…' : t('shop.order.payNow')}

@@ -109,6 +109,20 @@ export function paymentVerificationRetryPlan(originalUrl = '/') {
 /** An upstream verification timeout is ambiguous: the customer may already be
  * charged. Release callback capacity and retry the same authority a bounded
  * number of times; never call a timeout a failed payment or refresh forever. */
+export function paymentCallbackRateLimitedResponse(res, {
+  retryAfter = 1,
+  orderCode = '',
+} = {}) {
+  const seconds = Math.max(1, Math.ceil(Number(retryAfter) || 1));
+  const orderPath = `/shop/order/${encodeURIComponent(String(orderCode || ''))}`;
+  res.setHeader('Retry-After', String(seconds));
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  return res.status(429).type('html').send(`<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>بررسی پرداخت</title></head>
+<body><main><h1>درخواست بررسی زیاد است</h1><p>برای محافظت از پرداخت، بررسی‌های پیاپی موقتاً محدود شده‌اند. حدود ${seconds} ثانیه صبر کنید و سپس وضعیت همین سفارش را ببینید.</p><p><strong>لطفاً پرداخت تازه‌ای انجام ندهید.</strong></p><p><a href="${htmlAttribute(orderPath)}">مشاهده وضعیت سفارش</a></p></main></body></html>`);
+}
+
 export function retryablePaymentVerificationResponse(res, {
   releaseReservation = () => {},
   error = null,
@@ -167,6 +181,7 @@ export function createShopRouter({
   contentMutation = (operation) => Promise.resolve().then(operation),
   assertContentAvailable = () => {},
   paymentVerifier = verifyPayment,
+  paymentReverser = reversePayment,
   refundCreator = createRefund,
   transactionLister = listTransactions,
   selfOrigin = (req) => safeOrigin(req, ''),
@@ -362,7 +377,7 @@ export function createShopRouter({
     );
 
     const claimedAt = claim.attempt?.reversalStartedAt;
-    const reversed = await reversePayment(payment(), authority);
+    const reversed = await paymentReverser(payment(), authority);
     if (reversed.ok) {
       /* Success is terminal financial evidence. It may safely finish after a
          lease was reclaimed, while the failed stale owner below is fenced by
@@ -492,6 +507,7 @@ export function createShopRouter({
   });
 
   r.post('/api/shop-public/comments', (req, res) => {
+    if (!sameOrigin(req, res)) return;
     const blocked = limited('comment', req.ip, res);
     if (blocked) return blocked;
     const { slug, name, text } = req.body || {};
@@ -839,7 +855,10 @@ export function createShopRouter({
     const callbackLimitKey = `${order.id}:${attempt.authority}`;
     const callbackLimit = rateLimiter.reserve('paymentCallback', callbackLimitKey);
     if (callbackLimit.limited) {
-      return rateLimitResponse(res, callbackLimit.retryAfter, 'payment callback rate limited');
+      return paymentCallbackRateLimitedResponse(res, {
+        retryAfter: callbackLimit.retryAfter,
+        orderCode: order.code,
+      });
     }
 
     let ok = false;
@@ -984,33 +1003,37 @@ export function createShopRouter({
               break;
             }
 
-            const reversed = await reversePayment(payment(), callbackAuthority);
+            const reversed = await paymentReverser(payment(), callbackAuthority);
             if (reversed.ok) {
-              db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
-                status: 'reversed',
-                reversedAt: new Date().toISOString(),
-                lastError: '',
-              });
-              db.updateOrder(D, current.id, {
-                status: 'cancelled',
-                autoCancelled: false,
-                needsAttention: false,
-                adminNote: [lateFailure, 'پرداخت دیرهنگام خودکار بازگردانده شد.'].join('\n'),
-              });
+              D.immediateTransaction(() => {
+                db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
+                  status: 'reversed',
+                  reversedAt: new Date().toISOString(),
+                  lastError: '',
+                });
+                db.updateOrder(D, current.id, {
+                  status: 'cancelled',
+                  autoCancelled: false,
+                  adminNote: [lateFailure, 'پرداخت دیرهنگام خودکار بازگردانده شد.'].join('\n'),
+                });
+                db.clearOrderPaymentAttentionIfResolved(D, current.id);
+              })();
             } else {
               const reversalError = String(reversed.message || reversed.error || 'automatic reversal failed');
-              db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
-                status: 'reversal_failed',
-                lastError: reversalError.slice(0, 300),
-              });
-              db.updateOrder(D, current.id, {
-                /* Inventory could not be reclaimed, so this order must remain
-                   cancelled and visibly require Admin attention. */
-                status: 'cancelled',
-                autoCancelled: false,
-                needsAttention: true,
-                adminNote: [lateFailure, 'بازگرداندن خودکار وجه ناموفق بود؛ پیگیری فوری لازم است.'].join('\n'),
-              });
+              D.immediateTransaction(() => {
+                db.updateOrderPaymentAttempt(D, current.id, callbackAuthority, {
+                  status: 'reversal_failed',
+                  lastError: reversalError.slice(0, 300),
+                });
+                db.updateOrder(D, current.id, {
+                  /* Inventory could not be reclaimed, so this order must remain
+                     cancelled and visibly require Admin attention. */
+                  status: 'cancelled',
+                  autoCancelled: false,
+                  needsAttention: true,
+                  adminNote: [lateFailure, 'بازگرداندن خودکار وجه ناموفق بود؛ پیگیری فوری لازم است.'].join('\n'),
+                });
+              })();
             }
             ok = false;
             resolved = true;
@@ -1561,30 +1584,123 @@ export function createShopRouter({
     res.json(await inquirePayment(payment(), order.payAuthority));
   });
 
-  /** Give the money back, inside ZarinPal's 30-minute window. */
+  /** Give the money back, inside ZarinPal's 30-minute window. The claim is
+   * committed before the external call so concurrent Admin requests cannot
+   * issue duplicate reversals. The same attempt ledger fences retries after a
+   * worker crash and keeps the order visible until every payment alert resolves. */
   r.post('/api/shop-admin/orders/:id/reverse', requireAuth, async (req, res) => {
     const order = db.getOrderById(D, req.params.id);
     if (!order) return res.status(404).json({ error: 'not found' });
     if (!order.payAuthority) return res.status(400).json({ error: 'این سفارش کد پرداخت ندارد.' });
 
-    const out = await reversePayment(payment(), order.payAuthority);
-    if (!out.ok) return res.status(409).json({ error: out.message || out.error || 'بازگرداندن مبلغ ممکن نشد.', code: out.code });
-    db.updateOrderPaymentAttempt(D, order.id, order.payAuthority, {
-      status: 'reversed',
-      reversedAt: new Date().toISOString(),
-      lastError: '',
-    });
+    const authority = order.payAuthority;
+    const attempt = db.getOrderPaymentAttempt(D, order.id, authority);
+    if (!attempt) return res.status(409).json({ error: 'تلاش پرداخت در دفتر سفارش پیدا نشد.' });
+    if (attempt.provider !== 'zarinpal') {
+      return res.status(409).json({ error: 'بازگرداندن خودکار برای این درگاه پشتیبانی نمی‌شود.' });
+    }
 
-    /* A reversed payment is a cancelled order, and cancelling is what puts
-       the stock back — doing one without the other leaves the shop holding
-       reserved stock for an order nobody paid for. */
-    db.updateOrder(D, order.id, {
-      status: 'cancelled',
-      autoCancelled: false,
-      needsAttention: false,
-      adminNote: `${order.adminNote || ''}\nمبلغ از طریق زرین‌پال بازگردانده شد.`.trim(),
+    const finishSuccess = () => {
+      const completed = db.completeOrderPaymentReversal(D, order.id, authority, {
+        reversedAt: new Date().toISOString(),
+        adminNote: 'مبلغ از طریق زرین‌پال بازگردانده شد.',
+      });
+      if (!completed.ok) {
+        db.appendOrderAdminNote(
+          D,
+          order.id,
+          'هشدار: درگاه موفقیت بازگرداندن وجه را اعلام کرد اما تکمیل دفتر سفارش ناموفق بود؛ پیگیری فوری لازم است.',
+          { needsAttention: true },
+        );
+        return res.status(409).json({
+          error: completed.error || 'reversal succeeded but order completion failed',
+          code: 'reversal-ledger-conflict',
+        });
+      }
+      return res.json({
+        ok: true,
+        reversed: true,
+        alreadyReversed: !!completed.alreadyReversed,
+        attempt: completed.attempt,
+        order: completed.order,
+      });
+    };
+
+    /* A prior gateway success may have been followed by a process crash before
+       the order was cancelled. Repair that local transition without issuing a
+       second money-moving request. */
+    if (attempt.status === 'reversed') return finishSuccess();
+    if (
+      !['paid', 'shipped', 'delivered'].includes(order.status) &&
+      !(order.status === 'cancelled' && order.needsAttention)
+    ) {
+      return res.status(409).json({ error: 'وضعیت سفارش اجازه بازگرداندن خودکار وجه را نمی‌دهد.' });
+    }
+    if (attempt.status === 'issued') {
+      return res.status(409).json({ error: 'این تلاش هنوز پرداخت تأییدشده‌ای برای reverse ندارد.' });
+    }
+
+    const claim = db.claimOrderPaymentReversal(D, order.id, authority, {
+      refId: attempt.refId || order.payRef,
+      verifiedAt: attempt.verifiedAt || order.paidAt || new Date().toISOString(),
+      allowSettled: true,
     });
-    res.json({ ok: true, order: db.getOrderById(D, order.id) });
+    if (!claim.claimed) {
+      if (claim.attempt?.status === 'reversed') return finishSuccess();
+      if (claim.attempt?.status === 'reversing') {
+        const started = Date.parse(claim.attempt.reversalStartedAt || '');
+        const retryAfter = Number.isFinite(started)
+          ? Math.max(1, Math.ceil((started + db.PAYMENT_REVERSAL_CLAIM_TTL_MS - Date.now()) / 1000))
+          : Math.ceil(db.PAYMENT_REVERSAL_CLAIM_TTL_MS / 1000);
+        res.setHeader('Retry-After', String(retryAfter));
+        return res.status(409).json({
+          error: `reverse هنوز در حال اجراست؛ حدود ${retryAfter} ثانیه دیگر دوباره تلاش کنید.`,
+          code: 'reversal-in-progress',
+          retryAfter,
+        });
+      }
+      return res.status(409).json({
+        error: claim.attempt?.lastError || 'این تلاش پرداخت در وضعیت قابل reverse نیست؛ هشدار سفارش فعال ماند.',
+        code: 'reversal-not-claimable',
+      });
+    }
+
+    const claimedAt = claim.attempt?.reversalStartedAt;
+    let out;
+    try {
+      out = await paymentReverser(payment(), authority);
+    } catch (error) {
+      out = { ok: false, error: error?.message || 'gateway reversal failed' };
+    }
+    if (!out?.ok) {
+      const error = String(out?.message || out?.error || `gateway code ${out?.code ?? 'unknown'}`);
+      const finished = db.finishOrderPaymentReversal(D, order.id, authority, {
+        claimedAt,
+        ok: false,
+        lastError: error,
+      });
+      if (!finished.finished) {
+        if (finished.attempt?.status === 'reversed') return finishSuccess();
+        if (finished.attempt?.status === 'reversing') {
+          const started = Date.parse(finished.attempt.reversalStartedAt || '');
+          const retryAfter = Number.isFinite(started)
+            ? Math.max(1, Math.ceil((started + db.PAYMENT_REVERSAL_CLAIM_TTL_MS - Date.now()) / 1000))
+            : Math.ceil(db.PAYMENT_REVERSAL_CLAIM_TTL_MS / 1000);
+          res.setHeader('Retry-After', String(retryAfter));
+          return res.status(409).json({ error: 'درخواست reverse با claim جدید جایگزین شد؛ بعداً دوباره بررسی کنید.', code: 'reversal-in-progress', retryAfter });
+        }
+        return res.status(409).json({ error: finished.attempt?.lastError || error, code: out?.code });
+      }
+      db.appendOrderAdminNote(
+        D,
+        order.id,
+        `بازگرداندن وجه سفارش از طریق زرین‌پال ناموفق بود: ${error}`,
+        { needsAttention: true },
+      );
+      return res.status(409).json({ error: out?.message || out?.error || 'بازگرداندن مبلغ ممکن نشد.', code: out?.code });
+    }
+
+    return finishSuccess();
   });
 
   r.get('/api/shop-admin/payment/transactions', requireAuth, async (req, res) => {
@@ -1659,12 +1775,17 @@ export function createShopRouter({
     if (!out.ok) return res.status(409).json({ error: out.error || 'برگشت وجه ممکن نشد.' });
 
     if (order && refundAmount === Number(order.total)) {
-      const updated = db.updateOrder(D, order.id, {
-        status: 'cancelled',
-        autoCancelled: false,
-        needsAttention: false,
-        adminNote: `${order.adminNote || ''}\nمبلغ کامل از طریق زرین‌پال برگشت داده شد.`.trim(),
-      });
+      const updated = D.immediateTransaction(() => {
+        const result = db.updateOrder(D, order.id, {
+          status: 'cancelled',
+          autoCancelled: false,
+        });
+        if (result.ok) {
+          db.appendOrderAdminNote(D, order.id, 'مبلغ کامل از طریق زرین‌پال برگشت داده شد.');
+          db.clearOrderPaymentAttentionIfResolved(D, order.id);
+        }
+        return result;
+      })();
       if (!updated.ok) {
         db.appendOrderAdminNote(
           D,

@@ -126,11 +126,19 @@ const check = (ok, name, detail = '') => {
   const stockAfterPlacement = dbStore.getProduct(database, product.slug).stock;
 
   const permit = () => ({ limited: false, retryAfter: 0, finish() {} });
+  let reverseCalls = 0;
+  let reverseBehavior = async () => ({ ok: true });
+  let origin = '';
   const router = createShopRouter({
     database,
     requireAuth: (_req, _res, next) => next(),
     rateLimiter: { check: permit, reserve: permit },
+    selfOrigin: () => origin,
     transactionLister: async () => ({ ok: true, transactions: rows }),
+    paymentReverser: async (...args) => {
+      reverseCalls += 1;
+      return reverseBehavior(...args);
+    },
     refundCreator: async () => { refundCalls += 1; return { ok: true, id: 'refund-ok' }; },
   });
   const app = express();
@@ -139,13 +147,40 @@ const check = (ok, name, detail = '') => {
   const server = await new Promise((resolve) => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
   });
-  const origin = `http://127.0.0.1:${server.address().port}`;
+  origin = `http://127.0.0.1:${server.address().port}`;
   const sendRefund = (body) => fetch(`${origin}/api/shop-admin/payment/refunds`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  const sendReverse = (orderId) => fetch(`${origin}/api/shop-admin/orders/${encodeURIComponent(orderId)}/reverse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const sendComment = (comment, requestOrigin = origin) => fetch(`${origin}/api/shop-public/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: requestOrigin },
+    body: JSON.stringify(comment),
+  });
+  const sendNewOrder = (requestOrigin = origin) => fetch(`${origin}/api/shop-public/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: requestOrigin },
+    body: JSON.stringify({}),
+  });
   try {
+    const commentCountBeforeCsrf = dbStore.listComments(database).length;
+    const crossSiteComment = await sendComment({ slug: product.slug, name: 'مهمان', text: 'درخواست بین‌سایتی' }, 'https://evil.example');
+    check(
+      crossSiteComment.status === 403 && dbStore.listComments(database).length === commentCountBeforeCsrf,
+      'a foreign-origin comment submission is rejected before writing public content',
+    );
+
+    const previousDisplay = dbStore.getSetting(database, 'shop.display') || {};
+    dbStore.setSetting(database, 'shop.display', { ...previousDisplay, enabled: false });
+    const pausedOrder = await sendNewOrder();
+    dbStore.setSetting(database, 'shop.display', { ...previousDisplay, enabled: true });
+    check(pausedOrder.status === 403, 'the server rejects new orders while the public storefront is paused');
+
     const mismatched = await sendRefund({ sessionId: 'session-A', orderCode: second.code, amount: first.total });
     check(mismatched.status === 409 && refundCalls === 0, 'wrong orderCode is rejected before the external refund call');
     check(dbStore.getOrderById(database, second.id).status === 'paid', 'a mismatched refund cannot cancel another order');
@@ -168,6 +203,97 @@ const check = (ok, name, detail = '') => {
     const partialBody = await partialRefund.json();
     check(partialRefund.ok && partialBody.order?.status === 'paid' && partialBody.order?.needsAttention, 'a partial refund keeps the order active and flags it for review');
     check(dbStore.getProduct(database, product.slug).stock === stockAfterPlacement + 2, 'a partial refund does not release the full order reservation');
+
+    const unresolvedFullRefund = addPaidOrder('KY-REFUND-UNRESOLVED', 'session-unresolved');
+    const unresolvedAuthority = 'AUTH-UNRESOLVED-EXTRA';
+    dbStore.recordOrderPaymentAttempt(database, unresolvedFullRefund.id, {
+      authority: unresolvedAuthority,
+      provider: 'zarinpal',
+    });
+    dbStore.updateOrderPaymentAttempt(database, unresolvedFullRefund.id, unresolvedAuthority, {
+      status: 'reversal_failed',
+      lastError: 'still unresolved',
+    });
+    dbStore.updateOrder(database, unresolvedFullRefund.id, { needsAttention: true });
+    const fullRefundWithAlert = await sendRefund({
+      sessionId: 'session-unresolved',
+      orderCode: unresolvedFullRefund.code,
+      amount: unresolvedFullRefund.total,
+    });
+    const fullRefundAlertBody = await fullRefundWithAlert.json();
+    check(
+      fullRefundWithAlert.ok && fullRefundAlertBody.order?.status === 'cancelled' && fullRefundAlertBody.order?.needsAttention,
+      'a full refund does not clear another unresolved payment-attempt alert',
+    );
+
+    const reversing = addPaidOrder('KY-ADMIN-REVERSE-CLAIM', 'session-reverse-claim');
+    const stockAtReverseClaim = dbStore.getProduct(database, product.slug).stock;
+    let signalReverseStarted;
+    let releaseReverse;
+    const reverseStarted = new Promise((resolve) => { signalReverseStarted = resolve; });
+    const reverseGatewayResult = new Promise((resolve) => { releaseReverse = resolve; });
+    reverseBehavior = async () => {
+      signalReverseStarted();
+      return reverseGatewayResult;
+    };
+    const firstReversePromise = sendReverse(reversing.id);
+    await reverseStarted;
+    check(
+      dbStore.getOrderById(database, reversing.id)?.needsAttention &&
+        dbStore.getOrderPaymentAttempt(database, reversing.id, reversing.payAuthority)?.status === 'reversing',
+      'Admin reversal claim is committed and visible before contacting the gateway',
+    );
+    const duplicateReverse = await sendReverse(reversing.id);
+    const duplicateReverseBody = await duplicateReverse.json();
+    check(
+      duplicateReverse.status === 409 && duplicateReverseBody.code === 'reversal-in-progress' && reverseCalls === 1,
+      'a concurrent Admin request cannot issue a second external reversal',
+    );
+    releaseReverse({ ok: true });
+    const firstReverse = await firstReversePromise;
+    const firstReverseBody = await firstReverse.json();
+    check(
+      firstReverse.ok && firstReverseBody.order?.status === 'cancelled' && firstReverseBody.attempt?.status === 'reversed',
+      'a successful claimed Admin reversal completes the payment ledger and cancels its order',
+    );
+    check(
+      dbStore.getProduct(database, product.slug).stock === stockAtReverseClaim + 1 &&
+        !firstReverseBody.order?.needsAttention,
+      'the claimed reversal restores stock once and clears only resolved financial attention',
+    );
+    const callsAfterSuccess = reverseCalls;
+    const duplicateAfterSuccess = await sendReverse(reversing.id);
+    const duplicateAfterSuccessBody = await duplicateAfterSuccess.json();
+    check(
+      duplicateAfterSuccess.ok && duplicateAfterSuccessBody.alreadyReversed && reverseCalls === callsAfterSuccess &&
+        dbStore.getProduct(database, product.slug).stock === stockAtReverseClaim + 1,
+      'replaying a completed Admin reversal repairs locally without another gateway call or stock credit',
+    );
+
+    const retryableReverse = addPaidOrder('KY-ADMIN-REVERSE-RETRY', 'session-reverse-retry');
+    const stockAtFailedReverse = dbStore.getProduct(database, product.slug).stock;
+    reverseBehavior = async () => ({ ok: false, message: 'temporary gateway outage' });
+    const failedReverse = await sendReverse(retryableReverse.id);
+    const failedReverseBody = await failedReverse.json();
+    check(
+      failedReverse.status === 409 &&
+        dbStore.getOrderPaymentAttempt(database, retryableReverse.id, retryableReverse.payAuthority)?.status === 'reversal_failed' &&
+        dbStore.getOrderById(database, retryableReverse.id)?.needsAttention &&
+        failedReverseBody.error === 'temporary gateway outage',
+      'a gateway failure records a retryable reversal and keeps the financial warning visible',
+    );
+    check(
+      dbStore.getProduct(database, product.slug).stock === stockAtFailedReverse,
+      'a failed reversal does not release reserved inventory',
+    );
+    reverseBehavior = async () => ({ ok: true });
+    const retriedReverse = await sendReverse(retryableReverse.id);
+    const retriedReverseBody = await retriedReverse.json();
+    check(
+      retriedReverse.ok && retriedReverseBody.order?.status === 'cancelled' &&
+        dbStore.getProduct(database, product.slug).stock === stockAtFailedReverse + 1,
+      'an Admin can retry a failed claim and release stock exactly once after gateway success',
+    );
   } finally {
     await new Promise((resolve) => server.close(resolve));
     database.close();
@@ -185,6 +311,10 @@ const check = (ok, name, detail = '') => {
       shopContext.includes('reconcileCart(latestCart, latestProducts'),
     'availability refresh reconciles the latest cross-tab cart at response time',
   );
+  check(
+    !shopContext.includes(".catch(() => 'offline')") && shopContext.includes('.catch(() => null)'),
+    'a payment metadata transport failure is not cached as an offline provider',
+  );
 
   const checkout = source('src/pages/ShopCheckout.jsx');
   check(checkout.includes('if (submitLock.current) return;'), 'checkout ignores same-tick duplicate submissions');
@@ -199,6 +329,16 @@ const check = (ok, name, detail = '') => {
   check(orderPage.includes("params.get('gateway') === 'error'") && orderPage.includes('role="alert"'), 'gateway creation failures and retry errors are visible to the customer');
   check(orderPage.includes("clean.delete('token')") && orderPage.includes('replace: true'), 'legacy bearer tokens are removed from the browser URL and history');
   check(orderPage.includes('setPayError(data.error || t('), 'payment retry errors are not silently swallowed');
+  check(
+    orderPage.includes("order.status === 'pending_payment' && paymentProvider !== 'offline'") && orderPage.includes('const payLock = useRef(false)'),
+    'pending orders keep Pay Now available when metadata is unknown and ignore same-tick duplicate clicks',
+  );
+
+  const authPage = source('src/pages/ShopAuth.jsx');
+  check(
+    authPage.includes('const actionLock = useRef(false)') && authPage.includes('if (!beginBusyAction()) return;'),
+    'authentication submissions use a synchronous lock for all async steps',
+  );
 
   const productPage = source('src/pages/ShopProduct.jsx');
   check(productPage.includes('Number(p.stock) > 0 && Number(p.stock) <= 10'), 'unlimited inventory is not mislabeled as low stock');

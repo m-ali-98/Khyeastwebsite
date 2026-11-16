@@ -69,6 +69,13 @@ function PublicRoutes() {
         <>
           <Route path="/shop/cart" element={<ShopCart />} />
           <Route path="/shop/checkout" element={<ShopCheckout />} />
+        </>
+      )}
+      {/* Pausing sales must not strand customers from their account, login or
+          existing order history. Those private pages remain locale-gated but
+          are intentionally independent of the public storefront switch. */}
+      {shopEnabled && (
+        <>
           <Route path="/shop/order/:code" element={<ShopOrder />} />
           <Route path="/shop/login" element={<ShopAuth />} />
           <Route path="/shop/account" element={<ShopAccount />} />

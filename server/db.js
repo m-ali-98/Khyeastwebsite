@@ -1056,6 +1056,7 @@ export function claimOrderPaymentReversal(database, orderId, authority, {
   verifiedAt = new Date().toISOString(),
   claimedAt = new Date().toISOString(),
   staleBefore = new Date(Date.now() - PAYMENT_REVERSAL_CLAIM_TTL_MS).toISOString(),
+  allowSettled = false,
 } = {}) {
   const id = String(orderId || '');
   const value = String(authority || '');
@@ -1068,7 +1069,9 @@ export function claimOrderPaymentReversal(database, orderId, authority, {
               reversal_started_at = ?, last_error = ''
         WHERE order_id = ? AND authority = ?
           AND (
-            status IN ('issued', 'verified', 'reversal_failed')
+            status IN (${allowSettled
+              ? "'issued', 'verified', 'settled', 'reversal_failed'"
+              : "'issued', 'verified', 'reversal_failed'"})
             OR (
               status = 'reversing'
               AND (reversal_started_at IS NULL OR reversal_started_at <= ?)
@@ -1125,6 +1128,68 @@ export function finishOrderPaymentReversal(database, orderId, authority, {
     finished: changes === 1,
     attempt: getOrderPaymentAttempt(database, id, value),
   };
+}
+
+/** Finish an order-level reversal and release its stock in the same writer
+ * transaction. A gateway success is durable even if another Admin request
+ * already finished the ledger row; the conditional order transition prevents
+ * duplicate inventory restoration. Financial attention is cleared only after
+ * checking every other unresolved payment attempt. */
+export function completeOrderPaymentReversal(database, orderId, authority, {
+  claimedAt,
+  reversedAt = new Date().toISOString(),
+  adminNote = 'مبلغ از طریق زرین‌پال بازگردانده شد.',
+} = {}) {
+  const id = String(orderId || '');
+  const value = String(authority || '');
+  return database.immediateTransaction(() => {
+    const finished = finishOrderPaymentReversal(database, id, value, {
+      claimedAt,
+      ok: true,
+      reversedAt,
+    });
+    const attempt = finished.attempt;
+    if (attempt?.status !== 'reversed') {
+      return { ok: false, error: 'reversal ledger completion was refused', attempt };
+    }
+
+    const order = getOrderById(database, id);
+    if (!order) return { ok: false, error: 'order not found', attempt };
+    if (order.payAuthority !== value) {
+      return { ok: false, error: 'payment authority is no longer the settled order attempt', attempt, order };
+    }
+
+    const note = String(adminNote || '').trim();
+    const existingNote = String(order.adminNote || '');
+    const nextNote = note && !existingNote.includes(note)
+      ? [existingNote, note].filter(Boolean).join('\n')
+      : existingNote;
+    const patch = {};
+    if (order.status !== 'cancelled') patch.status = 'cancelled';
+    if (order.autoCancelled) patch.autoCancelled = false;
+    if (nextNote !== existingNote) patch.adminNote = nextNote;
+
+    if (Object.keys(patch).length) {
+      const updated = updateOrder(database, id, patch);
+      if (!updated.ok) {
+        appendOrderAdminNote(
+          database,
+          id,
+          'هشدار: درگاه بازگرداندن وجه را تأیید کرد اما لغو سفارش/موجودی کامل نشد؛ پیگیری فوری لازم است.',
+          { needsAttention: true },
+        );
+        return { ok: false, error: updated.error || 'order update failed', attempt, order: getOrderById(database, id) };
+      }
+    }
+
+    clearOrderPaymentAttentionIfResolved(database, id);
+    return {
+      ok: true,
+      alreadyReversed: !finished.finished,
+      attempt: getOrderPaymentAttempt(database, id, value),
+      order: getOrderById(database, id),
+    };
+  })();
 }
 
 export function clearOrderPaymentAttentionIfResolved(database, orderId) {
@@ -1368,7 +1433,7 @@ export function settlePendingOrder(db, id, authority, {
     const result = db.prepare(
       `UPDATE orders
           SET status = 'paid', provider = ?, pay_authority = ?, pay_ref = ?, paid_at = ?,
-              admin_note = ?, auto_cancelled = 0, needs_attention = 0, archived = 0
+              admin_note = ?, auto_cancelled = 0, archived = 0
         WHERE id = ? AND status = 'pending_payment'
           AND EXISTS (
             SELECT 1 FROM order_payments
@@ -1383,6 +1448,7 @@ export function settlePendingOrder(db, id, authority, {
       verifiedAt: paidAt,
       lastError: '',
     });
+    clearOrderPaymentAttentionIfResolved(db, orderId);
     return true;
   })();
 }
@@ -1453,7 +1519,7 @@ export function claimExpiredPayment(db, id, {
   const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
   const finishPaid = db.prepare(
     `UPDATE orders
-     SET status = 'paid', admin_note = ?, auto_cancelled = 0, needs_attention = 0, archived = 0
+     SET status = 'paid', admin_note = ?, auto_cancelled = 0, archived = 0
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
   );
   const noteFailure = db.prepare(
@@ -1486,6 +1552,7 @@ export function claimExpiredPayment(db, id, {
     if (reserved.ok) {
       finishPaid.run(successNote, orderId);
       updateOrderPaymentAttempt(db, orderId, value, { status: 'settled' });
+      clearOrderPaymentAttentionIfResolved(db, orderId);
       return { ok: true, reserved: true };
     }
     noteFailure.run(failureNote, orderId);

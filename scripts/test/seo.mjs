@@ -128,6 +128,11 @@ check(resolveSeo('/shop/order', DEFAULT_STATE, ORIGIN).status === 404, 'order ro
 const closedShopState = structuredClone(DEFAULT_STATE);
 closedShopState.shop.display.enabled = false;
 check(resolveSeo('/shop', closedShopState, ORIGIN).status === 404 && !listRoutablePaths(closedShopState).includes('/shop'), 'disabled storefront leaves no indexable shop shell');
+const pausedOrderRoute = resolveSeo('/shop/order/KY-PRIVATE-123', closedShopState, ORIGIN);
+check(
+  pausedOrderRoute.kind === 'private' && !pausedOrderRoute.indexable && !pausedOrderRoute.canonical,
+  'existing customer order routes remain private and noindex while the public storefront is paused',
+);
 check(redirectPath('/dezmaye') === '/products/dezmaye-gold-80', 'legacy brand permanent target');
 check(redirectPath('/en/dezmaye') === '/en/products/dezmaye-gold-80', 'localized legacy target');
 check(redirectPath('/fa/dezmaye/') === '/products/dezmaye-gold-80', 'combined prefix/slash/legacy redirect is single-hop');
