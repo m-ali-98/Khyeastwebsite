@@ -127,6 +127,7 @@ const check = (ok, name, detail = '') => {
 
   const permit = () => ({ limited: false, retryAfter: 0, finish() {} });
   let reverseCalls = 0;
+  let verifyCalls = 0;
   let reverseBehavior = async () => ({ ok: true });
   let origin = '';
   const router = createShopRouter({
@@ -135,6 +136,10 @@ const check = (ok, name, detail = '') => {
     rateLimiter: { check: permit, reserve: permit },
     selfOrigin: () => origin,
     transactionLister: async () => ({ ok: true, transactions: rows }),
+    paymentVerifier: async () => {
+      verifyCalls += 1;
+      return { ok: false };
+    },
     paymentReverser: async (...args) => {
       reverseCalls += 1;
       return reverseBehavior(...args);
@@ -168,6 +173,44 @@ const check = (ok, name, detail = '') => {
     body: JSON.stringify({}),
   });
   try {
+    const wrongProviderOrder = {
+      id: crypto.randomUUID(),
+      code: 'KY-WRONG-PROVIDER-CALLBACK',
+      token: crypto.randomBytes(16).toString('hex'),
+      items: [],
+      customer: {},
+      subtotal: 1000,
+      shipping: 0,
+      total: 1000,
+      currency: 'IRR',
+      status: 'pending_payment',
+      provider: 'offline',
+      payAuthority: 'AUTH-WRONG-PROVIDER',
+      payRef: null,
+      adminNote: '',
+      at: new Date().toISOString(),
+      paidAt: null,
+    };
+    dbStore.insertOrder(database, wrongProviderOrder);
+    const wrongProviderCallback = await fetch(
+      `${origin}/api/shop-pay/zarinpal/callback?code=${encodeURIComponent(wrongProviderOrder.code)}` +
+        `&Authority=${encodeURIComponent(wrongProviderOrder.payAuthority)}&Status=OK`,
+      { redirect: 'manual' },
+    );
+    check(
+      wrongProviderCallback.status === 302 &&
+        wrongProviderCallback.headers.get('location')?.includes('pay=fail') && verifyCalls === 0,
+      'a ZarinPal callback cannot verify an authority recorded for a different payment provider',
+    );
+    const wrongProviderAdminVerify = await fetch(
+      `${origin}/api/shop-admin/payment/unverified/${encodeURIComponent(wrongProviderOrder.payAuthority)}/verify`,
+      { method: 'POST' },
+    );
+    check(
+      wrongProviderAdminVerify.status === 409 && verifyCalls === 0,
+      'the Admin recovery route refuses verification through a mismatched payment provider',
+    );
+
     const commentCountBeforeCsrf = dbStore.listComments(database).length;
     const crossSiteComment = await sendComment({ slug: product.slug, name: 'مهمان', text: 'درخواست بین‌سایتی' }, 'https://evil.example');
     check(

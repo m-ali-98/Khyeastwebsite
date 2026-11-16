@@ -828,8 +828,8 @@ export function createShopRouter({
        database-enforced attempt ledger; the explicit digest comparison stays
        constant-time even for malformed callback lengths. */
     const attempt = mappedPaymentAttempt(order.id, callbackAuthority);
-    if (!attempt) {
-      console.warn(`[shop] rejected payment authority mismatch for ${order.code}`);
+    if (!attempt || attempt.provider !== provider) {
+      console.warn(`[shop] rejected payment authority/provider mismatch for ${order.code}`);
       return res.redirect(`/shop/order/${encodeURIComponent(order.code)}?pay=fail`);
     }
 
@@ -1451,6 +1451,9 @@ export function createShopRouter({
     if (!order || !attempt) {
       if (!order) paymentAuthorityMatches(authority, '');
       return res.status(404).json({ error: 'سفارشی با این کد پرداخت پیدا نشد.' });
+    }
+    if (attempt.provider !== 'zarinpal') {
+      return res.status(409).json({ error: 'این تلاش پرداخت متعلق به زرین‌پال نیست.' });
     }
 
     const out = await paymentVerifier(
