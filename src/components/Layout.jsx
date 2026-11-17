@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import Logo from './Logo';
@@ -43,30 +43,127 @@ const HEADER_NAV_ITEMS = [
 ];
 
 /* ---------------------------------------------------------------------------
-   Language switcher — a compact segmented control in the top bar and inside
-   the mobile menu. Switching is a full navigation to the other locale's URL.
+   Language switcher — a native-name dropdown in the desktop utility bar and
+   the existing segmented control in the mobile menu. Switching is a full
+   navigation to the other locale's URL.
    --------------------------------------------------------------------------- */
-function LangSwitch({ block = false }) {
+const LANGUAGE_GROUP_LABEL = {
+  fa: 'انتخاب زبان',
+  en: 'Language selection',
+  ar: 'اختيار اللغة',
+  ru: 'Выбор языка',
+};
+
+const CHANGE_LANGUAGE_LABEL = {
+  fa: (current) => `تغییر زبان؛ زبان فعلی: ${current}`,
+  en: (current) => `Change language; current language: ${current}`,
+  ar: (current) => `تغيير اللغة؛ اللغة الحالية: ${current}`,
+  ru: (current) => `Сменить язык; текущий язык: ${current}`,
+};
+
+function LangSwitch({ block = false, open: controlledOpen, onOpenChange }) {
   const { locale, locales, switchLocale } = useLocale();
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = typeof controlledOpen === 'boolean' ? controlledOpen : localOpen;
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const current = locales.find((item) => item.code === locale) || locales[0];
+  const groupLabel = LANGUAGE_GROUP_LABEL[locale] || LANGUAGE_GROUP_LABEL.en;
+  const setExpanded = useCallback((next) => {
+    if (typeof controlledOpen !== 'boolean') setLocalOpen(next);
+    onOpenChange?.(next);
+  }, [controlledOpen, onOpenChange]);
+
+  useEffect(() => {
+    if (block || !open) return undefined;
+
+    const closeOnOutsidePointer = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      setExpanded(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setExpanded(false);
+      triggerRef.current?.focus();
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [block, open, setExpanded]);
+
+  if (block) {
+    return (
+      <div className="lang-switch lang-switch--block" role="group" aria-label={groupLabel}>
+        {locales.map((lo) => (
+          <button
+            key={lo.code}
+            type="button"
+            className={`lang-switch__btn ${lo.code === locale ? 'is-active' : ''}`}
+            onClick={() => switchLocale(lo.code)}
+            aria-current={lo.code === locale ? 'true' : undefined}
+            title={lo.label}
+          >
+            <span className="lang-switch__short">{lo.short}</span>
+            <span className="lang-switch__label">{lo.label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`lang-switch ${block ? 'lang-switch--block' : ''}`}
+      ref={rootRef}
+      className={`lang-switch lang-switch--desktop ${open ? 'is-open' : ''}`}
       role="group"
-      aria-label={{ fa: 'انتخاب زبان', en: 'Language selection', ar: 'اختيار اللغة', ru: 'Выбор языка' }[locale] || 'Language selection'}
+      aria-label={groupLabel}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setExpanded(false);
+      }}
     >
-      {locales.map((lo) => (
-        <button
-          key={lo.code}
-          type="button"
-          className={`lang-switch__btn ${lo.code === locale ? 'is-active' : ''}`}
-          onClick={() => switchLocale(lo.code)}
-          aria-current={lo.code === locale ? 'true' : undefined}
-          title={lo.label}
-        >
-          <span className="lang-switch__short">{lo.short}</span>
-          <span className="lang-switch__label">{lo.label}</span>
-        </button>
-      ))}
+      <button
+        ref={triggerRef}
+        type="button"
+        className="lang-switch__trigger"
+        aria-label={(CHANGE_LANGUAGE_LABEL[locale] || CHANGE_LANGUAGE_LABEL.en)(current.label)}
+        aria-expanded={open}
+        aria-controls="desktop-language-options"
+        onClick={() => setExpanded(!open)}
+      >
+        <Icons.globe size={16} aria-hidden="true" />
+        <span className="lang-switch__current" lang={current.htmlLang} dir={current.dir}>{current.label}</span>
+        <Icons.chevron size={14} className="lang-switch__trigger-chevron" aria-hidden="true" />
+      </button>
+
+      <div
+        id="desktop-language-options"
+        className="lang-switch__menu"
+        role="group"
+        aria-label={groupLabel}
+        hidden={!open}
+      >
+        {locales.map((lo) => (
+          <button
+            key={lo.code}
+            type="button"
+            className={`lang-switch__option ${lo.code === locale ? 'is-active' : ''}`}
+            onClick={() => {
+              setExpanded(false);
+              switchLocale(lo.code);
+            }}
+            aria-current={lo.code === locale ? 'true' : undefined}
+          >
+            <span className="lang-switch__option-name" lang={lo.htmlLang} dir={lo.dir}>{lo.label}</span>
+            <span className="lang-switch__option-code" aria-hidden="true">{lo.short}</span>
+            {lo.code === locale && <Icons.check className="lang-switch__option-check" size={16} aria-hidden="true" />}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -108,6 +205,7 @@ function Navbar() {
   const [open, setOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [mobileAboutOpen, setMobileAboutOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
   const aboutTriggerRef = useRef(null);
   const mobileMenuRef = useRef(null);
   const burgerRef = useRef(null);
@@ -143,6 +241,7 @@ function Navbar() {
         if (next !== last) {
           last = next;
           setScrolled(next);
+          if (next) setLanguageOpen(false);
         }
       });
     };
@@ -189,6 +288,7 @@ function Navbar() {
     setOpen(false);
     setAboutOpen(false);
     setMobileAboutOpen(false);
+    setLanguageOpen(false);
   }, [location.pathname]);
 
   /* The drawer and the desktop navigation swap at the same CSS breakpoint.
@@ -197,14 +297,23 @@ function Navbar() {
      survive after the desktop header has appeared. */
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 1101px)');
+    const desktopUtilities = window.matchMedia('(min-width: 901px)');
     const closeDrawerOnDesktop = (event) => {
       if (!event.matches) return;
       setOpen(false);
       setMobileAboutOpen(false);
     };
+    const closeLanguageOnMobile = (event) => {
+      if (!event.matches) setLanguageOpen(false);
+    };
     desktop.addEventListener('change', closeDrawerOnDesktop);
+    desktopUtilities.addEventListener('change', closeLanguageOnMobile);
     closeDrawerOnDesktop(desktop);
-    return () => desktop.removeEventListener('change', closeDrawerOnDesktop);
+    closeLanguageOnMobile(desktopUtilities);
+    return () => {
+      desktop.removeEventListener('change', closeDrawerOnDesktop);
+      desktopUtilities.removeEventListener('change', closeLanguageOnMobile);
+    };
   }, []);
 
   /* Re-open the corporate section when the drawer is launched from one of its
@@ -274,7 +383,7 @@ function Navbar() {
   return (
     <>
       <nav
-        className={`nav ${scrolled || !hasHero ? 'is-scrolled' : ''} ${!hasHero && !scrolled ? 'is-solid-at-top' : ''} ${open ? 'is-menu-open' : ''}`.trim()}
+        className={`nav ${scrolled || !hasHero ? 'is-scrolled' : ''} ${!hasHero && !scrolled ? 'is-solid-at-top' : ''} ${open ? 'is-menu-open' : ''} ${languageOpen && !scrolled ? 'is-language-open' : ''}`.trim()}
         aria-label={t('nav.main')}
       >
         <div className="nav__topbar">
@@ -299,7 +408,7 @@ function Navbar() {
                 <Icons.phone size={15} />
                 <bdi dir="ltr">{t('global.sales.phone.fa')}</bdi>
               </a>
-              <LangSwitch />
+              <LangSwitch open={languageOpen} onOpenChange={setLanguageOpen} />
               <ThemeToggle />
             </div>
           </div>

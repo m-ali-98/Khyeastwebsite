@@ -3139,6 +3139,122 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .lang-switch__btn.is-active { background: #fff; color: var(--crimson-700); }
 .lang-switch__label { display: none; }
 
+/* The desktop utility bar keeps the current language visible without making
+   four abbreviations compete with the contact details. The full native-name
+   list opens as a small, keyboard-friendly disclosure. */
+.lang-switch--desktop {
+  position: relative;
+  flex: none;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.lang-switch__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 31px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.94);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.lang-switch__trigger > svg { flex: none; }
+.lang-switch__trigger:hover,
+.lang-switch--desktop.is-open .lang-switch__trigger {
+  border-color: rgba(255, 255, 255, 0.52);
+  background: rgba(255, 255, 255, 0.17);
+  color: #fff;
+}
+.lang-switch__trigger:focus-visible {
+  outline: 2px solid var(--crimson-bright);
+  outline-offset: 3px;
+}
+.lang-switch__current { white-space: nowrap; }
+.lang-switch__trigger-chevron {
+  opacity: 0.72;
+  transition: transform 0.2s var(--ease-soft), opacity 0.2s ease;
+}
+.lang-switch--desktop.is-open .lang-switch__trigger-chevron {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+.lang-switch__menu {
+  position: absolute;
+  inset-block-start: calc(100% + 9px);
+  inset-inline-end: 0;
+  z-index: 110;
+  display: grid;
+  width: max-content;
+  min-width: 196px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  color: var(--ink-2);
+  animation: lang-menu-in 0.16s var(--ease-out) both;
+}
+.lang-switch__menu[hidden] { display: none; }
+.lang-switch__option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: start;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+.lang-switch__option:hover,
+.lang-switch__option:focus-visible,
+.lang-switch__option.is-active {
+  background: var(--crimson-soft);
+  color: var(--crimson-ink);
+}
+.lang-switch__option:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: -2px;
+}
+.lang-switch__option-name { flex: 1; }
+.lang-switch__option-code {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.lang-switch__option-check { flex: none; color: var(--crimson); }
+@keyframes lang-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.nav.is-language-open:not(.is-scrolled) .nav__topbar {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+.nav.is-language-open:not(.is-scrolled) .nav__bar {
+  position: relative;
+  z-index: 1;
+}
+
 .theme-toggle {
   border: 0;
   background: transparent;

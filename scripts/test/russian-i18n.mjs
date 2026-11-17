@@ -144,8 +144,14 @@ const adminLocale = read('src/admin/adminLocale.jsx');
 check(
   layout.includes("ru: { light: 'Переключить на светлую тему', dark: 'Переключить на тёмную тему' }") &&
     layout.includes("ru: 'Наверх'") && layout.includes("ru: 'Перейти к основному содержимому'") &&
-    layout.includes('ru: \'Выбор языка\''),
+    layout.includes("ru: 'Выбор языка'"),
   'Russian header theme, language switcher, skip-link and back-to-top labels exist',
+);
+check(
+  layout.includes('lang-switch--desktop') && layout.includes('lang-switch--block') &&
+    layout.includes('lang-switch__option') && layout.includes('lang-switch__option-check') &&
+    layout.includes('aria-expanded={open}') && layout.includes('aria-current={lo.code === locale ?'),
+  'desktop language picker exposes a keyboard-accessible native-name dropdown while the mobile segmented switch remains',
 );
 check(pending.includes("ru: 'Загружаем последние данные'"), 'data-loading announcement is localized in Russian');
 check(fallback.includes("ru: { page: 'Загружаем страницу', admin: 'Загружаем панель управления' }"), 'route-loading announcement is localized in Russian');
