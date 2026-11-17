@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, faNum, faId } from '../components/ui';
 import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
-import { useShop, orderTokenSave } from '../shop/ShopContext';
+import { useShop } from '../shop/ShopContext';
 import CartAvailabilityNotice from '../shop/CartAvailabilityNotice';
 import { useAccount } from '../shop/AccountContext';
+import { checkoutOrderId, clearCheckoutOrderId } from '../shop/orderIntent';
 
 export default function ShopCheckout() {
   const { t } = useContent();
@@ -18,6 +19,7 @@ export default function ShopCheckout() {
     money,
     clear,
     paymentProvider,
+    loadPaymentProvider,
     refreshCartAvailability,
   } = useShop();
   const account = useAccount();
@@ -30,6 +32,10 @@ export default function ShopCheckout() {
     if (account.status === 'out') navigate('/shop/login?next=/shop/checkout', { replace: true });
   }, [account.status, navigate]);
 
+  useEffect(() => {
+    loadPaymentProvider();
+  }, [loadPaymentProvider]);
+
   /* The default address, preselected: most people have one and should not
      have to choose anything. */
   const [addressId, setAddressId] = useState('');
@@ -37,19 +43,22 @@ export default function ShopCheckout() {
     if (!addressId && account.addresses.length) setAddressId((account.addresses.find((a) => a.isDefault) || account.addresses[0]).id);
   }, [account.addresses, addressId]);
 
-  const [form, setForm] = useState({ name: '', phone: '', city: '', address: '', postal: '', note: '' });
+  const [noteText, setNoteText] = useState('');
   const [note, setNote] = useState(null);
   const [busy, setBusy] = useState(false);
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const submitLock = useRef(false);
 
-  const online = paymentProvider !== 'offline';
+  const online = paymentProvider !== null && paymentProvider !== 'offline';
 
   const submit = async (e) => {
     e.preventDefault();
+    let leavingCheckout = false;
+    if (submitLock.current) return;
     setNote(null);
     if (!addressId) return setNote({ kind: 'err', msg: t('shop.checkout.needAddress') });
     if (!rows.length) return navigate('/shop');
 
+    submitLock.current = true;
     setBusy(true);
     try {
       /* Route navigation already revalidates content, but inventory can move
@@ -57,24 +66,36 @@ export default function ShopCheckout() {
          use rows from that exact response rather than this render's closure. */
       const current = await refreshCartAvailability();
       if (current.changed || !current.rows.length) {
+        leavingCheckout = true;
         navigate('/shop/cart', { replace: true });
         return;
       }
 
+      const orderIntent = {
+        customerId: String(account.customer?.id || ''),
+        items: current.rows
+          .map((r) => ({ slug: r.product.slug, qty: r.qty }))
+          .sort((a, b) => a.slug.localeCompare(b.slug)),
+        addressId,
+        note: noteText.trim(),
+      };
+      const idempotencyKey = await checkoutOrderId(orderIntent);
       const res = await fetch('/api/shop-public/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          idempotencyKey,
           items: current.rows.map((r) => ({ slug: r.product.slug, qty: r.qty })),
           /* The address is identified, not re-typed: the server copies the
              saved one into the order, so what ships is what the customer
              saw and chose. */
-          customer: { addressId, note: form.note.trim() },
+          customer: { addressId, note: noteText.trim() },
         }),
         credentials: 'same-origin',
       });
       if (!res.ok) {
         if (res.status === 401) {
+          leavingCheckout = true;
           navigate('/shop/login?next=/shop/checkout');
           return;
         }
@@ -87,6 +108,7 @@ export default function ShopCheckout() {
           try {
             const afterConflict = await refreshCartAvailability();
             if (afterConflict.changed || !afterConflict.rows.length) {
+              leavingCheckout = true;
               navigate('/shop/cart', { replace: true });
               return;
             }
@@ -106,16 +128,24 @@ export default function ShopCheckout() {
         throw Object.assign(new Error(msg), { handled: true });
       }
       const data = await res.json();
-      orderTokenSave(data.order.code, data.order.token);
+      if (!data?.order?.code) throw new Error('invalid order response');
+      clearCheckoutOrderId(idempotencyKey);
       clear();
       if (data.payment?.payUrl) {
+        leavingCheckout = true;
         window.location.assign(data.payment.payUrl);
         return;
       }
-      navigate(`/shop/order/${data.order.code}?new=1`);
+      const gatewayStatus = data.payment?.gatewayError ? '&gateway=error' : '';
+      leavingCheckout = true;
+      navigate(`/shop/order/${data.order.code}?new=1${gatewayStatus}`);
     } catch (err) {
       setNote({ kind: 'err', msg: err.handled ? err.message : t('shop.checkout.errServer') });
-      setBusy(false);
+    } finally {
+      if (!leavingCheckout) {
+        submitLock.current = false;
+        setBusy(false);
+      }
     }
   };
 
@@ -198,7 +228,7 @@ export default function ShopCheckout() {
 
                 <label className="field">
                   <span>{t('shop.checkout.note')}</span>
-                  <textarea value={form.note} onChange={set('note')} maxLength={1000} rows={2} />
+                  <textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} maxLength={1000} rows={2} />
                 </label>
                 <AnimatePresence>
                   {note && (

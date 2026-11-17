@@ -3,6 +3,9 @@ import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl } from '../c
 import { useContent } from '../content/ContentContext';
 import { imgProps, SIZES } from '../lib/img';
 
+const PLANT_OFFICE_IDS = new Set(['dezful', 'kermanshah']);
+const withoutTrailingLocation = (title = '') => title.replace(/\s*\([^()]*\)\s*$/, '');
+
 function Mission() {
   const { t } = useContent();
   const cards = [
@@ -37,9 +40,26 @@ function Mission() {
 export default function About() {
   const { t, m, col } = useContent();
   const timeline = col('timeline');
-  const managers = col('managers');
   const facts = col('facts');
   const stats = col('stats');
+  const plantOffices = col('offices').filter((office) => PLANT_OFFICE_IDS.has(office.id));
+
+  /* The Contact directory is the single source of truth for plant names and
+     addresses. Replace the old one-line location summary in `facts` with one
+     card per plant so an Admin edit cannot leave the About page out of sync.
+     The city is already stated in each full address, so this compact section
+     omits Contact's trailing parenthetical city label from the card title. */
+  const infrastructureFacts = [
+    ...(plantOffices.length
+      ? plantOffices.map((office) => ({
+          id: `plant-${office.id}`,
+          icon: office.icon || 'factory',
+          title: withoutTrailingLocation(office.title),
+          text: office.address,
+        }))
+      : facts.slice(0, 1)),
+    ...facts.slice(1),
+  ];
 
   return (
     <>
@@ -112,34 +132,11 @@ export default function About() {
         </div>
       </section>
 
-      <section className="section about-team">
-        <div className="container">
-          <SectionHead
-            overline={t('about.managers.overline')}
-            title={hl(t('about.managers.title'))}
-            sub={t('about.managers.sub')}
-            align="start"
-          />
-          <div className="certs-grid about-team__grid">
-            {managers.map((mg, i) => (
-              <Reveal key={mg.name} delay={i * 0.1} className="card person-card">
-                <div className="person-card__icon">
-                  <Icons.users size={30} />
-                </div>
-                <h3>{mg.name}</h3>
-                <p>{mg.role}</p>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <section className="section section--soft section--airy about-factory">
         <div className="container">
           <div className="split about-factory__layout">
             <Reveal x={40} y={0}>
               <div className="split__media">
-                <span className="badge-float">{t('about.factory.badge')}</span>
                 <div className="img-main">
                   <img {...imgProps(m('about.factory.img'), SIZES.half)} alt={t('about.factory.overline')} loading="lazy" />
                 </div>
@@ -149,10 +146,10 @@ export default function About() {
               <span className="overline">{t('about.factory.overline')}</span>
               <h2 className="section-title">{hl(t('about.factory.title'))}</h2>
               <div className="fact-grid">
-                {facts.map((f) => {
+                {infrastructureFacts.map((f, index) => {
                   const Ic = Icons[f.icon] || Icons.factory;
                   return (
-                    <div key={f.title} className="fact-item">
+                    <div key={f.id || `${index}-${f.title}`} className="fact-item">
                       <div className="icon-badge">
                         <Ic size={20} />
                       </div>

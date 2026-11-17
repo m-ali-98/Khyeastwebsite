@@ -80,7 +80,9 @@ export default function SeoHead({ pathname }) {
       setMeta(
         'property',
         'product:availability',
-        Number(meta.shopOffer.stock) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+        Number(meta.shopOffer.stock) === -1 || Number(meta.shopOffer.stock) > 0
+          ? 'https://schema.org/InStock'
+          : 'https://schema.org/OutOfStock',
       );
     }
 

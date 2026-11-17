@@ -5,22 +5,36 @@
  * dangerouslySetInnerHTML. Keep this module DOM-implementation agnostic so
  * Linkedom and real browsers execute exactly the same policy.
  */
+import { canonicalVideoEmbedUrl } from './videoEmbeds.js';
 
 export const MAX_HTML_INPUT_LENGTH = 250_000;
 export const MAX_HTML_DEPTH = 128;
 export const MAX_HTML_NODES = 20_000;
+export const RICH_TEXT_COLOR_IDS = Object.freeze([
+  'ink', 'crimson', 'blue', 'green', 'amber', 'purple',
+]);
+export const RICH_TEXT_TABLE_LIMITS = Object.freeze({
+  minRows: 2,
+  maxRows: 20,
+  minColumns: 2,
+  maxColumns: 8,
+  maxCaptionLength: 200,
+});
 
+const RICH_TEXT_COLORS = new Set(RICH_TEXT_COLOR_IDS);
 const ALLOWED = new Set([
-  'P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'H2', 'H3', 'H4',
-  'UL', 'OL', 'LI', 'A', 'IMG', 'VIDEO', 'BLOCKQUOTE', 'FIGURE', 'FIGCAPTION', 'SOURCE',
+  'P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'SPAN', 'H2', 'H3', 'H4',
+  'UL', 'OL', 'LI', 'A', 'IMG', 'VIDEO', 'IFRAME', 'BLOCKQUOTE', 'FIGURE', 'FIGCAPTION', 'SOURCE',
+  'TABLE', 'CAPTION', 'THEAD', 'TBODY', 'TR', 'TH', 'TD',
 ]);
 
 /* These elements can alter parsing, fetch executable resources, submit data,
  * or hide active markup in a secondary DOM tree. Their complete subtrees are
- * discarded; ordinary formatting wrappers that are not allowlisted are only
- * unwrapped so pasted text is not needlessly lost. */
+ * discarded; the sole iframe exception is canonicalized to one reviewed video
+ * provider and stripped of all fallback children below. Ordinary formatting
+ * wrappers that are not allowlisted are only unwrapped so pasted text survives. */
 const DROP_WITH_CONTENT = new Set([
-  'SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE',
+  'SCRIPT', 'STYLE', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE',
   'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'OPTION',
   'TEMPLATE', 'NOSCRIPT', 'NOEMBED', 'SVG', 'MATH', 'TITLE', 'PLAINTEXT',
 ]);
@@ -29,7 +43,11 @@ const ATTRS = {
   A: new Set(['href', 'title', 'target']),
   IMG: new Set(['src', 'alt']),
   VIDEO: new Set(['src', 'controls', 'preload']),
+  IFRAME: new Set(['src', 'title']),
   SOURCE: new Set(['src', 'type']),
+  SPAN: new Set(['data-text-color']),
+  FIGURE: new Set(['data-rich-table']),
+  TH: new Set(['scope']),
 };
 
 const BASE_URL = 'https://khyeast.invalid/';
@@ -123,6 +141,22 @@ function rebuildAttributes(element, tag) {
     return true;
   }
 
+  if (tag === 'IFRAME') {
+    const src = canonicalVideoEmbedUrl(attrs.get('src'));
+    if (!src) return false;
+    const title = String(attrs.get('title') || '')
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .trim()
+      .slice(0, 200);
+    element.setAttribute('src', src);
+    element.setAttribute('title', title || 'Video player');
+    element.setAttribute('loading', 'lazy');
+    element.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    element.setAttribute('allow', 'encrypted-media; fullscreen; picture-in-picture');
+    element.setAttribute('allowfullscreen', '');
+    return true;
+  }
+
   if (tag === 'SOURCE') {
     const src = safeUrl(attrs.get('src'), 'src');
     if (!src) return false;
@@ -131,13 +165,107 @@ function rebuildAttributes(element, tag) {
     return true;
   }
 
+  if (tag === 'SPAN') {
+    const color = String(attrs.get('data-text-color') || '').toLowerCase();
+    if (RICH_TEXT_COLORS.has(color)) element.setAttribute('data-text-color', color);
+    return true;
+  }
+
+  if (tag === 'FIGURE') {
+    if (attrs.has('data-rich-table')) element.setAttribute('data-rich-table', '');
+    return true;
+  }
+
+  if (tag === 'TH') {
+    const scope = String(attrs.get('scope') || '').toLowerCase();
+    if (scope === 'col' || scope === 'row') element.setAttribute('scope', scope);
+    return true;
+  }
+
   return true;
+}
+
+const TABLE_STRUCTURE_TAGS = new Set(['CAPTION', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
+const directElements = (node, tag) => Array.from(node?.children || [])
+  .filter((child) => String(child.tagName || '').toUpperCase() === tag);
+const rowCells = (row) => Array.from(row?.children || [])
+  .filter((child) => ['TH', 'TD'].includes(String(child.tagName || '').toUpperCase()));
+
+/* A table is published only in the exact bounded structure produced by the
+ * editor. This keeps every persisted table captioned, responsive (the figure
+ * is its scroll container), and free of pasted layout tricks such as ragged
+ * rows or nested tables. */
+function isSemanticRichTable(table) {
+  const figure = table?.parentElement;
+  if (String(figure?.tagName || '').toUpperCase() !== 'FIGURE' || !figure.hasAttribute('data-rich-table')) return false;
+  const figureChildren = Array.from(figure.children || []);
+  if (figureChildren.length !== 1 || figureChildren[0] !== table) return false;
+  if (Array.from(figure.childNodes || []).some((child) => (
+    child !== table && (child.nodeType !== 3 || String(child.textContent || '').trim())
+  ))) return false;
+
+  const captions = directElements(table, 'CAPTION');
+  const heads = directElements(table, 'THEAD');
+  const bodies = directElements(table, 'TBODY');
+  const tableTags = Array.from(table.children || []).map((child) => String(child.tagName || '').toUpperCase());
+  if (captions.length !== 1 || heads.length !== 1 || bodies.length !== 1 || tableTags.join(',') !== 'CAPTION,THEAD,TBODY') return false;
+  const caption = String(captions[0].textContent || '').trim();
+  if (!caption || Array.from(caption).length > RICH_TEXT_TABLE_LIMITS.maxCaptionLength) return false;
+
+  const headRows = directElements(heads[0], 'TR');
+  const bodyRows = directElements(bodies[0], 'TR');
+  const rows = [...headRows, ...bodyRows];
+  if (headRows.length !== 1 || bodyRows.length < 1 ||
+      heads[0].children.length !== headRows.length || bodies[0].children.length !== bodyRows.length) return false;
+  if (rows.length < RICH_TEXT_TABLE_LIMITS.minRows || rows.length > RICH_TEXT_TABLE_LIMITS.maxRows) return false;
+
+  const headerCells = rowCells(headRows[0]);
+  if (headerCells.length !== headRows[0].children.length) return false;
+  const columns = headerCells.length;
+  if (columns < RICH_TEXT_TABLE_LIMITS.minColumns || columns > RICH_TEXT_TABLE_LIMITS.maxColumns) return false;
+  if (!headerCells.every((cell) => (
+    String(cell.tagName || '').toUpperCase() === 'TH' &&
+    String(cell.getAttribute('scope') || '').toLowerCase() === 'col'
+  ))) return false;
+
+  return bodyRows.every((row) => {
+    const cells = rowCells(row);
+    return cells.length === row.children.length && cells.length === columns && cells.every((cell) => {
+      const tag = String(cell.tagName || '').toUpperCase();
+      return tag === 'TD' || (tag === 'TH' && String(cell.getAttribute('scope') || '').toLowerCase() === 'row');
+    });
+  });
+}
+
+function isTableStructureNode(node, tag) {
+  const table = node?.closest?.('table');
+  if (!table || !isSemanticRichTable(table)) return false;
+  const parentTag = String(node.parentElement?.tagName || '').toUpperCase();
+  if (tag === 'CAPTION' || tag === 'THEAD' || tag === 'TBODY') return node.parentElement === table;
+  if (tag === 'TR') {
+    return ['THEAD', 'TBODY'].includes(parentTag) && node.parentElement?.parentElement === table;
+  }
+  if (tag === 'TH' || tag === 'TD') {
+    const section = node.parentElement?.parentElement;
+    return parentTag === 'TR' && ['THEAD', 'TBODY'].includes(String(section?.tagName || '').toUpperCase()) && section?.parentElement === table;
+  }
+  return false;
 }
 
 function pushChildren(stack, node, depth) {
   const children = Array.from(node.childNodes || []);
   for (let index = children.length - 1; index >= 0; index -= 1) {
     stack.push({ node: children[index], depth });
+  }
+}
+
+function unwrapNode(stack, node, depth) {
+  const parent = node.parentNode;
+  const promoted = Array.from(node.childNodes || []);
+  for (const child of promoted) parent.insertBefore(child, node);
+  node.remove();
+  for (let index = promoted.length - 1; index >= 0; index -= 1) {
+    stack.push({ node: promoted[index], depth });
   }
 }
 
@@ -179,13 +307,7 @@ function sanitizeDomRootDetailed(root) {
     }
 
     if (!ALLOWED.has(tag)) {
-      const parent = node.parentNode;
-      const promoted = Array.from(node.childNodes || []);
-      for (const child of promoted) parent.insertBefore(child, node);
-      node.remove();
-      for (let index = promoted.length - 1; index >= 0; index -= 1) {
-        stack.push({ node: promoted[index], depth });
-      }
+      unwrapNode(stack, node, depth);
       continue;
     }
 
@@ -193,8 +315,42 @@ function sanitizeDomRootDetailed(root) {
       node.remove();
       continue;
     }
+    /* Iframes have no authored fallback content. Discard all children before
+       any descendant can become active in a reparsed browsing context. */
+    if (tag === 'IFRAME') {
+      node.replaceChildren();
+      continue;
+    }
+    /* A span is meaningful only as one of our semantic, theme-aware text
+       colours. Unwrap every other span so pasted layout hooks do not survive
+       merely because colour support needs this tag. */
+    if (tag === 'SPAN' && !node.hasAttribute('data-text-color')) {
+      unwrapNode(stack, node, depth);
+      continue;
+    }
+    if ((tag === 'TABLE' && !isSemanticRichTable(node)) ||
+        (TABLE_STRUCTURE_TAGS.has(tag) && !isTableStructureNode(node, tag))) {
+      unwrapNode(stack, node, depth);
+      continue;
+    }
     pushChildren(stack, node, depth + 1);
   }
+
+  /* Re-check after dangerous descendants were dropped: a caption containing
+     only a script, for example, becomes empty and must invalidate the table.
+     The second pass can only unwrap already-visited nodes; it cannot introduce
+     unbounded work or bypass attribute rebuilding. */
+  Array.from(root.querySelectorAll?.('table') || []).forEach((table) => {
+    if (!isSemanticRichTable(table)) unwrapNode([], table, 0);
+  });
+  Array.from(root.querySelectorAll?.('caption,thead,tbody,tr,th,td') || []).forEach((node) => {
+    const tag = String(node.tagName || '').toUpperCase();
+    if (!isTableStructureNode(node, tag)) unwrapNode([], node, 0);
+  });
+  Array.from(root.querySelectorAll?.('figure[data-rich-table]') || []).forEach((figure) => {
+    const table = directElements(figure, 'TABLE')[0];
+    if (!table || !isSemanticRichTable(table)) unwrapNode([], figure, 0);
+  });
   return { ok: true, visited };
 }
 

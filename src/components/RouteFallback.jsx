@@ -8,6 +8,7 @@ const COPY = {
   fa: { page: 'در حال بارگذاری صفحه', admin: 'در حال بارگذاری پنل مدیریت' },
   en: { page: 'Loading page', admin: 'Loading admin workspace' },
   ar: { page: 'جارٍ تحميل الصفحة', admin: 'جارٍ تحميل لوحة الإدارة' },
+  ru: { page: 'Загружаем страницу', admin: 'Загружаем панель управления' },
 };
 
 export default function RouteFallback({ mode = 'public' }) {

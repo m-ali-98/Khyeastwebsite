@@ -9,13 +9,19 @@
      db.exec(sql)
      db.pragma('journal_mode = WAL')
      db.prepare(sql).run(...) / .get(...) / .all(...)
-     db.transaction(fn)  -> callable, runs inside BEGIN/COMMIT/ROLLBACK
+     db.transaction(fn)          -> deferred outer transaction
+     db.immediateTransaction(fn) -> writer-reserving outer transaction
+     await db.backup(path)       -> SQLite-native consistent snapshot
      db.close()
    ========================================================================== */
 
+import fs from 'node:fs';
+
 /** Wrap node:sqlite's DatabaseSync in the better-sqlite3-shaped API. */
-function wrapNodeSqlite(DatabaseSync, file) {
-  const raw = new DatabaseSync(file);
+function wrapNodeSqlite(DatabaseSync, backupDatabase, file, { readOnly = false } = {}) {
+  const raw = readOnly
+    ? new DatabaseSync(file, { readOnly: true })
+    : new DatabaseSync(file);
 
   /* node:sqlite returns null-prototype objects; normalise them. */
   const plain = (row) => (row == null ? undefined : { ...row });
@@ -37,14 +43,17 @@ function wrapNodeSqlite(DatabaseSync, file) {
   /* Match better-sqlite3's nested transaction semantics. A nested operation
      gets a real SAVEPOINT, so a helper that catches its own exception cannot
      accidentally leave half of its writes inside the caller's outer commit. */
-  const transaction = (fn) =>
+  const transactionWithMode = (fn, begin) =>
     function (...args) {
       const outermost = depth === 0;
       const savepoint = `khyeast_nested_${++savepointSequence}`;
-      raw.exec(outermost ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+      raw.exec(outermost ? begin : `SAVEPOINT ${savepoint}`);
       depth += 1;
       try {
         const out = fn.apply(this, args);
+        if (out && typeof out.then === 'function') {
+          throw new TypeError('SQLite transaction callbacks must be synchronous');
+        }
         raw.exec(outermost ? 'COMMIT' : `RELEASE SAVEPOINT ${savepoint}`);
         return out;
       } catch (error) {
@@ -66,24 +75,32 @@ function wrapNodeSqlite(DatabaseSync, file) {
     exec: (sql) => raw.exec(sql),
     pragma: (str) => raw.exec(`PRAGMA ${str};`),
     prepare,
-    transaction,
+    transaction: (fn) => transactionWithMode(fn, 'BEGIN'),
+    immediateTransaction: (fn) => transactionWithMode(fn, 'BEGIN IMMEDIATE'),
+    backup: (destination) => backupDatabase(raw, destination),
     close: () => raw.close(),
   };
 }
 
-/** Wrap better-sqlite3 (already has this API; only `driver` is added). */
-function wrapBetterSqlite(Database, file) {
-  const raw = new Database(file);
+/** Wrap better-sqlite3 and add the one adapter method it does not expose. */
+function wrapBetterSqlite(Database, file, { readOnly = false, mustExist = false } = {}) {
+  const raw = new Database(file, { readonly: readOnly, fileMustExist: mustExist || readOnly });
   raw.driver = 'better-sqlite3';
+  raw.immediateTransaction = (fn) => raw.transaction(fn).immediate;
   return raw;
 }
 
-export async function createDatabase(file) {
+export async function createDatabase(file, { readOnly = false, mustExist = false } = {}) {
+  if ((mustExist || readOnly) && !fs.existsSync(file)) {
+    throw Object.assign(new Error(`SQLite database does not exist: ${file}`), { code: 'DB_FILE_MISSING' });
+  }
   try {
     const { default: Database } = await import('better-sqlite3');
-    return wrapBetterSqlite(Database, file);
+    return wrapBetterSqlite(Database, file, { readOnly, mustExist });
   } catch {
-    const { DatabaseSync } = await import('node:sqlite');
-    return wrapNodeSqlite(DatabaseSync, file);
+    /* Import or native-binding failure: preserve the existing portable
+       fallback. The node:sqlite open still reports real path/permission errors. */
+    const { DatabaseSync, backup } = await import('node:sqlite');
+    return wrapNodeSqlite(DatabaseSync, backup, file, { readOnly });
   }
 }

@@ -5,6 +5,7 @@ import RouteFallback from './components/RouteFallback';
 import SeoHead from './components/SeoHead';
 import { useContent } from './content/ContentContext';
 import { useLocale, localePath } from './i18n/LocaleContext';
+import { isStorefrontEnabled } from '../shared/shopAvailability.js';
 import { dismissBootSplash } from './lib/bootSplash';
 import useLoadingGate from './hooks/useLoadingGate';
 import Home from './pages/Home'; // landing page stays in the main bundle
@@ -24,6 +25,8 @@ const Quality = lazy(() => import('./pages/Quality'));
 const Blog = lazy(() => import('./pages/Blog'));
 const PostDetail = lazy(() => import('./pages/PostDetail'));
 const Contact = lazy(() => import('./pages/Contact'));
+const SalesRepresentatives = lazy(() => import('./pages/SalesRepresentatives'));
+const Gallery = lazy(() => import('./pages/Gallery'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const Shop = lazy(() => import('./pages/Shop'));
 const ShopProduct = lazy(() => import('./pages/ShopProduct'));
@@ -49,11 +52,12 @@ function RouteCommit({ routeKey, onReady }) {
 
 function PublicRoutes() {
   /* The online shop is an Iran-facing feature (rial pricing, Iranian payment
-     gateway), so it exists on the Persian site only. On /en and /ar its routes
-     are simply not mounted and fall through to the 404 page. */
-  const { shopEnabled } = useLocale();
+     gateway), so it exists on the Persian site only. On /en, /ar and /ru its
+     routes are not mounted and fall through to the 404 page. */
+  const { shopEnabled, locale } = useLocale();
   const { state } = useContent();
-  const storefrontEnabled = shopEnabled && state.shop?.display?.enabled !== false;
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
+  const persianSite = locale === 'fa';
   return (
     <Routes>
       <Route path="/" element={<Home />} />
@@ -61,10 +65,17 @@ function PublicRoutes() {
       <Route path="/products" element={<Products />} />
       <Route path="/products/:slug" element={<ProductDetail />} />
       {storefrontEnabled && <Route path="/shop" element={<Shop />} />}
-      {shopEnabled && (
+      {storefrontEnabled && (
         <>
           <Route path="/shop/cart" element={<ShopCart />} />
           <Route path="/shop/checkout" element={<ShopCheckout />} />
+        </>
+      )}
+      {/* Pausing sales must not strand customers from their account, login or
+          existing order history. Those private pages remain locale-gated but
+          are intentionally independent of the public storefront switch. */}
+      {shopEnabled && (
+        <>
           <Route path="/shop/order/:code" element={<ShopOrder />} />
           <Route path="/shop/login" element={<ShopAuth />} />
           <Route path="/shop/account" element={<ShopAccount />} />
@@ -75,11 +86,13 @@ function PublicRoutes() {
       <Route path="/quality" element={<Quality />} />
       <Route path="/blog" element={<Blog />} />
       <Route path="/blog/:slug" element={<PostDetail />} />
+      <Route path="/gallery" element={<Gallery />} />
+      {persianSite && <Route path="/sales-representatives" element={<SalesRepresentatives />} />}
       <Route path="/contact" element={<Contact />} />
       <Route path="/dezmaye" element={<Navigate to="/products/dezmaye-gold-80" replace />} />
       <Route path="/shetab" element={<Navigate to="/products/shetab-90" replace />} />
       <Route path="/xpower" element={<Navigate to="/products/xpower-70" replace />} />
-      <Route path="/nanmaye" element={<Navigate to="/products/nanmaye-10" replace />} />
+      <Route path="/nanmaye" element={<Navigate to="/products/nanmaye-500" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
@@ -90,7 +103,14 @@ function NavigationRoutes() {
   const isAdmin = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
   const { locale } = useLocale();
   const { reload } = useContent();
-  const routeKey = `${location.key || 'route'}:${location.pathname}${location.search}`;
+  /* Collection query strings only change which already-fresh records are
+     visible. Keep gallery pagination and catalogue brand filters inside their
+     mounted route instead of briefly removing <main>, re-fetching all content,
+     and letting the browser clamp a mobile scroll position to the footer. */
+  const isInPlaceCollection = /^\/(?:gallery|products)$/.test(location.pathname);
+  const routeKey = isInPlaceCollection
+    ? `collection:${location.pathname}`
+    : `${location.key || 'route'}:${location.pathname}${location.search}`;
   const [freshKey, setFreshKey] = useState('');
   const [settledKey, setSettledKey] = useState('');
   const activeKey = useRef(routeKey);
@@ -163,6 +183,8 @@ function NavigationRoutes() {
       <Layout>
         {loaderVisible && <RouteFallback />}
         <main
+          id="main-content"
+          tabIndex={-1}
           key={routeKey}
           aria-hidden={loaderVisible ? 'true' : undefined}
           inert={loaderVisible ? true : undefined}
@@ -182,9 +204,9 @@ function NavigationRoutes() {
 }
 
 export default function App() {
-  /* Persian lives at the site root and English/Arabic under /en and /ar.
-     Handing the prefix to the router as a `basename` means every <Link to="…">
-     in the app stays locale-relative with no changes to the page components. */
+  /* Persian lives at the site root; English, Arabic and Russian use /en, /ar
+     and /ru. Handing the prefix to the router as a `basename` keeps every
+     locale-relative link working without page-specific URL changes. */
   const { meta } = useLocale();
   return (
     /* React Router normally marks history updates as transitions, which may

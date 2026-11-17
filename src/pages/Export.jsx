@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { m as mo, useReducedMotion, useScroll, useTransform } from 'framer-motion';
-import { Icons, Reveal, SectionHead, Counter, PageHero, CTABand, hl, useNum } from '../components/ui';
+import { Reveal, SectionHead, Counter, PageHero, CTABand, hl, useNum } from '../components/ui';
+import ExportWorldMap from '../components/ExportWorldMap';
 import { useContent } from '../content/ContentContext';
 import { imgProps, SIZES } from '../lib/img';
 
@@ -38,20 +39,7 @@ export default function Export() {
       <section className="section section--soft export-regions">
         <div className="container">
           <SectionHead overline={t('export.regions.overline')} title={hl(t('export.regions.title'))} align="start" />
-          <div className="features-grid">
-            {regions.map((r, i) => {
-              const Ic = Icons[r.icon] || Icons.globe;
-              return (
-                <Reveal key={r.title} delay={(i % 3) * 0.12} className="card feature-card">
-                  <div className="feature-card__icon">
-                    <Ic size={26} />
-                  </div>
-                  <h3>{r.title}</h3>
-                  <p>{r.text}</p>
-                </Reveal>
-              );
-            })}
-          </div>
+          <ExportWorldMap regions={regions} />
         </div>
       </section>
 

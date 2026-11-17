@@ -4,7 +4,7 @@
 
    `image` remains the primary/legacy field. `images` is an ordered gallery and
    its first item is always mirrored to `image` before persistence. Old rows
-   that only have `image` therefore need no destructive migration.
+   that only have `image` therefore need no destructive rewrite.
    ========================================================================== */
 
 export const MAX_PRODUCT_IMAGES = 12;

@@ -10,9 +10,13 @@ export default function Products() {
   const active = params.get('brand') || 'all';
 
   const setFilter = (id) => {
-    if (id === 'all') params.delete('brand');
-    else params.set('brand', id);
-    setParams(params, { replace: true });
+    const next = new URLSearchParams(params);
+    if (id === 'all') next.delete('brand');
+    else next.set('brand', id);
+    /* This is an in-page collection update, not a destination change. Keeping
+       the current scroll position also prevents the mobile list from jumping
+       when the new result set is shorter than the previous one. */
+    setParams(next, { replace: true, preventScrollReset: true });
   };
 
   const list = active === 'all' ? products : products.filter((p) => p.brand === active);

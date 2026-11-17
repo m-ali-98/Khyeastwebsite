@@ -2,12 +2,13 @@
 
    Browser sanitizing is useful feedback, not a security boundary: a caller can
    bypass the panel and send JSON directly. Node therefore runs the same shared
-   whitelist with linkedom before HTML reaches content.json or SQLite.
+   whitelist with linkedom before HTML reaches authoritative SQLite rows.
 
    A safety limit is a validation refusal, not valid empty HTML. Callers receive
    a typed error so an Admin save returns 400 and keeps the original content
    instead of silently persisting an empty field. */
 import { DOMParser } from 'linkedom';
+import { normalizeGalleryItems, stripGalleryMediaOverrides } from '../shared/gallery.js';
 import {
   sanitizeHtmlResultWithParser,
   MAX_HTML_INPUT_LENGTH,
@@ -15,6 +16,7 @@ import {
   MAX_HTML_NODES,
 } from '../shared/sanitizeHtml.js';
 import { syncProductImages } from '../shared/productImages.js';
+import { normalizeSalesRepresentatives } from '../shared/salesRepresentatives.js';
 
 const faNumber = (value) => new Intl.NumberFormat('fa-IR').format(value);
 const fieldName = (field) => String(field || 'محتوای غنی').slice(0, 180);
@@ -47,9 +49,52 @@ export class RichTextValidationError extends Error {
 
 export const isRichTextValidationError = (error) => error instanceof RichTextValidationError;
 
+/* Full content saves revisit every post and shop description, even when the
+   edited bucket is only a phone number or link. Parsing identical HTML through
+   linkedom on every request is pure duplicate work. Keep a small bounded LRU
+   of successful canonicalisations; validation failures are never cached so the
+   error still carries the exact field name from the current request. */
+const RICH_TEXT_CACHE_MAX_ENTRIES = 512;
+const RICH_TEXT_CACHE_MAX_CHARS = 4 * 1024 * 1024;
+const RICH_TEXT_CACHE_MAX_ENTRY_CHARS = 128 * 1024;
+const richTextCache = new Map();
+let richTextCacheChars = 0;
+
+const cachedRichText = (source) => {
+  if (!richTextCache.has(source)) return null;
+  const value = richTextCache.get(source);
+  richTextCache.delete(source);
+  richTextCache.set(source, value);
+  return value;
+};
+
+const rememberRichText = (source, value) => {
+  const weight = source.length + value.length;
+  if (weight > RICH_TEXT_CACHE_MAX_ENTRY_CHARS) return;
+  if (richTextCache.has(source)) {
+    richTextCacheChars -= source.length + richTextCache.get(source).length;
+    richTextCache.delete(source);
+  }
+  richTextCache.set(source, value);
+  richTextCacheChars += weight;
+  while (
+    richTextCache.size > RICH_TEXT_CACHE_MAX_ENTRIES ||
+    richTextCacheChars > RICH_TEXT_CACHE_MAX_CHARS
+  ) {
+    const oldest = richTextCache.entries().next().value;
+    if (!oldest) break;
+    richTextCache.delete(oldest[0]);
+    richTextCacheChars -= oldest[0].length + oldest[1].length;
+  }
+};
+
 export const sanitizeRichText = (html, field = 'محتوای غنی') => {
-  const result = sanitizeHtmlResultWithParser(html, DOMParser);
+  const source = String(html || '');
+  const cached = cachedRichText(source);
+  if (cached !== null) return cached;
+  const result = sanitizeHtmlResultWithParser(source, DOMParser);
   if (!result.ok) throw new RichTextValidationError(result, field);
+  rememberRichText(source, result.html);
   return result.html;
 };
 
@@ -111,6 +156,16 @@ export function sanitizeContentPayload(input) {
 
   if (Array.isArray(source.posts)) next.posts = sanitizePosts(source.posts);
   if (Array.isArray(source.products)) next.products = sanitizeProductList(source.products);
+  if (Array.isArray(source.gallery)) next.gallery = normalizeGalleryItems(source.gallery);
+
+  if (source.collections && typeof source.collections === 'object' && !Array.isArray(source.collections)) {
+    next.collections = {
+      ...source.collections,
+      ...(Object.hasOwn(source.collections, 'salesRepresentatives')
+        ? { salesRepresentatives: normalizeSalesRepresentatives(source.collections.salesRepresentatives) }
+        : {}),
+    };
+  }
 
   if (source.i18n && typeof source.i18n === 'object' && !Array.isArray(source.i18n)) {
     next.i18n = Object.fromEntries(
@@ -120,6 +175,7 @@ export function sanitizeContentPayload(input) {
           ...data,
           products: sanitizeProductOverrides(data.products),
           posts: sanitizePostOverrides(data.posts, `i18n.${String(locale).slice(0, 20)}.posts`),
+          ...(Object.hasOwn(data, 'gallery') ? { gallery: stripGalleryMediaOverrides(data.gallery) } : {}),
         }];
       }),
     );

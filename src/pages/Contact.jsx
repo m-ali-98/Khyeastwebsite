@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import { Icons, Reveal, PageHero, socialIcon } from '../components/ui';
 import { useContent } from '../content/ContentContext';
+import { internationalPhoneDisplay, iranPhoneE164 } from '../lib/phone';
 
-function OfficeCard({ office, index }) {
+function OfficeCard({ office, index, locale }) {
   const Ic = Icons[office.icon] || Icons.pin;
   return (
     <Reveal delay={index * 0.1} className="card contact-card">
@@ -14,12 +15,16 @@ function OfficeCard({ office, index }) {
         <h2>{office.title}</h2>
         <p>{office.address}</p>
         <p className="contact-card__links">
-          {(office.phones || []).map((ph) => (
-            <a key={ph.tel} href={`tel:${ph.tel}`}>
-              <Icons.phone size={14} />
-              {ph.fa}
-            </a>
-          ))}
+          {(office.phones || []).map((ph) => {
+            const e164 = iranPhoneE164(ph.tel) || iranPhoneE164(ph.fa);
+            const display = locale === 'fa' ? ph.fa : internationalPhoneDisplay(e164, locale);
+            return (
+              <a key={ph.tel} href={`tel:${e164 || ph.tel}`}>
+                <Icons.phone size={14} />
+                <bdi dir="ltr">{display || ph.fa}</bdi>
+              </a>
+            );
+          })}
         </p>
       </div>
     </Reveal>
@@ -158,7 +163,7 @@ function ContactForm() {
 }
 
 export default function Contact() {
-  const { t, m, col } = useContent();
+  const { t, m, col, locale } = useContent();
   const offices = col('offices');
   const socials = col('socials');
 
@@ -171,7 +176,7 @@ export default function Contact() {
           <div className="contact-layout">
             <div className="contact-directory">
               {offices.map((o, i) => (
-                <OfficeCard key={o.id} office={o} index={i} />
+                <OfficeCard key={o.id} office={o} index={i} locale={locale} />
               ))}
               <Reveal delay={0.2} className="card contact-card contact-card--quick">
                 <div className="contact-card__icon">

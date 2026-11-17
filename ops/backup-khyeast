@@ -16,7 +16,6 @@ STATE_ROOT=${KHYEAST_STATE_ROOT:-/var/lib/khyeast}
 DATA_DIR=${DATA_DIR:-$STATE_ROOT/data}
 UPLOAD_DIR=${UPLOAD_DIR:-$STATE_ROOT/uploads}
 DB_FILE=${DB_FILE:-$DATA_DIR/khyeast.db}
-CONTENT_FILE=${CONTENT_FILE:-$DATA_DIR/content.json}
 RELEASE_DIR=${RELEASE_DIR:-/srv/khyeast/current}
 APP_SERVICE=${APP_SERVICE:-khyeast.service}
 LOCAL_RETENTION_DAYS=${LOCAL_RETENTION_DAYS:-14}
@@ -46,7 +45,6 @@ done
 [[ $BACKUP_MIN_FREE_BYTES =~ ^(0|[1-9][0-9]*)$ ]] || fail 'BACKUP_MIN_FREE_BYTES must be a non-negative integer'
 [[ -n $APP_SERVICE && $APP_SERVICE != *$'\n'* ]] || fail 'APP_SERVICE is invalid'
 [[ -f $DB_FILE ]] || fail "database not found: $DB_FILE"
-[[ -f $CONTENT_FILE ]] || fail "content file not found: $CONTENT_FILE"
 [[ -d $UPLOAD_DIR ]] || fail "upload directory not found: $UPLOAD_DIR"
 
 install -d -m 0700 "$DEST"
@@ -59,7 +57,7 @@ flock -n 9 || fail 'another backup is already running'
 # a quota—and later write errors still fail closed without publishing a name.
 upload_bytes=$(du -sb --exclude='.quarantine' --exclude='.incoming' -- "$UPLOAD_DIR" | awk 'NR == 1 { print $1 }')
 [[ $upload_bytes =~ ^[0-9]+$ ]] || fail 'could not measure live upload size'
-source_bytes=$(( $(stat -c %s "$DB_FILE") + $(stat -c %s "$CONTENT_FILE") + upload_bytes ))
+source_bytes=$(( $(stat -c %s "$DB_FILE") + upload_bytes ))
 for sidecar in "$DB_FILE-wal" "$DB_FILE-shm"; do
   if [[ -f $sidecar ]]; then source_bytes=$(( source_bytes + $(stat -c %s "$sidecar") )); fi
 done
@@ -79,26 +77,49 @@ case "$STAGE" in
   *"'"*|*$'\n'*) fail 'backup path contains a character unsafe for sqlite3 .backup' ;;
 esac
 
-validate_content() {
-  node - "$1" <<'NODE'
-const fs = require('node:fs');
-const file = process.argv[2];
-const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-const object = (item) => item && typeof item === 'object' && !Array.isArray(item);
-const required = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
-if (!object(value) || !required.every((key) => Object.hasOwn(value, key))) {
-  throw new Error('content.json has an incomplete root structure');
-}
-if (!['texts', 'media', 'links', 'collections'].every((key) => object(value[key]))) {
-  throw new Error('content.json has an invalid object section');
-}
-if (!['brands', 'products', 'posts'].every((key) => Array.isArray(value[key]))) {
-  throw new Error('content.json has an invalid list section');
-}
-if (Object.hasOwn(value, 'i18n') && !object(value.i18n)) {
-  throw new Error('content.json has an invalid i18n section');
-}
-NODE
+content_revision() {
+  sqlite3 -batch -noheader -readonly "$1" <<'SQL'
+.bail on
+.timeout 10000
+PRAGMA query_only = ON;
+WITH expected(section, json_kind) AS (
+  VALUES
+    ('texts', 'object'),
+    ('media', 'object'),
+    ('links', 'object'),
+    ('collections', 'object'),
+    ('brands', 'array'),
+    ('products', 'array'),
+    ('posts', 'array'),
+    ('i18n', 'object'),
+    ('gallery', 'array')
+), meta AS (
+  SELECT revision FROM content_meta WHERE id = 1
+)
+SELECT CAST(meta.revision AS TEXT)
+  FROM meta
+ WHERE meta.revision >= 1
+   AND (SELECT COUNT(*) FROM content_meta) = 1
+   AND (SELECT application_id FROM pragma_application_id) = 1263032645
+   AND (SELECT user_version FROM pragma_user_version) = 1
+   AND (SELECT CASE WHEN json_valid(value) THEN json_type(value) END
+          FROM settings WHERE key = 'installation.initializedAt') = 'text'
+   AND (SELECT CASE WHEN json_valid(value) THEN json_type(value) END
+          FROM settings WHERE key = 'shop.display') = 'object'
+   AND (SELECT CASE WHEN json_valid(value) THEN json_type(value) END
+          FROM settings WHERE key = 'shop.payment') = 'object'
+   AND (
+     SELECT COUNT(*)
+       FROM expected
+       JOIN content_sections USING (section)
+      WHERE CASE
+              WHEN json_valid(content_sections.value_json)
+                THEN json_type(content_sections.value_json)
+              ELSE NULL
+            END = expected.json_kind
+        AND content_sections.revision BETWEEN 1 AND meta.revision
+   ) = 9;
+SQL
 }
 
 # First pass captures files that could be unreferenced and moved to quarantine
@@ -121,14 +142,13 @@ app_service_state() {
 snapshot_ok=0
 database_snapshot_mode=
 for attempt in 1 2 3; do
-  before=$STAGE/content.before.json
-  after=$STAGE/content.after.json
   database=$STAGE/khyeast.db.pending
   offline_source=$STAGE/offline-db-source
-  rm -rf -- "$before" "$after" "$database" "$offline_source"
+  rm -rf -- "$database" "$offline_source"
 
-  if ! cp -- "$CONTENT_FILE" "$before" || ! validate_content "$before"; then
-    printf 'backup-khyeast: content snapshot attempt %s was unreadable; retrying\n' "$attempt" >&2
+  before_revision=$(content_revision "$DB_FILE" 2>/dev/null || true)
+  if [[ ! $before_revision =~ ^[1-9][0-9]*$ ]]; then
+    printf 'backup-khyeast: authoritative SQLite content was unreadable on attempt %s; retrying\n' "$attempt" >&2
     sleep 1
     continue
   fi
@@ -206,25 +226,26 @@ SQL
     continue
   fi
 
-  if ! cp -- "$CONTENT_FILE" "$after" || ! validate_content "$after"; then
-    printf 'backup-khyeast: second content read attempt %s failed; retrying\n' "$attempt" >&2
+  snapshot_revision=$(content_revision "$database" 2>/dev/null || true)
+  after_revision=$(content_revision "$DB_FILE" 2>/dev/null || true)
+  if [[ ! $snapshot_revision =~ ^[1-9][0-9]*$ || ! $after_revision =~ ^[1-9][0-9]*$ ]]; then
+    printf 'backup-khyeast: copied or live editorial content failed strict validation; retrying\n' >&2
     sleep 1
     continue
   fi
-  if ! cmp -s -- "$before" "$after"; then
-    printf 'backup-khyeast: content changed during metadata snapshot attempt %s; retrying\n' "$attempt" >&2
+  if [[ $before_revision != "$snapshot_revision" || $snapshot_revision != "$after_revision" ]]; then
+    printf 'backup-khyeast: editorial revision changed during snapshot attempt %s; retrying\n' "$attempt" >&2
     sleep 1
     continue
   fi
 
-  mv -- "$after" "$STAGE/khyeast/data/content.json"
   mv -- "$database" "$STAGE/khyeast/data/khyeast.db"
-  rm -f -- "$before"
+  content_revision_value=$snapshot_revision
   database_snapshot_mode=$candidate_mode
   snapshot_ok=1
   break
 done
-[[ $snapshot_ok -eq 1 ]] || fail 'could not obtain a stable content/database snapshot after three attempts'
+[[ $snapshot_ok -eq 1 ]] || fail 'could not obtain a stable validated SQLite snapshot after three attempts'
 
 # Second pass captures uploads completed while content and SQLite were copied.
 # Any rsync warning is a failed backup, not a partial success.
@@ -236,20 +257,19 @@ commit=unknown
 if [[ -e $RELEASE_DIR/.git ]]; then
   commit=$(git -C "$RELEASE_DIR" rev-parse HEAD 2>/dev/null || printf unknown)
 fi
-content_sha=$(sha256sum "$STAGE/khyeast/data/content.json" | awk '{print $1}')
 database_sha=$(sha256sum "$STAGE/khyeast/data/khyeast.db" | awk '{print $1}')
-node - "$STAGE/khyeast/backup-manifest.json" "$STAMP" "$commit" "$content_sha" "$database_sha" "$database_snapshot_mode" <<'NODE'
+node - "$STAGE/khyeast/backup-manifest.json" "$STAMP" "$commit" "$database_sha" "$database_snapshot_mode" "$content_revision_value" <<'NODE'
 const fs = require('node:fs');
-const [file, createdAt, commit, contentSha256, databaseSha256, databaseSnapshotMode] = process.argv.slice(2);
+const [file, createdAt, commit, databaseSha256, databaseSnapshotMode, contentRevision] = process.argv.slice(2);
 fs.writeFileSync(file, JSON.stringify({
-  format: 1,
+  format: 2,
   createdAt,
   commit,
   online: databaseSnapshotMode === 'online-sqlite-backup',
   databaseSnapshotMode,
+  contentRevision: Number(contentRevision),
   quarantineExcluded: true,
   incomingUploadsExcluded: true,
-  contentSha256,
   databaseSha256,
 }, null, 2), { mode: 0o600 });
 NODE
@@ -260,7 +280,6 @@ NODE
 nice -n 10 ionice -c 3 tar --numeric-owner -C "$STAGE" -cf "$ARCHIVE_TMP" khyeast
 list=$STAGE/archive.list
 tar -tf "$ARCHIVE_TMP" >"$list"
-grep -Fxq 'khyeast/data/content.json' "$list" || fail 'archive is missing content.json'
 grep -Fxq 'khyeast/data/khyeast.db' "$list" || fail 'archive is missing the SQLite snapshot'
 grep -Fxq 'khyeast/backup-manifest.json' "$list" || fail 'archive is missing its manifest'
 if grep -Fq '/.quarantine/' "$list"; then fail 'archive unexpectedly contains quarantine'; fi

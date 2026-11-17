@@ -11,6 +11,7 @@ import { Icons, Reveal, PageHero, PasswordInput } from '../components/ui';
 import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useAccount } from '../shop/AccountContext';
+import { safeShopNext } from '../../shared/shopRedirect.js';
 
 const faDigits = (s) => String(s).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
@@ -19,7 +20,7 @@ export default function ShopAuth() {
   const account = useAccount();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get('next') || '/shop/account';
+  const next = safeShopNext(params.get('next'));
 
   const [mode, setMode] = useState(params.get('mode') === 'register' ? 'register' : 'login');
   const [step, setStep] = useState('phone'); // phone → code → details
@@ -27,6 +28,17 @@ export default function ShopAuth() {
   const [ticket, setTicket] = useState('');
   const [note, setNote] = useState(null);
   const [busy, setBusy] = useState(false);
+  const actionLock = useRef(false);
+  const beginBusyAction = () => {
+    if (actionLock.current) return false;
+    actionLock.current = true;
+    setBusy(true);
+    return true;
+  };
+  const endBusyAction = () => {
+    actionLock.current = false;
+    setBusy(false);
+  };
   const [cooldown, setCooldown] = useState(0);
   const codeRef = useRef(null);
 
@@ -50,6 +62,7 @@ export default function ShopAuth() {
   const fail = (e, fallback) => setNote({ kind: 'err', msg: e?.message || t(fallback) });
 
   const switchMode = (m) => {
+    if (actionLock.current) return;
     setMode(m);
     setStep('phone');
     setNote(null);
@@ -60,7 +73,7 @@ export default function ShopAuth() {
   const purpose = mode === 'reset' ? 'reset' : 'register';
 
   const sendCode = async () => {
-    setBusy(true);
+    if (!beginBusyAction()) return;
     setNote(null);
     try {
       const d = await account.requestCode(form.phone, purpose);
@@ -72,12 +85,12 @@ export default function ShopAuth() {
       if (e.retryAfter) setCooldown(e.retryAfter);
       fail(e, 'shop.auth.errServer');
     } finally {
-      setBusy(false);
+      endBusyAction();
     }
   };
 
   const verify = async () => {
-    setBusy(true);
+    if (!beginBusyAction()) return;
     setNote(null);
     try {
       const d = await account.verifyCode(form.phone, form.code, purpose);
@@ -86,12 +99,12 @@ export default function ShopAuth() {
     } catch (e) {
       fail(e, 'shop.auth.errCode');
     } finally {
-      setBusy(false);
+      endBusyAction();
     }
   };
 
   const finish = async () => {
-    setBusy(true);
+    if (!beginBusyAction()) return;
     setNote(null);
     try {
       if (mode === 'reset') await account.resetPassword(ticket, form.password);
@@ -100,12 +113,12 @@ export default function ShopAuth() {
     } catch (e) {
       fail(e, 'shop.auth.errServer');
     } finally {
-      setBusy(false);
+      endBusyAction();
     }
   };
 
   const login = async () => {
-    setBusy(true);
+    if (!beginBusyAction()) return;
     setNote(null);
     try {
       await account.login(form.phone, form.password);
@@ -113,13 +126,13 @@ export default function ShopAuth() {
     } catch (e) {
       fail(e, 'shop.auth.errServer');
     } finally {
-      setBusy(false);
+      endBusyAction();
     }
   };
 
   const onSubmit = (e) => {
     e.preventDefault();
-    if (busy) return;
+    if (actionLock.current) return;
     if (mode === 'login') return login();
     if (step === 'phone') return sendCode();
     if (step === 'code') return verify();

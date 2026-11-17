@@ -2,11 +2,9 @@
    Khuzestan Yeast Co. — content & shop API server
    --------------------------------------------------------------------------
    Database : server/data/khyeast.db  (SQLite / WAL — transactional)
-              → shop products, shop settings, payment credentials,
-                orders + order items, product comments, contact messages
-   File     : server/data/content.json
-              → site texts, media, links, brands, catalog products, blog posts
-   Uploads  : server/uploads  (served at /uploads/*)
+              → revisioned CMS sections, shop/settings, orders, payments,
+                comments, contact messages and other mutable application state
+   Uploads  : server/uploads  (served at /uploads/*; persistent filesystem)
 
    The admin can only change content values — never code or styling.
    ========================================================================== */
@@ -17,9 +15,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { mergeContentState } from '../shared/contentState.js';
 import { loadAllPacks } from '../shared/i18n/index.js';
+import { galleryItemsProblem, galleryOverridesProblem } from '../shared/gallery.js';
 import {
   normalizeOrigin,
   redirectPath,
@@ -45,12 +45,16 @@ import {
   productNeedsImageValidation,
 } from '../shared/productImages.js';
 import { trustSealImageOrigins, validateTrustSeals } from '../shared/trustSeals.js';
+import { salesRepresentativeProblem } from '../shared/salesRepresentatives.js';
+import { CONTENT_REVISION_HEADER, parseContentRevision } from '../shared/contentRevision.js';
+import { socialLinkOverridesProblem, socialLinksProblem } from '../shared/socialLinks.js';
+import { VIDEO_EMBED_FRAME_SOURCES } from '../shared/videoEmbeds.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
-import { readCookie } from './accounts.js';
+import { originAllowed, readCookie } from './accounts.js';
 import { sanitizeContentPayload, isRichTextValidationError } from './sanitize.js';
-import { writeJsonAtomicSync } from './jsonFile.js';
 import { createGracefulShutdown } from './gracefulShutdown.js';
+import { trustedCsrfOrigins } from './siteOrigin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -78,9 +82,6 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR)
    keeps a 200 MB video out of the JavaScript heap and lets publication use an
    atomic rename. The private directory is neither served nor backed up. */
 const UPLOAD_INCOMING_DIR = path.join(UPLOAD_DIR, '.incoming');
-const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
-const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json'); // legacy — imported once
-const SHOP_FILE = path.join(DATA_DIR, 'shop.json'); // legacy — imported once
 const DB_FILE = process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : path.join(DATA_DIR, 'khyeast.db');
 const PORT = process.env.PORT || 8787;
 
@@ -153,107 +154,82 @@ if (IS_PROD) {
 
 const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12h
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(CONTENT_FILE)) {
-  /* Some test/cPanel layouts put UPLOAD_DIR beneath DATA_DIR. The directory we
-     just created is not evidence of an earlier installation, but anything
-     actually stored below it is. */
-  const uploadRelativeToData = path.relative(DATA_DIR, UPLOAD_DIR);
-  const nestedUploadName = uploadRelativeToData &&
-    !uploadRelativeToData.startsWith(`..${path.sep}`) &&
-    uploadRelativeToData !== '..' &&
-    !path.isAbsolute(uploadRelativeToData)
-    ? uploadRelativeToData.split(path.sep)[0]
-    : '';
-  const otherData = fs.readdirSync(DATA_DIR).filter((name) => (
-    name !== path.basename(CONTENT_FILE) && name !== nestedUploadName && name !== '.gitkeep'
-  ));
-  const uploadStack = [UPLOAD_DIR];
-  let existingUploads = false;
-  while (uploadStack.length && !existingUploads) {
-    const directory = uploadStack.pop();
+/* Determine freshness before opening SQLite creates a database file. Empty
+   directories and abandoned multipart staging are not state; any real file in
+   the data/upload trees is. Defaults may be persisted only when this check can
+   prove there is no earlier installation to recover. */
+const treeHasPersistentFiles = (root) => {
+  if (!fs.existsSync(root)) return false;
+  const stack = [root];
+  while (stack.length) {
+    const directory = stack.pop();
     let entries = [];
-    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return true; }
     for (const entry of entries) {
       if (entry.name === '.gitkeep') continue;
-      /* An abandoned multipart body is transient, not evidence that this is an
-         established content installation. It will be purged below. */
-      if (directory === UPLOAD_DIR && entry.name === '.incoming' && entry.isDirectory()) continue;
-      if (entry.isDirectory()) uploadStack.push(path.join(directory, entry.name));
-      else {
-        existingUploads = true;
-        break;
-      }
+      const target = path.join(directory, entry.name);
+      if (path.resolve(target) === path.resolve(UPLOAD_INCOMING_DIR) && entry.isDirectory()) continue;
+      if (entry.isDirectory()) stack.push(target);
+      else return true;
     }
   }
-  /* Bootstrap only a genuinely empty installation. If a database, legacy data
-     or uploads already exist, a missing content file is much more likely to be
-     a failed restore. Keeping it missing makes strict cleanup return 503
-     instead of manufacturing a default tree that marks old media unused. */
-  if (!otherData.length && !existingUploads) {
-    writeJsonAtomicSync(CONTENT_FILE, DEFAULT_STATE);
-  } else {
-    console.error('[content] content.json is missing while other persistent state exists; content writes and upload cleanup are disabled');
-  }
-}
+  return false;
+};
+const installationWasFresh = !fs.existsSync(DB_FILE) &&
+  !treeHasPersistentFiles(DATA_DIR) &&
+  !treeHasPersistentFiles(UPLOAD_DIR);
 
-const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
-const writeJSON = (f, v) => writeJsonAtomicSync(f, v);
-const PERSISTED_CONTENT_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts'];
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const validPersistedContent = (value) => (
-  isRecord(value) &&
-  PERSISTED_CONTENT_KEYS.every((key) => Object.hasOwn(value, key)) &&
-  ['texts', 'media', 'links', 'collections'].every((key) => isRecord(value[key])) &&
-  ['brands', 'products', 'posts'].every((key) => Array.isArray(value[key])) &&
-  (!Object.hasOwn(value, 'i18n') || isRecord(value.i18n))
-);
 
 /* ---------------- database ---------------- */
-const db = await store.openDB(DB_FILE);
-const seedReport = store.seedFromLegacy(db, { CONTENT_FILE, SHOP_FILE, MESSAGES_FILE });
-if (!seedReport.skipped) {
+const db = await store.openDB(DB_FILE, { allowCreate: installationWasFresh });
+const installation = store.initializeStore(db, { freshInstall: installationWasFresh });
+const contentInitialization = installation.content;
+if (contentInitialization.status === 'initialized') {
+  console.log('[db] editorial content revision 1 — initialized from immutable defaults');
+}
+if (contentInitialization.status === 'unavailable') {
+  console.error(
+    '[content] authoritative SQLite editorial content is unavailable; public reads will use shipped fallback, ' +
+    'while Admin writes and upload cleanup remain disabled until a verified database restore: ' +
+    contentInitialization.reason,
+  );
+}
+if (installation.operational.status === 'initialized') {
+  const report = installation.operational;
   console.log(
-    `[db] initialised ${path.relative(process.cwd(), DB_FILE)} — ` +
-      `products: ${seedReport.products}, orders: ${seedReport.orders}, ` +
-      `comments: ${seedReport.comments}, messages: ${seedReport.messages}` +
-      (seedReport.from.length ? ` (imported from ${seedReport.from.join(', ')})` : ' (from defaults)'),
+    `[db] initialized ${path.relative(process.cwd(), DB_FILE)} — ` +
+      `products: ${report.products}, orders: ${report.orders}, ` +
+      `comments: ${report.comments}, messages: ${report.messages}`,
   );
 }
 
 const rateLimiter = createRateLimiter({ database: db, store, hashSecret: SECRET });
 
-/* content.json no longer stores the shop section — the DB does. */
-try {
-  const c = readJSON(CONTENT_FILE);
-  /* A legacy shop section may be removed only from an otherwise authoritative
-     content tree. An incomplete recovery artifact must remain byte-for-byte
-     untouched for explicit operator repair. */
-  if (validPersistedContent(c) && c.shop) {
-    delete c.shop;
-    writeJSON(CONTENT_FILE, c);
-    console.log('[db] moved "shop" section out of content.json into the database');
-  }
-} catch {}
-
-/** Site content = JSON file + shop section rebuilt from the database. */
-
+/** Site content = revisioned SQLite editorial sections + normalized shop rows. */
 const contentUnavailable = (cause) => Object.assign(
-  new Error('persisted content is missing, unreadable, or invalid'),
+  new Error('persisted SQLite content is missing, unreadable, or invalid'),
   { code: 'CONTENT_UNAVAILABLE', cause },
 );
 
-/** Destructive upload accounting must never substitute defaults. A missing,
- * corrupt, or structurally incomplete file may be the only copy that names a
- * live upload, so cleanup must stop rather than infer that the upload is free. */
+let editorialCache = null;
+const invalidateEditorialCache = () => { editorialCache = null; };
+const readEditorialStrict = () => {
+  const token = store.getContentToken(db);
+  if (editorialCache?.key === token.key) return editorialCache.value;
+  const value = store.readContentSections(db);
+  editorialCache = { key: token.key, value };
+  return value;
+};
+
 const readContentStrict = () => {
   try {
-    const base = readJSON(CONTENT_FILE);
-    if (!validPersistedContent(base)) throw new Error('content.json has an invalid structure');
+    const base = readEditorialStrict();
     return {
       ...base,
-      i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
       shop: {
         display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
         products: store.listProducts(db),
@@ -265,15 +241,21 @@ const readContentStrict = () => {
   }
 };
 
+/* Pair the response body with the exact global revision that produced it.
+   A deferred SQLite read transaction prevents another Passenger worker from
+   committing between the content SELECTs and the revision header. */
+const readContentSnapshotStrict = () => db.transaction(() => ({
+  content: readContentStrict(),
+  revision: store.getContentMeta(db).revision,
+}))();
+
 /* Public reads retain the historical availability fallback, but callers can
-   now distinguish it through X-Khyeast-Content-Status. It must never be fed
-   back into a write as though it were the persisted tree. */
+   distinguish it through X-Khyeast-Content-Status. It must never be fed back
+   into a write as though it were persisted state. */
 const fallbackContent = () => {
-  const base = { ...DEFAULT_STATE };
-  delete base.shop;
+  const base = JSON.parse(JSON.stringify(DEFAULT_STATE));
   return {
     ...base,
-    i18n: isRecord(base.i18n) ? base.i18n : { en: {}, ar: {} },
     shop: {
       display: { ...DEFAULT_STATE.shop.display, ...(store.getSetting(db, 'shop.display') || {}) },
       products: store.listProducts(db),
@@ -296,37 +278,24 @@ const strictContentForResponse = (res, operation, scope = 'content') => {
     console.error(`[${scope}] ${operation} refused:`, error?.cause?.message || error?.message || error);
     res.setHeader('Retry-After', '60');
     res.status(503).json({
-      error: 'persisted content is unavailable; restore or repair content.json before writing',
+      error: 'persisted SQLite content is unavailable; restore a verified database backup before writing',
       code: 'content-unavailable',
     });
     return null;
   }
 };
 
-/** Persist site content: shop → database, everything else → JSON file.
- *
- *  Stock is deliberately NOT taken from this payload. The admin panel loads
- *  /api/content once when it mounts and then holds that snapshot; meanwhile
- *  customer orders and order-status changes move stock in the database. Saving
- *  any unrelated edit (a price, a description) used to write the stale
- *  snapshot back over the live figures, silently undoing every sale made since
- *  the page was opened — a customer's order would vanish from inventory.
- *
- *  The shop editor does have an inventory field. Existing stock changes use a
- *  dedicated compare-and-set endpoint after this content save, so an explicit
- *  edit is applied only if the live value still matches what the admin saw.
- *  A genuinely new product keeps the initial stock carried by this payload. */
-const writeContent = (next, previous = null) => {
-  /* The panel sanitizes for immediate preview, but only this server-side pass
-     protects direct API callers and future clients. Store only canonical safe
-     HTML in both content.json and the shop database. */
+/** Persist sanitized editorial sections and related shop changes inside the
+ * caller's one SQLite writer transaction. Existing stock is never copied from
+ * the Admin snapshot; the dedicated compare-and-set endpoint remains the only
+ * way to change an existing product's operational inventory. */
+const writeContent = (next, previous, requestedSections = store.CONTENT_SECTIONS, expectedRevision) => {
   const sanitized = sanitizeContentPayload(next);
 
   /* Sanitization canonicalizes galleries. For an untouched legacy catalogue
-     row that the changed-only validator intentionally skipped, restore the
-     exact old media fields so an unrelated save cannot silently drop an HTTP,
-     duplicate, or formerly trusted URL. The row must be repaired when it is
-     actually edited. */
+     row that the changed-only validator intentionally skipped, restore exact
+     old media fields so an unrelated save cannot silently drop an HTTP,
+     duplicate, or formerly trusted URL. The row must be repaired when edited. */
   if (Array.isArray(sanitized.products) && Array.isArray(next.products) && Array.isArray(previous?.products)) {
     const previousBySlug = new Map(previous.products.map((product) => [product?.slug, product]));
     sanitized.products = sanitized.products.map((product, index) => {
@@ -342,27 +311,61 @@ const writeContent = (next, previous = null) => {
     });
   }
 
-  const { shop, ...rest } = sanitized;
-  if (shop && typeof shop === 'object') {
-    if (Array.isArray(shop.products)) {
-      const oldProducts = Array.isArray(previous?.shop?.products) ? previous.shop.products : null;
-      const oldBySlug = new Map((oldProducts || []).map((product) => [product.slug, product]));
-      const productsChanged = !oldProducts ||
-        shop.products.length !== oldProducts.length ||
-        shop.products.some((product, index) => (
-          product?.slug !== oldProducts[index]?.slug ||
-          productNeedsImageValidation(product, oldBySlug.get(product?.slug), { ignore: ['stock'] })
-        ));
-      if (productsChanged) store.replaceProducts(db, shop.products, { preserveStock: true });
-    }
-    if (shop.display && typeof shop.display === 'object')
-      store.setSetting(db, 'shop.display', {
-        ...DEFAULT_STATE.shop.display,
-        ...(store.getSetting(db, 'shop.display') || {}),
-        ...shop.display,
-      });
+  const editorialChanges = {};
+  for (const section of requestedSections) {
+    if (store.CONTENT_SECTIONS.includes(section)) editorialChanges[section] = sanitized[section];
   }
-  writeJSON(CONTENT_FILE, rest);
+  const editorialResult = store.replaceContentSections(db, editorialChanges, { expectedRevision });
+
+  const shop = sanitized.shop;
+  let productsChanged = false;
+  if (shop && typeof shop === 'object' && Array.isArray(shop.products)) {
+    const oldProducts = Array.isArray(previous?.shop?.products) ? previous.shop.products : null;
+    const oldBySlug = new Map((oldProducts || []).map((product) => [product.slug, product]));
+    productsChanged = !oldProducts ||
+      shop.products.length !== oldProducts.length ||
+      shop.products.some((product, index) => (
+        product?.slug !== oldProducts[index]?.slug ||
+        productNeedsImageValidation(product, oldBySlug.get(product?.slug), { ignore: ['stock'] })
+      ));
+  }
+
+  const currentDisplay = {
+    ...DEFAULT_STATE.shop.display,
+    ...(store.getSetting(db, 'shop.display') || {}),
+  };
+  const nextDisplay = shop?.display && typeof shop.display === 'object'
+    ? { ...currentDisplay, ...shop.display }
+    : currentDisplay;
+  const displayChanged = !isDeepStrictEqual(nextDisplay, currentDisplay);
+
+  if (productsChanged) store.replaceProducts(db, shop.products, { preserveStock: true });
+  if (displayChanged) store.setSetting(db, 'shop.display', nextDisplay);
+
+  /* Editorial changes already advanced the token. A shop-only content change
+     must do the same, because it is carried by the same GET/PUT snapshot. */
+  const revision = (productsChanged || displayChanged) && !editorialResult.changedSections.length
+    ? store.advanceContentRevision(db, { expectedRevision })
+    : editorialResult.revision;
+  if (revision !== expectedRevision) invalidateEditorialCache();
+
+  return {
+    revision,
+    changedSections: editorialResult.changedSections,
+    productsChanged,
+    displayChanged,
+  };
+};
+
+/* Content publication, shop-product saves and destructive upload accounting
+   share a process-local lane plus BEGIN IMMEDIATE. The queue orders requests in
+   this worker; SQLite provides the cross-worker writer boundary. */
+let contentMutationTail = Promise.resolve();
+const runContentMutation = (operation) => {
+  const execute = () => store.withImmediateTransaction(db, operation);
+  const current = contentMutationTail.then(execute, execute);
+  contentMutationTail = current.catch(() => {});
+  return current;
 };
 
 /* ---------------- auth ---------------- */
@@ -400,19 +403,21 @@ const saveSessions = (sessions) => {
 
 const sessionStart = (exp) => {
   const sid = crypto.randomBytes(16).toString('hex');
-  saveSessions({ ...loadSessions(), [sid]: exp });
-  return sid;
+  return db.immediateTransaction(() => {
+    saveSessions({ ...loadSessions(), [sid]: exp });
+    return sid;
+  })();
 };
 
-const sessionEnd = (sid) => {
+const sessionEnd = (sid) => db.immediateTransaction(() => {
   const sessions = loadSessions();
   if (!(sid in sessions)) return false;
   delete sessions[sid];
   saveSessions(sessions);
   return true;
-};
+})();
 
-const sessionEndAll = () => store.setSetting(db, SESSION_KEY, {});
+const sessionEndAll = () => db.immediateTransaction(() => store.setSetting(db, SESSION_KEY, {}))();
 
 const sign = (payload) => {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -559,7 +564,7 @@ const adminCookie = (req, token) => {
       secure: mode.secure,
       maxAge: Math.floor(TOKEN_TTL / 1000),
     }),
-    /* Expire old or alternate non-production names during migration. */
+    /* Expire old or alternate non-production cookie names. */
     serializeAdminCookie(LEGACY_ADMIN_COOKIE, '', { secure: mode.secure, maxAge: 0 }),
     ...(mode.name === ADMIN_COOKIE
       ? [serializeAdminCookie(ADMIN_DEV_COOKIE, '', { secure: false, maxAge: 0 })]
@@ -573,10 +578,7 @@ const clearAdminCookie = (req) => {
     serializeAdminCookie(LEGACY_ADMIN_COOKIE, '', { secure: mode.secure, maxAge: 0 }),
   ];
 };
-const ownOrigin = (req) => {
-  if (PUBLIC_ORIGIN_URL) return PUBLIC_ORIGIN_URL.origin;
-  return `${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`;
-};
+const ownOrigins = (req) => trustedCsrfOrigins(req, process.env);
 const requireAuth = (req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   /* Bearer support remains for trusted scripts and existing integrations, but
@@ -593,11 +595,11 @@ const requireAuth = (req, res, next) => {
   if (!payload) return res.status(401).json({ error: 'unauthorized' });
 
   /* Cookie authentication needs an explicit CSRF boundary in addition to
-     SameSite=Strict. Native tools omit Origin and use Bearer; a browser that
-     sends an Origin on a state change must name this exact site. */
+     SameSite=Strict. Native tools omit Origin and use Bearer; browser writes
+     must name the canonical site or an explicitly trusted HTTPS alias. */
   if (!bearerToken && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     const origin = req.get('origin');
-    if (origin && origin !== ownOrigin(req)) return res.status(403).json({ error: 'forbidden' });
+    if (origin && !originAllowed(req, ownOrigins(req))) return res.status(403).json({ error: 'forbidden' });
   }
   req.session = payload;
   next();
@@ -622,17 +624,48 @@ const MAGIC = [
   { ext: '.jpg', test: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   { ext: '.gif', test: (b) => b.subarray(0, 6).toString('latin1').match(/^GIF8[79]a$/) },
   { ext: '.webp', test: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP' },
-  { ext: '.avif', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
-  { ext: '.mp4', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
-  { ext: '.m4v', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
-  { ext: '.mov', test: (b) => b.subarray(4, 8).toString('latin1') === 'ftyp' },
   { ext: '.webm', test: (b) => b.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) },
 ];
+
+/* ISO BMFF files all begin with `ftyp`; that marker alone also admits HEIC,
+   audio, and arbitrary polyglot data. Validate the complete bounded file-type
+   box, then require brands for the declared upload extension. */
+const isoFileBrands = (buffer) => {
+  if (!buffer || buffer.length < 16 || buffer.subarray(4, 8).toString('latin1') !== 'ftyp') return null;
+  let headerSize = 8;
+  let boxSize = buffer.readUInt32BE(0);
+  if (boxSize === 1) {
+    if (buffer.length < 24) return null;
+    const largeSize = buffer.readBigUInt64BE(8);
+    if (largeSize > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    boxSize = Number(largeSize);
+    headerSize = 16;
+  }
+  if (
+    boxSize === 0 || boxSize < headerSize + 8 || boxSize > buffer.length ||
+    (boxSize - (headerSize + 8)) % 4 !== 0
+  ) return null;
+
+  const brands = [buffer.subarray(headerSize, headerSize + 4).toString('latin1')];
+  const compatibleStart = headerSize + 8;
+  for (let offset = compatibleStart; offset < boxSize; offset += 4) {
+    brands.push(buffer.subarray(offset, offset + 4).toString('latin1'));
+  }
+  return brands;
+};
+const ISO_BRANDS_BY_EXT = {
+  '.avif': new Set(['avif', 'avis']),
+  '.mp4': new Set(['isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'iso7', 'iso8', 'iso9', 'mp41', 'mp42', 'avc1', 'M4V ']),
+  '.m4v': new Set(['M4V ', 'M4VH', 'M4VP', 'mp42', 'isom', 'iso2']),
+  '.mov': new Set(['qt  ']),
+};
 
 /** Does the file's content actually match the extension it claims? */
 const contentMatchesExt = (buf, ext) => {
   if (!buf || buf.length < 12) return false;
   const key = ext === '.jpeg' ? '.jpg' : ext;
+  const isoBrands = ISO_BRANDS_BY_EXT[key];
+  if (isoBrands) return (isoFileBrands(buf) || []).some((brand) => isoBrands.has(brand));
   const sigs = MAGIC.filter((m) => m.ext === key);
   return sigs.length ? sigs.some((m) => Boolean(m.test(buf))) : false;
 };
@@ -709,7 +742,7 @@ const reserveUploadSlot = (req, res, next) => {
   next();
 };
 
-const readFilePrefix = async (file, length = 16) => {
+const readFilePrefix = async (file, length = 4096) => {
   const handle = await fs.promises.open(file, 'r');
   try {
     const buffer = Buffer.alloc(length);
@@ -804,8 +837,9 @@ const makeCsp = (inlineScripts = INLINE_SCRIPTS, trustedImageOrigins = []) => [
   "font-src 'self'",
   /* The admin panel talks to this origin only. */
   "connect-src 'self'",
-  /* Nothing is ever embedded, and we embed nothing. */
-  "frame-src 'none'",
+  /* Only provider-specific video player origins are frameable. The shared
+     parser emits canonical URLs on precisely these three origins. */
+  `frame-src ${VIDEO_EMBED_FRAME_SOURCES.join(' ')}`,
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -834,7 +868,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '8mb' }));
+/* Keep public JSON requests small. Only authenticated editorial and shop-
+   catalogue saves use the larger parser, which is mounted after their auth
+   guard so anonymous clients cannot make the server parse multi-megabyte JSON. */
+const smallJsonBody = express.json({ limit: '100kb' });
+app.use((req, res, next) => {
+  const adminLargeJsonWrite = ['PUT', 'PATCH'].includes(req.method) &&
+    (req.path === '/api/content' || req.path === '/api/shop-admin/products');
+  if (adminLargeJsonWrite) return next();
+  return smallJsonBody(req, res, next);
+});
 
 /* ---------------- public ---------------- */
 /* `imageOptimiser` is here so a deployment can be checked without uploading
@@ -844,20 +887,22 @@ app.get('/api/health', async (_req, res) =>
   res.json({ ok: true, db: 'sqlite', imageOptimiser: await optimiserAvailable() }),
 );
 
-app.get('/api/content', (_req, res) => {
+app.get('/api/content', async (_req, res) => {
   /* Public copy is edited while visitors may already have the SPA open. A
      cached JSON response would make route-level revalidation meaningless, so
      neither the browser nor an intermediary may store this snapshot. */
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   try {
-    const content = readContentStrict();
+    const { content, revision } = readContentSnapshotStrict();
     res.setHeader('X-Khyeast-Content-Status', 'persisted');
+    res.setHeader(CONTENT_REVISION_HEADER, String(revision));
     res.json(content);
   } catch {
     /* Keep the public site readable during a restore incident, while exposing
        that this is a shipped fallback rather than authoritative saved state.
-       Admin uses the header to display a read-only recovery warning. */
+       Admin uses the header to display a read-only recovery warning. A fallback
+       deliberately has no revision and can never authorize a write. */
     res.setHeader('X-Khyeast-Content-Status', 'fallback');
     try {
       res.json(fallbackContent());
@@ -1026,16 +1071,82 @@ app.put('/api/admin/security', requireAuth, (req, res) => {
 
 /* ---------------- admin: content ---------------- */
 const REQUIRED_KEYS = ['texts', 'media', 'links', 'collections', 'brands', 'products', 'posts', 'shop'];
-app.put('/api/content', requireAuth, (req, res) => {
+const PATCHABLE_CONTENT_KEYS = new Set([...REQUIRED_KEYS, 'gallery', 'i18n']);
+const setContentRevision = (res, revision) => {
+  res.setHeader(CONTENT_REVISION_HEADER, String(revision));
+  return revision;
+};
+const saveContentRequest = (req, res, { partial = false } = {}) => {
   /* A public GET may deliberately serve shipped defaults during a restore
      incident. Never let an ordinary Admin save turn that availability fallback
-     into the new authoritative file: all writes begin from a strict read. */
+     into the new authoritative database: all writes begin from a strict read
+     after this request owns SQLite's immediate writer transaction. */
   const current = strictContentForResponse(res, 'content save');
   if (!current) return;
 
-  const next = req.body;
-  if (!next || typeof next !== 'object') return res.status(400).json({ error: 'invalid payload' });
-  for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  let next;
+  let requestedSections = store.CONTENT_SECTIONS;
+  if (partial) {
+    const changes = req.body?.changes;
+    if (!isRecord(changes)) return res.status(400).json({ error: 'invalid content patch' });
+    const keys = Object.keys(changes);
+    const unknown = keys.find((key) => !PATCHABLE_CONTENT_KEYS.has(key));
+    if (unknown) return res.status(400).json({ error: `unknown content key: ${unknown}` });
+    requestedSections = keys.filter((key) => store.CONTENT_SECTIONS.includes(key));
+    next = { ...current, ...changes };
+  } else {
+    if (!isRecord(req.body)) return res.status(400).json({ error: 'invalid payload' });
+    next = { ...req.body };
+    for (const k of REQUIRED_KEYS) if (!(k in next)) return res.status(400).json({ error: `missing key: ${k}` });
+  }
+  /* Never let an older payload without translations wipe the stored ones. */
+  if (!next.i18n || typeof next.i18n !== 'object' || Array.isArray(next.i18n)) {
+    next.i18n = current.i18n || {};
+  }
+
+  /* An older client may omit Gallery, so preserve the authoritative section
+     rather than rejecting or accidentally wiping it. */
+  if (!Object.hasOwn(next, 'gallery')) {
+    next.gallery = Array.isArray(current.gallery) ? current.gallery : DEFAULT_STATE.gallery;
+  }
+
+  /* Preserve the new nested collection when a pre-feature Admin client sends
+     its complete `collections` bucket. Omitting a field is not a request to
+     erase the public sales network; deliberate removal is represented by an
+     explicit empty array. */
+  if (
+    isRecord(next.collections) &&
+    !Object.hasOwn(next.collections, 'salesRepresentatives') &&
+    Array.isArray(current.collections?.salesRepresentatives)
+  ) {
+    next.collections = {
+      ...next.collections,
+      salesRepresentatives: current.collections.salesRepresentatives,
+    };
+  }
+
+  const { shop: nextShop, ...persistedCandidate } = next;
+  if (!store.validContentState(persistedCandidate) || !isRecord(nextShop)) {
+    return res.status(400).json({ error: 'invalid content structure' });
+  }
+  const galleryProblem = galleryItemsProblem(next.gallery);
+  if (galleryProblem) {
+    return res.status(400).json({ error: 'invalid gallery', problem: galleryProblem });
+  }
+  for (const [locale, localeData] of Object.entries(next.i18n || {})) {
+    const problem = galleryOverridesProblem(localeData?.gallery);
+    if (problem) {
+      return res.status(400).json({ error: `invalid ${locale} gallery translation`, problem });
+    }
+    const socialProblem = socialLinkOverridesProblem(localeData?.collections?.socials);
+    if (socialProblem) {
+      return res.status(400).json({
+        error: `invalid ${locale} social link`,
+        code: socialProblem.code,
+        index: socialProblem.index,
+      });
+    }
+  }
   /* The slug is both the primary key and the URL for catalogue products and
      blog posts. A blank one produces /products/ (which collides with the index
      route) and a duplicate makes the second entity permanently unreachable,
@@ -1054,12 +1165,44 @@ app.put('/api/content', requireAuth, (req, res) => {
       }
       if (seen.has(id)) return res.status(400).json({ error: `${bucket}[${i}]: duplicate ${key} "${id}"` });
       seen.add(id);
+      if (bucket === 'brands' && (!String(list[i]?.fa || '').trim() || !String(list[i]?.en || '').trim())) {
+        return res.status(400).json({ error: `brands[${i}]: Persian and English names are required` });
+      }
+    }
+  }
+
+  const brandIds = new Set((Array.isArray(next.brands) ? next.brands : []).map((brand) => brand?.id));
+  for (const [bucket, products] of [
+    ['products', next.products],
+    ['shop.products', next.shop?.products],
+  ]) {
+    if (!Array.isArray(products)) continue;
+    for (let index = 0; index < products.length; index += 1) {
+      const brand = products[index]?.brand;
+      if (brand && !brandIds.has(brand)) {
+        return res.status(400).json({ error: `${bucket}[${index}]: unknown brand "${brand}"` });
+      }
     }
   }
 
   if (Array.isArray(next.shop?.products)) {
     const problems = shopProductProblems(next.shop.products);
     if (problems.length) return res.status(400).json({ error: 'invalid shop products', problems });
+  }
+
+  /* Social destinations become executable anchor hrefs in three public
+     surfaces. CSP does not make javascript: or data: navigation safe, so the
+     persistence boundary accepts only absolute HTTP(S) destinations (plus a
+     non-rendered incomplete draft while an Admin is typing). */
+  if (next.collections?.socials !== undefined) {
+    const problem = socialLinksProblem(next.collections.socials);
+    if (problem) {
+      return res.status(400).json({
+        error: 'invalid social links',
+        code: problem.code,
+        index: problem.index,
+      });
+    }
   }
 
   /* Trust seals become executable destinations and expand img-src in the
@@ -1069,6 +1212,20 @@ app.put('/api/content', requireAuth, (req, res) => {
   if (next.collections?.trustSeals !== undefined) {
     const trustError = validateTrustSeals(next.collections.trustSeals);
     if (trustError) return res.status(400).json({ error: trustError });
+  }
+
+  /* Representatives are public contact records and SVG coordinates. Reject
+     malformed or oversized direct-API payloads before they reach SQLite; the
+     browser editor is useful feedback, not the persistence security boundary. */
+  if (next.collections?.salesRepresentatives !== undefined) {
+    const problem = salesRepresentativeProblem(next.collections.salesRepresentatives);
+    if (problem) {
+      return res.status(400).json({
+        error: 'invalid sales representatives',
+        code: problem.code,
+        index: problem.index,
+      });
+    }
   }
 
   /* Product photos have to be renderable under the exact img-src policy this
@@ -1082,6 +1239,32 @@ app.put('/api/content', requireAuth, (req, res) => {
   const currentImageOrigins = trustSealImageOrigins(current.collections?.trustSeals);
   const originPolicyChanged = [...new Set(trustedImageOrigins)].sort().join('\n') !==
     [...new Set(currentImageOrigins)].sort().join('\n');
+  const previousBrandsById = new Map(
+    (Array.isArray(current.brands) ? current.brands : []).map((brand) => [brand?.id, brand]),
+  );
+  for (let index = 0; index < next.brands.length; index += 1) {
+    const brand = next.brands[index];
+    if (
+      !originPolicyChanged &&
+      !productNeedsImageValidation(brand, previousBrandsById.get(brand?.id))
+    ) continue;
+    if (!String(brand?.image || '').trim()) {
+      return res.status(400).json({
+        error: 'invalid brand image',
+        code: 'required',
+        field: `brands[${index}].image`,
+      });
+    }
+    const problem = productImagesProblem(brand, trustedImageOrigins);
+    if (problem) {
+      return res.status(400).json({
+        error: 'invalid brand image',
+        code: problem.code,
+        field: `brands[${index}].image`,
+        detail: productImagesProblemMessage(problem),
+      });
+    }
+  }
   for (const [bucket, list, previousList, ignore] of [
     ['products', next.products, current.products, []],
     ['shop.products', next.shop?.products, current.shop?.products, ['stock']],
@@ -1111,10 +1294,39 @@ app.put('/api/content', requireAuth, (req, res) => {
     }
   }
 
-  /* never let a payload without translations wipe the stored ones */
-  if (!next.i18n || typeof next.i18n !== 'object') next.i18n = current.i18n || {};
+  /* The revision must come from the exact GET snapshot the editor changed.
+     Reading it here would merely compare current state with itself and let a
+     stale tab overwrite a newer one. This check runs while BEGIN IMMEDIATE is
+     held, so no other worker can commit between comparison and persistence. */
+  const revisionHeader = req.get(CONTENT_REVISION_HEADER);
+  const expectedRevision = parseContentRevision(revisionHeader);
+  const currentRevision = store.getContentMeta(db).revision;
+  setContentRevision(res, currentRevision);
+  if (revisionHeader === undefined) {
+    return res.status(428).json({
+      error: 'content revision is required; reload before saving',
+      code: 'content-revision-required',
+      revision: currentRevision,
+    });
+  }
+  if (expectedRevision === null) {
+    return res.status(400).json({
+      error: 'invalid content revision',
+      code: 'invalid-content-revision',
+      revision: currentRevision,
+    });
+  }
+  if (expectedRevision !== currentRevision) {
+    return res.status(409).json({
+      error: 'content changed in another editor; reload and review the latest version',
+      code: 'content-conflict',
+      revision: currentRevision,
+    });
+  }
+
+  let result;
   try {
-    writeContent(next, current);
+    result = writeContent(next, current, requestedSections, expectedRevision);
   } catch (error) {
     if (isRichTextValidationError(error)) {
       return res.status(400).json({
@@ -1126,8 +1338,32 @@ app.put('/api/content', requireAuth, (req, res) => {
     }
     throw error;
   }
-  res.json({ ok: true });
-});
+  setContentRevision(res, result.revision);
+  res.json({
+    ok: true,
+    unchanged: !result.changedSections.length && !result.productsChanged && !result.displayChanged,
+    revision: result.revision,
+  });
+};
+
+const contentWriteRoute = (partial) => (req, res, next) => {
+  runContentMutation(() => saveContentRequest(req, res, { partial })).catch((error) => {
+    /* Handle this only after the transaction rejected, so a future conflict
+       raised late in writeContent can never commit earlier partial work. */
+    if (error?.code === 'CONTENT_CONFLICT') {
+      const revision = setContentRevision(res, store.getContentMeta(db).revision);
+      return res.status(409).json({
+        error: 'content changed in another editor; reload and review the latest version',
+        code: 'content-conflict',
+        revision,
+      });
+    }
+    return next(error);
+  });
+};
+const largeAdminJsonBody = express.json({ limit: '8mb' });
+app.put('/api/content', requireAuth, largeAdminJsonBody, contentWriteRoute(false));
+app.patch('/api/content', requireAuth, largeAdminJsonBody, contentWriteRoute(true));
 
 /* ---------------- admin: messages ---------------- */
 app.get('/api/messages', requireAuth, (_req, res) => res.json(store.listMessages(db)));
@@ -1150,15 +1386,18 @@ app.get('/api/uploads/unused', requireAuth, (_req, res) => {
   res.json(listUnusedUploads(UPLOAD_DIR, content));
 });
 
-app.delete('/api/uploads/unused', requireAuth, (req, res) => {
+app.delete('/api/uploads/unused', requireAuth, (req, res, next) => {
   if (!Array.isArray(req.body?.urls)) return res.status(400).json({ error: 'urls must be an array' });
-  /* The content tree is read again here rather than trusting the preview. If a
-     file became referenced while the confirmation dialog was open, it is no
-     longer a candidate and will be reported as skipped. */
-  const content = strictContentForResponse(res, 'unused-file cleanup', 'uploads');
-  if (!content) return;
-  const result = deleteUnusedUploads(UPLOAD_DIR, content, req.body.urls);
-  res.json({ ok: true, ...result });
+  return runContentMutation(() => {
+    /* The content tree is read again here rather than trusting the preview. If
+       a file became referenced while the confirmation dialog was open, it is
+       no longer a candidate and will be reported as skipped. The SQLite writer
+       boundary keeps this read and move atomic relative to every worker's save. */
+    const content = strictContentForResponse(res, 'unused-file cleanup', 'uploads');
+    if (!content) return;
+    const result = deleteUnusedUploads(UPLOAD_DIR, content, req.body.urls);
+    res.json({ ok: true, ...result });
+  }).catch(next);
 });
 
 app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), async (req, res) => {
@@ -1180,7 +1419,7 @@ app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), a
       }
 
       const dir = path.join(UPLOAD_DIR, `${kind}s`);
-      fs.mkdirSync(dir, { recursive: true });
+      await fs.promises.mkdir(dir, { recursive: true });
       const stem = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
       /* Videos never need to enter the JavaScript heap: after the signature
@@ -1224,18 +1463,24 @@ app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), a
       const written = [];
       let name = opt.variants.length ? `${stem}-w${opt.width}.webp` : `${stem}${opt.ext}`;
       try {
-        for (const variant of opt.variants) {
+        const variantWrites = opt.variants.map((variant) => {
           const file = path.join(dir, `${stem}-${variant.width}.webp`);
           written.push(file);
-          fs.writeFileSync(file, variant.buffer);
-        }
+          return fs.promises.writeFile(file, variant.buffer);
+        });
+        /* Wait for every parallel variant operation to settle before cleanup;
+           Promise.all would reject early while another write could still be
+           racing the fallback removal. The master remains last as the public
+           completion marker for an optimized family. */
+        const settled = await Promise.allSettled(variantWrites);
+        const failed = settled.find((result) => result.status === 'rejected');
+        if (failed) throw failed.reason;
+
         const master = path.join(dir, name);
         written.push(master);
-        fs.writeFileSync(master, opt.buffer);
+        await fs.promises.writeFile(master, opt.buffer);
       } catch {
-        for (const file of written) {
-          try { fs.unlinkSync(file); } catch { /* best effort */ }
-        }
+        await Promise.allSettled(written.map((file) => fs.promises.rm(file, { force: true })));
         name = `${stem}${ext}`;
         await fs.promises.rename(staged, path.join(dir, name));
         return {
@@ -1278,31 +1523,31 @@ app.post('/api/upload', requireAuth, reserveUploadSlot, upload.single('file'), a
   }
 });
 
-app.delete('/api/upload', requireAuth, (req, res) => {
+app.delete('/api/upload', requireAuth, (req, res, next) => {
   const url = String(req.body?.url || '');
   /* This lower-level endpoint remains for existing integrations, but it may no
      longer remove a file used by another product or page. Gallery removal in
      the Admin intentionally removes only the reference; the unused-files
      cleanup is the normal retirement path. */
   if (!parseUploadUrl(url)) return res.status(400).json({ error: 'invalid url' });
-  const content = strictContentForResponse(res, 'guarded upload removal', 'uploads');
-  if (!content) return;
-  if (isUploadReferenced(url, content)) {
-    return res.status(409).json({ error: 'upload is still referenced' });
-  }
-  /* The reference check and quarantine move are synchronous, so no request in
-     this process can save content in between. */
-  const result = quarantineUploadSet(UPLOAD_DIR, url);
-  res.json({
-    ok: true,
-    stuck: result.stuck,
-    removed: result.moved,
-    quarantined: result.moved,
-    bytes: result.bytes,
-    batch: result.batch,
-    restoreUntil: result.restoreUntil,
-    quarantineDays: Math.round(UPLOAD_QUARANTINE_RETENTION_MS / (24 * 60 * 60 * 1000)),
-  });
+  return runContentMutation(() => {
+    const content = strictContentForResponse(res, 'guarded upload removal', 'uploads');
+    if (!content) return;
+    if (isUploadReferenced(url, content)) {
+      return res.status(409).json({ error: 'upload is still referenced' });
+    }
+    const result = quarantineUploadSet(UPLOAD_DIR, url);
+    res.json({
+      ok: true,
+      stuck: result.stuck,
+      removed: result.moved,
+      quarantined: result.moved,
+      bytes: result.bytes,
+      batch: result.batch,
+      restoreUntil: result.restoreUntil,
+      quarantineDays: Math.round(UPLOAD_QUARANTINE_RETENTION_MS / (24 * 60 * 60 * 1000)),
+    });
+  }).catch(next);
 });
 
 /* Defence in depth for anything already on disk (including files uploaded
@@ -1326,7 +1571,10 @@ const shopRouter = createShopRouter({
   database: db,
   requireAuth,
   rateLimiter,
-  trustedImageOrigins: () => trustSealImageOrigins(readContent().collections?.trustSeals),
+  contentMutation: runContentMutation,
+  assertContentAvailable: () => readContentStrict(),
+  trustedImageOrigins: () => trustSealImageOrigins(readContentStrict().collections?.trustSeals),
+  selfOrigin: (req) => trustedCsrfOrigins(req, process.env),
 });
 app.use(shopRouter);
 
@@ -1340,10 +1588,9 @@ const accountRouter = createAccountRouter({
   requireAdmin: requireAuth,
   rateLimiter,
   isSecureRequest: secureRequest,
-  /* Same rule as the payment callbacks: PUBLIC_ORIGIN wins, and a Host
-     header from the client is never trusted to describe us. */
-  selfOrigin: (req) =>
-    PUBLIC_ORIGIN_URL?.origin || `${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`,
+  /* Use the same deployment trust boundary as callback/SMS URLs; never let a
+     client-supplied Host define the CSRF origin in production. */
+  selfOrigin: (req) => trustedCsrfOrigins(req, process.env),
 });
 shopRouter.useCustomer(accountRouter.currentCustomer);
 app.use(accountRouter);
@@ -1367,9 +1614,9 @@ if (fs.existsSync(DIST)) {
     if (canonicalProductionOrigin) return canonicalProductionOrigin;
     return normalizeOrigin(`${secureRequest(req) ? 'https' : 'http'}://${req.get('host')}`);
   };
-  const seoState = () => {
+  const seoState = async () => {
     try {
-      return mergeContentState(DEFAULT_STATE, readContent());
+      return mergeContentState(DEFAULT_STATE, await readContent());
     } catch {
       return mergeContentState(DEFAULT_STATE, {});
     }
@@ -1389,9 +1636,9 @@ if (fs.existsSync(DIST)) {
     res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600');
     res.send(renderRobots(requestOrigin(req)));
   });
-  app.get('/sitemap.xml', (req, res) => {
+  app.get('/sitemap.xml', async (req, res) => {
     res.type('application/xml').setHeader('Cache-Control', 'no-cache');
-    res.send(renderSitemap(seoState(), requestOrigin(req)));
+    res.send(renderSitemap(await seoState(), requestOrigin(req)));
   });
   app.get('/index.html', (_req, res) => res.redirect(301, '/'));
   const sendStatic404 = (res) => {
@@ -1430,14 +1677,14 @@ if (fs.existsSync(DIST)) {
     }),
   );
 
-  app.get(/^\/(?!api|uploads).*/, (req, res) => {
+  app.get(/^\/(?!api|uploads).*/, async (req, res) => {
     const origin = requestOrigin(req);
     const queryAt = req.originalUrl.indexOf('?');
     const query = queryAt >= 0 ? req.originalUrl.slice(queryAt) : '';
     const redirect = redirectPath(req.path);
     if (redirect) return res.redirect(301, `${redirect}${query}`);
 
-    const state = seoState();
+    const state = await seoState();
     const meta = resolveSeo(req.path, state, origin);
     let html;
     try {

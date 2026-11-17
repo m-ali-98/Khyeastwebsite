@@ -1,6 +1,11 @@
 /* Browser wrapper around the sanitizer shared with the Node persistence
    boundary. Keeping one whitelist prevents client/server policy drift. */
-export { sanitizeHtml, sanitizeHtmlResult } from '../../shared/sanitizeHtml.js';
+export {
+  sanitizeHtml,
+  sanitizeHtmlResult,
+  RICH_TEXT_COLOR_IDS,
+  RICH_TEXT_TABLE_LIMITS,
+} from '../../shared/sanitizeHtml.js';
 
 export function richTextRejectionMessage(result) {
   const limit = result?.limit ? new Intl.NumberFormat('fa-IR').format(result.limit) : '';

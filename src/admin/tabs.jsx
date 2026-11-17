@@ -16,7 +16,7 @@ import {
 
 /* Badge shown on Persian list rows: which other languages still fall back to
    Persian for this item, so a newly added product/post is never quietly left
-   untranslated on /en and /ar. */
+   untranslated on /en, /ar and /ru. */
 function TransStatus({ bucket, slug, state }) {
   const pending = LOCALES.filter((lo) => lo.code !== 'fa').filter((lo) => {
     const override = state.i18n?.[lo.code]?.[bucket]?.[slug];
@@ -32,6 +32,15 @@ function TransStatus({ bucket, slug, state }) {
 }
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
+const normalizeAdminSearch = (value) => String(value ?? '')
+  .normalize('NFKC')
+  .replace(/[\u064B-\u065F\u0670]/g, '')
+  .replace(/[يى]/g, 'ی')
+  .replace(/ك/g, 'ک')
+  .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+  .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+  .toLocaleLowerCase('fa')
+  .trim();
 const localIsoDate = () => {
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -115,11 +124,65 @@ const productGalleryProblemFa = (problem) => {
 export function ProductsTab() {
   const { state, save, brands } = useContent();
   const [draft, setDraft] = useState(null);
+  const [brandDraft, setBrandDraft] = useState(null);
+  const [brandSaving, setBrandSaving] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  const [productQuery, setProductQuery] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [productStatus, setProductStatus] = useState('all');
+  const [productSort, setProductSort] = useState('default');
+  const [brandsExpanded, setBrandsExpanded] = useState(true);
   const trustedImageOrigins = useMemo(
     () => trustSealImageOrigins(state.collections?.trustSeals),
     [state.collections?.trustSeals],
   );
+  const brandById = useMemo(() => new Map(brands.map((brand) => [brand.id, brand])), [brands]);
+  const productsByBrand = useMemo(() => {
+    const counts = new Map();
+    state.products.forEach((product) => counts.set(product.brand, (counts.get(product.brand) || 0) + 1));
+    return counts;
+  }, [state.products]);
+  const shopProductsByBrand = useMemo(() => {
+    const counts = new Map();
+    (state.shop?.products || []).forEach((product) => counts.set(product.brand, (counts.get(product.brand) || 0) + 1));
+    return counts;
+  }, [state.shop?.products]);
+  const filteredProducts = useMemo(() => {
+    const terms = normalizeAdminSearch(productQuery).split(/\s+/).filter(Boolean);
+    const filtered = state.products.filter((product) => {
+      if (brandFilter && product.brand !== brandFilter) return false;
+      if (productStatus === 'featured' && !product.featured) return false;
+      if (productStatus === 'standard' && product.featured) return false;
+      if (!terms.length) return true;
+      const brand = brandById.get(product.brand);
+      const haystack = normalizeAdminSearch([
+        product.title,
+        product.slug,
+        product.weight,
+        product.pack,
+        product.brand,
+        brand?.fa,
+        brand?.en,
+      ].filter(Boolean).join(' '));
+      return terms.every((term) => haystack.includes(term));
+    });
+    const compareFa = (left, right) => String(left || '').localeCompare(String(right || ''), 'fa');
+    if (productSort === 'title') filtered.sort((left, right) => compareFa(left.title, right.title));
+    if (productSort === 'brand') filtered.sort((left, right) => (
+      compareFa(brandById.get(left.brand)?.fa || left.brand, brandById.get(right.brand)?.fa || right.brand)
+      || compareFa(left.title, right.title)
+    ));
+    if (productSort === 'featured') filtered.sort((left, right) => Number(!!right.featured) - Number(!!left.featured));
+    return filtered;
+  }, [state.products, brandById, productQuery, brandFilter, productStatus, productSort]);
+  const featuredCount = state.products.filter((product) => product.featured).length;
+  const hasProductFilters = Boolean(productQuery.trim() || brandFilter || productStatus !== 'all');
+  const clearProductFilters = () => {
+    setProductQuery('');
+    setBrandFilter('');
+    setProductStatus('all');
+    setProductSort('default');
+  };
 
   const commit = (next) => save({ ...state, products: next });
 
@@ -179,6 +242,7 @@ export function ProductsTab() {
       products: next,
       i18n: editing ? renameTranslations(state.i18n, 'products', _orig, clean.slug) : state.i18n,
     });
+    if (!editing) clearProductFilters();
     setDraft(null);
   };
 
@@ -190,6 +254,119 @@ export function ProductsTab() {
       i18n: dropTranslations(state.i18n, 'products', slug),
     });
   };
+
+  const saveBrandDraft = async () => {
+    const { _orig, ...rest } = brandDraft;
+    const id = String(_orig || rest.id || '').trim();
+    const idError = checkSlug(
+      state.brands.map((brand) => ({ slug: brand.id })),
+      id,
+      _orig,
+      'برند',
+    );
+    if (idError) return window.alert(idError);
+
+    const fa = String(rest.fa || '').trim();
+    const en = String(rest.en || '').trim();
+    const image = String(rest.image || '').trim();
+    if (!fa || !en) return window.alert('نام فارسی و نام انگلیسی برند را وارد کنید.');
+    if (!image) return window.alert('برای برند یک تصویر بارگذاری یا نشانی تصویر وارد کنید.');
+    const imageProblem = productImagesProblem({ image }, trustedImageOrigins);
+    if (imageProblem) return window.alert(productGalleryProblemFa(imageProblem));
+
+    const clean = {
+      ...rest,
+      id,
+      fa,
+      en,
+      tagline: String(rest.tagline || '').trim(),
+      image,
+    };
+    const nextBrands = _orig
+      ? state.brands.map((brand) => (brand.id === _orig ? clean : brand))
+      : [...state.brands, clean];
+
+    setBrandSaving(true);
+    try {
+      await save({ ...state, brands: nextBrands }, { optimistic: false });
+      setBrandsExpanded(true);
+      setBrandDraft(null);
+    } catch (error) {
+      window.alert(error.message || 'ذخیره برند ممکن نشد؛ هیچ تغییری ذخیره نشد.');
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+
+  const removeBrand = async (brand) => {
+    const catalogueUses = state.products.filter((product) => product.brand === brand.id).length;
+    const shopUses = (state.shop?.products || []).filter((product) => product.brand === brand.id).length;
+    if (catalogueUses || shopUses) return;
+    if (!window.confirm(`برند «${brand.fa}» حذف شود؟ ترجمه‌های آن نیز پاک می‌شوند.`)) return;
+
+    setBrandSaving(true);
+    try {
+      await save({
+        ...state,
+        brands: state.brands.filter((item) => item.id !== brand.id),
+        i18n: dropTranslations(state.i18n, 'brands', brand.id),
+      }, { optimistic: false });
+      if (brandFilter === brand.id) setBrandFilter('');
+    } catch (error) {
+      window.alert(error.message || 'حذف برند ممکن نشد؛ هیچ تغییری ذخیره نشد.');
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+
+  if (brandDraft) {
+    return (
+      <div className="admin__panel">
+        <div className="admin__head">
+          <div>
+            <h1>{brandDraft._orig ? 'ویرایش برند' : 'برند جدید'}</h1>
+            <p>شناسه برند در پیوند فیلتر محصولات استفاده می‌شود؛ پس از ساخت، ثابت می‌ماند.</p>
+          </div>
+        </div>
+        <div className="admin__grid2">
+          {brandDraft._orig ? (
+            <label className="field" style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: 0 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>شناسه برند</span>
+              <code>{brandDraft.id}</code>
+            </label>
+          ) : (
+            <Field
+              label="شناسه یکتا (slug)"
+              value={brandDraft.id}
+              dir="ltr"
+              onChange={(value) => setBrandDraft({ ...brandDraft, id: slugify(value) })}
+            />
+          )}
+          <Field label="نام فارسی" value={brandDraft.fa} onChange={(value) => setBrandDraft({ ...brandDraft, fa: value })} />
+          <Field label="نام انگلیسی" value={brandDraft.en} onChange={(value) => setBrandDraft({ ...brandDraft, en: value })} />
+          <Field label="شعار کوتاه (اختیاری)" value={brandDraft.tagline} onChange={(value) => setBrandDraft({ ...brandDraft, tagline: value })} />
+        </div>
+        <div className="admin__row" style={{ marginTop: 16 }}>
+          {brandDraft.image && <img src={brandDraft.image} alt="" width="96" height="72" style={{ objectFit: 'contain', borderRadius: 9, background: 'var(--bg-softer)' }} />}
+          <UploadButton accept="image/*" label="بارگذاری تصویر برند" onUploaded={(url) => setBrandDraft({ ...brandDraft, image: url })} />
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <Field label="نشانی تصویر" value={brandDraft.image} dir="ltr" onChange={(value) => setBrandDraft({ ...brandDraft, image: value })} />
+        </div>
+        <p className="admin__hint" style={{ marginTop: 10 }}>
+          برای ترجمه نام و شعار انگلیسی یا عربی، از «متون و فهرست‌ها ← برندها» استفاده کنید. تصویر باید از فایل سایت یا مبدأ HTTPS مورد اعتماد باشد.
+        </p>
+        <div className="admin__row" style={{ marginTop: 22 }}>
+          <button className="btn btn--primary" onClick={saveBrandDraft} disabled={brandSaving}>
+            {brandSaving ? 'در حال ذخیره…' : 'ذخیره برند'}
+          </button>
+          <button className="btn btn--outline" onClick={() => setBrandDraft(null)} disabled={brandSaving}>
+            انصراف
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (draft) {
     return (
@@ -254,48 +431,219 @@ export function ProductsTab() {
   }
 
   return (
-    <div className="admin__panel">
+    <div className="admin__panel admin-products">
       <div className="admin__head">
         <div>
           <h1>محصولات</h1>
-          <p>ایجاد، ویرایش و حذف محصولات صفحه «محصولات»</p>
+          <p>مدیریت محصولات کاتالوگ؛ می‌توانید فهرست را جست‌وجو، فیلتر و مرتب کنید.</p>
         </div>
         <button className="btn btn--primary" onClick={startNew}>
           + محصول جدید
         </button>
       </div>
-      <div className="admin__list">
-        {!state.products.length && (
-          <AdminState icon="pack" title="هنوز محصولی ثبت نشده است." detail="برای ساخت نخستین محصول، دکمه «محصول جدید» را انتخاب کنید." />
-        )}
-        {state.products.map((p) => (
-          <div className="admin__item" key={p.slug}>
-            <img src={p.image} alt="" />
-            <div>
-              <b>{p.title}</b>
-              <small>
-                {p.weight} · {p.pack} {p.featured ? '· برگزیده' : ''}
-              </small>
-            </div>
-            <div className="admin__actions">
-              <TransStatus bucket="products" slug={p.slug} state={state} />
-              <button
-                className="admin__iconbtn"
-                title="ویرایش"
-                onClick={() => {
-                  setGalleryBusy(false);
-                  setDraft({ ...clone(p), images: productImageList(p), _orig: p.slug });
-                }}
-              >
-                <Icons.edit size={16} />
-              </button>
-              <button className="admin__iconbtn danger" title="حذف" onClick={() => remove(p.slug)}>
-                <Icons.trash size={16} />
-              </button>
-            </div>
-          </div>
-        ))}
+
+      <div className="admin-products__summary" role="group" aria-label="خلاصه محصولات کاتالوگ">
+        <div><span>کل محصولات</span><strong>{state.products.length.toLocaleString('fa-IR')}</strong></div>
+        <div><span>محصولات برگزیده</span><strong>{featuredCount.toLocaleString('fa-IR')}</strong></div>
+        <div><span>کل برندها</span><strong>{brands.length.toLocaleString('fa-IR')}</strong></div>
       </div>
+
+      <section className="admin-products__brands" aria-labelledby="admin-brands-title">
+        <div className="admin-products__section-head">
+          <div>
+            <h2 id="admin-brands-title">مدیریت برندها <span>{brands.length.toLocaleString('fa-IR')}</span></h2>
+            <p>برندهای این فهرست در فیلترهای کاتالوگ و فروشگاه، صفحه اصلی و شمارنده برندها به‌کار می‌روند.</p>
+          </div>
+          <div className="admin-products__brand-actions">
+            <button
+              className="btn btn--outline"
+              onClick={() => setBrandDraft({ id: '', fa: '', en: '', tagline: '', image: '' })}
+            >
+              + برند جدید
+            </button>
+            {!!brands.length && (
+              <button
+                type="button"
+                className="admin-products__collapse"
+                aria-expanded={brandsExpanded}
+                aria-controls="admin-products-brand-list"
+                onClick={() => setBrandsExpanded((expanded) => !expanded)}
+              >
+                <Icons.chevron size={16} aria-hidden="true" />
+                {brandsExpanded ? 'جمع‌کردن' : 'نمایش برندها'}
+              </button>
+            )}
+          </div>
+        </div>
+        <div
+          className="admin__list admin-products__brand-list"
+          id="admin-products-brand-list"
+          hidden={!brandsExpanded}
+        >
+          {!state.brands.length && (
+            <AdminState compact icon="pack" title="هنوز برندی ثبت نشده است." detail="برای ساخت نخستین برند، دکمه «برند جدید» را انتخاب کنید." />
+          )}
+          {state.brands.map((brand) => {
+            const catalogueUses = productsByBrand.get(brand.id) || 0;
+            const shopUses = shopProductsByBrand.get(brand.id) || 0;
+            const isUsed = catalogueUses + shopUses > 0;
+            return (
+              <div className="admin__item" key={brand.id}>
+                <img src={brand.image} alt="" loading="lazy" decoding="async" />
+                <div>
+                  <b>{brand.fa} <small dir="ltr">({brand.en})</small></b>
+                  <small>
+                    {isUsed
+                      ? `در ${catalogueUses.toLocaleString('fa-IR')} محصول کاتالوگ و ${shopUses.toLocaleString('fa-IR')} محصول فروشگاه استفاده می‌شود؛ برای حذف ابتدا محصولات را به برند دیگری منتقل کنید.`
+                      : 'هنوز محصولی به این برند متصل نیست.'}
+                  </small>
+                </div>
+                <div className="admin__actions">
+                  <button
+                    type="button"
+                    className="admin__iconbtn"
+                    title="ویرایش برند"
+                    aria-label={`ویرایش برند ${brand.fa}`}
+                    onClick={() => setBrandDraft({ ...clone(brand), _orig: brand.id })}
+                    disabled={brandSaving}
+                  >
+                    <Icons.edit size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="admin__iconbtn danger"
+                    title={isUsed ? 'ابتدا محصولات وابسته را به برند دیگری منتقل کنید' : 'حذف برند'}
+                    aria-label={`حذف برند ${brand.fa}`}
+                    onClick={() => removeBrand(brand)}
+                    disabled={brandSaving || isUsed}
+                  >
+                    <Icons.trash size={16} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="admin-products__catalogue" aria-labelledby="admin-products-list-title">
+        <div className="admin-products__catalogue-head">
+          <div>
+            <h2 id="admin-products-list-title">فهرست محصولات</h2>
+            <p role="status" aria-live="polite">
+              نمایش {filteredProducts.length.toLocaleString('fa-IR')} از {state.products.length.toLocaleString('fa-IR')} محصول
+            </p>
+          </div>
+          {hasProductFilters && (
+            <button type="button" className="admin-products__reset" onClick={clearProductFilters}>
+              پاک‌کردن جست‌وجو و فیلترها
+            </button>
+          )}
+        </div>
+
+        <div className="admin-products__toolbar" role="search" aria-label="جست‌وجو و فیلتر محصولات">
+          <label className="admin-products__search">
+            <span>جست‌وجو</span>
+            <span className="admin-products__search-box">
+              <Icons.search size={17} aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="جست‌وجوی محصولات"
+                placeholder="نام، برند، وزن یا شناسه محصول"
+                autoComplete="off"
+                value={productQuery}
+                onChange={(event) => setProductQuery(event.target.value)}
+              />
+            </span>
+          </label>
+          <label className="admin-products__select">
+            <span>برند</span>
+            <select aria-label="فیلتر برند محصولات" value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)}>
+              <option value="">همه برندها</option>
+              {brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.fa}</option>)}
+            </select>
+          </label>
+          <label className="admin-products__select">
+            <span>نمایش</span>
+            <select aria-label="فیلتر وضعیت محصولات" value={productStatus} onChange={(event) => setProductStatus(event.target.value)}>
+              <option value="all">همه محصولات</option>
+              <option value="featured">برگزیده‌ها</option>
+              <option value="standard">غیربرگزیده‌ها</option>
+            </select>
+          </label>
+          <label className="admin-products__select">
+            <span>مرتب‌سازی</span>
+            <select aria-label="مرتب‌سازی محصولات" value={productSort} onChange={(event) => setProductSort(event.target.value)}>
+              <option value="default">ترتیب اولیه</option>
+              <option value="title">نام محصول (الفبا)</option>
+              <option value="brand">نام برند</option>
+              <option value="featured">برگزیده‌ها در ابتدا</option>
+            </select>
+          </label>
+        </div>
+
+        {!state.products.length ? (
+          <AdminState icon="pack" title="هنوز محصولی ثبت نشده است." detail="برای ساخت نخستین محصول، دکمه «محصول جدید» را انتخاب کنید." />
+        ) : !filteredProducts.length ? (
+          <div className="admin-products__empty" role="status">
+            <span><Icons.search size={21} aria-hidden="true" /></span>
+            <div>
+              <strong>محصولی با این مشخصات پیدا نشد.</strong>
+              <p>عبارت جست‌وجو یا فیلترها را تغییر دهید تا محصولات بیشتری نمایش داده شوند.</p>
+            </div>
+            <button type="button" className="btn btn--outline btn--sm" onClick={clearProductFilters}>
+              پاک‌کردن جست‌وجو و فیلترها
+            </button>
+          </div>
+        ) : (
+          <div className="admin__list admin-products__list">
+            {filteredProducts.map((p) => {
+              const brand = brandById.get(p.brand);
+              return (
+                <article className="admin__item admin-products__item" key={p.slug}>
+                  <img src={p.image} alt="" loading="lazy" decoding="async" />
+                  <div className="admin-products__main">
+                    <div className="admin-products__title-line">
+                      <b>{p.title}</b>
+                      {p.featured && <span className="admin-products__featured">برگزیده</span>}
+                    </div>
+                    <small>
+                      {brand?.fa || p.brand} <span aria-hidden="true">·</span> {p.weight || 'وزن ثبت نشده'} <span aria-hidden="true">·</span> {p.pack || 'بسته‌بندی ثبت نشده'}
+                    </small>
+                    <code dir="ltr">/{p.slug}</code>
+                  </div>
+                  <div className="admin-products__actions">
+                    <TransStatus bucket="products" slug={p.slug} state={state} />
+                    <div className="admin__actions">
+                      <button
+                        type="button"
+                        className="admin__iconbtn"
+                        title="ویرایش"
+                        aria-label={`ویرایش ${p.title}`}
+                        onClick={() => {
+                          setGalleryBusy(false);
+                          setDraft({ ...clone(p), images: productImageList(p), _orig: p.slug });
+                        }}
+                      >
+                        <Icons.edit size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="admin__iconbtn danger"
+                        title="حذف"
+                        aria-label={`حذف ${p.title}`}
+                        onClick={() => remove(p.slug)}
+                      >
+                        <Icons.trash size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -405,7 +753,7 @@ export function PostsTab() {
           />
         </div>
         <h2 style={{ margin: '22px 0 6px', fontSize: '1.05rem' }}>متن مقاله</h2>
-        <p className="admin__hint">متن را مانند صفحه نهایی قالب‌بندی کنید؛ پیوند، تصویر، ویدیو، زیرنویس و پیش‌نمایش در دسترس است.</p>
+        <p className="admin__hint">متن را مانند صفحه نهایی قالب‌بندی کنید؛ رنگ متن، جدول، پیوند، تصویر، ویدیو، زیرنویس و پیش‌نمایش در دسترس است.</p>
         <RichEditor
           value={draft.body}
           onChange={(v) => setDraft({ ...draft, body: v })}
@@ -478,6 +826,7 @@ const GROUPS = [
   ['blog', 'وبلاگ'],
   ['shop', 'فروشگاه'],
   ['contact', 'تماس با ما'],
+  ['salesReps', 'نمایندگان فروش'],
   ['footer', 'فوتر'],
   ['nf', 'صفحه ۴۰۴'],
 ];
@@ -554,7 +903,7 @@ const formatUploadBytes = (value) => {
 function UnusedUploads() {
   const cleanupErrorText = (error, fallback) => (
     error?.code === 'content-unavailable'
-      ? 'فایل content.json در دسترس یا معتبر نیست؛ پاک‌سازی برای جلوگیری از حذف فایل‌های در حال استفاده متوقف شد. ابتدا backup را بررسی و محتوا را بازیابی کنید.'
+      ? 'محتوای SQLite در دسترس یا معتبر نیست؛ پاک‌سازی برای جلوگیری از حذف فایل‌های در حال استفاده متوقف شد. ابتدا backup تأییدشده را بررسی و پایگاه‌داده را بازیابی کنید.'
       : error?.message || fallback
   );
   const [report, setReport] = useState(null);
@@ -696,8 +1045,11 @@ function UnusedUploads() {
 }
 
 export function MediaTab() {
-  const { state, save } = useContent();
-  const set = (k, v) => save({ ...state, media: { ...state.media, [k]: v } });
+  const { state, save, autosave } = useContent();
+  const set = (k, v, { immediate = false } = {}) => {
+    const request = (immediate ? save : autosave)({ ...state, media: { ...state.media, [k]: v } });
+    request.catch(() => {});
+  };
   return (
     <div className="admin__panel">
       <div className="admin__head">
@@ -720,7 +1072,7 @@ export function MediaTab() {
                 onChange={(e) => set(k, e.target.value)}
               />
             </div>
-            <UploadButton accept="image/*" small label="بارگذاری" onUploaded={(url) => set(k, url)} />
+            <UploadButton accept="image/*" small label="بارگذاری" onUploaded={(url) => set(k, url, { immediate: true })} />
           </div>
         ))}
       </div>
@@ -731,8 +1083,10 @@ export function MediaTab() {
 
 /* ================= links ================= */
 export function LinksTab() {
-  const { state, save } = useContent();
-  const set = (k, v) => save({ ...state, links: { ...state.links, [k]: v } });
+  const { state, autosave } = useContent();
+  const set = (k, v) => {
+    autosave({ ...state, links: { ...state.links, [k]: v } }).catch(() => {});
+  };
   return (
     <div className="admin__panel">
       <div className="admin__head">
@@ -961,23 +1315,38 @@ export function TrustSealsTab() {
 
 /* ================= contact info ================= */
 export function ContactTab() {
-  const { state, save } = useContent();
+  const { state, save, autosave } = useContent();
   const c = state.collections;
 
-  const patchCollections = (next) => save({ ...state, collections: next });
-  const setText = (k, v) => save({ ...state, texts: { ...state.texts, [k]: v } });
-  const setLink = (k, v) => save({ ...state, links: { ...state.links, [k]: v } });
+  const quiet = (request) => request.catch(() => {});
+  const patchCollections = (next, { immediate = false } = {}) => quiet(
+    (immediate ? save : autosave)({ ...state, collections: next }),
+  );
+  const setText = (k, v) => quiet(autosave({ ...state, texts: { ...state.texts, [k]: v } }));
+  const setLink = (k, v) => quiet(autosave({ ...state, links: { ...state.links, [k]: v } }));
 
   const setOffice = (id, patch) =>
     patchCollections({ ...c, offices: c.offices.map((o) => (o.id === id ? { ...o, ...patch } : o)) });
   const addOffice = () =>
-    patchCollections({ ...c, offices: [...c.offices, { id: `office-${Date.now()}`, icon: 'pin', title: 'دفتر جدید', address: '', phones: [] }] });
-  const removeOffice = (id) => window.confirm('این دفتر/کارخانه حذف شود؟') && patchCollections({ ...c, offices: c.offices.filter((o) => o.id !== id) });
+    patchCollections(
+      { ...c, offices: [...c.offices, { id: `office-${Date.now()}`, icon: 'pin', title: 'دفتر جدید', address: '', phones: [] }] },
+      { immediate: true },
+    );
+  const removeOffice = (id) => window.confirm('این دفتر/کارخانه حذف شود؟') && patchCollections(
+    { ...c, offices: c.offices.filter((o) => o.id !== id) },
+    { immediate: true },
+  );
 
   const setSocial = (id, patch) =>
     patchCollections({ ...c, socials: c.socials.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
-  const addSocial = () => patchCollections({ ...c, socials: [...c.socials, { id: `social-${Date.now()}`, label: 'شبکه جدید', href: 'https://' }] });
-  const removeSocial = (id) => patchCollections({ ...c, socials: c.socials.filter((s) => s.id !== id) });
+  const addSocial = () => patchCollections(
+    { ...c, socials: [...c.socials, { id: `social-${Date.now()}`, label: 'شبکه جدید', href: 'https://' }] },
+    { immediate: true },
+  );
+  const removeSocial = (id) => patchCollections(
+    { ...c, socials: c.socials.filter((s) => s.id !== id) },
+    { immediate: true },
+  );
 
   return (
     <div className="admin__panel">
@@ -1018,7 +1387,7 @@ export function ContactTab() {
                 <input
                   value={ph.tel}
                   dir="ltr"
-                  placeholder="tel: 021..."
+                  placeholder="+9821..."
                   onChange={(e) => setOffice(o.id, { phones: o.phones.map((x, idx) => (idx === i ? { ...x, tel: e.target.value } : x)) })}
                   style={{ flex: 1, border: '1.5px solid var(--line)', borderRadius: 10, padding: '9px 12px', fontSize: 13.5 }}
                 />

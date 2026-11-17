@@ -13,12 +13,13 @@ import {
   localizeState,
   shopEnabled,
 } from './i18n/index.js';
+import { safeSocialLinks } from './socialLinks.js';
 
 export const DEFAULT_SITE_ORIGIN = 'https://khuzestanyeast-co.com';
 export const SEO_HEAD_START = '<!-- seo:head:start -->';
 export const SEO_HEAD_END = '<!-- seo:head:end -->';
 
-const OG_LOCALE = { fa: 'fa_IR', en: 'en_US', ar: 'ar_AE' };
+const OG_LOCALE = { fa: 'fa_IR', en: 'en_US', ar: 'ar_AE', ru: 'ru_RU' };
 const PRIVATE_SHOP_ROUTE = /^\/shop\/(?:cart|checkout|login|account)$|^\/shop\/order\/[^/]+$/;
 const validSlug = (value) => {
   const slug = String(value || '');
@@ -28,7 +29,18 @@ const ALIASES = {
   '/dezmaye': '/products/dezmaye-gold-80',
   '/shetab': '/products/shetab-90',
   '/xpower': '/products/xpower-70',
-  '/nanmaye': '/products/nanmaye-10',
+  '/nanmaye': '/products/nanmaye-500',
+  /* Preserve the three former placeholder URLs and the six imported WordPress
+     permalinks while sending visitors to the new canonical blog routes. */
+  '/blog/reduce-bread-production-costs': '/blog/yeast-buying-guide',
+  '/blog/yeast-quality-and-bread-shelf-life': '/blog/how-to-identify-quality-yeast',
+  '/blog/comparing-yeast-types-in-baking': '/blog/yeast-types-for-baking',
+  '/انواع-خمیرمایه-و-تفاوت-آنها؛-کدام-خم': '/blog/yeast-types-for-baking',
+  '/تفاوت-خمیرمایه-تازه-و-خشک': '/blog/fresh-vs-dry-yeast',
+  '/تفاوت-خمیرمایه-فوری-و-فعال-خشک-کدام-برا': '/blog/instant-vs-active-dry-yeast',
+  '/چگونه-خمیرمایه-باکیفیت-را-تشخیص-دهیم؟': '/blog/how-to-identify-quality-yeast',
+  '/خرید-خمیرمایه-از-کارخانه': '/blog/buy-yeast-direct-from-factory',
+  '/راهنمای-خرید-خمیرمایه-انواع،-قیمت-و-نک': '/blog/yeast-buying-guide',
 };
 
 const STATIC_ROUTES = {
@@ -71,6 +83,24 @@ const STATIC_ROUTES = {
     imageKey: 'blog.hero.img',
     bodyKeys: ['blog.hero.sub'],
     listing: 'posts',
+  },
+  '/gallery': {
+    kind: 'collection',
+    titleKey: 'gallery.hero.title',
+    descriptionKey: 'gallery.hero.sub',
+    imageKey: 'gallery.hero.img',
+    bodyKeys: ['gallery.intro'],
+    listing: 'gallery',
+  },
+  '/sales-representatives': {
+    kind: 'collection',
+    titleKey: 'salesReps.hero.title',
+    seoTitleKey: 'seo.salesRepresentatives.title',
+    descriptionKey: 'salesReps.hero.sub',
+    imageKey: 'salesReps.hero.img',
+    bodyKeys: ['salesReps.intro'],
+    listing: 'salesRepresentatives',
+    locales: ['fa'],
   },
   '/contact': {
     titleKey: 'contact.hero.title',
@@ -197,7 +227,9 @@ export function redirectPath(pathname = '/') {
   if (target === '/en/admin' || target.startsWith('/en/admin/')) target = normalizePathname(target.slice(3));
   else if (target === '/ar/admin' || target.startsWith('/ar/admin/')) target = normalizePathname(target.slice(3));
 
-  const { locale, relative } = localeRoute(target);
+  let aliasPath = target;
+  try { aliasPath = decodeURI(target); } catch { /* malformed escapes remain unmatched */ }
+  const { locale, relative } = localeRoute(aliasPath);
   if (ALIASES[relative]) target = localePath(locale, ALIASES[relative]);
   return target !== original ? target : null;
 }
@@ -282,6 +314,22 @@ function pageLinks(view, locale, route, listing) {
       text: plainText(item?.address),
     }));
   }
+  if (listing === 'gallery') {
+    return asArray(view.gallery).filter((item) => validSlug(item?.id)).map((item) => ({
+      label: plainText(item.caption),
+      href: `${localePath(locale, '/gallery')}#${item.id}`,
+      text: plainText(item.description),
+    }));
+  }
+  if (listing === 'salesRepresentatives') {
+    return asArray(view.collections?.salesRepresentatives)
+      .filter((item) => item?.active !== false && validSlug(item?.id))
+      .map((item) => ({
+        label: plainText(item.name),
+        href: `/sales-representatives#${item.id}`,
+        text: plainText([item.city, item.province, item.brands].filter(Boolean).join('، ')),
+      }));
+  }
   return route.links || [];
 }
 
@@ -303,10 +351,8 @@ function breadcrumbItems(view, locale, relative, title) {
 function organizationSchema(view, origin) {
   const texts = view.texts || {};
   const offices = asArray(view.collections?.offices);
-  const socials = asArray(view.collections?.socials)
-    .map((item) => String(item?.href || '').trim())
-    .filter((href) => /^https?:\/\//i.test(href))
-    .map((href) => absoluteUrl(origin, href));
+  const socials = safeSocialLinks(asArray(view.collections?.socials))
+    .map((item) => absoluteUrl(origin, String(item.href).trim()));
   const phones = offices.flatMap((office) => asArray(office?.phones)).map((phone) => phone?.tel).filter(Boolean);
   return {
     '@type': 'Organization',
@@ -330,7 +376,7 @@ function organizationSchema(view, origin) {
       '@type': 'ContactPoint',
       telephone: phone,
       contactType: 'sales and customer service',
-      availableLanguage: ['fa', 'en', 'ar'],
+      availableLanguage: ['fa', 'en', 'ar', 'ru'],
     })),
     address: offices.map((office) => ({
       '@type': 'PostalAddress',
@@ -411,7 +457,9 @@ function schemaGraph(meta, view, origin, entity, shopOffer) {
           url: absoluteUrl(origin, `/shop/${shopOffer.slug}`),
           priceCurrency: 'IRR',
           price: String(Math.max(0, Number(shopOffer.price) || 0)),
-          availability: Number(shopOffer.stock) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+          availability: Number(shopOffer.stock) === -1 || Number(shopOffer.stock) > 0
+            ? 'https://schema.org/InStock'
+            : 'https://schema.org/OutOfStock',
           itemCondition: 'https://schema.org/NewCondition',
           seller: { '@id': `${origin}/#organization` },
         }
@@ -471,7 +519,9 @@ export function resolveSeo(pathname, state, requestedOrigin = DEFAULT_SITE_ORIGI
   let entity = null;
   let shopOffer = null;
 
-  const rawPrivate = /^\/admin(?:\/|$)/.test(path) || (shopEnabled(locale) && PRIVATE_SHOP_ROUTE.test(relative));
+  const pausedCartOrCheckout = !storefrontAvailable && /^\/shop\/(?:cart|checkout)$/.test(relative);
+  const rawPrivate = /^\/admin(?:\/|$)/.test(path) ||
+    (shopEnabled(locale) && PRIVATE_SHOP_ROUTE.test(relative) && !pausedCartOrCheckout);
   if (rawPrivate) {
     const titleKey = PRIVATE_TITLE_KEYS.find(([pattern]) => pattern.test(relative) || pattern.test(path))?.[1];
     const privateTitle = titleKey === 'admin' ? 'Admin' : plainText(texts[titleKey] || site);
@@ -711,7 +761,7 @@ export function renderSeoHead(meta, options = {}) {
       ? '    <meta property="product:price:currency" content="IRR" />'
       : '',
     meta.kind === 'product' && meta.shopOffer?.active
-      ? `    <meta property="product:availability" content="${Number(meta.shopOffer.stock) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock'}" />`
+      ? `    <meta property="product:availability" content="${Number(meta.shopOffer.stock) === -1 || Number(meta.shopOffer.stock) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock'}" />`
       : '',
     '    <meta name="twitter:card" content="summary_large_image" />',
     `    <meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,
@@ -727,14 +777,22 @@ export function renderSeoHead(meta, options = {}) {
 function fallbackNavigation(meta) {
   const locale = meta.locale;
   const labels = {
-    fa: ['خانه', 'درباره ما', 'محصولات', 'صادرات', 'کیفیت', 'وبلاگ', 'تماس با ما'],
-    en: ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Contact'],
-    ar: ['الرئيسية', 'من نحن', 'المنتجات', 'التصدير', 'الجودة', 'المدونة', 'اتصل بنا'],
-  }[locale] || ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Contact'];
-  const entries = ['/', '/about', '/products', '/export', '/quality', '/blog', '/contact']
+    fa: ['خانه', 'درباره ما', 'محصولات', 'صادرات', 'کیفیت', 'وبلاگ', 'گالری', 'تماس با ما'],
+    en: ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Gallery', 'Contact'],
+    ar: ['الرئيسية', 'من نحن', 'المنتجات', 'التصدير', 'الجودة', 'المدونة', 'المعرض', 'اتصل بنا'],
+    ru: ['Главная', 'О компании', 'Продукция', 'Экспорт', 'Качество', 'Блог', 'Галерея', 'Контакты'],
+  }[locale] || ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Gallery', 'Contact'];
+  const entries = ['/', '/about', '/products', '/export', '/quality', '/blog', '/gallery', '/contact']
     .map((path, index) => ({ path, label: labels[index] }));
+  if (locale === 'fa') entries.splice(-1, 0, { path: '/sales-representatives', label: 'نمایندگان فروش' });
   if (meta.shopAvailable) entries.splice(3, 0, { path: '/shop', label: 'فروشگاه' });
-  return `<nav aria-label="${escapeHtml(locale === 'fa' ? 'پیوندهای اصلی' : locale === 'ar' ? 'الروابط الرئيسية' : 'Primary links')}"><ul>${entries
+  const navigationLabel = {
+    fa: 'پیوندهای اصلی',
+    en: 'Primary links',
+    ar: 'الروابط الرئيسية',
+    ru: 'Основная навигация',
+  }[locale] || 'Primary links';
+  return `<nav aria-label="${escapeHtml(navigationLabel)}"><ul>${entries
     .map(({ path, label }) => `<li><a href="${escapeHtml(localePath(locale, path))}">${escapeHtml(label)}</a></li>`)
     .join('')}</ul></nav>`;
 }

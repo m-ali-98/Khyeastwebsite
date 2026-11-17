@@ -1,5 +1,5 @@
 /* Which language the admin is currently editing. Persian edits the base
-   content (the normal tabs); English and Arabic edit the translation layer. */
+   content (the normal tabs); English, Arabic and Russian edit translations. */
 import { createContext, useContext, useMemo, useState } from 'react';
 
 const Ctx = createContext(null);
@@ -8,6 +8,7 @@ export const ADMIN_LOCALES = [
   { code: 'fa', label: 'فارسی', flag: 'FA' },
   { code: 'en', label: 'English', flag: 'EN' },
   { code: 'ar', label: 'العربية', flag: 'AR' },
+  { code: 'ru', label: 'Русский', flag: 'RU' },
 ];
 
 export function AdminLocaleProvider({ children }) {

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, m as mo } from 'framer-motion';
 import Logo from './Logo';
@@ -7,6 +7,7 @@ import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
 import { useLocale } from '../i18n/LocaleContext';
 import { activeTrustSeals } from '../../shared/trustSeals.js';
+import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
 
 export const NAV_LINKS = [
   { to: '/', key: 'nav.home', end: true },
@@ -16,30 +17,153 @@ export const NAV_LINKS = [
   { to: '/export', key: 'nav.export' },
   { to: '/quality', key: 'nav.quality' },
   { to: '/blog', key: 'nav.blog' },
+  { to: '/gallery', key: 'nav.gallery' },
+  { to: '/sales-representatives', key: 'nav.salesRepresentatives', faOnly: true },
   { to: '/contact', key: 'nav.contact' },
 ];
 
+/* Quality is supporting corporate evidence, so it belongs beside the company
+   overview. Export remains top-level: international buyers should not have to
+   guess that a commercial destination is hidden beneath “About us”. */
+const HEADER_NAV_ITEMS = [
+  { to: '/', key: 'nav.home', end: true },
+  {
+    key: 'nav.about',
+    children: [
+      { to: '/about', key: 'nav.aboutOverview' },
+      { to: '/quality', key: 'nav.quality' },
+    ],
+  },
+  { to: '/products', key: 'nav.products' },
+  { to: '/shop', key: 'nav.shop', shopOnly: true },
+  { to: '/export', key: 'nav.export' },
+  { to: '/blog', key: 'nav.blog' },
+  { to: '/gallery', key: 'nav.gallery' },
+  { to: '/sales-representatives', key: 'nav.salesRepresentatives', faOnly: true },
+];
+
 /* ---------------------------------------------------------------------------
-   Language switcher — a compact segmented control in the top bar and inside
-   the mobile menu. Switching is a full navigation to the other locale's URL.
+   Language switcher — a native-name dropdown in the desktop utility bar and
+   the existing segmented control in the mobile menu. Switching is a full
+   navigation to the other locale's URL.
    --------------------------------------------------------------------------- */
-function LangSwitch({ block = false }) {
+const LANGUAGE_GROUP_LABEL = {
+  fa: 'انتخاب زبان',
+  en: 'Language selection',
+  ar: 'اختيار اللغة',
+  ru: 'Выбор языка',
+};
+
+const CHANGE_LANGUAGE_LABEL = {
+  fa: (current) => `تغییر زبان؛ زبان فعلی: ${current}`,
+  en: (current) => `Change language; current language: ${current}`,
+  ar: (current) => `تغيير اللغة؛ اللغة الحالية: ${current}`,
+  ru: (current) => `Сменить язык; текущий язык: ${current}`,
+};
+
+function LangSwitch({ block = false, open: controlledOpen, onOpenChange }) {
   const { locale, locales, switchLocale } = useLocale();
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = typeof controlledOpen === 'boolean' ? controlledOpen : localOpen;
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const current = locales.find((item) => item.code === locale) || locales[0];
+  const groupLabel = LANGUAGE_GROUP_LABEL[locale] || LANGUAGE_GROUP_LABEL.en;
+  const setExpanded = useCallback((next) => {
+    if (typeof controlledOpen !== 'boolean') setLocalOpen(next);
+    onOpenChange?.(next);
+  }, [controlledOpen, onOpenChange]);
+
+  useEffect(() => {
+    if (block || !open) return undefined;
+
+    const closeOnOutsidePointer = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      setExpanded(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setExpanded(false);
+      triggerRef.current?.focus();
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [block, open, setExpanded]);
+
+  if (block) {
+    return (
+      <div className="lang-switch lang-switch--block" role="group" aria-label={groupLabel}>
+        {locales.map((lo) => (
+          <button
+            key={lo.code}
+            type="button"
+            className={`lang-switch__btn ${lo.code === locale ? 'is-active' : ''}`}
+            onClick={() => switchLocale(lo.code)}
+            aria-current={lo.code === locale ? 'true' : undefined}
+            title={lo.label}
+          >
+            <span className="lang-switch__short">{lo.short}</span>
+            <span className="lang-switch__label">{lo.label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className={`lang-switch ${block ? 'lang-switch--block' : ''}`} role="group" aria-label="Language">
-      {locales.map((lo) => (
-        <button
-          key={lo.code}
-          type="button"
-          className={`lang-switch__btn ${lo.code === locale ? 'is-active' : ''}`}
-          onClick={() => switchLocale(lo.code)}
-          aria-current={lo.code === locale ? 'true' : undefined}
-          title={lo.label}
-        >
-          <span className="lang-switch__short">{lo.short}</span>
-          <span className="lang-switch__label">{lo.label}</span>
-        </button>
-      ))}
+    <div
+      ref={rootRef}
+      className={`lang-switch lang-switch--desktop ${open ? 'is-open' : ''}`}
+      role="group"
+      aria-label={groupLabel}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setExpanded(false);
+      }}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        className="lang-switch__trigger"
+        aria-label={(CHANGE_LANGUAGE_LABEL[locale] || CHANGE_LANGUAGE_LABEL.en)(current.label)}
+        aria-expanded={open}
+        aria-controls="desktop-language-options"
+        onClick={() => setExpanded(!open)}
+      >
+        <Icons.globe size={16} aria-hidden="true" />
+        <span className="lang-switch__current" lang={current.htmlLang} dir={current.dir}>{current.label}</span>
+        <Icons.chevron size={14} className="lang-switch__trigger-chevron" aria-hidden="true" />
+      </button>
+
+      <div
+        id="desktop-language-options"
+        className="lang-switch__menu"
+        role="group"
+        aria-label={groupLabel}
+        hidden={!open}
+      >
+        {locales.map((lo) => (
+          <button
+            key={lo.code}
+            type="button"
+            className={`lang-switch__option ${lo.code === locale ? 'is-active' : ''}`}
+            onClick={() => {
+              setExpanded(false);
+              switchLocale(lo.code);
+            }}
+            aria-current={lo.code === locale ? 'true' : undefined}
+          >
+            <span className="lang-switch__option-name" lang={lo.htmlLang} dir={lo.dir}>{lo.label}</span>
+            <span className="lang-switch__option-code" aria-hidden="true">{lo.short}</span>
+            {lo.code === locale && <Icons.check className="lang-switch__option-check" size={16} aria-hidden="true" />}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -49,7 +173,13 @@ const THEME_ACTION = {
   fa: { light: 'تغییر به نمای روشن', dark: 'تغییر به نمای تاریک' },
   en: { light: 'Switch to light mode', dark: 'Switch to dark mode' },
   ar: { light: 'التبديل إلى الوضع الفاتح', dark: 'التبديل إلى الوضع الداكن' },
+  ru: { light: 'Переключить на светлую тему', dark: 'Переключить на тёмную тему' },
 };
+
+const mobileMenuFocusable = (menu) => menu
+  ? Array.from(menu.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]'))
+    .filter((element) => element.tabIndex >= 0 && !element.closest('[hidden], [aria-hidden="true"]'))
+  : [];
 
 function ThemeToggle() {
   const { locale, isDark, toggleTheme } = useLocale();
@@ -73,12 +203,24 @@ function ThemeToggle() {
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [mobileAboutOpen, setMobileAboutOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const aboutTriggerRef = useRef(null);
+  const mobileMenuRef = useRef(null);
+  const burgerRef = useRef(null);
+  const menuWasOpen = useRef(false);
   const location = useLocation();
   const { t, l, col } = useContent();
   const { count, display } = useShop() || { count: 0, display: {} };
-  const { shopEnabled, isRTL } = useLocale();
-  const storefrontEnabled = shopEnabled && display.enabled !== false;
-  const navLinks = NAV_LINKS.filter((link) => !link.shopOnly || storefrontEnabled);
+  const { shopEnabled, isRTL, locale } = useLocale();
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, display);
+  const navItems = HEADER_NAV_ITEMS.filter((item) =>
+    (!item.shopOnly || storefrontEnabled) && (!item.faOnly || locale === 'fa')
+  );
+  const aboutIsActive = ['/about', '/quality'].some(
+    (path) => location.pathname === path || location.pathname.startsWith(`${path}/`),
+  );
   const menuOffset = isRTL ? 28 : -28;
 
   /* The scroll listener fires dozens of times a second, but the navbar only
@@ -99,6 +241,7 @@ function Navbar() {
         if (next !== last) {
           last = next;
           setScrolled(next);
+          if (next) setLanguageOpen(false);
         }
       });
     };
@@ -141,21 +284,93 @@ function Navbar() {
     return () => observer?.disconnect();
   }, [location.pathname]);
 
-  useEffect(() => setOpen(false), [location.pathname]);
+  useEffect(() => {
+    setOpen(false);
+    setAboutOpen(false);
+    setMobileAboutOpen(false);
+    setLanguageOpen(false);
+  }, [location.pathname]);
+
+  /* The drawer and the desktop navigation swap at the same CSS breakpoint.
+     Close an open drawer as soon as a resize or orientation change crosses
+     that boundary; otherwise its fixed overlay and body scroll lock can
+     survive after the desktop header has appeared. */
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1101px)');
+    const desktopUtilities = window.matchMedia('(min-width: 901px)');
+    const closeDrawerOnDesktop = (event) => {
+      if (!event.matches) return;
+      setOpen(false);
+      setMobileAboutOpen(false);
+    };
+    const closeLanguageOnMobile = (event) => {
+      if (!event.matches) setLanguageOpen(false);
+    };
+    desktop.addEventListener('change', closeDrawerOnDesktop);
+    desktopUtilities.addEventListener('change', closeLanguageOnMobile);
+    closeDrawerOnDesktop(desktop);
+    closeLanguageOnMobile(desktopUtilities);
+    return () => {
+      desktop.removeEventListener('change', closeDrawerOnDesktop);
+      desktopUtilities.removeEventListener('change', closeLanguageOnMobile);
+    };
+  }, []);
+
+  /* Re-open the corporate section when the drawer is launched from one of its
+     child routes. Everywhere else it starts collapsed, keeping the top-level
+     information architecture easy to scan. */
+  useEffect(() => {
+    setMobileAboutOpen(open && aboutIsActive);
+  }, [open, aboutIsActive]);
+
+  useEffect(() => {
+    if (!aboutOpen) return undefined;
+    const closeDesktopAbout = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setAboutOpen(false);
+      aboutTriggerRef.current?.focus();
+    };
+    window.addEventListener('keydown', closeDesktopAbout);
+    return () => window.removeEventListener('keydown', closeDesktopAbout);
+  }, [aboutOpen]);
+
+  const trapMobileMenuFocus = (event) => {
+    if (event.key !== 'Tab') return;
+    const items = mobileMenuFocusable(mobileMenuRef.current);
+    if (!items.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    const inside = mobileMenuRef.current?.contains(active);
+    if (event.shiftKey && (!inside || active === first)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (!inside || active === last)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   /* Apply the modal page state before the browser paints the opened menu.
-     The shop showcase keeps a large composited image track and several blur
-     layers alive; leaving those visible underneath an animating full-screen
-     panel made the first mobile menu frame noticeably late on that route.
-     The menu background is opaque, so suspending the covered page is visually
-     identical and gives the tap response the same budget on every page. */
+     Focus stays within the drawer while it is open and returns to the trigger
+     when it closes, including when a link changes routes. */
   useLayoutEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
     document.body.classList.toggle('is-mobile-menu-open', open);
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') setOpen(false);
     };
-    if (open) window.addEventListener('keydown', closeOnEscape);
+    if (open) {
+      mobileMenuFocusable(mobileMenuRef.current)[0]?.focus();
+      window.addEventListener('keydown', closeOnEscape);
+    } else if (menuWasOpen.current) {
+      burgerRef.current?.focus();
+    }
+    menuWasOpen.current = open;
     return () => {
       document.body.style.overflow = '';
       document.body.classList.remove('is-mobile-menu-open');
@@ -168,7 +383,7 @@ function Navbar() {
   return (
     <>
       <nav
-        className={`nav ${scrolled || !hasHero ? 'is-scrolled' : ''} ${!hasHero && !scrolled ? 'is-solid-at-top' : ''} ${open ? 'is-menu-open' : ''}`.trim()}
+        className={`nav ${scrolled || !hasHero ? 'is-scrolled' : ''} ${!hasHero && !scrolled ? 'is-solid-at-top' : ''} ${open ? 'is-menu-open' : ''} ${languageOpen && !scrolled ? 'is-language-open' : ''}`.trim()}
         aria-label={t('nav.main')}
       >
         <div className="nav__topbar">
@@ -191,9 +406,9 @@ function Navbar() {
               </a>
               <a className="nav__topbar-phone" href={l('sales.tel')}>
                 <Icons.phone size={15} />
-                {t('global.sales.phone.fa')}
+                <bdi dir="ltr">{t('global.sales.phone.fa')}</bdi>
               </a>
-              <LangSwitch />
+              <LangSwitch open={languageOpen} onOpenChange={setLanguageOpen} />
               <ThemeToggle />
             </div>
           </div>
@@ -209,16 +424,61 @@ function Navbar() {
           </Link>
 
           <div className="nav__links">
-            {navLinks.map((link) => (
-              <NavLink
-                key={link.to}
-                to={link.to}
-                end={link.end}
-                className={({ isActive }) => `nav__link ${isActive ? 'active' : ''}`}
-              >
-                {t(link.key)}
-              </NavLink>
-            ))}
+            {navItems.map((item) => {
+              if (item.children) {
+                return (
+                  <div
+                    className="nav__group"
+                    key={item.key}
+                    onBlurCapture={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) setAboutOpen(false);
+                    }}
+                  >
+                    <button
+                      ref={aboutTriggerRef}
+                      type="button"
+                      className={`nav__link nav__link--trigger ${aboutIsActive ? 'active' : ''}`}
+                      aria-expanded={aboutOpen}
+                      aria-controls="about-navigation"
+                      onClick={() => setAboutOpen((value) => !value)}
+                    >
+                      <span>{t(item.key)}</span>
+                      <Icons.chevron size={15} className={aboutOpen ? 'is-open' : ''} aria-hidden="true" />
+                    </button>
+                    <div
+                      id="about-navigation"
+                      className="nav__dropdown"
+                      role="group"
+                      aria-label={t(item.key)}
+                      hidden={!aboutOpen}
+                    >
+                      {item.children.map((child) => (
+                        <NavLink
+                          key={child.to}
+                          to={child.to}
+                          end
+                          className={({ isActive }) => `nav__dropdown-link ${isActive ? 'active' : ''}`}
+                          onClick={() => setAboutOpen(false)}
+                        >
+                          {t(child.key)}
+                          <Icons.arrow size={15} />
+                        </NavLink>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) => `nav__link ${isActive ? 'active' : ''}`}
+                >
+                  {t(item.key)}
+                </NavLink>
+              );
+            })}
           </div>
 
           {/* One cluster, so the bar is three regions — logo, links, actions
@@ -226,31 +486,34 @@ function Navbar() {
               sit tighter to each other than to the call to action, which is
               what makes them read as a pair rather than as clutter. */}
           <div className="nav__actions">
-            {shopEnabled && (
+            {storefrontEnabled && (
               <div className="nav__icons">
-                {storefrontEnabled && (
-                  <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
-                    <Icons.cart size={19} />
-                    {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
-                  </Link>
-                )}
+                <Link to="/shop/cart" className="nav__icon nav__cart" aria-label={t('shop.cart.title')}>
+                  <Icons.cart size={19} />
+                  {count > 0 && <span className="nav__cart-badge">{faNum(count)}</span>}
+                </Link>
 
                 {/* One destination either way: the panel bounces a signed-out
                     visitor to the login page, so the header does not have to
-                    know the session state to render the right link. */}
+                    know the session state to render the right link. The whole
+                    icon cluster leaves the layout when the shop is disabled. */}
                 <Link to="/shop/account" className="nav__icon nav__account" aria-label={t('shop.account.title')}>
                   <Icons.users size={19} />
                 </Link>
               </div>
             )}
 
-            <Link to={storefrontEnabled ? '/shop' : '/contact'} className="btn btn--primary btn--sm nav__cta">
-              {t(storefrontEnabled ? 'nav.shopCta' : 'nav.cta')}
+            <Link to="/contact" className="btn btn--primary btn--sm nav__cta">
+              {t('nav.contact')}
             </Link>
 
             <button
+              ref={burgerRef}
               className={`nav__burger ${open ? 'is-open' : ''}`}
-              onClick={() => setOpen((v) => !v)}
+              onClick={() => {
+                setAboutOpen(false);
+                setOpen((value) => !value);
+              }}
               aria-label={t(open ? 'nav.close' : 'nav.menu')}
               aria-expanded={open}
               aria-controls="mobile-navigation"
@@ -266,34 +529,86 @@ function Navbar() {
       <AnimatePresence>
         {open && (
           <mo.nav
+            ref={mobileMenuRef}
             id="mobile-navigation"
             className="mobile-menu"
+            onKeyDown={trapMobileMenuFocus}
             aria-label={t('nav.mobile')}
             initial={{ opacity: 0, x: menuOffset }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: menuOffset }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
-            {navLinks.map((link, i) => (
-              <mo.div
-                key={link.to}
-                initial={{ opacity: 0, x: menuOffset * 0.35 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.025 + Math.min(i, 4) * 0.018, duration: 0.2 }}
-              >
-                <NavLink to={link.to} end={link.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
-                  {t(link.key)}
-                  <Icons.arrow size={20} />
-                </NavLink>
-              </mo.div>
-            ))}
+            {navItems.map((item, i) => {
+              const motionProps = {
+                initial: { opacity: 0, x: menuOffset * 0.35 },
+                animate: { opacity: 1, x: 0 },
+                transition: { delay: 0.025 + Math.min(i, 4) * 0.018, duration: 0.2 },
+              };
+              if (item.children) {
+                return (
+                  <mo.div key={item.key} className="m-nav-group" {...motionProps}>
+                    <button
+                      type="button"
+                      className={`m-link m-link--group ${aboutIsActive ? 'active' : ''}`}
+                      aria-expanded={mobileAboutOpen}
+                      aria-controls="mobile-about-navigation"
+                      onClick={() => setMobileAboutOpen((value) => !value)}
+                    >
+                      {t(item.key)}
+                      <Icons.chevron size={20} className={mobileAboutOpen ? 'is-open' : ''} aria-hidden="true" />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {mobileAboutOpen && (
+                        <mo.div
+                          id="mobile-about-navigation"
+                          className="m-submenu"
+                          role="group"
+                          aria-label={t(item.key)}
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                        >
+                          <div className="m-submenu__inner">
+                            {item.children.map((child) => (
+                              <NavLink
+                                key={child.to}
+                                to={child.to}
+                                end
+                                className={({ isActive }) => `m-sublink ${isActive ? 'active' : ''}`}
+                              >
+                                {t(child.key)}
+                                <Icons.arrow size={17} />
+                              </NavLink>
+                            ))}
+                          </div>
+                        </mo.div>
+                      )}
+                    </AnimatePresence>
+                  </mo.div>
+                );
+              }
+              return (
+                <mo.div key={item.to} {...motionProps}>
+                  <NavLink to={item.to} end={item.end} className={({ isActive }) => `m-link ${isActive ? 'active' : ''}`}>
+                    {t(item.key)}
+                    <Icons.arrow size={20} />
+                  </NavLink>
+                </mo.div>
+              );
+            })}
             <mo.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.18 }}
+              transition={{ delay: 0.08, duration: 0.18 }}
               className="m-controls"
             >
               <LangSwitch block />
+              <Link to="/contact" className="btn btn--primary m-contact-cta">
+                <Icons.mail size={15} aria-hidden="true" />
+                <span>{t('nav.contact')}</span>
+              </Link>
               <ThemeToggle />
             </mo.div>
           </mo.nav>
@@ -310,6 +625,7 @@ function BackToTop() {
     fa: 'بازگشت به بالا',
     en: 'Back to top',
     ar: 'العودة إلى الأعلى',
+    ru: 'Наверх',
   }[locale];
   useEffect(() => {
     const onScroll = () => setShow(window.scrollY > 600);
@@ -371,8 +687,9 @@ function TrustSealLink({ seal }) {
 }
 
 function Footer() {
-  const { t, l, col, brands } = useContent();
+  const { t, l, col, brands, state } = useContent();
   const { shopEnabled, locale } = useLocale();
+  const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
   const socials = col('socials');
   const trustSeals = activeTrustSeals(col('trustSeals'));
   return (
@@ -404,7 +721,9 @@ function Footer() {
           <div>
             <h2>{t('footer.quickTitle')}</h2>
             <ul>
-              {NAV_LINKS.filter((link) => link.to !== '/' && (!link.shopOnly || shopEnabled)).map((link) => (
+              {NAV_LINKS.filter((link) =>
+                link.to !== '/' && (!link.shopOnly || storefrontEnabled) && (!link.faOnly || locale === 'fa')
+              ).map((link) => (
                 <li key={link.to}>
                   <Link to={link.to}>
                     <Icons.arrow size={14} />
@@ -447,7 +766,7 @@ function Footer() {
               <li>
                 <a href={l('sales.tel')}>
                   <Icons.phone size={15} />
-                  {t('footer.sales')} {t('global.sales.phone.fa')}
+                  <span>{t('footer.sales')} <bdi dir="ltr">{t('global.sales.phone.fa')}</bdi></span>
                 </a>
               </li>
               <li style={{ lineHeight: 1.9 }}>
@@ -488,6 +807,13 @@ function Footer() {
 
 export default function Layout({ children }) {
   const { pathname } = useLocation();
+  const { locale } = useLocale();
+  const skipLabel = {
+    fa: 'پرش به محتوای اصلی',
+    en: 'Skip to main content',
+    ar: 'تخطّي إلى المحتوى الرئيسي',
+    ru: 'Перейти к основному содержимому',
+  }[locale] || 'Skip to main content';
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
@@ -495,6 +821,7 @@ export default function Layout({ children }) {
 
   return (
     <>
+      <a className="skip-link" href="#main-content">{skipLabel}</a>
       <Navbar />
       {children}
       <Footer />

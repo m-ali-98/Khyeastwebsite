@@ -29,6 +29,14 @@ const COPY = {
     position: (index, total) => `الصورة ${index} من ${total}`,
     thumbs: 'اختيار صورة المنتج',
   },
+  ru: {
+    gallery: (title) => `Галерея изображений: ${title}`,
+    previous: 'Предыдущее изображение',
+    next: 'Следующее изображение',
+    show: (index, total) => `Показать изображение ${index} из ${total}`,
+    position: (index, total) => `Изображение ${index} из ${total}`,
+    thumbs: 'Выбрать изображение товара',
+  },
 };
 
 /** Accessible primary-image gallery shared by catalogue and store details.
@@ -55,7 +63,7 @@ export default function ProductGallery({
   const index = Math.min(active, gallery.length - 1);
   const current = gallery[index];
   const multiple = gallery.length > 1;
-  const number = (value) => value.toLocaleString(locale === 'en' ? 'en-US' : locale === 'ar' ? 'ar' : 'fa-IR');
+  const number = (value) => value.toLocaleString(locale);
   const move = (step) => setActive((value) => (value + step + gallery.length) % gallery.length);
   const PreviousIcon = isRTL ? ChevronRight : ChevronLeft;
   const NextIcon = isRTL ? ChevronLeft : ChevronRight;

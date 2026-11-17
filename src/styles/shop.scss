@@ -1168,6 +1168,16 @@
     gap: var(--grid-gap-wide);
     align-items: start;
   }
+
+  &__more {
+    display: flex;
+    margin: 8px auto 0;
+  }
+
+  &__load-error {
+    text-align: center;
+    margin-bottom: 14px;
+  }
 }
 
 .comment {
@@ -1681,6 +1691,11 @@
 .order-hero {
   text-align: center;
   padding: 34px 0 8px;
+
+  &.is-paid .tick {
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
 
   .tick {
     width: 84px;

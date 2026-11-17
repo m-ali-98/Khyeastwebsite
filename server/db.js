@@ -3,46 +3,149 @@
    --------------------------------------------------------------------------
    Single file database: server/data/khyeast.db  (WAL mode, transactional)
 
-   Stored here : shop products, shop display settings, payment credentials,
-                 orders + order items, product comments, contact messages.
-   Stored as files (unchanged): server/data/content.json (site texts, media,
-                 links, brands, catalog products, blog posts) and
-                 server/uploads/* (admin uploads).
+   Stored here : editorial CMS sections and revisions; shop products/display;
+                 payment credentials; orders + order items; product comments;
+                 contact messages and other operational state.
+   Stored as files: server/uploads/* (admin media).
 
-   The public/admin HTTP contract is IDENTICAL to the previous JSON storage —
-   objects are converted back to the same shapes on read.
+   The public/admin HTTP contract remains unchanged: normalized SQLite rows are
+   rebuilt into the same content object clients already consume.
    ========================================================================== */
 import { createDatabase } from './sqlite.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import DEFAULT_STATE from '../shared/contentDefaults.js';
 import { SHOP_SEED } from './seed.js';
 import { sanitizeRichText } from './sanitize.js';
 import { normalizeProductImages } from '../shared/productImages.js';
 
 /* ------------------------------------------------------------------ open */
-export async function openDB(file) {
+export const DATABASE_APPLICATION_ID = 0x4b485945; // "KHYE"
+export const DATABASE_SCHEMA_VERSION = 1;
+
+const schemaError = (detail) => Object.assign(
+  new Error(
+    'SQLite schema is incompatible and automatic startup upgrades are disabled; ' +
+    'run `npm run db:migrate` for a supported older schema, or restore a compatible backup ' +
+    `(${detail})`,
+  ),
+  { code: 'DB_SCHEMA_INCOMPATIBLE' },
+);
+
+const pragmaNumber = (db, name) => {
+  const row = db.prepare(`PRAGMA ${name}`).get();
+  return Number(row?.[name] ?? Object.values(row || {})[0] ?? 0);
+};
+
+const REQUIRED_SCHEMA = Object.freeze({
+  settings: ['key', 'value'],
+  content_meta: ['id', 'revision', 'initialized_at', 'updated_at'],
+  content_sections: ['section', 'value_json', 'revision', 'updated_at'],
+  rate_limit_hits: ['id', 'kind', 'bucket_hash', 'bucket_version', 'at', 'pending'],
+  products: [
+    'slug', 'pos', 'title', 'brand', 'product_slug', 'unit', 'image', 'images',
+    'price', 'old_price', 'stock', 'active', 'featured', 'comments_locked',
+    'short', 'description', 'specs',
+  ],
+  orders: [
+    'id', 'code', 'token', 'customer_id', 'customer', 'subtotal', 'shipping',
+    'total', 'currency', 'status', 'provider', 'pay_authority', 'pay_ref',
+    'admin_note', 'at', 'paid_at', 'auto_cancelled', 'needs_attention', 'archived',
+  ],
+  order_payments: [
+    'authority', 'order_id', 'provider', 'status', 'ref_id', 'at', 'verified_at',
+    'reversal_started_at', 'reversed_at', 'last_error',
+  ],
+  order_items: ['order_id', 'pos', 'slug', 'title', 'unit', 'price', 'qty', 'sum'],
+  comments: ['id', 'slug', 'name', 'text', 'at', 'approved', 'reply', 'reply_at'],
+  messages: ['id', 'name', 'phone', 'email', 'subject', 'message', 'at', 'read'],
+  sms_log: [
+    'id', 'at', 'kind', 'phone', 'text', 'provider', 'environment', 'ok', 'error',
+    'message_id', 'ref',
+  ],
+  customers: ['id', 'phone', 'name', 'email', 'pass_hash', 'at', 'last_login_at', 'blocked'],
+  customer_sessions: ['token_hash', 'customer_id', 'at', 'expires_at', 'ua'],
+  otps: ['phone', 'purpose', 'code_hash', 'at', 'expires_at', 'attempts'],
+  otp_tickets: ['ticket_hash', 'phone', 'purpose', 'expires_at'],
+  addresses: [
+    'id', 'customer_id', 'pos', 'is_default', 'title', 'receiver', 'phone',
+    'province', 'city', 'address', 'plaque', 'unit', 'postal', 'note', 'at',
+  ],
+});
+
+const REQUIRED_INDEXES = Object.freeze([
+  'idx_content_sections_revision',
+  'idx_rate_limit_bucket', 'idx_rate_limit_at',
+  'idx_products_pos',
+  'idx_orders_at', 'idx_orders_status', 'idx_orders_status_at', 'idx_orders_customer',
+  'idx_orders_attention_at', 'idx_orders_archived_at', 'idx_orders_pay_authority',
+  'idx_order_payments_order', 'idx_items_order',
+  'idx_comments_slug', 'idx_comments_at', 'idx_comments_public_page',
+  'idx_messages_at', 'idx_sms_at', 'idx_sms_phone',
+  'idx_sessions_customer', 'idx_addresses_customer',
+]);
+
+export async function openDB(file, { allowCreate = !fs.existsSync(file) } = {}) {
+  if (!allowCreate && !fs.existsSync(file)) {
+    throw schemaError('database file is missing from an established state tree');
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = await createDatabase(file);
-  db.pragma('journal_mode = WAL'); // safe concurrent readers + one writer
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
-  migrate(db);
-  return db;
+  try {
+    ensureSchema(db, { allowCreate });
+    db.pragma('journal_mode = WAL'); // safe concurrent readers + one writer
+    db.pragma('foreign_keys = ON');
+    db.pragma('busy_timeout = 5000');
+    return db;
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
 }
 
-function migrate(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS settings (
+/** Create the complete schema only for an empty database. Existing databases
+ * must already match this release exactly; startup never imports, alters,
+ * backfills, or otherwise upgrades persistent state. */
+function ensureSchema(db, { allowCreate = false } = {}) {
+  const userTableCount = () => Number(db.prepare(
+    `SELECT COUNT(*) AS count
+       FROM sqlite_schema
+      WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+  ).get()?.count || 0);
+
+  if (allowCreate) {
+    db.immediateTransaction(() => {
+      if (userTableCount() !== 0) return;
+      db.exec(`
+    CREATE TABLE settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
 
+    /* Mutable editorial content is revisioned by section. One global revision
+       identifies the complete content snapshot (including normalized shop
+       rows), while per-section revisions show which editorial buckets changed. */
+    CREATE TABLE content_meta (
+      id             INTEGER PRIMARY KEY CHECK (id = 1),
+      revision       INTEGER NOT NULL CHECK (revision >= 1),
+      initialized_at TEXT NOT NULL,
+      updated_at     TEXT NOT NULL
+    );
+    CREATE TABLE content_sections (
+      section    TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL CHECK (json_valid(value_json)),
+      revision   INTEGER NOT NULL CHECK (revision >= 1),
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_content_sections_revision
+      ON content_sections(revision);
+
     /* Short-lived abuse counters are shared through SQLite so several
        Passenger workers enforce one real ceiling instead of multiplying it by
        the process count. Bucket keys are secret-keyed before reaching here. */
-    CREATE TABLE IF NOT EXISTS rate_limit_hits (
+    CREATE TABLE rate_limit_hits (
       id             TEXT PRIMARY KEY,
       kind           TEXT NOT NULL,
       bucket_hash    TEXT NOT NULL,
@@ -50,11 +153,11 @@ function migrate(db) {
       at             INTEGER NOT NULL,
       pending        INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_rate_limit_bucket
+    CREATE INDEX idx_rate_limit_bucket
       ON rate_limit_hits(kind, bucket_hash, at);
-    CREATE INDEX IF NOT EXISTS idx_rate_limit_at ON rate_limit_hits(at);
+    CREATE INDEX idx_rate_limit_at ON rate_limit_hits(at);
 
-    CREATE TABLE IF NOT EXISTS products (
+    CREATE TABLE products (
       slug           TEXT PRIMARY KEY,
       pos            INTEGER NOT NULL DEFAULT 0,
       title          TEXT NOT NULL DEFAULT '',
@@ -73,12 +176,13 @@ function migrate(db) {
       description    TEXT NOT NULL DEFAULT '',
       specs          TEXT NOT NULL DEFAULT '[]'
     );
-    CREATE INDEX IF NOT EXISTS idx_products_pos ON products(pos);
+    CREATE INDEX idx_products_pos ON products(pos);
 
-    CREATE TABLE IF NOT EXISTS orders (
+    CREATE TABLE orders (
       id         TEXT PRIMARY KEY,
       code       TEXT NOT NULL UNIQUE,
       token      TEXT NOT NULL,
+      customer_id TEXT,
       customer   TEXT NOT NULL DEFAULT '{}',
       subtotal   INTEGER NOT NULL DEFAULT 0,
       shipping   INTEGER NOT NULL DEFAULT 0,
@@ -95,14 +199,20 @@ function migrate(db) {
       needs_attention INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_orders_at ON orders(at DESC);
-    CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-    CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at);
+    CREATE INDEX idx_orders_at ON orders(at DESC);
+    CREATE INDEX idx_orders_status ON orders(status);
+    CREATE INDEX idx_orders_status_at ON orders(status, at);
+    CREATE INDEX idx_orders_customer ON orders(customer_id);
+    CREATE INDEX idx_orders_attention_at ON orders(needs_attention DESC, at DESC);
+    CREATE INDEX idx_orders_archived_at ON orders(archived, at DESC);
+    CREATE UNIQUE INDEX idx_orders_pay_authority
+      ON orders(pay_authority)
+      WHERE pay_authority IS NOT NULL AND pay_authority <> '';
 
     /* Every authority ever issued for an order remains bound to that order.
        orders.pay_authority is only the current/settled pointer; this ledger is
        the durable ownership boundary used by callbacks after payment retries. */
-    CREATE TABLE IF NOT EXISTS order_payments (
+    CREATE TABLE order_payments (
       authority  TEXT PRIMARY KEY CHECK (authority <> ''),
       order_id   TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       provider   TEXT NOT NULL DEFAULT 'zarinpal',
@@ -114,9 +224,9 @@ function migrate(db) {
       reversed_at TEXT,
       last_error TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS idx_order_payments_order ON order_payments(order_id, at DESC);
+    CREATE INDEX idx_order_payments_order ON order_payments(order_id, at DESC);
 
-    CREATE TABLE IF NOT EXISTS order_items (
+    CREATE TABLE order_items (
       order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       pos      INTEGER NOT NULL DEFAULT 0,
       slug     TEXT NOT NULL DEFAULT '',
@@ -126,9 +236,9 @@ function migrate(db) {
       qty      INTEGER NOT NULL DEFAULT 1,
       sum      INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
+    CREATE INDEX idx_items_order ON order_items(order_id);
 
-    CREATE TABLE IF NOT EXISTS comments (
+    CREATE TABLE comments (
       id       TEXT PRIMARY KEY,
       slug     TEXT NOT NULL DEFAULT '',
       name     TEXT NOT NULL DEFAULT '',
@@ -138,10 +248,12 @@ function migrate(db) {
       reply    TEXT,
       reply_at TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_comments_slug ON comments(slug);
-    CREATE INDEX IF NOT EXISTS idx_comments_at ON comments(at DESC);
+    CREATE INDEX idx_comments_slug ON comments(slug);
+    CREATE INDEX idx_comments_at ON comments(at DESC);
+    CREATE INDEX idx_comments_public_page
+      ON comments(slug, approved, at DESC, id DESC);
 
-    CREATE TABLE IF NOT EXISTS messages (
+    CREATE TABLE messages (
       id      TEXT PRIMARY KEY,
       name    TEXT NOT NULL DEFAULT '',
       phone   TEXT NOT NULL DEFAULT '',
@@ -151,7 +263,7 @@ function migrate(db) {
       at      TEXT NOT NULL,
       read    INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_messages_at ON messages(at DESC);
+    CREATE INDEX idx_messages_at ON messages(at DESC);
 
     /* Every send attempt, successful or not. Three jobs: the admin can see
        why a customer says they got nothing, the daily cap is countable, and
@@ -160,7 +272,7 @@ function migrate(db) {
 
        The phone column holds the canonical 98xxxxxxxxxx form — the same key
        the rest of the system uses, so a customer's messages can be found. */
-    CREATE TABLE IF NOT EXISTS sms_log (
+    CREATE TABLE sms_log (
       id          TEXT PRIMARY KEY,
       at          TEXT NOT NULL,
       kind        TEXT NOT NULL DEFAULT 'other',
@@ -173,14 +285,14 @@ function migrate(db) {
       message_id  TEXT,
       ref         TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS idx_sms_at ON sms_log(at DESC);
-    CREATE INDEX IF NOT EXISTS idx_sms_phone ON sms_log(phone);
+    CREATE INDEX idx_sms_at ON sms_log(at DESC);
+    CREATE INDEX idx_sms_phone ON sms_log(phone);
 
     /* ---------------- customer accounts ----------------
        phone is the identity and the login name, always in canonical
        98xxxxxxxxxx form so one person cannot become three accounts by
        typing their number three ways. */
-    CREATE TABLE IF NOT EXISTS customers (
+    CREATE TABLE customers (
       id            TEXT PRIMARY KEY,
       phone         TEXT NOT NULL UNIQUE,
       name          TEXT NOT NULL DEFAULT '',
@@ -193,18 +305,18 @@ function migrate(db) {
 
     /* Only the SHA-256 of the cookie is stored, so a dump of this table
        cannot be replayed as a login. */
-    CREATE TABLE IF NOT EXISTS customer_sessions (
+    CREATE TABLE customer_sessions (
       token_hash  TEXT PRIMARY KEY,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       at          TEXT NOT NULL,
       expires_at  TEXT NOT NULL,
       ua          TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS idx_sessions_customer ON customer_sessions(customer_id);
+    CREATE INDEX idx_sessions_customer ON customer_sessions(customer_id);
 
     /* One live code per phone+purpose: requesting a new one replaces the
        old, so an attacker cannot keep a pool of valid codes alive. */
-    CREATE TABLE IF NOT EXISTS otps (
+    CREATE TABLE otps (
       phone      TEXT NOT NULL,
       purpose    TEXT NOT NULL,
       code_hash  TEXT NOT NULL,
@@ -217,14 +329,14 @@ function migrate(db) {
     /* Proof that a code was verified, exchanged for the actual registration
        or password reset. Short-lived and single use, so the password step
        cannot be replayed later. */
-    CREATE TABLE IF NOT EXISTS otp_tickets (
+    CREATE TABLE otp_tickets (
       ticket_hash TEXT PRIMARY KEY,
       phone       TEXT NOT NULL,
       purpose     TEXT NOT NULL,
       expires_at  TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS addresses (
+    CREATE TABLE addresses (
       id          TEXT PRIMARY KEY,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       pos         INTEGER NOT NULL DEFAULT 0,
@@ -241,103 +353,45 @@ function migrate(db) {
       note        TEXT NOT NULL DEFAULT '',
       at          TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_addresses_customer ON addresses(customer_id);
-  `);
-
-  /* Version 1 rows used an unkeyed SHA-256 of a low-entropy identifier. Purge
-     them once while adding the marker: they are both privacy-weaker and cannot
-     match the HMAC-v2 buckets used by this release. A fresh database already
-     has bucket_version=2 and therefore keeps active limits across restarts. */
-  const rateLimitCols = db.prepare('PRAGMA table_info(rate_limit_hits)').all().map((c) => c.name);
-  if (!rateLimitCols.includes('bucket_version')) {
-    db.exec('ALTER TABLE rate_limit_hits ADD COLUMN bucket_version INTEGER NOT NULL DEFAULT 1');
-    db.exec('DELETE FROM rate_limit_hits');
+    CREATE INDEX idx_addresses_customer ON addresses(customer_id);
+      `);
+      db.exec(`PRAGMA application_id = ${DATABASE_APPLICATION_ID}`);
+      db.exec(`PRAGMA user_version = ${DATABASE_SCHEMA_VERSION}`);
+    })();
+  } else if (userTableCount() === 0) {
+    throw schemaError('database has no application schema');
   }
 
-  /* Gallery data is additive. Legacy product rows keep their original image
-     column; read mapping derives a one-photo gallery until the next save. */
-  const productCols = db.prepare('PRAGMA table_info(products)').all().map((column) => column.name);
-  if (!productCols.includes('images')) {
-    db.exec("ALTER TABLE products ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
+  validateCurrentSchema(db);
+}
+
+/** Exact final-schema validator shared by startup and the explicit migration
+ * runner. It never creates, alters, backfills, or repairs state. */
+export function validateCurrentSchema(db) {
+  const applicationId = pragmaNumber(db, 'application_id');
+  const schemaVersion = pragmaNumber(db, 'user_version');
+  if (applicationId !== DATABASE_APPLICATION_ID || schemaVersion !== DATABASE_SCHEMA_VERSION) {
+    throw schemaError(`application_id=${applicationId}, user_version=${schemaVersion}`);
   }
 
-  /* orders.customer_id is added separately: the table predates accounts and
-     ALTER TABLE ... ADD COLUMN throws if it is already there. */
-  const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
-  if (!orderCols.includes('customer_id')) {
-    db.exec('ALTER TABLE orders ADD COLUMN customer_id TEXT');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)');
-  }
-  if (!orderCols.includes('auto_cancelled')) {
-    db.exec('ALTER TABLE orders ADD COLUMN auto_cancelled INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!orderCols.includes('needs_attention')) {
-    db.exec('ALTER TABLE orders ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!orderCols.includes('pay_authority')) {
-    db.exec('ALTER TABLE orders ADD COLUMN pay_authority TEXT');
-  }
-  if (!orderCols.includes('archived')) {
-    db.exec('ALTER TABLE orders ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+  for (const [table, requiredColumns] of Object.entries(REQUIRED_SCHEMA)) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
+    if (!isDeepStrictEqual(columns, requiredColumns)) {
+      throw schemaError(`unexpected ${table} columns: ${columns.join(',') || 'none'}`);
+    }
   }
 
-  const paymentCols = db.prepare('PRAGMA table_info(order_payments)').all().map((column) => column.name);
-  if (!paymentCols.includes('reversal_started_at')) {
-    db.exec('ALTER TABLE order_payments ADD COLUMN reversal_started_at TEXT');
+  const indexes = new Set(
+    db.prepare("SELECT name FROM sqlite_schema WHERE type = 'index'").all().map((row) => row.name),
+  );
+  const missingIndex = REQUIRED_INDEXES.find((name) => !indexes.has(name));
+  if (missingIndex) throw schemaError(`missing index ${missingIndex}`);
+  const authorityIndex = db.prepare('PRAGMA index_list(orders)').all()
+    .find((index) => index.name === 'idx_orders_pay_authority');
+  if (Number(authorityIndex?.unique) !== 1 || Number(authorityIndex?.partial) !== 1) {
+    throw schemaError('payment-authority uniqueness index is invalid');
   }
-
-  /* Before pay_authority existed, pay_ref changed meaning mid-payment: it held
-     the authority while pending, then was overwritten with ref_id after
-     settlement. Preserve authorities we can identify without guessing. Paid
-     legacy rows whose authority was already destroyed cannot be reconstructed;
-     all new attempts retain both values independently. */
-  db.exec(`
-    UPDATE orders
-       SET pay_authority = pay_ref,
-           pay_ref = NULL
-     WHERE pay_authority IS NULL
-       AND provider = 'zarinpal'
-       AND pay_ref IS NOT NULL
-       AND pay_ref <> ''
-       AND (
-         status = 'pending_payment'
-         OR (status = 'cancelled' AND auto_cancelled <> 0)
-         OR (length(pay_ref) = 36 AND pay_ref GLOB 'A*')
-       );
-  `);
-
-  /* Backfill the previously-current authority. Older overwritten retry
-     authorities cannot be reconstructed, but every authority recorded from
-     this migration onward lives in order_payments even when the current
-     pointer changes again. */
-  db.exec(`
-    INSERT OR IGNORE INTO order_payments
-      (authority, order_id, provider, status, ref_id, at, verified_at)
-    SELECT pay_authority, id, provider,
-           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN 'settled' ELSE 'issued' END,
-           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN pay_ref ELSE NULL END,
-           at,
-           CASE WHEN status IN ('paid', 'shipped', 'delivered') THEN paid_at ELSE NULL END
-      FROM orders
-     WHERE pay_authority IS NOT NULL AND pay_authority <> '';
-  `);
-  const bindingConflict = db.prepare(
-    `SELECT orders.id, orders.pay_authority
-       FROM orders
-       JOIN order_payments ON order_payments.authority = orders.pay_authority
-      WHERE orders.pay_authority IS NOT NULL
-        AND orders.pay_authority <> ''
-        AND order_payments.order_id <> orders.id
-      LIMIT 1`,
-  ).get();
-  if (bindingConflict) throw new Error(`payment authority ownership conflict: ${bindingConflict.pay_authority}`);
-
-  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_at ON orders(status, at)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_attention_at ON orders(needs_attention DESC, at DESC)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_archived_at ON orders(archived, at DESC)');
-  /* The pointer stays unique as a defence in depth. The order_payments primary
-     key is the authoritative global one-authority/one-order constraint. */
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_pay_authority ON orders(pay_authority) WHERE pay_authority IS NOT NULL AND pay_authority <> ''");
+  return { applicationId, schemaVersion };
 }
 
 /* ------------------------------------------------------- small utilities */
@@ -349,6 +403,226 @@ const J = (v, fallback) => {
   }
 };
 const bool = (v) => (v ? 1 : 0);
+
+/* ==================================================== editorial content */
+export const CONTENT_SECTIONS = Object.freeze([
+  'texts',
+  'media',
+  'links',
+  'collections',
+  'brands',
+  'products',
+  'posts',
+  'i18n',
+  'gallery',
+]);
+const CONTENT_OBJECT_SECTIONS = new Set(['texts', 'media', 'links', 'collections', 'i18n']);
+const record = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const cloneJson = (value) => JSON.parse(JSON.stringify(value));
+const sectionValueValid = (section, value) => (
+  CONTENT_OBJECT_SECTIONS.has(section) ? record(value) : Array.isArray(value)
+);
+const editorialError = (message, code = 'CONTENT_UNAVAILABLE', cause) => Object.assign(
+  new Error(message, cause ? { cause } : undefined),
+  { code },
+);
+
+/** Acquire SQLite's writer reservation before reading the revision to prevent
+ * two Passenger workers from validating the same old state and overwriting one
+ * another. The adapter turns nested calls into SAVEPOINTs. */
+export function withImmediateTransaction(db, operation) {
+  return db.immediateTransaction(operation)();
+}
+
+export function validContentState(value) {
+  return record(value) && CONTENT_SECTIONS.every(
+    (section) => Object.hasOwn(value, section) && sectionValueValid(section, value[section]),
+  );
+}
+
+const freshDefaultContent = () => Object.fromEntries(
+  CONTENT_SECTIONS.map((section) => [section, cloneJson(DEFAULT_STATE[section])]),
+);
+
+const contentMeta = (db) => db.prepare(
+  `SELECT revision, initialized_at, updated_at,
+          (SELECT COUNT(*) FROM content_meta) AS meta_count
+     FROM content_meta
+    WHERE id = 1`,
+).get();
+
+export function getContentMeta(db) {
+  const meta = contentMeta(db);
+  if (
+    !meta || Number(meta.meta_count) !== 1 ||
+    !Number.isSafeInteger(Number(meta.revision)) || Number(meta.revision) < 1
+  ) {
+    throw editorialError('SQLite editorial metadata is missing or invalid');
+  }
+  return {
+    revision: Number(meta.revision),
+    initializedAt: meta.initialized_at,
+    updatedAt: meta.updated_at,
+  };
+}
+
+/** A worker's PRAGMA data_version changes when another SQLite connection
+ * commits. Combining it with our global content revision invalidates both
+ * same-worker and cross-worker caches without polling files or sharing memory. */
+export function getContentToken(db) {
+  const meta = getContentMeta(db);
+  const versionRow = db.prepare('PRAGMA data_version').get();
+  const dataVersion = Number(versionRow?.data_version ?? Object.values(versionRow || {})[0] ?? 0);
+  return { ...meta, dataVersion, key: `${meta.revision}:${dataVersion}` };
+}
+
+/** Strict authority read. Defaults are deliberately not consulted here: a
+ * missing/corrupt established store must remain unavailable until recovery. */
+export function readContentSections(db) {
+  const meta = getContentMeta(db);
+  const rows = db.prepare(
+    'SELECT section, value_json, revision FROM content_sections',
+  ).all();
+  const byName = new Map(rows.map((row) => [row.section, row]));
+  const state = {};
+  for (const section of CONTENT_SECTIONS) {
+    const row = byName.get(section);
+    const revision = Number(row?.revision);
+    if (!row || !Number.isSafeInteger(revision) || revision < 1 || revision > meta.revision) {
+      throw editorialError(`SQLite editorial section is missing or has an invalid revision: ${section}`);
+    }
+    let value;
+    try {
+      value = JSON.parse(row.value_json);
+    } catch (cause) {
+      throw editorialError(`SQLite editorial section is not valid JSON: ${section}`, 'CONTENT_UNAVAILABLE', cause);
+    }
+    if (!sectionValueValid(section, value)) {
+      throw editorialError(`SQLite editorial section has the wrong type: ${section}`);
+    }
+    state[section] = value;
+  }
+  return state;
+}
+
+export function getContentSectionRevisions(db) {
+  const rows = db.prepare('SELECT section, revision FROM content_sections').all();
+  return Object.fromEntries(rows.map((row) => [row.section, Number(row.revision)]));
+}
+
+const persistInitialContent = (db, state) => {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO content_meta (id, revision, initialized_at, updated_at)
+     VALUES (1, 1, ?, ?)`,
+  ).run(now, now);
+  const insert = db.prepare(
+    `INSERT INTO content_sections (section, value_json, revision, updated_at)
+     VALUES (?, ?, 1, ?)`,
+  );
+  for (const section of CONTENT_SECTIONS) {
+    insert.run(section, JSON.stringify(state[section]), now);
+  }
+};
+
+/** Initialize exactly once. Defaults may be persisted only when the caller
+ * proved the whole deployment tree was genuinely fresh before opening SQLite
+ * created the database file. Established missing/corrupt state fails closed. */
+export function initializeContentStore(db, { freshInstall = false } = {}) {
+  return withImmediateTransaction(db, () => {
+    try {
+      const state = readContentSections(db);
+      const meta = getContentMeta(db);
+      return { status: 'ready', revision: meta.revision, state };
+    } catch (existingError) {
+      const metaRows = Number(db.prepare('SELECT COUNT(*) AS count FROM content_meta').get()?.count || 0);
+      const sectionRows = Number(db.prepare('SELECT COUNT(*) AS count FROM content_sections').get()?.count || 0);
+      if (metaRows || sectionRows) {
+        return { status: 'unavailable', reason: existingError.message };
+      }
+    }
+
+    if (!freshInstall) {
+      return {
+        status: 'unavailable',
+        reason: 'no authoritative editorial rows exist in an established state tree',
+      };
+    }
+
+    const initial = freshDefaultContent();
+    persistInitialContent(db, initial);
+    return { status: 'initialized', revision: 1, state: initial };
+  });
+}
+
+/** Replace only named sections and bump one coherent global revision. */
+export function replaceContentSections(db, changes, { expectedRevision } = {}) {
+  if (!record(changes)) throw editorialError('content changes must be an object', 'CONTENT_INVALID');
+  const unknown = Object.keys(changes).find((section) => !CONTENT_SECTIONS.includes(section));
+  if (unknown) throw editorialError(`unknown editorial section: ${unknown}`, 'CONTENT_INVALID');
+  for (const [section, value] of Object.entries(changes)) {
+    if (!sectionValueValid(section, value)) {
+      throw editorialError(`editorial section has the wrong type: ${section}`, 'CONTENT_INVALID');
+    }
+  }
+
+  return withImmediateTransaction(db, () => {
+    const current = readContentSections(db);
+    const meta = getContentMeta(db);
+    if (expectedRevision !== undefined && Number(expectedRevision) !== meta.revision) {
+      throw editorialError('editorial content changed in another worker', 'CONTENT_CONFLICT');
+    }
+    /* JSON omits own undefined values. Do not advance a revision for a purely
+       in-memory distinction that serializes to the exact persisted document. */
+    const changedSections = Object.keys(changes).filter((section) => (
+      !isDeepStrictEqual(changes[section], current[section]) &&
+      JSON.stringify(changes[section]) !== JSON.stringify(current[section])
+    ));
+    if (!changedSections.length) {
+      return { revision: meta.revision, changedSections, state: current };
+    }
+
+    const revision = meta.revision + 1;
+    const now = new Date().toISOString();
+    const update = db.prepare(
+      `UPDATE content_sections
+          SET value_json = ?, revision = ?, updated_at = ?
+        WHERE section = ?`,
+    );
+    for (const section of changedSections) {
+      const result = update.run(JSON.stringify(changes[section]), revision, now, section);
+      if (result.changes !== 1) throw editorialError(`could not update editorial section: ${section}`);
+      current[section] = cloneJson(changes[section]);
+    }
+    const result = db.prepare(
+      'UPDATE content_meta SET revision = ?, updated_at = ? WHERE id = 1 AND revision = ?',
+    ).run(revision, now, meta.revision);
+    if (result.changes !== 1) {
+      throw editorialError('editorial revision changed during save', 'CONTENT_CONFLICT');
+    }
+    return { revision, changedSections, state: current };
+  });
+}
+
+/** Shop display/catalogue rows live outside content_sections but are part of
+ * the same Admin snapshot. Advance the global token after a shop-only content
+ * save so a stale full-document PUT cannot overwrite that newer mutation. */
+export function advanceContentRevision(db, { expectedRevision } = {}) {
+  return withImmediateTransaction(db, () => {
+    const meta = getContentMeta(db);
+    if (expectedRevision !== undefined && Number(expectedRevision) !== meta.revision) {
+      throw editorialError('content changed in another worker', 'CONTENT_CONFLICT');
+    }
+    const revision = meta.revision + 1;
+    const result = db.prepare(
+      'UPDATE content_meta SET revision = ?, updated_at = ? WHERE id = 1 AND revision = ?',
+    ).run(revision, new Date().toISOString(), meta.revision);
+    if (result.changes !== 1) {
+      throw editorialError('content revision changed during save', 'CONTENT_CONFLICT');
+    }
+    return revision;
+  });
+}
 
 /* ============================================================== settings */
 export function getSetting(db, key, fallback = null) {
@@ -536,16 +810,17 @@ export function replaceProducts(db, products, { preserveStock = false } = {}) {
 /** Collapse repeated product lines before any inventory arithmetic.
  *
  *  This is deliberately repeated at the database boundary even though the
- *  checkout route also canonicalises its payload. reserveStock is used by
- *  admin status changes and migrations too; trusting every caller to remember
- *  the invariant is how duplicate lines once sold ten units out of five. */
+ *  checkout route also canonicalises its payload. reserveStock is also used by
+ *  Admin status changes; trusting every caller to remember the invariant is
+ *  how duplicate lines once sold ten units out of five. */
 export function mergeStockLines(lines) {
   const merged = new Map();
   for (const line of Array.isArray(lines) ? lines : []) {
     const slug = String(line?.slug || '').trim();
-    const qty = Number(line?.qty);
+    const qty = line?.qty;
     if (!slug) throw new Error('invalid product');
-    if (!Number.isSafeInteger(qty) || qty <= 0) throw new Error('invalid quantity');
+    if (typeof qty !== 'number' || !Number.isSafeInteger(qty) || qty <= 0)
+      throw new Error('invalid quantity');
     const total = (merged.get(slug) || 0) + qty;
     if (!Number.isSafeInteger(total)) throw new Error('invalid quantity');
     merged.set(slug, total);
@@ -597,24 +872,45 @@ export function restoreStock(db, lines) {
 export function updateProductStock(db, slug, stock, expectedStock) {
   const next = Number(stock);
   const expected = Number(expectedStock);
+  const key = String(slug || '');
   if ((!Number.isSafeInteger(next) || next < -1) || (!Number.isSafeInteger(expected) || expected < -1)) {
     return { ok: false, error: 'invalid stock' };
   }
-  const result = db
-    .prepare('UPDATE products SET stock = ? WHERE slug = ? AND stock = ?')
-    .run(next, String(slug || ''), expected);
-  if (result.changes === 1) return { ok: true, stock: next };
-  const current = db.prepare('SELECT stock FROM products WHERE slug = ?').get(String(slug || ''));
-  return current
-    ? { ok: false, error: 'stock changed', stock: current.stock }
-    : { ok: false, error: 'not found' };
+  return db.immediateTransaction(() => {
+    const current = db.prepare('SELECT stock FROM products WHERE slug = ?').get(key);
+    if (!current) return { ok: false, error: 'not found' };
+    if (current.stock !== expected) return { ok: false, error: 'stock changed', stock: current.stock };
+
+    /* While stock is unlimited, orders did not deduct units. Do not invent a
+       finite baseline until every order that could depend on that unreserved
+       stock has been resolved. */
+    if (current.stock === -1 && next >= 0) {
+      const active = db.prepare(
+        `SELECT COUNT(DISTINCT o.id) AS count
+           FROM orders o
+           JOIN order_items i ON i.order_id = o.id
+          WHERE i.slug = ? AND o.status <> 'cancelled'`,
+      ).get(key);
+      const activeOrders = Number(active?.count || 0);
+      if (activeOrders > 0) {
+        return { ok: false, error: 'active orders', stock: current.stock, activeOrders };
+      }
+    }
+
+    const result = db.prepare('UPDATE products SET stock = ? WHERE slug = ? AND stock = ?')
+      .run(next, key, expected);
+    return result.changes === 1
+      ? { ok: true, stock: next }
+      : { ok: false, error: 'stock changed' };
+  })();
 }
 
 /* ================================================================ orders */
 const orderOut = (r, items) => ({
   id: r.id,
   code: r.code,
-  token: r.token,
+  /* `orders.token` is a retained legacy schema column. Order links no longer
+     use bearer tokens; do not select it into application responses. */
   items,
   customer: J(r.customer, {}),
   subtotal: r.subtotal,
@@ -632,6 +928,9 @@ const orderOut = (r, items) => ({
   paidAt: r.paid_at,
   customerId: r.customer_id || null,
   autoCancelled: Boolean(r.auto_cancelled),
+  /* Preserve the transient 2 marker for callback recovery. Admin/client views
+     can keep using the backward-compatible boolean above. */
+  autoCancelState: Number(r.auto_cancelled || 0),
   needsAttention: Boolean(r.needs_attention),
   archived: Boolean(r.archived),
 });
@@ -761,6 +1060,7 @@ export function claimOrderPaymentReversal(database, orderId, authority, {
   verifiedAt = new Date().toISOString(),
   claimedAt = new Date().toISOString(),
   staleBefore = new Date(Date.now() - PAYMENT_REVERSAL_CLAIM_TTL_MS).toISOString(),
+  allowSettled = false,
 } = {}) {
   const id = String(orderId || '');
   const value = String(authority || '');
@@ -773,7 +1073,9 @@ export function claimOrderPaymentReversal(database, orderId, authority, {
               reversal_started_at = ?, last_error = ''
         WHERE order_id = ? AND authority = ?
           AND (
-            status IN ('issued', 'verified', 'reversal_failed')
+            status IN (${allowSettled
+              ? "'issued', 'verified', 'settled', 'reversal_failed'"
+              : "'issued', 'verified', 'reversal_failed'"})
             OR (
               status = 'reversing'
               AND (reversal_started_at IS NULL OR reversal_started_at <= ?)
@@ -830,6 +1132,68 @@ export function finishOrderPaymentReversal(database, orderId, authority, {
     finished: changes === 1,
     attempt: getOrderPaymentAttempt(database, id, value),
   };
+}
+
+/** Finish an order-level reversal and release its stock in the same writer
+ * transaction. A gateway success is durable even if another Admin request
+ * already finished the ledger row; the conditional order transition prevents
+ * duplicate inventory restoration. Financial attention is cleared only after
+ * checking every other unresolved payment attempt. */
+export function completeOrderPaymentReversal(database, orderId, authority, {
+  claimedAt,
+  reversedAt = new Date().toISOString(),
+  adminNote = 'مبلغ از طریق زرین‌پال بازگردانده شد.',
+} = {}) {
+  const id = String(orderId || '');
+  const value = String(authority || '');
+  return database.immediateTransaction(() => {
+    const finished = finishOrderPaymentReversal(database, id, value, {
+      claimedAt,
+      ok: true,
+      reversedAt,
+    });
+    const attempt = finished.attempt;
+    if (attempt?.status !== 'reversed') {
+      return { ok: false, error: 'reversal ledger completion was refused', attempt };
+    }
+
+    const order = getOrderById(database, id);
+    if (!order) return { ok: false, error: 'order not found', attempt };
+    if (order.payAuthority !== value) {
+      return { ok: false, error: 'payment authority is no longer the settled order attempt', attempt, order };
+    }
+
+    const note = String(adminNote || '').trim();
+    const existingNote = String(order.adminNote || '');
+    const nextNote = note && !existingNote.includes(note)
+      ? [existingNote, note].filter(Boolean).join('\n')
+      : existingNote;
+    const patch = {};
+    if (order.status !== 'cancelled') patch.status = 'cancelled';
+    if (order.autoCancelled) patch.autoCancelled = false;
+    if (nextNote !== existingNote) patch.adminNote = nextNote;
+
+    if (Object.keys(patch).length) {
+      const updated = updateOrder(database, id, patch);
+      if (!updated.ok) {
+        appendOrderAdminNote(
+          database,
+          id,
+          'هشدار: درگاه بازگرداندن وجه را تأیید کرد اما لغو سفارش/موجودی کامل نشد؛ پیگیری فوری لازم است.',
+          { needsAttention: true },
+        );
+        return { ok: false, error: updated.error || 'order update failed', attempt, order: getOrderById(database, id) };
+      }
+    }
+
+    clearOrderPaymentAttentionIfResolved(database, id);
+    return {
+      ok: true,
+      alreadyReversed: !finished.finished,
+      attempt: getOrderPaymentAttempt(database, id, value),
+      order: getOrderById(database, id),
+    };
+  })();
 }
 
 export function clearOrderPaymentAttentionIfResolved(database, orderId) {
@@ -908,7 +1272,7 @@ export function insertOrder(db, o) {
     ins.run({
       id: o.id,
       code: o.code,
-      token: o.token,
+      token: '',
       customer: JSON.stringify(o.customer || {}),
       subtotal: o.subtotal,
       shipping: o.shipping,
@@ -951,31 +1315,34 @@ export function insertOrder(db, o) {
  *  A process crash can therefore leave either both the stock hold and its
  *  sweepable order, or neither — never an invisible permanent reservation. */
 export function reserveAndInsertOrder(db, order) {
-  const run = db.transaction(() => {
-    const reserved = reserveStock(db, order?.items);
-    if (!reserved.ok) {
-      const error = new Error(reserved.error || 'stock reservation failed');
-      error.inventoryFailure = true;
-      throw error;
+  return db.immediateTransaction(() => {
+    const orderId = String(order?.id || '');
+    const existingRow = orderId
+      ? db.prepare('SELECT customer_id FROM orders WHERE id = ?').get(orderId)
+      : null;
+    if (existingRow) {
+      const existing = getOrderById(db, orderId);
+      if (existing && existing.customerId === (order?.customerId || null)) {
+        return { ok: true, duplicate: true, order: existing };
+      }
+      return { ok: false, error: 'idempotency key conflict' };
     }
+
+    const reserved = reserveStock(db, order?.items);
+    if (!reserved.ok) return { ok: false, error: reserved.error || 'stock reservation failed' };
     insertOrder(db, order);
-  });
-  try {
-    run();
-    return { ok: true };
-  } catch (error) {
-    if (error?.inventoryFailure) return { ok: false, error: error.message };
-    throw error;
-  }
+    return { ok: true, duplicate: false };
+  })();
 }
 
-export function updateOrder(db, id, patch) {
+export function updateOrder(db, id, patch = {}) {
+  const source = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {};
   /* Financial attention is always visible. Enforce this in the data layer as
      well as the HTTP route so a future caller cannot persist the contradictory
      state needs_attention=1 + archived=1. */
-  const effectivePatch = patch.needsAttention === true
-    ? { ...patch, archived: false }
-    : patch;
+  const effectivePatch = source.needsAttention === true
+    ? { ...source, archived: false }
+    : source;
   const map = {
     status: 'status',
     provider: 'provider',
@@ -988,36 +1355,71 @@ export function updateOrder(db, id, patch) {
     archived: 'archived',
   };
   const sets = [];
-  const vals = [];
-  for (const [k, col] of Object.entries(map)) {
-    if (k in effectivePatch) {
-      sets.push(`${col} = ?`);
-      vals.push(
-        ['autoCancelled', 'needsAttention', 'archived'].includes(k)
-          ? bool(effectivePatch[k])
-          : effectivePatch[k],
-      );
-    }
+  const values = [];
+  for (const [key, column] of Object.entries(map)) {
+    if (!(key in effectivePatch)) continue;
+    sets.push(`${column} = ?`);
+    values.push(
+      ['autoCancelled', 'needsAttention', 'archived'].includes(key)
+        ? bool(effectivePatch[key])
+        : effectivePatch[key],
+    );
   }
-  if (!sets.length) return;
-  const orderId = String(id);
-  vals.push(orderId);
-  const apply = () => {
+  if (!sets.length) return { ok: true, changed: false };
+
+  const orderId = String(id || '');
+  return db.immediateTransaction(() => {
+    const current = db.prepare(
+      'SELECT status, provider, needs_attention FROM orders WHERE id = ?',
+    ).get(orderId);
+    if (!current) return { ok: false, error: 'not found' };
+    /* Keep the established two-step acknowledgement rule: an order whose
+       attention flag was set by another worker cannot be archived in the same
+       write that clears the warning. */
+    if (effectivePatch.archived === true && current.needs_attention) {
+      return { ok: false, error: 'unresolved payment attention' };
+    }
+
+    /* A non-cancelled order owns its stock reservation; a cancelled one does
+       not. Make each transition across that boundary part of the same
+       BEGIN IMMEDIATE transaction as the status write, so even direct callers
+       cannot restore twice or revive an order without re-reserving its units. */
+    if ('status' in effectivePatch && current.status !== effectivePatch.status) {
+      const lines = db.prepare(
+        'SELECT slug, qty FROM order_items WHERE order_id = ?',
+      ).all(orderId);
+      if (current.status === 'cancelled' && effectivePatch.status !== 'cancelled') {
+        const reserved = reserveStock(db, lines);
+        if (!reserved.ok) {
+          return { ok: false, error: 'insufficient stock', detail: reserved.error };
+        }
+      } else if (current.status !== 'cancelled' && effectivePatch.status === 'cancelled') {
+        restoreStock(db, lines);
+      }
+    }
+
     if (effectivePatch.payAuthority) {
-      const existing = db.prepare('SELECT provider FROM orders WHERE id = ?').get(orderId);
-      if (!existing) return false;
       ensurePaymentAttempt(db, orderId, {
         authority: effectivePatch.payAuthority,
-        provider: effectivePatch.provider || existing.provider,
+        provider: effectivePatch.provider || current.provider,
         at: new Date().toISOString(),
       });
     }
+
     const archiveGuard = effectivePatch.archived === true ? ' AND needs_attention = 0' : '';
-    return db.prepare(
+    const updated = db.prepare(
       `UPDATE orders SET ${sets.join(', ')} WHERE id = ?${archiveGuard}`,
-    ).run(...vals).changes > 0;
-  };
-  return effectivePatch.payAuthority ? db.transaction(apply)() : apply();
+    ).run(...values, orderId);
+    if (updated.changes !== 1) {
+      /* With the writer lock and checks above this normally means a database
+         trigger or a deliberately incompatible row. Throwing rolls back any
+         stock movement instead of committing inventory without its status. */
+      throw Object.assign(new Error('order changed during atomic update'), {
+        code: 'ORDER_UPDATE_CONFLICT',
+      });
+    }
+    return { ok: true, changed: true };
+  })();
 }
 
 /** Settle only the still-pending order that owns this authority. The route also
@@ -1037,7 +1439,7 @@ export function settlePendingOrder(db, id, authority, {
     const result = db.prepare(
       `UPDATE orders
           SET status = 'paid', provider = ?, pay_authority = ?, pay_ref = ?, paid_at = ?,
-              admin_note = ?, auto_cancelled = 0, needs_attention = 0, archived = 0
+              admin_note = ?, auto_cancelled = 0, archived = 0
         WHERE id = ? AND status = 'pending_payment'
           AND EXISTS (
             SELECT 1 FROM order_payments
@@ -1052,6 +1454,7 @@ export function settlePendingOrder(db, id, authority, {
       verifiedAt: paidAt,
       lastError: '',
     });
+    clearOrderPaymentAttentionIfResolved(db, orderId);
     return true;
   })();
 }
@@ -1077,7 +1480,10 @@ export function expirePendingOrders(db, cutoffIso, atIso = new Date().toISOStrin
   const inc = db.prepare('UPDATE products SET stock = stock + ? WHERE slug = ? AND stock >= 0');
   const note = `لغو خودکار: مهلت پرداخت ۳۰ دقیقه‌ای در ${atIso} پایان یافت.`;
 
-  return db.transaction((cutoff) => {
+  /* Reserve SQLite's writer slot before reading candidates. Otherwise two
+     workers can both snapshot the same pending rows, and one may hit a WAL
+     busy-snapshot error while trying to cancel and restore stock. */
+  return db.immediateTransaction((cutoff) => {
     const expired = [];
     for (const row of candidates.all(String(cutoff))) {
       const adminNote = [row.admin_note, note].filter(Boolean).join('\n');
@@ -1119,7 +1525,7 @@ export function claimExpiredPayment(db, id, {
   const items = db.prepare('SELECT slug, qty FROM order_items WHERE order_id = ?');
   const finishPaid = db.prepare(
     `UPDATE orders
-     SET status = 'paid', admin_note = ?, auto_cancelled = 0, needs_attention = 0, archived = 0
+     SET status = 'paid', admin_note = ?, auto_cancelled = 0, archived = 0
      WHERE id = ? AND status = 'cancelled' AND auto_cancelled = 2`,
   );
   const noteFailure = db.prepare(
@@ -1152,6 +1558,7 @@ export function claimExpiredPayment(db, id, {
     if (reserved.ok) {
       finishPaid.run(successNote, orderId);
       updateOrderPaymentAttempt(db, orderId, value, { status: 'settled' });
+      clearOrderPaymentAttentionIfResolved(db, orderId);
       return { ok: true, reserved: true };
     }
     noteFailure.run(failureNote, orderId);
@@ -1221,11 +1628,34 @@ const commentOut = (r) => ({
 export function listComments(db) {
   return db.prepare('SELECT * FROM comments ORDER BY at DESC').all().map(commentOut);
 }
-export function listApprovedComments(db) {
-  return db
-    .prepare('SELECT id, slug, name, text, at, reply, reply_at FROM comments WHERE approved = 1 ORDER BY at DESC')
-    .all()
-    .map((r) => ({ id: r.id, slug: r.slug, name: r.name, text: r.text, at: r.at, reply: r.reply, replyAt: r.reply_at }));
+export function listApprovedCommentsPage(db, slug, { limit = 8, cursor = null } = {}) {
+  const boundedLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 8)));
+  const fields = 'id, slug, name, text, at, reply, reply_at';
+  const rows = cursor
+    ? db.prepare(`
+        SELECT ${fields}
+          FROM comments
+         WHERE slug = ? AND approved = 1
+           AND (at < ? OR (at = ? AND id < ?))
+         ORDER BY at DESC, id DESC
+         LIMIT ?
+      `).all(String(slug), cursor.at, cursor.at, cursor.id, boundedLimit)
+    : db.prepare(`
+        SELECT ${fields}
+          FROM comments
+         WHERE slug = ? AND approved = 1
+         ORDER BY at DESC, id DESC
+         LIMIT ?
+      `).all(String(slug), boundedLimit);
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    text: r.text,
+    at: r.at,
+    reply: r.reply,
+    replyAt: r.reply_at,
+  }));
 }
 export function insertComment(db, c) {
   db.prepare(`
@@ -1287,59 +1717,123 @@ export function deleteMessage(db, id) {
   db.prepare('DELETE FROM messages WHERE id = ?').run(String(id));
 }
 
-/* ========================================================= seed & import */
-/**
- * First run / empty DB: pull data from the legacy JSON files when present,
- * otherwise from the shipped defaults. Runs only once (settings.seeded).
- */
-export function seedFromLegacy(db, { CONTENT_FILE, SHOP_FILE, MESSAGES_FILE }) {
-  if (getSetting(db, 'seeded')) return { skipped: true };
-  const report = { products: 0, orders: 0, comments: 0, messages: 0, from: [] };
+/* ================================================= fresh installation */
+const INSTALLATION_MARKER = 'installation.initializedAt';
 
-  const readJSON = (f) => {
-    try {
-      return JSON.parse(fs.readFileSync(f, 'utf8'));
-    } catch {
-      return null;
+/** Populate operational defaults exactly once and only for a proven empty
+ * persistent tree. Existing databases without the marker are incompatible;
+ * no file import, inference, or backfill is attempted. */
+export function initializeOperationalStore(db, { freshInstall = false } = {}) {
+  return withImmediateTransaction(db, () => {
+    const initializedAt = getSetting(db, INSTALLATION_MARKER, '');
+    if (initializedAt) {
+      const display = getSetting(db, 'shop.display');
+      const payment = getSetting(db, 'shop.payment');
+      return typeof initializedAt === 'string' && record(display) && record(payment)
+        ? { status: 'ready', initializedAt }
+        : { status: 'unavailable', reason: 'operational initialization metadata is invalid' };
     }
-  };
 
-  /* --- shop products + display settings (content.json → DB) --- */
-  const content = readJSON(CONTENT_FILE);
-  const shop = content?.shop || DEFAULT_STATE.shop;
-  replaceProducts(db, shop.products || DEFAULT_STATE.shop.products);
-  setSetting(db, 'shop.display', { ...DEFAULT_STATE.shop.display, ...(shop.display || {}) });
-  report.products = db.prepare('SELECT COUNT(*) n FROM products').get().n;
-  if (content?.shop) report.from.push('content.json');
-
-  /* --- orders, comments, payment (shop.json → DB) --- */
-  const legacyShop = readJSON(SHOP_FILE) || SHOP_SEED();
-  if (readJSON(SHOP_FILE)) report.from.push('shop.json');
-  for (const o of legacyShop.orders || []) {
-    insertOrder(db, o);
-    report.orders++;
-  }
-  for (const c of legacyShop.comments || []) {
-    insertComment(db, c);
-    report.comments++;
-  }
-  setSetting(db, 'shop.payment', legacyShop.payment || SHOP_SEED().payment);
-
-  /* --- contact messages (messages.json → DB) --- */
-  const legacyMessages = readJSON(MESSAGES_FILE);
-  if (Array.isArray(legacyMessages)) {
-    report.from.push('messages.json');
-    for (const m of legacyMessages) {
-      insertMessage(db, { ...m, id: m.id || crypto.randomUUID(), at: m.at || new Date().toISOString() });
-      report.messages++;
+    const counts = Object.fromEntries(
+      ['products', 'orders', 'comments', 'messages'].map((table) => [
+        table,
+        Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count || 0),
+      ]),
+    );
+    const shopSettings = Number(db.prepare(
+      "SELECT COUNT(*) AS count FROM settings WHERE key LIKE 'shop.%'",
+    ).get()?.count || 0);
+    if (!freshInstall || Object.values(counts).some(Boolean) || shopSettings) {
+      return {
+        status: 'unavailable',
+        reason: 'operational initialization marker is missing from an established state tree',
+      };
     }
-  }
 
-  setSetting(db, 'seeded', new Date().toISOString());
-  return report;
+    const initialShop = SHOP_SEED();
+    replaceProducts(db, DEFAULT_STATE.shop.products);
+    setSetting(db, 'shop.display', cloneJson(DEFAULT_STATE.shop.display));
+    setSetting(db, 'shop.payment', cloneJson(initialShop.payment));
+    for (const comment of initialShop.comments) insertComment(db, comment);
+
+    const now = new Date().toISOString();
+    setSetting(db, INSTALLATION_MARKER, now);
+    return {
+      status: 'initialized',
+      initializedAt: now,
+      products: Number(db.prepare('SELECT COUNT(*) AS count FROM products').get().count),
+      orders: 0,
+      comments: initialShop.comments.length,
+      messages: 0,
+    };
+  });
+}
+
+/** Initialize all mutable state under one outer writer transaction. If either
+ * half cannot initialize safely, no fresh-install defaults are committed. */
+export function initializeStore(db, { freshInstall = false } = {}) {
+  return withImmediateTransaction(db, () => {
+    const content = initializeContentStore(db, { freshInstall });
+    const operational = initializeOperationalStore(db, { freshInstall });
+    if (operational.status === 'unavailable') {
+      throw Object.assign(new Error(operational.reason), { code: 'DB_INITIALIZATION_UNAVAILABLE' });
+    }
+    return { content, operational };
+  });
 }
 
 /* ------------------------------------------------------------------ sms */
+const SMS_CAP_RESERVATION_KIND = '__daily_cap_reservation__';
+const SMS_CAP_RESERVATION_MARKER = '__khyeast_sms_cap_pending__';
+
+/** Reserve one of today's SMS sends under SQLite's writer lock. Successful
+ * sends and in-flight reservations share one cap across every server worker;
+ * a failed send releases its reservation when the row is finalized. */
+export function reserveSmsDailyCap(db, { cap, since, at = new Date().toISOString() } = {}) {
+  const maximum = Math.max(0, Math.floor(Number(cap) || 0));
+  if (!maximum) return { allowed: true, id: null };
+  return db.immediateTransaction(() => {
+    const sent = Number(db.prepare(
+      'SELECT COUNT(*) AS n FROM sms_log WHERE at >= ? AND ok = 1 AND kind <> ?',
+    ).get(String(since || ''), SMS_CAP_RESERVATION_KIND)?.n || 0);
+    const pending = Number(db.prepare(
+      'SELECT COUNT(*) AS n FROM sms_log WHERE at >= ? AND kind = ? AND error = ?',
+    ).get(String(since || ''), SMS_CAP_RESERVATION_KIND, SMS_CAP_RESERVATION_MARKER)?.n || 0);
+    if (sent + pending >= maximum) return { allowed: false, id: null };
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO sms_log (id, at, kind, phone, text, provider, environment, ok, error, message_id, ref)
+       VALUES (?, ?, ?, '', '', 'internal', 'system', 0, ?, NULL, '')`,
+    ).run(id, String(at), SMS_CAP_RESERVATION_KIND, SMS_CAP_RESERVATION_MARKER);
+    return { allowed: true, id };
+  })();
+}
+
+export function finishSmsDailyCapReservation(db, id, row = {}) {
+  const result = db.prepare(
+    `UPDATE sms_log
+        SET at = @at, kind = @kind, phone = @phone, text = @text, provider = @provider,
+            environment = @environment, ok = @ok, error = @error, message_id = @message_id, ref = @ref
+      WHERE id = @id AND kind = @reservation_kind AND error = @reservation_marker`,
+  ).run({
+    id: String(id || ''),
+    reservation_kind: SMS_CAP_RESERVATION_KIND,
+    reservation_marker: SMS_CAP_RESERVATION_MARKER,
+    at: row.at || new Date().toISOString(),
+    kind: row.kind || 'other',
+    phone: row.phone || '',
+    text: row.text || '',
+    provider: row.provider || 'log',
+    environment: row.environment || 'sandbox',
+    ok: row.ok ? 1 : 0,
+    error: row.error || '',
+    message_id: row.messageId == null ? null : String(row.messageId),
+    ref: row.ref || '',
+  });
+  return result.changes === 1;
+}
+
 export function insertSmsLog(db, row) {
   db.prepare(
     `INSERT INTO sms_log (id, at, kind, phone, text, provider, environment, ok, error, message_id, ref)
@@ -1369,8 +1863,8 @@ export function countSmsSince(db, iso) {
 
 export function listSmsLog(db, limit = 50) {
   return db
-    .prepare('SELECT * FROM sms_log ORDER BY at DESC LIMIT ?')
-    .all(Math.max(1, Math.min(500, Number(limit) || 50)))
+    .prepare('SELECT * FROM sms_log WHERE kind <> ? ORDER BY at DESC LIMIT ?')
+    .all('__daily_cap_reservation__', Math.max(1, Math.min(500, Number(limit) || 50)))
     .map((r) => ({
       id: r.id,
       at: r.at,
@@ -1474,6 +1968,12 @@ export function deleteSessionsFor(db, customerId) {
   db.prepare('DELETE FROM customer_sessions WHERE customer_id = ?').run(String(customerId || ''));
 }
 
+export function deleteOtherSessionsFor(db, customerId, currentTokenHash) {
+  return db.prepare(
+    'DELETE FROM customer_sessions WHERE customer_id = ? AND token_hash <> ?',
+  ).run(String(customerId || ''), String(currentTokenHash || '')).changes;
+}
+
 export function sweepSessions(db) {
   db.prepare('DELETE FROM customer_sessions WHERE expires_at <= ?').run(new Date().toISOString());
   db.prepare('DELETE FROM otps WHERE expires_at <= ?').run(new Date(Date.now() - 3600_000).toISOString());
@@ -1514,12 +2014,19 @@ export function putTicket(db, { ticketHash, phone, purpose, expiresAt }) {
 /** Single use: the row is deleted as it is read, so the same proof cannot
  *  register two accounts or reset a password twice. */
 export function consumeTicket(db, ticketHash, purpose) {
-  const row = db.prepare('SELECT * FROM otp_tickets WHERE ticket_hash = ?').get(String(ticketHash || ''));
-  if (!row) return null;
-  db.prepare('DELETE FROM otp_tickets WHERE ticket_hash = ?').run(String(ticketHash));
-  if (row.purpose !== purpose) return null;
-  if (new Date(row.expires_at).getTime() <= Date.now()) return null;
-  return row;
+  const hash = String(ticketHash || '');
+  return db.immediateTransaction(() => {
+    const now = new Date().toISOString();
+    const row = db.prepare(
+      'SELECT * FROM otp_tickets WHERE ticket_hash = ? AND purpose = ? AND expires_at > ?',
+    ).get(hash, String(purpose || ''), now);
+    if (!row) return null;
+    const removed = db.prepare(
+      'DELETE FROM otp_tickets WHERE ticket_hash = ? AND purpose = ? AND expires_at > ?',
+    ).run(hash, String(purpose || ''), now);
+    if (removed.changes !== 1) return null;
+    return row;
+  })();
 }
 
 /** Successful OTP sends to one phone since a timestamp — the per-phone

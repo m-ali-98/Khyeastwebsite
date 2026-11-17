@@ -1,3 +1,6 @@
+import { buildCatalogProductTranslations } from '../catalogProducts.js';
+import { EN_POSTS } from './blogPosts.js';
+
 /* ==========================================================================
    English content overrides.
    Only the values differ from shared/contentDefaults.js — the key structure is
@@ -20,7 +23,7 @@ export const TEXTS = {
   'home.hero.title':
     'Khuzestan Yeast Co. — producer of instant dry yeast under the Dezmaye, Shetab, X-Power and Nan Maye brands',
   'home.hero.desc':
-    'Our production lines were designed and commissioned by Frings of Austria using the latest European technology. More than half of our output is exported to neighbouring countries, the CIS, Africa, Europe and South America.',
+    'Our production lines were designed and commissioned by Frings of Austria using the latest European technology. More than half of our output is exported to markets across Asia, Europe, Africa and South America.',
   'home.hero.btnShop': 'Shop online',
   'home.hero.btnProducts': 'View products',
   'home.hero.btnWholesale': 'Wholesale enquiry',
@@ -48,13 +51,13 @@ export const TEXTS = {
   'home.intro.badge': 'Since 1991',
 
   'home.brands.overline': 'Our brands',
-  'home.brands.title': 'Four trusted brands, [[one quality standard]]',
+  'home.brands.title': 'Trusted brands, [[one quality standard]]',
   'home.brands.sub':
-    'Our instant dry yeast reaches domestic and international markets under the Dezmaye, Shetab, X-Power and Nan Maye names.',
+    'Our instant dry yeast reaches domestic and international markets through a diverse portfolio of brands.',
   'home.brands.cardLink': 'Products of this brand',
   'home.products.overline': 'Featured products',
   'home.products.title': 'Instant dry yeast for [[every kind of baking]]',
-  'home.products.sub': 'From household sachets to 20 kg export sacks — all held to a single quality promise.',
+  'home.products.sub': 'From 70 g packs to 10 kg industrial sacks — all held to a single quality promise.',
   'home.products.btnAll': 'View all products',
   'home.process.overline': 'The path to quality',
   'home.process.title': 'From a pure culture to [[ready-to-use dry yeast]]',
@@ -99,12 +102,8 @@ export const TEXTS = {
     'To become the leading yeast producer in the Middle East and Central Asia by 2031, with an active presence in more than 70 countries, continuous development of innovative biotechnology products and quality standards raised to international level.',
   'about.timeline.overline': 'History and milestones',
   'about.timeline.title': 'A path of growth [[through the years]]',
-  'about.managers.overline': 'Management team',
-  'about.managers.title': 'The leadership of [[Khuzestan Yeast Co.]]',
-  'about.managers.sub': 'An experienced team in biotechnology and international trade',
   'about.factory.overline': 'Plant and infrastructure',
   'about.factory.title': 'Infrastructure worthy of [[a nation’s bread]]',
-  'about.factory.badge': '65,000 square metres',
   'about.factory.btn': 'Quality control system',
   'about.cta.title': 'We are ready to write the next chapter with you',
   'about.cta.text':
@@ -113,7 +112,7 @@ export const TEXTS = {
   /* ---------- products ---------- */
   'products.hero.title': 'Khuzestan Yeast products',
   'products.hero.sub':
-    'Our full instant dry yeast range under the Dezmaye, Shetab, X-Power and Nan Maye brands — from 70 g sachets to 20 kg export sacks.',
+    'Thirty instant dry yeast packages under the Dezmaye, Shetab, X-Power and Nan Maye brands — from 70 g packs to a 10 kg industrial sack.',
   'products.filter.all': 'All products',
   'products.catalog.title': 'Download the full product catalogue',
   'products.catalog.text':
@@ -135,11 +134,19 @@ export const TEXTS = {
   /* ---------- export ---------- */
   'export.hero.title': 'Global exports',
   'export.hero.sub':
-    'A lasting presence for the Dezmaye, Shetab, X-Power and Nan Maye brands across the Middle East, CIS, Europe, Africa and South America.',
+    'A lasting presence for the Dezmaye, Shetab, X-Power and Nan Maye brands across Asia, Europe, Africa and South America.',
   'export.banner.title': 'For us, borders are only lines on a map',
   'export.banner.text': 'Every year more than half of our output leaves Iranian ports for five continents.',
   'export.regions.overline': 'Where we operate',
   'export.regions.title': 'Markets that have [[placed their trust in our quality]]',
+  'export.map.badge': 'Global export network',
+  'export.map.coverage': 'active continents',
+  'export.map.ariaLabel': 'Interactive map of Khuzestan Yeast export continents',
+  'export.map.description': 'Asia, Europe, Africa and South America are highlighted as active export markets.',
+  'export.map.selected': 'Selected continent',
+  'export.map.activeLegend': 'Export markets',
+  'export.map.otherLegend': 'Other regions',
+  'export.map.hint': 'Select a continent marker to explore its market presence.',
   'export.steps.overline': 'Export partnership process',
   'export.steps.title': 'From enquiry to [[delivery at destination]]',
   'export.cta.title': 'Become our next export partner',
@@ -206,6 +213,26 @@ export const TEXTS = {
   'contact.form.errSend': 'The message could not be sent. Please try again or call us instead.',
   'form.errRateLimited': 'Too many requests from this connection. Please wait a few minutes and try again.',
 
+  /* ---------- gallery ---------- */
+  'gallery.hero.title': 'Khuzestan Yeast gallery',
+  'gallery.hero.sub': 'A visual story of our factory, laboratory, products and Khuzestan Yeast’s global journey.',
+  'gallery.eyebrow': 'Inside Khuzestan Yeast',
+  'gallery.title': 'Frames of [[quality, production and trust]]',
+  'gallery.intro': 'Choose any frame to see a larger image or play its video.',
+  'gallery.empty.title': 'Our gallery is being prepared',
+  'gallery.empty.text': 'New photographs and videos from Khuzestan Yeast will appear here soon.',
+  'gallery.open': 'Open {caption}',
+  'gallery.video': 'Video',
+  'gallery.close': 'Close window',
+  'gallery.previous': 'Previous media',
+  'gallery.next': 'Next media',
+  'gallery.dialogLabel': 'Gallery media viewer',
+  'gallery.position': '{current} of {total}',
+  'gallery.pagination': 'Gallery pagination',
+  'gallery.page': 'Page {page}',
+  'gallery.previousPage': 'Previous page',
+  'gallery.nextPage': 'Next page',
+
   /* ---------- footer / 404 / nav ---------- */
   'footer.about':
     'Producer of instant dry yeast under the Dezmaye, Shetab, X-Power and Nan Maye brands — over three decades of experience and exports to more than 50 countries.',
@@ -227,14 +254,14 @@ export const TEXTS = {
   'nf.products': 'Browse products',
   'nav.home': 'Home',
   'nav.about': 'About us',
+  'nav.aboutOverview': 'Company overview',
   'nav.products': 'Products',
   'nav.shop': 'Shop',
   'nav.export': 'Export',
   'nav.quality': 'Quality & certifications',
   'nav.blog': 'Blog',
+  'nav.gallery': 'Gallery',
   'nav.contact': 'Contact',
-  'nav.cta': 'Request a quote',
-  'nav.shopCta': 'Shop online',
   'nav.main': 'Main navigation',
   'nav.mobile': 'Mobile navigation',
   'nav.menu': 'Site menu',
@@ -277,7 +304,6 @@ export const COLLECTIONS = {
     { label: 'Years in operation' },
     { label: 'Export markets' },
     { label: 'Active brands' },
-    { label: 'Square metres of plant area' },
   ],
   exportStats: [
     { label: 'Export destinations' },
@@ -296,7 +322,7 @@ export const COLLECTIONS = {
     },
     {
       title: 'Worldwide shipping',
-      text: 'Exports to neighbouring countries, the CIS, Africa, Europe and South America.',
+      text: 'Exports to markets across Asia, Europe, Africa and South America.',
     },
     {
       title: 'Competitive bulk pricing',
@@ -343,7 +369,7 @@ export const COLLECTIONS = {
     {
       year: '2001',
       title: 'Official opening of the plant',
-      text: 'The plant is officially inaugurated by the Minister of Industries and Mines on a 65,000 m² site in Dezful.',
+      text: 'The plant is officially inaugurated by the Minister of Industries and Mines in Dezful.',
     },
     {
       year: '2005',
@@ -358,14 +384,8 @@ export const COLLECTIONS = {
     {
       year: 'Today',
       title: 'Exports to more than 50 countries',
-      text: 'The Dezmaye, Shetab, X-Power and Nan Maye brands supply markets across the Middle East, the CIS, Europe, Africa and South America.',
+      text: 'The Dezmaye, Shetab, X-Power and Nan Maye brands supply markets across Asia, Europe, Africa and South America.',
     },
-  ],
-  managers: [
-    { name: 'Amir Salari Nasab', role: 'Chairman of the Board' },
-    { name: 'Seyed Mohammad Alavi', role: 'Chief Executive Officer' },
-    { name: 'Hesam Mahmoudi', role: 'Commercial Manager' },
-    { name: 'Seyed Abdolvahab Seyedan', role: 'Member of the Board' },
   ],
   certs: [
     { id: 'iso', title: 'BS EN ISO 9001:2015', text: 'Quality management standard, certified in Germany.' },
@@ -379,22 +399,16 @@ export const COLLECTIONS = {
   ],
   facts: [
     { title: 'Plant locations', text: 'Dezful, Khuzestan Province — Kermanshah (second unit)' },
-    { title: 'Area', text: '65,000 square metres of land at the Dezful plant' },
     { title: 'Machinery', text: 'Production lines designed by Frings of Austria' },
     { title: 'Laboratory', text: 'Quality control equipped with European instruments' },
     { title: 'Product type', text: 'Active Dry and Instant dry yeast' },
     { title: 'Production capacity', text: 'Supplying the Iranian market and exporting to over 50 countries' },
   ],
   regions: [
-    {
-      title: 'Neighbouring countries',
-      text: 'Iraq, Afghanistan, Pakistan, Turkey, Armenia and Azerbaijan — our first and most enduring markets.',
-    },
-    { title: 'The CIS region', text: 'Russia, Kazakhstan, Uzbekistan, Turkmenistan, Kyrgyzstan and Tajikistan.' },
-    { title: 'Africa', text: 'Egypt, Nigeria, Kenya, Sudan and Ghana — a growing presence in emerging markets.' },
-    { title: 'Europe', text: 'Eastern and Central Europe, meeting the most demanding quality standards.' },
-    { title: 'South America', text: 'Brazil, Venezuela and Colombia — a lasting place in the Latin American bread chain.' },
-    { title: 'The Gulf and the Middle East', text: 'The UAE, Qatar, Kuwait and Oman — supplying the region’s bakeries and industry.' },
+    { title: 'Asia', text: 'An established presence across Asian markets, supported by an export-ready supply chain.' },
+    { title: 'Europe', text: 'Supplying European markets while meeting demanding quality standards.' },
+    { title: 'Africa', text: 'A growing presence across African markets with products suited to the baking industry.' },
+    { title: 'South America', text: 'An established presence across South American markets and bakery supply chains.' },
   ],
   exportSteps: [
     {
@@ -463,8 +477,6 @@ const STORAGE = [
   'Once opened, keep the remaining yeast in a sealed container in the refrigerator (4 °C) and use it within 3 to 5 days.',
 ];
 
-const STANDARDS = 'ISO 9001:2015 (Germany), Halal certificate, Iranian National Standard';
-
 export const BRANDS = {
   dezmaye: { fa: 'Dezmaye', tagline: 'Our flagship export brand' },
   shetab: { fa: 'Shetab', tagline: 'Fast action, reliable result' },
@@ -472,179 +484,31 @@ export const BRANDS = {
   nanmaye: { fa: 'Nan Maye', tagline: 'The choice of industrial bakeries' },
 };
 
-export const PRODUCTS = {
-  'dezmaye-gold-80': {
-    title: 'Dezmaye Gold instant dry yeast — 80 g',
-    weight: '80 g',
-    pack: 'Vacuum pack',
-    short:
-      'Dezmaye Gold instant dry yeast, produced to the highest European quality standards on advanced Frings (Austria) technology — exceptionally high fermentation activity with no need for pre-fermentation.',
-    specs: [
-      ['Net weight / sachet', '80 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer moisture-proof aluminium vacuum pack'],
-      ['Units per carton', '40 units per export carton'],
-      ['Shelf life', '24 months (2 years) from production, stored cool and dry'],
-      ['Standards', 'ISO 9001:2015 (Germany), Halal, Iranian National Standard, VH Berlin membership'],
-      ['Applications', 'Barbari, sangak, taftoon, lavash, baguette, toast, volume and fancy breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
+export const PRODUCTS = buildCatalogProductTranslations('en', {
+  usage: USAGE,
+  analysis: ANALYSIS,
+  storage: STORAGE,
+});
+
+export const GALLERY = {
+  'product-range': {
+    caption: 'A Look at Khuzestan Yeast Products',
   },
-  'dezmaye-gold-500': {
-    title: 'Dezmaye Gold instant dry yeast — 500 g',
-    weight: '500 g',
-    pack: 'Vacuum pack',
-    short:
-      'The economical 500 g Dezmaye Gold pack for busy bakeries and semi-industrial workshops — the same export-grade quality with a two-year shelf life.',
-    specs: [
-      ['Net weight', '500 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer moisture-proof aluminium vacuum pack'],
-      ['Units per carton', '20 units per export carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Traditional and volume breads, industrial pastry'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
+  'shetab-instant-yeast': {
+    caption: 'Shetab Mayeh Instant Yeast',
   },
-  'dezmaye-golden-400': {
-    title: 'Dezmaye Golden instant dry yeast — 400 g',
-    weight: '400 g',
-    pack: 'Vacuum pack',
-    short:
-      'The golden edition of Dezmaye, made with a selected strain and uniform fermentation power — a dependable choice for continuous baking lines.',
-    specs: [
-      ['Net weight', '400 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer aluminium vacuum pack'],
-      ['Units per carton', '25 units per carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Industrial breads, baguettes and fancy breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
+  'three-brands-one-quality': {
+    caption: 'Three different brands, one consistent quality',
   },
-  'shetab-90': {
-    title: 'Shetab Maye instant dry yeast — 90 g',
-    weight: '90 g',
-    pack: 'Sachet',
-    short:
-      'Shetab Maye’s fast-acting formulation shortens fermentation time and raises the productivity of the baking line — ideal for traditional bakeries and home use.',
-    specs: [
-      ['Net weight / sachet', '90 g (three-layer sachet)'],
-      ['Packaging type', 'Aluminium sachet resistant to moisture and light'],
-      ['Units per carton', '50 sachets per carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Barbari, taftoon, lavash and household baking'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
+  'wheat-to-bread': {
+    caption: 'From the wheat kernel to the first slice of bread',
   },
-  'shetab-500': {
-    title: 'Shetab instant dry yeast — 500 g',
-    weight: '500 g',
-    pack: 'Vacuum pack',
-    short:
-      'The 500 g Shetab pack for everyday bakery use — fast fermentation, an even crumb and fewer baking rejects.',
-    specs: [
-      ['Net weight', '500 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer aluminium vacuum pack'],
-      ['Units per carton', '20 units per carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Traditional and semi-volume breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
+  'international-exhibition': {
+    caption: 'Khuzestan Yeast at the International Exhibition of Grains, Flour, and Bread',
   },
-  'xpower-70': {
-    title: 'X-Power instant dry yeast — 70 g',
-    weight: '70 g',
-    pack: 'Vacuum pack',
-    short:
-      'X-Power delivers double fermentation power for heavy and sweet doughs — an excellent, even crumb even at high sugar and fat levels.',
-    specs: [
-      ['Net weight / sachet', '70 g (heavy-duty vacuum pack)'],
-      ['Packaging type', 'Multi-layer moisture-proof aluminium vacuum pack'],
-      ['Units per carton', '40 units per export carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Volume and fancy breads, fermented pastry and enriched doughs'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'nanmaye-10': {
-    title: 'Nan Maye instant dry yeast — 10 kg',
-    weight: '10 kg',
-    pack: 'Carton / sack',
-    short:
-      'The 10 kg Nan Maye sack for industrial baking lines — easy dosing, excellent flowability and stable performance in long fermentations.',
-    specs: [
-      ['Net weight', '10 kg'],
-      ['Packaging type', 'Multi-layer sack inside an export carton'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Industrial breads, toast bread, volume and semi-volume breads'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
-  },
-  'nanmaye-20': {
-    title: 'Nan Maye export instant dry yeast — 20 kg',
-    weight: '20 kg',
-    pack: 'Bulk sack',
-    short:
-      'The 20 kg bulk sack for export and large bread factories, in packaging built to withstand international shipping and varied climates.',
-    specs: [
-      ['Net weight', '20 kg'],
-      ['Packaging type', 'Palletised multi-layer bulk sack'],
-      ['Shelf life', '24 months from the production date'],
-      ['Standards', STANDARDS],
-      ['Applications', 'Industrial bread factories and export'],
-    ],
-    usage: USAGE,
-    analysis: ANALYSIS,
-    storage: STORAGE,
+  'dezmayeh-instant-dry-yeast': {
+    caption: 'Dezmayeh Instant Dry Yeast',
   },
 };
 
-export const POSTS = {
-  'reduce-bread-production-costs': {
-    title: 'How to cut bread production costs by choosing the right yeast',
-    excerpt: 'Practical ways to shorten fermentation time and optimise energy use in industrial bread factories.',
-    date: '16 August 2026',
-    publishedAt: '2026-08-16',
-    category: 'Baking industry',
-    readTime: '6',
-    body: `<p>In large industrial bakeries, shaving a few minutes off the initial fermentation can lift overall productivity significantly; conversely, any fluctuation in yeast strength turns into baking waste and line stoppages.</p><h2>1) Set fermentation time against a standard fermentation power</h2><p>Instant dry yeast with a fermentation power above 650 ml CO₂ in two hours allows the dough rest time to be shortened without losing final volume. In practice, many baking lines that replaced ordinary yeast with a stable industrial strain saved between 10% and 15% of their production cycle time.</p><h2>2) Get the dosage right</h2><p>The conventional dosage for instant dry yeast is 0.5% to 1% of the flour weight. Using more than necessary not only raises raw-material costs but also introduces a sharp yeasty flavour that degrades the sensory quality of the bread. Accurate weighing and even mixing with dry flour is the simplest place to start cutting costs.</p><h2>3) Manage the energy of the proofing room</h2><p>Uniform fermentation means less need to correct temperature and humidity in the proofing room. A yeast with a predictable gas-production curve lets the operator lock the proofing room at its optimum temperature and avoid expensive heating swings.</p><h2>4) Measure your baking waste</h2><p>Under-risen, cracked or doughy loaves are the largest single source of waste on a baking line. Consistent fermentation power across every production batch directly reduces the waste rate; field experience shows that moving to a standardised yeast can cut waste by up to a third.</p><h2>5) Correct storage removes a hidden cost</h2><p>Yeast stored in the wrong conditions — heat, humidity, direct light — loses part of its activity before it is even used, effectively forcing you to increase the dosage. Storing below 25 °C and rotating stock on a FIFO basis is the simplest way to protect the value of your purchase.</p><p>In summary: choosing a yeast is not merely a raw-material purchase, it is a productivity decision. The Dezmaye, Shetab, X-Power and Nan Maye brands, with real-time quality control and monthly monitoring at the VH Berlin institute, deliver exactly the consistency your cost calculations rely on.</p>`,
-  },
-  'yeast-quality-and-bread-shelf-life': {
-    title: 'How yeast quality shapes the shelf life and texture of industrial and traditional breads',
-    seoTitle: 'How Yeast Quality Affects Bread Shelf Life and Texture',
-    excerpt: 'How active enzymes and the right crumb structure can extend the shelf life of bread by several days.',
-    date: '2 August 2026',
-    publishedAt: '2026-08-02',
-    category: 'Quality control',
-    readTime: '5',
-    body: `<p>The quality of the finished loaf depends directly on the purity and fermentation power of the yeast. The gluten network, opened slowly and evenly by the CO₂ the yeast produces, is the very porous structure that holds moisture in the crumb and delays staling.</p><h2>An even crumb is the key to shelf life</h2><p>Fine, uniform bubbles in the bread structure slow the movement of moisture from the crumb to the crust. Yeast with stable activity produces a more even distribution of bubbles; the result is a crumb that stays soft for longer and a crust that cracks later.</p><h2>The role of the yeast’s natural enzymes</h2><p>Besides producing gas, selected Saccharomyces Cerevisiae strains release enzymes that improve starch structure during baking. This enzymatic effect slows the return of starch to its crystalline state — the main cause of staling — and adds several days of shelf life.</p><h2>Traditional Iranian bread: the real test of quality</h2><p>Barbari and sangak, with their high water content and short bake time, reveal the smallest fluctuation in yeast strength: slack dough, a pale crust or a doughy crumb. That is precisely why traditional bakers regard the consistency of a yeast brand as more important than its price.</p><h2>What to check on the technical label</h2><ul><li>Moisture (max. 5%)</li><li>Fermentation power (min. 650 ml CO₂ in two hours)</li><li>Dry matter (min. 95%)</li></ul><p>These three numbers directly predict how your dough will behave on the baking line. At Khuzestan Yeast every production batch passes these tests before leaving the plant, and monthly samples are sent to the VH Berlin institute for comparative monitoring — so that your first slice of bread stays as fresh as you expect.</p>`,
-  },
-  'comparing-yeast-types-in-baking': {
-    title: 'Comparing the performance of different yeasts across baked products',
-    excerpt:
-      'A practical comparison of Dezmaye, Shetab and X-Power instant dry yeast in volume, semi-volume and traditional breads.',
-    date: '19 July 2026',
-    publishedAt: '2026-07-19',
-    category: 'Technical guide',
-    readTime: '7',
-    body: `<p>Not all yeasts are made alike; the strain, the drying method and the packaging all change how the dough behaves in different products. In this article we compare three common applications using the Khuzestan Yeast brands.</p><h2>Traditional breads (barbari, sangak, taftoon)</h2><p>In traditional bread the balance between fermentation speed and dough elasticity is critical. Shetab Maye, with its fast yet controlled action, is designed for the short cycles of a traditional bakery and produces a consistent final volume across back-to-back bakes.</p><h2>Volume and fancy breads</h2><p>Doughs enriched with sugar and fat place high osmotic pressure on the yeast cell. X-Power, built on an osmotolerant strain, keeps gassing steadily even in that harsh environment and guarantees the light, even crumb that volume breads need.</p><h2>Industrial breads and continuous lines</h2><p>On a continuous line, repeatability matters more than anything else. Dezmaye Gold and Nan Maye, with batch-to-batch consistency and large 10 kg and 20 kg packs, are optimised for industrial dosing and scheduled fermentations.</p><h2>Quick selection guide</h2><ul><li>Traditional bread on a short cycle: Shetab Maye (90 g sachet or 500 g vacuum pack)</li><li>Volume bread, fancy bread and fermented pastry: X-Power (70 g vacuum pack)</li><li>Continuous industrial lines and export: Dezmaye Gold and Nan Maye (10 and 20 kg)</li><li>Household and small workshop use: Dezmaye Gold 80 g</li></ul><p>The general rule: the higher the sugar and fat content of the dough and the longer the fermentation, the more resistant a strain and the larger a pack you need. The Khuzestan Yeast technical team is on hand to help you choose the right strain and dosage.</p>`,
-  },
-};
+export const POSTS = EN_POSTS;

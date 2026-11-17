@@ -13,9 +13,9 @@ export function ProductCard({ product, index = 0 }) {
   return (
     <Reveal as="article" className="card product-card" y={40} delay={(index % 4) * 0.1}>
       <Link to={`/products/${product.slug}`} className="product-card__media" aria-label={product.title}>
-        {/* 720x720 square source. The intrinsic size is declared so the
-            browser reserves the box and the grid does not jump as photos
-            load. */}
+        {/* Declare a square presentation slot so the browser reserves stable
+            card space before each differently proportioned packshot loads;
+            object-fit: contain keeps the complete product visible. */}
         <img {...imgProps(product.image, SIZES.card)} alt={product.title} width={720} height={720} loading="lazy" />
         <span className="product-card__brand">{brand?.fa}</span>
       </Link>
@@ -64,10 +64,10 @@ export function PostCard({ post, index = 0 }) {
   );
 }
 
-/* The whole card is the link. Someone reading «four brands, one standard»
-   and clicking دزمایه means "show me those" — the products page already
-   filters on ?brand=, so this just hands it the id. Link, not a div with an
-   onClick: it has to be middle-clickable, focusable and announced as a link. */
+/* The whole card is the link. Someone browsing the brand section and clicking
+   a brand means "show me those" — the products page already filters on
+   ?brand=, so this just hands it the id. Link, not a div with an onClick: it
+   has to be middle-clickable, focusable and announced as a link. */
 export function BrandCard({ brand, index = 0 }) {
   const { t } = useContent();
   return (
@@ -83,9 +83,7 @@ export function BrandCard({ brand, index = 0 }) {
         <img {...imgProps(brand.image, SIZES.card)} alt={brand.fa} loading="lazy" />
       </div>
       <h2>{brand.fa}</h2>
-      <p>
-        {brand.en} · {brand.tagline}
-      </p>
+      <p>{[brand.en, brand.tagline].filter(Boolean).join(' · ')}</p>
       <span className="brand-card__cta">
         {t('home.brands.cardLink')}
         <Icons.arrow size={15} />

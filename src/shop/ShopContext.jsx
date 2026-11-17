@@ -4,7 +4,6 @@ import { productOrderLimit, reconcileCart } from '../../shared/cartAvailability.
 
 const Ctx = createContext(null);
 const CART_KEY = 'ky_shop_cart_v1';
-const ORDERS_KEY = 'ky_shop_orders_v1';
 
 const isPlainRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const parseStoredRecord = (value) => {
@@ -41,10 +40,6 @@ export const formatMoney = (rial, unit = 'rial', withLabel = true) => {
   const value = rialToUnit(rial, unit).toLocaleString('fa-IR');
   return withLabel ? `${value} ${unit === 'toman' ? 'تومان' : 'ریال'}` : value;
 };
-export const orderTokensGet = () => readLS(ORDERS_KEY, {});
-export const orderTokenSave = (code, token) => writeLS(ORDERS_KEY, { ...orderTokensGet(), [code]: token });
-export const orderTokenGet = (code) => orderTokensGet()[code] || '';
-
 const publicProducts = async () => {
   const response = await fetch('/api/shop-products', {
     cache: 'no-store',
@@ -70,14 +65,21 @@ export function ShopProvider({ children }) {
   const [cartStorageRevision, setCartStorageRevision] = useState(0);
   const [availabilityNotice, setAvailabilityNotice] = useState(null);
   const [availabilityRefreshing, setAvailabilityRefreshing] = useState(false);
-  const [comments, setComments] = useState([]);
-  const [paymentProvider, setPaymentProvider] = useState('offline');
-  const [shopReady, setShopReady] = useState(false);
+  const [paymentProvider, setPaymentProvider] = useState(null);
+  const paymentProviderRef = useRef(null);
+  const paymentProviderRequest = useRef(null);
   const lastAutoReconciledProducts = useRef(null);
 
   useEffect(() => {
     setCart(readLS(CART_KEY, {}));
     setCartHydrated(true);
+    try {
+      /* Order access now belongs to the HttpOnly account session; discard the
+         older per-order bearer tokens that were kept in browser storage. */
+      localStorage.removeItem('ky_shop_orders_v1');
+    } catch {
+      // Storage can be unavailable; the session-based API does not depend on it.
+    }
 
     /* `storage` fires in every other same-origin tab. Without this listener an
        older tab keeps its mount-time cart and its next click can replace newer
@@ -112,21 +114,37 @@ export function ShopProvider({ children }) {
     return () => window.removeEventListener('storage', syncCartFromStorage);
   }, []);
 
-  const loadComments = useCallback(() => (
-    fetch('/api/shop-public', { cache: 'no-store' })
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('shop api'))))
-      .then((payload) => {
-        setComments(Array.isArray(payload.comments) ? payload.comments : []);
-        setPaymentProvider(payload.paymentProvider || 'offline');
-        return payload;
-      })
-      .catch(() => null)
-      .finally(() => setShopReady(true))
-  ), []);
+  /* Payment identity is needed only by checkout and order retry screens. Those
+     routes call this lazy loader; ordinary pages no longer fetch shop metadata
+     (or the former global comments table) during application bootstrap. */
+  const loadPaymentProvider = useCallback(() => {
+    if (paymentProviderRef.current !== null) {
+      return Promise.resolve(paymentProviderRef.current);
+    }
+    if (paymentProviderRequest.current) return paymentProviderRequest.current;
 
-  useEffect(() => {
-    loadComments();
-  }, [loadComments]);
+    paymentProviderRequest.current = fetch('/api/shop-public/payment', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('shop payment api'))))
+      .then((payload) => {
+        const provider = payload?.paymentProvider;
+        if (typeof provider !== 'string' || !provider.trim()) {
+          throw new Error('invalid shop payment provider');
+        }
+        paymentProviderRef.current = provider;
+        setPaymentProvider(provider);
+        return provider;
+      })
+      /* A transport or response failure is not evidence that online payments
+         are disabled. Leave the cache empty so a later call can retry; callers
+         must let the payment endpoint decide whether a retry is available. */
+      .catch(() => null)
+      .finally(() => { paymentProviderRequest.current = null; });
+    return paymentProviderRequest.current;
+  }, []);
 
   const persist = useCallback((next) => {
     setCart(next);
@@ -230,7 +248,11 @@ export function ShopProvider({ children }) {
     setAvailabilityRefreshing(true);
     try {
       const latestProducts = await publicProducts();
-      const result = reconcileCart(cart, latestProducts, { knownProducts: products });
+      /* The tab may have received a newer storage event while the inventory
+         request was in flight. Re-read localStorage at the moment of applying
+         the response instead of reconciling the stale render closure. */
+      const latestCart = latestCartForMutation();
+      const result = reconcileCart(latestCart, latestProducts, { knownProducts: products });
       /* Tie the direct response to the content array it refreshed. A later
          route-level content response supersedes it synchronously, without one
          render against an older checkout snapshot. This exact result is
@@ -250,7 +272,7 @@ export function ShopProvider({ children }) {
     } finally {
       setAvailabilityRefreshing(false);
     }
-  }, [cart, products, contentProducts, applyReconciliation]);
+  }, [latestCartForMutation, products, contentProducts, applyReconciliation]);
 
   /* A storage event can carry a slug that this long-lived tab has never seen.
      Refresh live inventory before deciding that the line is missing, then
@@ -293,14 +315,13 @@ export function ShopProvider({ children }) {
   const money = useCallback((rial, withLabel = true) => formatMoney(rial, unit, withLabel), [unit]);
 
   const value = useMemo(() => ({
-    ready: contentReady && shopReady,
+    ready: contentReady,
     display,
     products,
     unit,
     money,
     paymentProvider,
-    comments,
-    reloadComments: loadComments,
+    loadPaymentProvider,
     bySlug,
     cart: effectiveCart,
     cartHydrated,
@@ -319,14 +340,12 @@ export function ShopProvider({ children }) {
     refreshCartAvailability,
   }), [
     contentReady,
-    shopReady,
     display,
     products,
     unit,
     money,
     paymentProvider,
-    comments,
-    loadComments,
+    loadPaymentProvider,
     bySlug,
     effectiveCart,
     cartHydrated,

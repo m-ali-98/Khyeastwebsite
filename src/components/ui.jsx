@@ -11,6 +11,7 @@ import {
   BadgePercent,
   Bold,
   CircleCheck,
+  ChevronDown,
   ClipboardList,
   Clock3,
   Command,
@@ -42,7 +43,6 @@ import {
   PackageCheck,
   Phone,
   RefreshCw,
-  ScanLine,
   Search,
   Send,
   Settings2,
@@ -78,7 +78,7 @@ export const faNum = (n) => Number(n).toLocaleString('fa-IR');
 export const faId = (v) => String(v ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
 /* Digit shapes per language: Persian, Arabic-Indic and Latin respectively. */
-export const NUM_LOCALE = { fa: 'fa-IR', ar: 'ar-EG', en: 'en-US' };
+export const NUM_LOCALE = { fa: 'fa-IR', ar: 'ar-EG', en: 'en-US', ru: 'ru-RU' };
 export const useNum = () => {
   const { locale } = useLocale();
   return (n) => Number(n).toLocaleString(NUM_LOCALE[locale] || 'fa-IR');
@@ -176,6 +176,7 @@ export const Icons = {
   pin: lineIcon(MapPin),
   globe: lineIcon(Globe2),
   check: lineIcon(CircleCheck),
+  chevron: lineIcon(ChevronDown),
   arrow: DirectionalArrow,
   eye: lineIcon(Eye),
   eyeOff: lineIcon(EyeOff),
@@ -193,7 +194,6 @@ export const Icons = {
   gear: lineIcon(Settings2),
   command: lineIcon(Command),
   search: lineIcon(Search),
-  area: lineIcon(ScanLine),
   temp: lineIcon(Thermometer),
   clock: lineIcon(Clock3),
   doc: lineIcon(FileText),

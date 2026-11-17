@@ -53,6 +53,12 @@
   --warn: #8a5800;
   --warn-soft: rgba(217, 164, 65, 0.14);
   --warn-line: rgba(138, 88, 0, 0.3);
+  /* Theme-aware rich-text palette. Authored HTML stores semantic names rather
+     than inline CSS, so colours remain readable after a theme switch. */
+  --rich-text-blue: #145da0;
+  --rich-text-green: #187a3c;
+  --rich-text-amber: #805400;
+  --rich-text-purple: #6d3fa3;
 
   --radius-sm: 14px;
   --radius: 22px;
@@ -144,6 +150,10 @@
   --warn: #f2c14e;
   --warn-soft: rgba(242, 193, 78, 0.15);
   --warn-line: rgba(242, 193, 78, 0.34);
+  --rich-text-blue: #7db7ff;
+  --rich-text-green: #65d58a;
+  --rich-text-amber: #f2c14e;
+  --rich-text-purple: #c6a3ff;
 
   --shadow-sm: 0 6px 24px -12px rgba(0, 0, 0, 0.7);
   --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
@@ -642,6 +652,77 @@ input, select, textarea { font-family: inherit; }
 .nav__link:focus-visible { outline: 2px solid var(--crimson-bright); outline-offset: 1px; }
 .nav__link.active::after { transform: scaleX(1); opacity: 1; }
 .nav.is-scrolled .nav__link.active::after { background: var(--crimson); }
+
+/* Corporate disclosure: company overview and quality evidence share one clear
+   group, while Export remains a direct commercial destination. */
+.nav__group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.nav__link--trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: inherit;
+  cursor: pointer;
+}
+.nav__link--trigger > svg {
+  flex: none;
+  transition: transform 0.22s var(--ease-soft);
+}
+.nav__link--trigger > svg.is-open { transform: rotate(180deg); }
+.nav__dropdown {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 3;
+  width: max-content;
+  min-width: 238px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  animation: nav-dropdown-in 0.18s var(--ease-out) both;
+}
+.nav__dropdown-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 43px;
+  padding: 9px 11px;
+  border-inline-start: 3px solid transparent;
+  border-radius: 10px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color 0.2s ease, background-color 0.2s ease, padding-inline 0.2s var(--ease-soft);
+}
+.nav__dropdown-link:hover,
+.nav__dropdown-link:focus-visible,
+.nav__dropdown-link.active {
+  padding-inline: 14px 10px;
+  color: var(--crimson-ink);
+  background: var(--crimson-soft);
+}
+.nav__dropdown-link:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: -2px;
+}
+.nav__dropdown-link.active { border-inline-start-color: var(--crimson); }
+@keyframes nav-dropdown-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .nav__cta { flex: none; white-space: nowrap; }
 
 /* Header controls share one geometry and one state model. Previously the
@@ -758,6 +839,26 @@ input, select, textarea { font-family: inherit; }
   color: #fff;
 }
 
+.skip-link {
+  position: fixed;
+  z-index: 1001;
+  inset-block-start: 8px;
+  inset-inline-start: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--inverse);
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+  transform: translateY(-160%);
+  transition: transform 0.16s ease;
+}
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 3px solid var(--crimson-bright);
+  outline-offset: 2px;
+}
+
 /* The full-screen panel is opaque. While it is open, do not composite the
    covered route underneath it — especially the shop's image track and blur
    controls. Besides making the first frame cheaper, visibility removes the
@@ -784,32 +885,38 @@ input, select, textarea { font-family: inherit; }
 .nav.is-scrolled + .mobile-menu {
   padding-block-start: calc(var(--nav-h) + 16px);
 }
-.mobile-menu a.m-link {
+.mobile-menu .m-link {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   min-height: 52px;
   padding: 9px 4px;
+  border: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.11);
+  background: transparent;
   color: rgba(255, 255, 255, 0.88);
+  font: inherit;
   font-size: 18.5px;
   font-weight: 700;
+  text-align: start;
+  cursor: pointer;
   touch-action: manipulation;
   transition: color 0.2s ease, padding-inline 0.25s var(--ease-soft);
 }
-.mobile-menu a.m-link:hover,
-.mobile-menu a.m-link:focus-visible {
+.mobile-menu .m-link:hover,
+.mobile-menu .m-link:focus-visible {
   padding-inline: 8px;
   color: #fff;
 }
-.mobile-menu a.m-link:focus-visible {
+.mobile-menu .m-link:focus-visible {
   border-radius: 8px;
   outline: 2px solid var(--crimson-bright);
   outline-offset: -2px;
 }
-.mobile-menu a.m-link.active { color: var(--crimson-bright); }
-.mobile-menu a.m-link.active::before {
+.mobile-menu .m-link.active { color: var(--crimson-bright); }
+.mobile-menu .m-link.active::before {
   content: '';
   position: absolute;
   inset-block: 14px;
@@ -817,6 +924,45 @@ input, select, textarea { font-family: inherit; }
   width: 3px;
   border-radius: 999px;
   background: var(--crimson-bright);
+}
+.m-link--group > svg {
+  flex: none;
+  transition: transform 0.22s var(--ease-soft);
+}
+.m-link--group > svg.is-open { transform: rotate(180deg); }
+.m-submenu { overflow: hidden; }
+.m-submenu__inner {
+  display: grid;
+  gap: 3px;
+  margin: 5px 7px 9px;
+  padding: 3px 10px 3px 12px;
+  border-inline-start: 1px solid rgba(244, 59, 94, 0.4);
+}
+.m-sublink {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 43px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
+  font-weight: 650;
+  transition: color 0.2s ease, background-color 0.2s ease, padding-inline 0.2s var(--ease-soft);
+}
+.m-sublink:hover,
+.m-sublink:focus-visible,
+.m-sublink.active {
+  padding-inline: 13px 9px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+}
+.m-sublink.active { color: var(--crimson-bright); }
+.m-sublink:focus-visible {
+  outline: 2px solid var(--crimson-bright);
+  outline-offset: -2px;
 }
 /* ---------- Hero (home) ---------- */
 .hero {
@@ -988,9 +1134,14 @@ input, select, textarea { font-family: inherit; }
 
 /* ---------- Brand strip ---------- */
 .brands-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--grid-gap);
+}
+.brands-grid > .brand-card {
+  flex: 0 1 calc((100% - var(--grid-gap) - var(--grid-gap) - var(--grid-gap)) / 4);
+  min-width: 0;
 }
 .brand-card {
   position: relative;
@@ -1503,6 +1654,16 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .post-card__body p { margin: 0; color: var(--muted); font-size: 14px; }
 .post-card__foot { margin-top: auto; padding-top: 10px; }
 
+/* Sanitized rich text stores only these semantic colour names. Never style an
+   arbitrary authored value: that would re-open inline CSS as a layout/XSS
+   boundary and would make dark-mode contrast unpredictable. */
+[data-text-color='ink'] { color: var(--ink); }
+[data-text-color='crimson'] { color: var(--crimson-ink); }
+[data-text-color='blue'] { color: var(--rich-text-blue); }
+[data-text-color='green'] { color: var(--rich-text-green); }
+[data-text-color='amber'] { color: var(--rich-text-amber); }
+[data-text-color='purple'] { color: var(--rich-text-purple); }
+
 .post-body { max-width: 800px; margin: 0 auto; font-size: 16.5px; color: var(--ink-2); }
 .post-body h2,
 .post-body h3,
@@ -1549,7 +1710,68 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .post-body > video { margin-block: 30px; }
 .post-body > video,
 .post-body figure video { width: 100%; }
+.post-body iframe {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  margin: 0 auto;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: #000;
+}
 .post-body figcaption { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.post-body figure[data-rich-table] {
+  max-width: 100%;
+  margin: 30px 0;
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 15px;
+  background: var(--surface-raised);
+  text-align: start;
+  box-shadow: var(--shadow-sm);
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+.post-body figure[data-rich-table] table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.85;
+}
+.post-body figure[data-rich-table] caption {
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--bg-soft);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  text-align: start;
+}
+.post-body figure[data-rich-table] th,
+.post-body figure[data-rich-table] td {
+  min-width: 125px;
+  padding: 11px 14px;
+  border-inline-end: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
+.post-body figure[data-rich-table] th:last-child,
+.post-body figure[data-rich-table] td:last-child { border-inline-end: 0; }
+.post-body figure[data-rich-table] tbody tr:last-child td { border-bottom: 0; }
+.post-body figure[data-rich-table] th {
+  background: var(--crimson-soft);
+  color: var(--ink);
+  font-weight: 800;
+}
+.post-body figure[data-rich-table] tbody tr:nth-child(even) td { background: var(--surface-tint); }
+.post-body figure[data-rich-table] th > :last-child,
+.post-body figure[data-rich-table] td > :last-child { margin-bottom: 0; }
 .post-callout {
   background: linear-gradient(135deg, var(--crimson-soft), rgba(220, 20, 60, 0.03));
   border-right: 4px solid var(--crimson);
@@ -1640,26 +1862,6 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 }
 .principle-card h3 { margin: 0 0 8px; font-size: 18px; font-weight: 800; }
 .principle-card p { margin: 0; color: var(--muted); font-size: 14.5px; }
-
-.person-card {
-  padding: 28px 24px;
-  text-align: start;
-  background: var(--surface-raised);
-  border-block-start: 3px solid var(--crimson);
-}
-.person-card__icon {
-  width: 52px; height: 52px;
-  margin-block-end: 16px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  background: var(--crimson-soft);
-  color: var(--crimson-ink);
-  transition: transform 0.28s var(--ease-soft);
-}
-.person-card:hover .person-card__icon { transform: translateY(-2px) scale(1.025); }
-.person-card h3 { margin: 0 0 5px; font-size: 16.5px; font-weight: 800; }
-.person-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
 
 /* ---------- Credential cards ---------- */
 .certs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--grid-gap); }
@@ -2242,7 +2444,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 /* ---------- Responsive ---------- */
 @media (max-width: 1080px) {
   .products-grid { grid-template-columns: repeat(3, 1fr); }
-  .brands-grid { grid-template-columns: repeat(2, 1fr); }
+  .brands-grid > .brand-card { flex-basis: calc((100% - var(--grid-gap)) / 2); }
   .features-grid { grid-template-columns: repeat(2, 1fr); }
   .certs-grid { grid-template-columns: repeat(2, 1fr); }
   .footer__grid { grid-template-columns: 1fr 1fr; }
@@ -2250,9 +2452,9 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .nav__topbar-socials a span { display: none; }
 }
 
-/* The navigation collapses at 1100px, not 900. Eight Persian labels plus
-   the icons and the call to action stop fitting at about 1040px, and the
-   old breakpoint let the bar crowd and wrap for 200px before it gave up. */
+/* The navigation collapses at 1100px, not 900. The Persian labels plus the
+   icons and the call to action stop fitting at about 1040px, and the old
+   breakpoint let the bar crowd and wrap for 200px before it gave up. */
 @media (max-width: 1100px) {
   .nav__links, .nav__cta { display: none; }
   .nav__burger { display: grid; }
@@ -2290,22 +2492,34 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
-  .products-catalog-grid .product-card {
+  /* A photo's intrinsic portrait/landscape ratio must not participate in the
+     grid row size. Every catalogue card uses one fixed mobile frame; the
+     image remains fully visible inside its own column via object-fit: contain. */
+  .products-index .products-catalog-grid .product-card {
     display: grid;
     grid-template-columns: 116px minmax(0, 1fr);
-    min-height: 158px;
+    grid-template-rows: minmax(0, 1fr);
+    height: 200px;
+    min-height: 200px;
     border-radius: 18px;
   }
   .products-catalog-grid .product-card__media {
     min-width: 0;
     height: 100%;
-    min-height: 158px;
+    min-height: 0;
     aspect-ratio: auto;
     border-radius: 0;
     border-block-end: 0;
     border-inline-end: 1px solid var(--line);
   }
-  .products-catalog-grid .product-card__media img { padding: 8px; }
+  .products-catalog-grid .product-card__media img {
+    padding: 8px;
+    object-fit: contain;
+    object-position: center;
+  }
+  .products-catalog-grid .product-card:is(:hover, :focus-within) .product-card__media img {
+    transform: none;
+  }
   .products-catalog-grid .product-card__brand {
     inset-block-start: 8px;
     inset-inline-start: 8px;
@@ -2336,7 +2550,6 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .form-grid { grid-template-columns: 1fr; }
   .contact-grid { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; }
-  .brands-grid { grid-template-columns: repeat(2, 1fr); }
 
   /* Homepage card collections become short, swipeable previews rather than
      four- and three-card vertical walls. A visible slice of the next card is
@@ -2926,6 +3139,122 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .lang-switch__btn.is-active { background: #fff; color: var(--crimson-700); }
 .lang-switch__label { display: none; }
 
+/* The desktop utility bar keeps the current language visible without making
+   four abbreviations compete with the contact details. The full native-name
+   list opens as a small, keyboard-friendly disclosure. */
+.lang-switch--desktop {
+  position: relative;
+  flex: none;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.lang-switch__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 31px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.94);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.lang-switch__trigger > svg { flex: none; }
+.lang-switch__trigger:hover,
+.lang-switch--desktop.is-open .lang-switch__trigger {
+  border-color: rgba(255, 255, 255, 0.52);
+  background: rgba(255, 255, 255, 0.17);
+  color: #fff;
+}
+.lang-switch__trigger:focus-visible {
+  outline: 2px solid var(--crimson-bright);
+  outline-offset: 3px;
+}
+.lang-switch__current { white-space: nowrap; }
+.lang-switch__trigger-chevron {
+  opacity: 0.72;
+  transition: transform 0.2s var(--ease-soft), opacity 0.2s ease;
+}
+.lang-switch--desktop.is-open .lang-switch__trigger-chevron {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+.lang-switch__menu {
+  position: absolute;
+  inset-block-start: calc(100% + 9px);
+  inset-inline-end: 0;
+  z-index: 110;
+  display: grid;
+  width: max-content;
+  min-width: 196px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  color: var(--ink-2);
+  animation: lang-menu-in 0.16s var(--ease-out) both;
+}
+.lang-switch__menu[hidden] { display: none; }
+.lang-switch__option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: start;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+.lang-switch__option:hover,
+.lang-switch__option:focus-visible,
+.lang-switch__option.is-active {
+  background: var(--crimson-soft);
+  color: var(--crimson-ink);
+}
+.lang-switch__option:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: -2px;
+}
+.lang-switch__option-name { flex: 1; }
+.lang-switch__option-code {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.lang-switch__option-check { flex: none; color: var(--crimson); }
+@keyframes lang-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.nav.is-language-open:not(.is-scrolled) .nav__topbar {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+.nav.is-language-open:not(.is-scrolled) .nav__bar {
+  position: relative;
+  z-index: 1;
+}
+
 .theme-toggle {
   border: 0;
   background: transparent;
@@ -2970,20 +3299,52 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .theme-toggle__thumb { transition: none; }
 }
 
-/* inside the mobile menu */
+/* Drawer utilities share one anchored row: language at the inline start,
+   theme at the inline end, and Contact in the space that previously sat empty
+   between them. Logical grid flow keeps the order natural in both RTL/LTR. */
 .m-controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  gap: 8px;
   margin-top: auto;
   padding: 18px 4px 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.11);
 }
+.m-contact-cta {
+  justify-self: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+.m-contact-cta svg {
+  flex: none;
+  color: currentColor;
+}
+.m-contact-cta:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
 .lang-switch--block { gap: 4px; }
-.lang-switch--block .lang-switch__btn { padding: 7px 14px; font-size: 13px; }
+.lang-switch--block .lang-switch__btn { padding: 7px 6px; font-size: 13px; }
 .lang-switch--block .lang-switch__short { display: none; }
 .lang-switch--block .lang-switch__label { display: inline; }
+
+/* Full language names plus Contact fit at standard phone widths. On compact
+   phones, the existing FA/EN/AR labels preserve all three choices without
+   squeezing or hiding the localized Contact action. */
+@media (max-width: 380px) {
+  .m-controls { padding-inline: 0; }
+  .lang-switch--block { gap: 2px; }
+  .lang-switch--block .lang-switch__btn { padding-inline: 6px; }
+  .lang-switch--block .lang-switch__short { display: inline; }
+  .lang-switch--block .lang-switch__label { display: none; }
+}
 
 @media (max-width: 900px) {
   .nav__topbar .lang-switch,
@@ -3071,6 +3432,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
+  .m-contact-cta { transition: none; }
 }
 
 /* ==========================================================================

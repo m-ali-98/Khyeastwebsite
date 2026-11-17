@@ -7,6 +7,7 @@ import AdminState from './AdminState';
 import { formatMoney } from '../shop/ShopContext';
 import { productImageList, productImagesProblem, syncProductImages } from '../../shared/productImages.js';
 import { trustSealImageOrigins } from '../../shared/trustSeals.js';
+import { autofillShopProductFromCatalog } from './shopProductDraft.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const slugify = (s) =>
@@ -359,6 +360,18 @@ export function ShopProductsTab() {
     });
   };
 
+  const selectCatalogProduct = (productSlug) => {
+    const selected = catalog.find((product) => product.slug === productSlug);
+    setDraft((current) => {
+      if (!current) return current;
+      /* Existing shop products may carry carefully edited sales copy. Changing
+         their relationship must not silently replace it; automatic import is
+         deliberately limited to the new-product flow requested by the admin. */
+      if (draftOriginalSlug || !selected) return { ...current, productSlug };
+      return autofillShopProductFromCatalog(current, selected);
+    });
+  };
+
   const saveDraft = async () => {
     if (galleryBusy) return window.alert('تا پایان بارگذاری تصاویر صبر کنید.');
     const galleryProblem = productImagesProblem(draft, trustedImageOrigins);
@@ -456,11 +469,16 @@ export function ShopProductsTab() {
           <Field
             label="محصول مرتبط در کاتالوگ سایت"
             value={draft.productSlug}
-            onChange={(v) => setDraft({ ...draft, productSlug: v })}
+            onChange={selectCatalogProduct}
             type="select"
             options={[{ value: '', label: '— بدون پیوند —' }, ...catalog.map((p) => ({ value: p.slug, label: p.title }))]}
           />
         </div>
+        {!draftOriginalSlug && (
+          <p className="admin__hint" style={{ marginTop: 8 }}>
+            با انتخاب محصول کاتالوگ، عنوان، برند، شناسه، واحد فروش، تصاویر، توضیحات و مشخصات به‌صورت خودکار وارد می‌شوند؛ قیمت و موجودی را جداگانه تعیین کنید.
+          </p>
+        )}
         <div className="admin__grid2" style={{ marginTop: 12 }}>
           <Field label="قیمت (ریال)" type="number" dir="ltr" value={draft.price} onChange={(v) => setDraft({ ...draft, price: v })} />
           <Field label="قیمت قبل از تخفیف (ریال — اختیاری)" type="number" dir="ltr" value={draft.oldPrice ?? ''} onChange={(v) => setDraft({ ...draft, oldPrice: v })} />
@@ -497,7 +515,7 @@ export function ShopProductsTab() {
         <div style={{ marginTop: 14 }}>
           <Field label="توضیح کوتاه (روی کارت محصول)" textarea value={draft.short} onChange={(v) => setDraft({ ...draft, short: v })} />
         </div>
-        <h3 style={{ margin: '22px 0 6px' }}>توضیحات کامل (با امکان پیوند، عکس و ویدیو)</h3>
+        <h3 style={{ margin: '22px 0 6px' }}>توضیحات کامل (با امکان رنگ متن، جدول، پیوند، عکس و ویدیو)</h3>
         <p className="admin__hint">جزئیات محصول را خوانا بنویسید و در صورت نیاز پیوند، رسانه و زیرنویس اضافه کنید.</p>
         <RichEditor
           value={draft.description}
@@ -1442,17 +1460,25 @@ export function ShopPaymentTab() {
 
   const openRefund = (row) => {
     setRefundFor(row);
-    setRefund({ amount: String(row.amount || ''), orderCode: '', method: 'PAYA', reason: 'CUSTOMER_REQUEST', description: '' });
+    setRefund({ amount: String(row.amount || ''), orderCode: String(row.orderCode || ''), method: 'PAYA', reason: 'CUSTOMER_REQUEST', description: '' });
   };
 
   const sendRefund = async () => {
     try {
-      await api('/api/shop-admin/payment/refunds', {
+      const result = await api('/api/shop-admin/payment/refunds', {
         method: 'POST',
         body: { sessionId: refundFor.id, ...refund },
         auth: true,
       });
-      say('ok', `برگشت وجه ثبت شد${refund.orderCode ? ` و سفارش ${refund.orderCode} لغو شد` : ''}.`);
+      const linkedOrder = result.order;
+      const orderNotice = linkedOrder
+        ? linkedOrder.status === 'cancelled'
+          ? ` و سفارش ${linkedOrder.code} لغو شد`
+          : linkedOrder.needsAttention
+            ? `؛ سفارش ${linkedOrder.code} لغو نشد و برای رسیدگی علامت‌گذاری شد`
+            : ''
+        : '';
+      say('ok', `برگشت وجه ثبت شد${orderNotice}.`);
       /* Prefill the status box with the session just refunded, so checking
          it is one click rather than copying an id around. */
       setStatusId(String(refundFor.id));
@@ -1518,6 +1544,8 @@ export function ShopPaymentTab() {
               <Field
                 label={cfg.hasZarinpalMerchant ? 'Merchant ID — برای تغییر، شناسه جدید را وارد کنید' : 'Merchant ID'}
                 dir="ltr"
+                type="password"
+                autoComplete="new-password"
                 value={cfg.zarinpalMerchant}
                 onChange={(v) => setCfg({ ...cfg, zarinpalMerchant: v })}
               />
@@ -1540,6 +1568,8 @@ export function ShopPaymentTab() {
                   <Field
                     label={cfg.hasZarinpalAccessToken ? 'Access Token — برای تغییر، مقدار جدید را وارد کنید' : 'Access Token'}
                     dir="ltr"
+                    type="password"
+                    autoComplete="new-password"
                     value={cfg.zarinpalAccessToken}
                     onChange={(v) => setCfg({ ...cfg, zarinpalAccessToken: v })}
                   />
@@ -1938,6 +1968,8 @@ export function ShopSmsTab() {
               <Field
                 label={cfg.hasApiKey ? 'API Key — برای تغییر، کلید جدید را وارد کنید' : 'API Key'}
                 dir="ltr"
+                type="password"
+                autoComplete="new-password"
                 value={cfg.apiKey}
                 onChange={(v) => setCfg({ ...cfg, apiKey: v })}
               />

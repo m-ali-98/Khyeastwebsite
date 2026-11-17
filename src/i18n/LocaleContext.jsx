@@ -5,6 +5,7 @@
      /            → Persian  (no prefix — every legacy URL keeps working)
      /en/…        → English
      /ar/…        → Arabic
+     /ru/…        → Russian
 
    The prefix is handled by React Router's `basename`, so every existing
    <Link to="/products"> inside the pages resolves to /en/products on the

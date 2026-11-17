@@ -2,9 +2,10 @@
    Locale registry + state localisation.
    --------------------------------------------------------------------------
    Persian is the base language: shared/contentDefaults.js holds the canonical
-   structure and every Persian value. English and Arabic are *overlays* — they
-   only carry the values that differ, so a key that has not been translated
-   yet still renders (in Persian) instead of disappearing.
+   structure and every Persian value. English, Arabic and Russian are *overlays*.
+   Published public-page packs are coverage-tested so their visible copy never
+   silently falls back to Persian; the layered fallback remains for Admin edits
+   and intentionally Persian-only modules such as the domestic shop.
 
    Precedence, lowest to highest:
      1. contentDefaults.js          (Persian, always complete)
@@ -15,10 +16,13 @@
    a thin override layer on top of the shipped translation.
    ========================================================================== */
 
+import { stripGalleryMediaOverrides } from '../gallery.js';
+
 export const LOCALES = [
   { code: 'fa', label: 'فارسی', short: 'FA', dir: 'rtl', htmlLang: 'fa', prefix: '' },
   { code: 'en', label: 'English', short: 'EN', dir: 'ltr', htmlLang: 'en', prefix: '/en' },
   { code: 'ar', label: 'العربية', short: 'AR', dir: 'rtl', htmlLang: 'ar', prefix: '/ar' },
+  { code: 'ru', label: 'Русский', short: 'RU', dir: 'ltr', htmlLang: 'ru', prefix: '/ru' },
 ];
 
 export const LOCALE_CODES = LOCALES.map((l) => l.code);
@@ -29,13 +33,13 @@ export const getLocaleMeta = (code) => LOCALES.find((l) => l.code === code) || L
 export const shopEnabled = (locale) => locale === 'fa';
 
 /* ---------------------------------------------------------------------------
-   Translation packs are loaded on demand: a Persian visitor never downloads
-   the English or Arabic dictionaries, and each non-Persian site downloads
-   only its own. `loadPack` is awaited once at boot, before React renders.
+   Translation packs are loaded on demand: each visitor downloads only their
+   selected non-Persian dictionary. `loadPack` is awaited before first render.
    --------------------------------------------------------------------------- */
 const LOADERS = {
   en: () => import('./en.js'),
   ar: () => import('./ar.js'),
+  ru: () => import('./ru.js'),
 };
 
 const PACKS = {};
@@ -46,6 +50,7 @@ const toPack = (ns) => ({
   brands: ns.BRANDS,
   products: ns.PRODUCTS,
   posts: ns.POSTS,
+  gallery: ns.GALLERY,
 });
 
 export async function loadPack(locale) {
@@ -126,7 +131,7 @@ function overlayEntities(base, keyName, ...overs) {
   /* Drop entries that are not usable objects. A null or primitive in this
      array reaches every consumer — cards read .slug, .featured, .image — and
      one bad row would otherwise blank the entire site rather than hide a
-     single product. content.json is editable by hand and by the admin panel,
+     single product. CMS values are editable through the Admin panel,
      so this is reachable without any attacker. */
   return base.filter(isObj).map((item) => {
     const id = item?.[keyName];
@@ -159,7 +164,7 @@ const withoutProductMedia = (overrides) => {
 /**
  * Produce the content state as seen by one locale.
  * @param {object} state   the full content state (Persian base + `i18n` overrides)
- * @param {string} locale  'fa' | 'en' | 'ar'
+ * @param {string} locale  'fa' | 'en' | 'ar' | 'ru'
  */
 export function localizeState(state, locale) {
   if (!state) return state;
@@ -184,6 +189,12 @@ export function localizeState(state, locale) {
       withoutProductMedia(a.products),
     ),
     posts: overlayEntities(state.posts, 'slug', p.posts, a.posts),
+    gallery: overlayEntities(
+      state.gallery,
+      'id',
+      stripGalleryMediaOverrides(p.gallery),
+      stripGalleryMediaOverrides(a.gallery),
+    ),
   };
 }
 

@@ -270,7 +270,7 @@ export default function ShopAccount() {
                             {faNum(o.items.length)} {t('shop.cart.items') || 'قلم'}
                           </span>
                         </div>
-                        <Link className="btn btn--outline btn--sm" to={`/shop/order/${o.code}?token=${o.trackToken}`}>
+                        <Link className="btn btn--outline btn--sm" to={`/shop/order/${o.code}`}>
                           {t('shop.account.viewOrder')}
                         </Link>
                       </article>

@@ -53,9 +53,8 @@ Desktop.ini
 # Runtime uploads and mutable application data
 server/uploads/*
 !server/uploads/.gitkeep
-server/data/messages.json
-server/data/shop.json
 server/data/*.db
 server/data/*.db-wal
 server/data/*.db-shm
 server/data/*.db-journal
+server/migration-backups/
