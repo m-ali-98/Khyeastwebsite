@@ -1,8 +1,8 @@
 /* ==========================================================================
    Admin — translation editing.
    --------------------------------------------------------------------------
-   Persian is the base content and is edited in the ordinary tabs. English and
-   Arabic are stored as a thin override layer at `state.i18n[locale]`, applied
+   Persian is the base content and is edited in the ordinary tabs. English,
+   Arabic and Russian are stored as a thin override layer at `state.i18n[locale]`, applied
    on top of the shipped translation (shared/i18n/<locale>.js), which is itself
    applied on top of the Persian base.
 
@@ -65,9 +65,11 @@ const LABELS = {
   suffix: 'پسوند',
 };
 
+const LANGUAGE_NAME = { en: 'English', ar: 'العربية', ru: 'Русский' };
+
 /* -------------------------------------------------------------- primitives */
 
-function TransRow({ base, shipped, value, onChange, label, long }) {
+function TransRow({ base, shipped, value, onChange, label, long, dir = 'auto' }) {
   const rows = long || String(base || '').length > 90 ? 3 : 1;
   return (
     <div className="admin__trans-row">
@@ -79,6 +81,7 @@ function TransRow({ base, shipped, value, onChange, label, long }) {
       </div>
       <textarea
         rows={rows}
+        dir={dir}
         value={value ?? ''}
         placeholder={shipped || ''}
         onChange={(e) => onChange(e.target.value)}
@@ -136,8 +139,11 @@ export function TranslationsTab() {
     const all = Object.keys(base.texts || {});
     return all.filter(
       (k) =>
-        /* the shop is Persian-only, so its strings are not translated */
+        /* Domestic commerce and Iran-only representative data stay Persian-only. */
         !k.startsWith('shop.') &&
+        !k.startsWith('salesReps.') &&
+        k !== 'nav.salesRepresentatives' &&
+        !k.startsWith('seo.salesRepresentatives.') &&
         (group === 'all' || k.startsWith(`${group}.`)) &&
         (!q ||
           k.includes(q) ||
@@ -156,7 +162,7 @@ export function TranslationsTab() {
     <div className="admin__panel">
       <div className="admin__head">
         <div>
-          <h1>متون و فهرست‌ها — {locale === 'en' ? 'English' : 'العربية'}</h1>
+          <h1>متون و فهرست‌ها — {LANGUAGE_NAME[locale] || 'English'}</h1>
           <p>
             متن فارسی کنار هر ردیف به‌عنوان مرجع نمایش داده می‌شود و کادر ورودی، ترجمه فعلی سایت را نشان
             می‌دهد؛ اگر آن را خالی بگذارید همان ترجمه پیش‌فرض باقی می‌ماند. تغییرات خودکار ذخیره می‌شود.

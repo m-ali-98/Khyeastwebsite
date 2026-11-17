@@ -9,6 +9,7 @@ const COPY = {
   fa: 'در حال دریافت اطلاعات',
   en: 'Loading the latest details',
   ar: 'جارٍ تحميل أحدث المعلومات',
+  ru: 'Загружаем последние данные',
 };
 
 function Line({ className = '', index = 0 }) {

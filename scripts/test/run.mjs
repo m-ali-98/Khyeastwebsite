@@ -29,6 +29,8 @@ const ROUTES = [
   '/blog/reduce-bread-production-costs', '/gallery', '/sales-representatives', '/contact', '/shop/login', '/shop/account',
   '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/gallery', '/en/contact', '/en/sales-representatives', '/en/shop',
   '/ar', '/ar/about', '/ar/products', '/ar/products/dezmaye-gold-80', '/ar/gallery', '/ar/contact', '/ar/shop',
+  '/ru', '/ru/about', '/ru/products', '/ru/products/dezmaye-gold-80', '/ru/products/dezmaye-gold-10kg',
+  '/ru/blog', '/ru/blog/reduce-bread-production-costs', '/ru/gallery', '/ru/contact', '/ru/shop', '/ru/sales-representatives',
   '/dezmaye', '/shetab', '/nonexistent-page',
 ];
 
@@ -169,6 +171,9 @@ await reportSuite('assets.mjs', 30000, 'asset checks');
 
 console.log('\nSEO — every public route must be crawlable, canonical and safe');
 await reportSuite('seo.mjs', 40000, 'crawl, metadata, schema and sitemap checks');
+
+console.log('\nRussian locale — complete public translations and no Persian fallback');
+await reportSuite('russian-i18n.mjs', 30000, 'translation coverage, product/blog data, metadata and accessible UI');
 
 console.log('\nSales representatives — worksheet data, Iran geometry and persistence rules');
 await reportSuite('sales-representatives.mjs', 10000, 'worksheet, map and validation checks');

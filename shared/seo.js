@@ -19,7 +19,7 @@ export const DEFAULT_SITE_ORIGIN = 'https://khuzestanyeast-co.com';
 export const SEO_HEAD_START = '<!-- seo:head:start -->';
 export const SEO_HEAD_END = '<!-- seo:head:end -->';
 
-const OG_LOCALE = { fa: 'fa_IR', en: 'en_US', ar: 'ar_AE' };
+const OG_LOCALE = { fa: 'fa_IR', en: 'en_US', ar: 'ar_AE', ru: 'ru_RU' };
 const PRIVATE_SHOP_ROUTE = /^\/shop\/(?:cart|checkout|login|account)$|^\/shop\/order\/[^/]+$/;
 const validSlug = (value) => {
   const slug = String(value || '');
@@ -363,7 +363,7 @@ function organizationSchema(view, origin) {
       '@type': 'ContactPoint',
       telephone: phone,
       contactType: 'sales and customer service',
-      availableLanguage: ['fa', 'en', 'ar'],
+      availableLanguage: ['fa', 'en', 'ar', 'ru'],
     })),
     address: offices.map((office) => ({
       '@type': 'PostalAddress',
@@ -767,12 +767,19 @@ function fallbackNavigation(meta) {
     fa: ['خانه', 'درباره ما', 'محصولات', 'صادرات', 'کیفیت', 'وبلاگ', 'گالری', 'تماس با ما'],
     en: ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Gallery', 'Contact'],
     ar: ['الرئيسية', 'من نحن', 'المنتجات', 'التصدير', 'الجودة', 'المدونة', 'المعرض', 'اتصل بنا'],
+    ru: ['Главная', 'О компании', 'Продукция', 'Экспорт', 'Качество', 'Блог', 'Галерея', 'Контакты'],
   }[locale] || ['Home', 'About', 'Products', 'Export', 'Quality', 'Blog', 'Gallery', 'Contact'];
   const entries = ['/', '/about', '/products', '/export', '/quality', '/blog', '/gallery', '/contact']
     .map((path, index) => ({ path, label: labels[index] }));
   if (locale === 'fa') entries.splice(-1, 0, { path: '/sales-representatives', label: 'نمایندگان فروش' });
   if (meta.shopAvailable) entries.splice(3, 0, { path: '/shop', label: 'فروشگاه' });
-  return `<nav aria-label="${escapeHtml(locale === 'fa' ? 'پیوندهای اصلی' : locale === 'ar' ? 'الروابط الرئيسية' : 'Primary links')}"><ul>${entries
+  const navigationLabel = {
+    fa: 'پیوندهای اصلی',
+    en: 'Primary links',
+    ar: 'الروابط الرئيسية',
+    ru: 'Основная навигация',
+  }[locale] || 'Primary links';
+  return `<nav aria-label="${escapeHtml(navigationLabel)}"><ul>${entries
     .map(({ path, label }) => `<li><a href="${escapeHtml(localePath(locale, path))}">${escapeHtml(label)}</a></li>`)
     .join('')}</ul></nav>`;
 }

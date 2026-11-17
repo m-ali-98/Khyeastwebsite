@@ -31,8 +31,11 @@ await loadAllPacks();
 const home = resolveSeo('/', DEFAULT_STATE, ORIGIN);
 const enAbout = resolveSeo('/en/about', DEFAULT_STATE, ORIGIN);
 const arQuality = resolveSeo('/ar/quality', DEFAULT_STATE, ORIGIN);
+const ruAbout = resolveSeo('/ru/about', DEFAULT_STATE, ORIGIN);
 const product = resolveSeo('/products/dezmaye-gold-80', DEFAULT_STATE, ORIGIN);
+const ruProduct = resolveSeo('/ru/products/dezmaye-gold-80', DEFAULT_STATE, ORIGIN);
 const article = resolveSeo('/blog/reduce-bread-production-costs', DEFAULT_STATE, ORIGIN);
+const ruArticle = resolveSeo('/ru/blog/reduce-bread-production-costs', DEFAULT_STATE, ORIGIN);
 const gallery = resolveSeo('/en/gallery', DEFAULT_STATE, ORIGIN);
 const salesRepresentatives = resolveSeo('/sales-representatives', DEFAULT_STATE, ORIGIN);
 const invalidLocaleSalesRepresentatives = resolveSeo('/en/sales-representatives', DEFAULT_STATE, ORIGIN);
@@ -45,7 +48,9 @@ const invalidLocaleShop = resolveSeo('/en/shop', DEFAULT_STATE, ORIGIN);
 
 check(home.indexable && home.status === 200, 'home indexable');
 check(home.canonical === `${ORIGIN}/`, 'home canonical');
-check(home.alternates.length === 4, 'home has 3 locales plus x-default');
+check(home.alternates.length === 5, 'home has 4 locales plus x-default');
+check(home.alternates.some((alternate) => alternate.hreflang === 'ru' && alternate.href === `${ORIGIN}/ru`), 'Russian homepage is in hreflang alternates');
+check(ruProduct.alternates.some((alternate) => alternate.hreflang === 'ru' && alternate.href === `${ORIGIN}/ru/products/dezmaye-gold-80`), 'Russian product route has a localized canonical alternate');
 const hostileSocialState = structuredClone(DEFAULT_STATE);
 hostileSocialState.collections.socials = [
   hostileSocialState.collections.socials[0],
@@ -62,7 +67,11 @@ check(
 check(enAbout.lang === 'en' && enAbout.dir === 'ltr', 'English language and direction');
 check(!enAbout.title.includes('Khuzestan Yeast Co. | Khuzestan Yeast Co.'), 'title does not duplicate company name');
 check(arQuality.lang === 'ar' && arQuality.dir === 'rtl', 'Arabic language and direction');
-check(new Set([home.description, enAbout.description, arQuality.description]).size === 3, 'descriptions are route/locale specific');
+check(ruAbout.lang === 'ru' && ruAbout.dir === 'ltr' && ruAbout.ogLocale === 'ru_RU', 'Russian language, direction and Open Graph locale');
+check(ruAbout.title.includes('О компании') && !/[\u0600-\u06ff]/u.test(ruAbout.title + ruAbout.description), 'Russian metadata has no Persian or Arabic fallback');
+check(ruProduct.lang === 'ru' && /[А-Яа-яЁё]/u.test(ruProduct.pageTitle) && !/[\u0600-\u06ff]/u.test(ruProduct.title + ruProduct.description), 'Russian product metadata is localized');
+check(ruArticle.kind === 'article' && /[А-Яа-яЁё]/u.test(ruArticle.pageTitle) && !/[\u0600-\u06ff]/u.test(ruArticle.title + ruArticle.description), 'Russian editorial metadata is localized');
+check(new Set([home.description, enAbout.description, arQuality.description, ruAbout.description]).size === 4, 'descriptions are route/locale specific');
 check(product.schema?.['@graph']?.some((item) => item['@type'] === 'Product'), 'Product JSON-LD');
 check(product.schema?.['@graph']?.some((item) => item['@type'] === 'Product' && item.offers?.priceCurrency === 'IRR'), 'Product Offer in IRR');
 for (const [stock, availability] of [
@@ -122,6 +131,8 @@ check(!admin.indexable && admin.status === 200, 'admin noindex');
 check(!missing.indexable && missing.status === 404, 'unknown route is a 404');
 check(resolveSeo('/administrator', DEFAULT_STATE, ORIGIN).status === 404, 'admin-like unknown path cannot become a soft 200');
 check(invalidLocaleShop.status === 404, 'non-Persian shop is a 404');
+check(resolveSeo('/ru/shop', DEFAULT_STATE, ORIGIN).status === 404, 'Russian storefront and checkout remain unavailable by scope');
+check(resolveSeo('/ru/sales-representatives', DEFAULT_STATE, ORIGIN).status === 404, 'Iran-only sales representative map stays Persian-only');
 check(resolveSeo('/en/shop/account', DEFAULT_STATE, ORIGIN).status === 404, 'non-Persian private shop route is also a 404');
 check(resolveSeo('/shop/cart/extra', DEFAULT_STATE, ORIGIN).status === 404, 'private-looking nested path cannot become a soft 200');
 check(resolveSeo('/shop/order', DEFAULT_STATE, ORIGIN).status === 404, 'order route without a code is a 404');
@@ -152,15 +163,16 @@ check(redirectPath('/fa/products') === '/products', 'default locale prefix targe
 check(redirectPath('/index.html') === '/', 'index file canonical target');
 
 const paths = listIndexablePaths(DEFAULT_STATE);
-check(paths.length === 126, 'all current public locale routes enumerated', String(paths.length));
+check(paths.length === 167, 'all current public locale routes enumerated', String(paths.length));
 check(new Set(paths).size === paths.length, 'route enumeration has no duplicates');
 check(
   paths.filter((entry) => entry.startsWith('/shop/')).join(',') === '/shop/nanmaye-10',
   'catalogue duplicates stay excluded while the standalone Nan Maye shop SKU is indexable',
 );
-check(paths.includes('/shop') && !paths.includes('/en/shop') && !paths.includes('/ar/shop'), 'shop listed in Persian only');
+check(paths.includes('/shop') && !paths.includes('/en/shop') && !paths.includes('/ar/shop') && !paths.includes('/ru/shop'), 'shop listed in Persian only');
+check(!paths.includes('/ru/sales-representatives') && paths.includes('/ru/products/dezmaye-gold-80') && paths.includes('/ru/blog/reduce-bread-production-costs'), 'Russian catalogue and blog routes are indexed while Iran-only representatives are not');
 const routable = listRoutablePaths(DEFAULT_STATE);
-check(routable.length === 132, '30 localized catalogue variants, gallery, representatives and seven shop products are rendered');
+check(routable.length === 173, 'four-locale public catalogue/blog plus Persian-only representatives and shop routes are rendered');
 check(routable.includes('/shop/dezmaye-gold-80'), 'canonicalized shop product remains routable');
 const allMeta = paths.map((route) => resolveSeo(route, DEFAULT_STATE, ORIGIN));
 check(new Set(allMeta.map((meta) => meta.title)).size === allMeta.length, 'every sitemap page has a unique title');
@@ -192,6 +204,8 @@ check(robots.includes('Disallow: /api/'), 'robots excludes APIs');
 const builtIndex = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 const builtEnAbout = fs.readFileSync(path.join(DIST, 'seo-pages', 'en--about.html'), 'utf8');
 const builtEnGallery = fs.readFileSync(path.join(DIST, 'seo-pages', 'en--gallery.html'), 'utf8');
+const builtRuAbout = fs.readFileSync(path.join(DIST, 'seo-pages', 'ru--about.html'), 'utf8');
+const builtRuProduct = fs.readFileSync(path.join(DIST, 'seo-pages', 'ru--products--dezmaye-gold-80.html'), 'utf8');
 const builtSalesRepresentatives = fs.readFileSync(path.join(DIST, 'seo-pages', 'sales-representatives.html'), 'utf8');
 const builtProduct = fs.readFileSync(path.join(DIST, 'seo-pages', 'products--dezmaye-gold-80.html'), 'utf8');
 const builtPrivate = fs.readFileSync(path.join(DIST, 'seo-pages', '_private.html'), 'utf8');
@@ -202,6 +216,8 @@ check(builtIndex.includes('application/ld+json'), 'root has structured data befo
 check(builtEnAbout.includes('<html lang="en" dir="ltr"'), 'built English document language');
 check(builtEnAbout.includes('<h1>About Khuzestan Yeast Co.</h1>'), 'built route-specific fallback heading');
 check(builtEnAbout.includes(`rel="canonical" href="${ORIGIN}/en/about"`), 'built route-specific canonical');
+check(builtRuAbout.includes('<html lang="ru" dir="ltr"') && builtRuAbout.includes('<h1>О компании «Хузестан Йист»</h1>'), 'built Russian document has Cyrillic content and LTR metadata');
+check(builtRuProduct.includes('Инстантные сухие дрожжи') && builtRuProduct.includes(`hreflang="ru" href="${ORIGIN}/ru/products/dezmaye-gold-80"`), 'built Russian product page and metadata alternate render');
 check(builtEnGallery.includes('A Look at Khuzestan Yeast Products') && builtEnGallery.includes('gallery#product-range'), 'built gallery exposes localized crawlable item links');
 check(
   builtSalesRepresentatives.includes('نمایندگان فروش خمیرمایه خوزستان') && builtSalesRepresentatives.includes('sales-representatives#sales-rep-001'),

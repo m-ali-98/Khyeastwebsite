@@ -52,8 +52,8 @@ function RouteCommit({ routeKey, onReady }) {
 
 function PublicRoutes() {
   /* The online shop is an Iran-facing feature (rial pricing, Iranian payment
-     gateway), so it exists on the Persian site only. On /en and /ar its routes
-     are simply not mounted and fall through to the 404 page. */
+     gateway), so it exists on the Persian site only. On /en, /ar and /ru its
+     routes are not mounted and fall through to the 404 page. */
   const { shopEnabled, locale } = useLocale();
   const { state } = useContent();
   const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
@@ -204,9 +204,9 @@ function NavigationRoutes() {
 }
 
 export default function App() {
-  /* Persian lives at the site root and English/Arabic under /en and /ar.
-     Handing the prefix to the router as a `basename` means every <Link to="…">
-     in the app stays locale-relative with no changes to the page components. */
+  /* Persian lives at the site root; English, Arabic and Russian use /en, /ar
+     and /ru. Handing the prefix to the router as a `basename` keeps every
+     locale-relative link working without page-specific URL changes. */
   const { meta } = useLocale();
   return (
     /* React Router normally marks history updates as transitions, which may

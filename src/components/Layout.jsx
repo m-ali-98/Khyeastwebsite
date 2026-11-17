@@ -49,7 +49,11 @@ const HEADER_NAV_ITEMS = [
 function LangSwitch({ block = false }) {
   const { locale, locales, switchLocale } = useLocale();
   return (
-    <div className={`lang-switch ${block ? 'lang-switch--block' : ''}`} role="group" aria-label="Language">
+    <div
+      className={`lang-switch ${block ? 'lang-switch--block' : ''}`}
+      role="group"
+      aria-label={{ fa: 'انتخاب زبان', en: 'Language selection', ar: 'اختيار اللغة', ru: 'Выбор языка' }[locale] || 'Language selection'}
+    >
       {locales.map((lo) => (
         <button
           key={lo.code}
@@ -72,6 +76,7 @@ const THEME_ACTION = {
   fa: { light: 'تغییر به نمای روشن', dark: 'تغییر به نمای تاریک' },
   en: { light: 'Switch to light mode', dark: 'Switch to dark mode' },
   ar: { light: 'التبديل إلى الوضع الفاتح', dark: 'التبديل إلى الوضع الداكن' },
+  ru: { light: 'Переключить на светлую тему', dark: 'Переключить на тёмную тему' },
 };
 
 const mobileMenuFocusable = (menu) => menu
@@ -511,6 +516,7 @@ function BackToTop() {
     fa: 'بازگشت به بالا',
     en: 'Back to top',
     ar: 'العودة إلى الأعلى',
+    ru: 'Наверх',
   }[locale];
   useEffect(() => {
     const onScroll = () => setShow(window.scrollY > 600);
@@ -697,6 +703,7 @@ export default function Layout({ children }) {
     fa: 'پرش به محتوای اصلی',
     en: 'Skip to main content',
     ar: 'تخطّي إلى المحتوى الرئيسي',
+    ru: 'Перейти к основному содержимому',
   }[locale] || 'Skip to main content';
 
   useEffect(() => {

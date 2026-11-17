@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Products & Blog, in English / Arabic.
+   Products & Blog, in English / Arabic / Russian.
    --------------------------------------------------------------------------
    These are full editors, not flat key/value rows: the same layout as the
    Persian tabs (list → edit form, spec tables, usage lists, rich body), but
@@ -8,7 +8,7 @@
    Structure — slug, brand, images, "featured", the NUMBER of spec rows — is
    deliberately NOT editable here. It belongs to the base language, so adding
    a product or a spec row is done once in Persian and every language inherits
-   it. That keeps the three versions of the site permanently in sync.
+   it. That keeps the localized versions of the site permanently in sync.
    ========================================================================== */
 import { useMemo, useState } from 'react';
 import { Icons } from '../components/ui';
@@ -29,7 +29,7 @@ import {
   pruneValue,
 } from './transFields';
 
-const LANG_NAME = { en: 'انگلیسی', ar: 'عربی' };
+const LANG_NAME = { en: 'انگلیسی', ar: 'عربی', ru: 'روسی' };
 const localIsoDate = () => {
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -385,8 +385,8 @@ export function PostsTransTab() {
               key={`${editing.slug}-${locale}`}
               value={draft.body}
               onChange={(v) => setDraft({ ...draft, body: v })}
-              placeholder={locale === 'ar' ? 'اكتب نص المقال هنا…' : 'Write the article here…'}
-              label={`ویرایشگر متن مقاله ${locale === 'ar' ? 'عربی' : 'انگلیسی'}`}
+              placeholder={locale === 'ar' ? 'اكتب نص المقال هنا…' : locale === 'ru' ? 'Введите текст статьи…' : 'Write the article here…'}
+              label={`ویرایشگر متن مقاله ${locale === 'ar' ? 'عربی' : locale === 'ru' ? 'روسی' : 'انگلیسی'}`}
             />
           </div>
         </div>

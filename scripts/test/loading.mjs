@@ -43,8 +43,9 @@ check(/\.boot-splash__content\s*\{[\s\S]{0,160}width:\s*clamp\(148px,\s*19vw,\s*
 check(/\.boot-splash__mark\s*\{[\s\S]{0,180}width:\s*104px;[\s\S]{0,40}height:\s*104px/.test(html)
   && /\.navigation-loader__mark\s*\{[\s\S]{0,180}width:\s*104px;[\s\S]{0,40}height:\s*104px/.test(css), 'boot and navigation loader logo-disc geometry diverged');
 check(!/boot-splash__(?:slogan|eyebrow|status|signature)/.test(html), 'visible copy returned to the text-free boot screen');
-check(/boot-splash__a11y[\s\S]*Loading[\s\S]*جارٍ التحميل/.test(html), 'text-free boot screen lost its localized accessible label');
-check(/html\[lang='en'\] \.boot-i18n > \[lang='en'\]/.test(html), 'localized accessible copy waits until DOM ready');
+check(/boot-splash__a11y[\s\S]*Loading[\s\S]*جارٍ التحميل[\s\S]*Загрузка/.test(html), 'text-free boot screen lost localized accessible labels');
+check(/html\[lang='en'\] \.boot-i18n > \[lang='en'\]/.test(html) && /html\[lang='ru'\] \.boot-i18n > \[lang='ru'\]/.test(html), 'localized accessible copy waits until DOM ready for English and Russian');
+check(/var loc = seg === 'en' \|\| seg === 'ar' \|\| seg === 'ru' \? seg : 'fa'/.test(html) && /loc === 'en' \|\| loc === 'ru' \? 'ltr' : 'rtl'/.test(html), 'pre-paint direction recognizes the Russian locale');
 const doneRule = html.match(/#boot-splash\.is-done\s*\{([\s\S]*?)\}/)?.[1] || '';
 check(/translate3d\(0,\s*-101%/.test(doneRule), 'boot screen no longer reveals with a one-layer transform');
 check(!/opacity\s*:/.test(doneRule), 'boot screen exit regressed to a full-page cross-fade');
@@ -72,7 +73,7 @@ check(/fetch\('\/api\/content',\s*\{\s*cache:\s*'no-store'\s*\}\)/.test(content)
 check(!/cacheRead|cacheWrite|CACHE_TTL/.test(content), 'persistent stale content cache still exists');
 check(/localStorage\.removeItem\(LEGACY_CONTENT_CACHE_KEY\)/.test(content), 'legacy stale browser snapshots are not removed');
 check(/app\.get\('\/api\/content'[\s\S]*Cache-Control', 'private, no-store, max-age=0'/.test(server), 'content API responses can still be stored by browsers or intermediaries');
-check(/fa:\s*\{/.test(fallback) && /en:\s*\{/.test(fallback) && /ar:\s*\{/.test(fallback), 'route loading accessibility copy is not trilingual');
+check(/fa:\s*\{/.test(fallback) && /en:\s*\{/.test(fallback) && /ar:\s*\{/.test(fallback) && /ru:\s*\{/.test(fallback), 'route loading accessibility copy is not localized in all four languages');
 check(/role="status"[\s\S]*aria-live="polite"[\s\S]*aria-busy="true"/.test(fallback), 'route loader is not announced accessibly');
 check(/aria-hidden=\{loaderVisible[\s\S]*inert=\{loaderVisible/.test(app), 'covered destination content remains exposed during navigation');
 check(/className="sr-only"/.test(fallback) && /navigation-loader__orbit/.test(fallback), 'route loading is not visually text-free with an accessible name');

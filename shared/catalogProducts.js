@@ -3,8 +3,9 @@
    product-detail pages on khuzestanyeast-co.com (September 2026).
 
    Keep the commercial variants in one locale-neutral list. The Persian base
-   content and the English/Arabic overlays are built from the same rows, so a
-   newly added package size cannot silently disappear in another language.
+   content and the English/Arabic/Russian overlays are built from the same
+   rows, so a newly added package size cannot silently disappear in another
+   language.
    Product photographs remain same-origin, repository-owned brand images; the
    recovered WordPress image URLs are not safe deployment dependencies.
    ========================================================================== */
@@ -79,6 +80,14 @@ const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 const localNumber = (value, locale) => String(value).replace(/\d/g, (digit) => (
   locale === 'fa' ? FA_DIGITS[Number(digit)] : locale === 'ar' ? AR_DIGITS[Number(digit)] : digit
 ));
+const ruPlural = (value, one, few, many) => {
+  const n = Math.abs(Number(value));
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  return mod10 === 1 && mod100 !== 11 ? one
+    : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? few
+      : many;
+};
 
 const COPY = Object.freeze({
   fa: {
@@ -178,6 +187,38 @@ const COPY = Object.freeze({
     storageShelf: (months) => `مدة الصلاحية في العبوة الأصلية: ${localNumber(months, 'ar')} شهرًا من تاريخ الإنتاج.`,
     standards: 'ISO 9001:2015 (ألمانيا)، شهادة الحلال، المواصفة الوطنية الإيرانية وعضوية VH برلين',
     applications: 'خبز البربري والسنغك والتافتون واللواش والباغيت والتوست والأخبزة الهشة والفاخرة',
+  },
+  ru: {
+    title: {
+      dezmaye: (weight) => `Инстантные сухие дрожжи «Дезмайе Голд» — ${weight}`,
+      shetab: (weight) => `Инстантные сухие дрожжи «Шетаб Майе» — ${weight}`,
+      xpower: (weight) => `Инстантные сухие дрожжи X-Power — ${weight}`,
+      nanmaye: (weight) => `Инстантные сухие дрожжи «Нан Майе» — ${weight}`,
+    },
+    short: {
+      dezmaye: 'Инстантные сухие дрожжи «Дезмайе Голд» производятся по европейским стандартам качества с использованием передовых технологий Frings (Австрия). Они обладают высокой подъёмной силой и не требуют предварительной активации.',
+      shetab: 'Инстантные сухие дрожжи «Шетаб Майе» разработаны для быстрого производства промышленного и специального хлеба: они быстро действуют и помогают получить равномерный пористый мякиш.',
+      xpower: 'X-Power — специализированные инстантные дрожжи с повышенной силой брожения и высокой ферментативной активностью для пышного и сдобного хлеба, а также дрожжевой выпечки.',
+      nanmaye: 'Дрожжи «Нан Майе» предназначены для промышленных и крупных пекарен, а также экспортных рынков. Они сочетают экономичный расход, стабильное качество и контролируемый срок хранения.',
+    },
+    variantSummary: (weight, pack) => `Этот вариант выпускается в фасовке ${weight} — ${pack.toLowerCase()}.`,
+    weight: (variant) => `${variant.amount} ${variant.unit === 'kg' ? 'кг' : 'г'}`,
+    pack: { vacuum: 'Вакуумная упаковка', sachet: 'Саше', bag: 'Мешок' },
+    labels: {
+      weight: 'Масса нетто', sachetWeight: 'Масса нетто / саше', package: 'Тип упаковки',
+      carton: 'Количество в коробе', shelf: 'Срок хранения', standards: 'Стандарты и сертификаты', applications: 'Область применения',
+    },
+    packageValue: (variant) => variant.package === 'sachet'
+      ? 'Прочное алюминиевое саше'
+      : variant.package === 'bag' ? 'Мешок для оптовой фасовки' : `${variant.layers || 3}-слойная алюминиевая вакуумная упаковка`,
+    weightValue: (variant, weight) => variant.package === 'sachet'
+      ? `${weight} (трёхслойное саше)`
+      : variant.package === 'bag' ? `${weight} (оптовый мешок)` : `${weight} (вакуумная упаковка)`,
+    cartonValue: (variant) => `${variant.carton} ${variant.package === 'sachet' ? 'саше' : ruPlural(variant.carton, 'упаковка', 'упаковки', 'упаковок')} в экспортном коробе`,
+    shelfValue: (months) => `${months} мес. с даты производства при хранении в прохладном сухом месте`,
+    storageShelf: (months) => `Срок хранения в заводской упаковке — ${months} мес. с даты производства.`,
+    standards: 'ISO 9001:2015 (Германия), сертификат халяль, национальный стандарт Ирана и членство в VH Berlin',
+    applications: 'Бэрбэри, сангак, тафтун, лаваш, багет, тостовый, пшеничный и сдобный хлеб',
   },
 });
 

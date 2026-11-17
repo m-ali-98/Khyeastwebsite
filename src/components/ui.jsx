@@ -78,7 +78,7 @@ export const faNum = (n) => Number(n).toLocaleString('fa-IR');
 export const faId = (v) => String(v ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
 /* Digit shapes per language: Persian, Arabic-Indic and Latin respectively. */
-export const NUM_LOCALE = { fa: 'fa-IR', ar: 'ar-EG', en: 'en-US' };
+export const NUM_LOCALE = { fa: 'fa-IR', ar: 'ar-EG', en: 'en-US', ru: 'ru-RU' };
 export const useNum = () => {
   const { locale } = useLocale();
   return (n) => Number(n).toLocaleString(NUM_LOCALE[locale] || 'fa-IR');

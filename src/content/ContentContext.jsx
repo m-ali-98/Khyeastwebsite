@@ -336,9 +336,9 @@ export function ContentProvider({ children }) {
     }
   };
 
-  /* Persian is the base language; English and Arabic are overlays applied on
-     top of it (shipped translation first, admin-edited overrides second), so
-     an untranslated key still renders instead of vanishing. */
+  /* Persian is the base language; English, Arabic and Russian are overlays
+     applied on top of it (shipped translation first, Admin overrides second).
+     Public locale packs are coverage-tested so their visible copy is complete. */
   const view = useMemo(() => localizeState(state, locale), [state, locale]);
   const fallback = useMemo(() => localizeState(DEFAULT_STATE, locale), [locale]);
 

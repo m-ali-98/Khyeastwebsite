@@ -921,8 +921,8 @@ export const SHOP = {
 
 /* Per-locale translation overrides entered in the admin panel. Empty by
    default: the shipped dictionaries in shared/i18n/<locale>.js already supply
-   the English and Arabic content. */
-export const I18N = { en: {}, ar: {} };
+   the English, Arabic and Russian content. */
+export const I18N = { en: {}, ar: {}, ru: {} };
 
 export const DEFAULT_STATE = {
   texts: TEXTS,

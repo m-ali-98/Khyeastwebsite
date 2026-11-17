@@ -24,6 +24,7 @@
     <link rel="alternate" hreflang="fa" href="https://khuzestanyeast-co.com/" />
     <link rel="alternate" hreflang="en" href="https://khuzestanyeast-co.com/en" />
     <link rel="alternate" hreflang="ar" href="https://khuzestanyeast-co.com/ar" />
+    <link rel="alternate" hreflang="ru" href="https://khuzestanyeast-co.com/ru" />
     <link rel="alternate" hreflang="x-default" href="https://khuzestanyeast-co.com/" />
     <meta property="og:site_name" content="شرکت خمیر مایه خوزستان" />
     <meta property="og:title" content="خمیرمایه خوزستان | تولیدکننده خمیرمایه خشک فوری" />
@@ -33,6 +34,7 @@
     <meta property="og:locale" content="fa_IR" />
     <meta property="og:locale:alternate" content="en_US" />
     <meta property="og:locale:alternate" content="ar_AE" />
+    <meta property="og:locale:alternate" content="ru_RU" />
     <meta property="og:image" content="https://khuzestanyeast-co.com/assets/img/hero-wheat.webp" />
     <meta property="og:image:secure_url" content="https://khuzestanyeast-co.com/assets/img/hero-wheat.webp" />
     <meta property="og:image:type" content="image/webp" />
@@ -188,7 +190,8 @@
       .boot-i18n > [lang] { display: none; }
       html[lang='fa'] .boot-i18n > [lang='fa'],
       html[lang='en'] .boot-i18n > [lang='en'],
-      html[lang='ar'] .boot-i18n > [lang='ar'] { display: inline; }
+      html[lang='ar'] .boot-i18n > [lang='ar'],
+      html[lang='ru'] .boot-i18n > [lang='ru'] { display: inline; }
       @keyframes boot-loader-stage-in {
         from { opacity: 0; transform: scale(.92); }
         to { opacity: 1; transform: scale(1); }
@@ -234,10 +237,10 @@
     <script>
       (function () {
         var seg = location.pathname.split('/')[1];
-        var loc = seg === 'en' || seg === 'ar' ? seg : 'fa';
+        var loc = seg === 'en' || seg === 'ar' || seg === 'ru' ? seg : 'fa';
         var el = document.documentElement;
         el.lang = loc;
-        el.dir = loc === 'en' ? 'ltr' : 'rtl';
+        el.dir = loc === 'en' || loc === 'ru' ? 'ltr' : 'rtl';
         var theme;
         try { theme = localStorage.getItem('ky_theme'); } catch (e) {}
         /* First visits always start light. Dark mode is an explicit preference,
@@ -267,6 +270,7 @@
         <span lang="fa">در حال بارگذاری</span>
         <span lang="en">Loading</span>
         <span lang="ar">جارٍ التحميل</span>
+        <span lang="ru">Загрузка</span>
       </span>
       <div class="boot-splash__content" aria-hidden="true">
         <span class="boot-splash__halo"></span>

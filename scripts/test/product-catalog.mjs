@@ -257,10 +257,15 @@ const arabic = buildCatalogProductTranslations('ar', {
   analysis: [['المادة الجافة', '٩٥٪']],
   storage: ['بارد.', 'أقل من ٢٥.', 'نص قديم.', 'يغلق بعد الفتح.'],
 });
+const russian = buildCatalogProductTranslations('ru', {
+  usage: ['Используйте непосредственно.'],
+  analysis: [['Сухое вещество', 'не менее 95%']],
+  storage: ['Хранить в прохладном месте.', 'Ниже 25 °C.', 'Старый текст.', 'После вскрытия закрыть.'],
+});
 check(
-  Object.keys(english).length === 30 && Object.keys(arabic).length === 30 &&
-    CATALOG_VARIANTS.every(({ slug }) => english[slug] && arabic[slug]),
-  'English and Arabic dictionaries cover every catalogue slug',
+  Object.keys(english).length === 30 && Object.keys(arabic).length === 30 && Object.keys(russian).length === 30 &&
+    CATALOG_VARIANTS.every(({ slug }) => english[slug] && arabic[slug] && russian[slug]),
+  'English, Arabic and Russian dictionaries cover every catalogue slug',
 );
 check(
   english['dezmaye-gold-80'].pack === 'Sachet' &&
@@ -275,14 +280,23 @@ check(
   'Arabic package and shelf-life exceptions are localized from the shared table',
 );
 check(
-  !Object.values(english).some((product) => Object.hasOwn(product, 'image') || Object.hasOwn(product, 'images')) &&
-    !Object.values(arabic).some((product) => Object.hasOwn(product, 'image') || Object.hasOwn(product, 'images')),
+  russian['dezmaye-gold-80'].pack === 'Саше' &&
+    russian['dezmaye-gold-80'].storage[2].includes('12 мес.') &&
+    russian['dezmaye-gold-10kg'].storage[2].includes('6 мес.') &&
+    russian['dezmaye-gold-5kg'].specs.find(([label]) => label === 'Количество в коробе')?.[1] === '2 упаковки в экспортном коробе',
+  'Russian packaging, shelf-life exceptions and carton quantity use localized copy',
+);
+check(
+  ![english, arabic, russian].some((pack) =>
+    Object.values(pack).some((product) => Object.hasOwn(product, 'image') || Object.hasOwn(product, 'images'))
+  ),
   'locale overlays cannot replace language-neutral product galleries',
 );
 
 await loadAllPacks();
 const localizedEnglish = localizeState(DEFAULT_STATE, 'en');
 const localizedArabic = localizeState(DEFAULT_STATE, 'ar');
+const localizedRussian = localizeState(DEFAULT_STATE, 'ru');
 check(
   localizedEnglish.products.length === 30 &&
     localizedEnglish.products.every(({ title }) => !/[\u0600-\u06ff]/u.test(title)),
@@ -292,6 +306,11 @@ check(
   localizedArabic.products.length === 30 &&
     localizedArabic.products.every(({ title }) => /[\u0600-\u06ff]/u.test(title)),
   'the shipped Arabic site renders all 30 localized titles',
+);
+check(
+  localizedRussian.products.length === 30 &&
+    localizedRussian.products.every(({ title }) => /[\u0400-\u04ff]/u.test(title) && !/[\u0600-\u06ff]/u.test(title)),
+  'the shipped Russian catalogue renders every product in Cyrillic without Persian or Arabic fallback',
 );
 
 const shopOnly = DEFAULT_STATE.shop.products.find(({ slug }) => slug === 'nanmaye-10');
@@ -317,11 +336,11 @@ check(
 );
 
 const productIndexPaths = listIndexablePaths(DEFAULT_STATE).filter((route) => (
-  /^\/(?:en\/|ar\/)?products\/[^/]+$/.test(route)
+  /^\/(?:en\/|ar\/|ru\/)?products\/[^/]+$/.test(route)
 ));
 check(
-  productIndexPaths.length === 90 && new Set(productIndexPaths).size === 90,
-  'all 30 detail routes are indexable in each of the three locales',
+  productIndexPaths.length === 120 && new Set(productIndexPaths).size === 120,
+  'all 30 detail routes are indexable in Persian, English, Arabic and Russian',
 );
 
 console.log(`${pass}/${pass + fail}`);

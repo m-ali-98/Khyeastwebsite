@@ -16,7 +16,7 @@ import {
 
 /* Badge shown on Persian list rows: which other languages still fall back to
    Persian for this item, so a newly added product/post is never quietly left
-   untranslated on /en and /ar. */
+   untranslated on /en, /ar and /ru. */
 function TransStatus({ bucket, slug, state }) {
   const pending = LOCALES.filter((lo) => lo.code !== 'fa').filter((lo) => {
     const override = state.i18n?.[lo.code]?.[bucket]?.[slug];

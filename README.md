@@ -181,20 +181,21 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## مسیرهای عمومی
 
-| فارسی | انگلیسی | عربی |
-| --- | --- | --- |
-| `/` | `/en` | `/ar` |
-| `/about` | `/en/about` | `/ar/about` |
-| `/products` | `/en/products` | `/ar/products` |
-| `/products/:slug` | `/en/products/:slug` | `/ar/products/:slug` |
-| `/export` | `/en/export` | `/ar/export` |
-| `/quality` | `/en/quality` | `/ar/quality` |
-| `/blog` | `/en/blog` | `/ar/blog` |
-| `/blog/:slug` | `/en/blog/:slug` | `/ar/blog/:slug` |
-| `/sales-representatives` | — | — |
-| `/contact` | `/en/contact` | `/ar/contact` |
+| فارسی | انگلیسی | عربی | روسی |
+| --- | --- | --- | --- |
+| `/` | `/en` | `/ar` | `/ru` |
+| `/about` | `/en/about` | `/ar/about` | `/ru/about` |
+| `/products` | `/en/products` | `/ar/products` | `/ru/products` |
+| `/products/:slug` | `/en/products/:slug` | `/ar/products/:slug` | `/ru/products/:slug` |
+| `/export` | `/en/export` | `/ar/export` | `/ru/export` |
+| `/quality` | `/en/quality` | `/ar/quality` | `/ru/quality` |
+| `/blog` | `/en/blog` | `/ar/blog` | `/ru/blog` |
+| `/blog/:slug` | `/en/blog/:slug` | `/ar/blog/:slug` | `/ru/blog/:slug` |
+| `/gallery` | `/en/gallery` | `/ar/gallery` | `/ru/gallery` |
+| `/sales-representatives` | — | — | — |
+| `/contact` | `/en/contact` | `/ar/contact` | `/ru/contact` |
 
-مسیرهای `/shop/*` و `/sales-representatives` فقط در نسخه فارسی وجود دارند. مسیرهای خصوصی مانند `/admin`، ورود، حساب، سبد، پرداخت و پیگیری سفارش با `noindex` سرو می‌شوند.
+مسیرهای `/shop/*` و `/sales-representatives` فقط در نسخه فارسی وجود دارند. نسخه روسی مسیرهای عمومی شرکت، کاتالوگ و وبلاگ را پوشش می‌دهد؛ فروشگاه و پرداخت مختص بازار ایران باقی می‌مانند. مسیرهای خصوصی مانند `/admin`، ورود، حساب، سبد، پرداخت و پیگیری سفارش با `noindex` سرو می‌شوند.
 
 ## معماری محتوا و داده
 
@@ -203,11 +204,11 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | مسیر | محتوا |
 | --- | --- |
 | `shared/contentDefaults.js` | fallback فقط‌خواندنی و مقدار اولیهٔ نصب واقعاً تازه |
-| `shared/i18n/en.js` و `ar.js` | ترجمه‌های منتشرشده همراه کد |
+| `shared/i18n/en.js`، `ar.js` و `ru.js` | ترجمه‌های منتشرشده همراه کد |
 | `server/data/khyeast.db` | ۹ بخش محتوای CMS با revision، فروشگاه، سفارش، موجودی، مشتری، نشست، OTP، پیام، دیدگاه، پرداخت، پیامک و تنظیمات |
 | `server/uploads/` | تصاویر و ویدیوهای بارگذاری‌شده مدیر روی storage ماندگار |
 
-فارسی زبان پایه است. ترجمه‌های انگلیسی و عربی ابتدا از فایل‌های پروژه و سپس از overrideهای CMS روی آن قرار می‌گیرند؛ فیلد ترجمه خالی باعث حذف محتوا نمی‌شود و به مقدار قبلی fallback می‌کند.
+فارسی زبان پایه است. ترجمه‌های انگلیسی، عربی و روسی ابتدا از فایل‌های پروژه و سپس از overrideهای CMS روی آن قرار می‌گیرند؛ فیلد ترجمه خالی باعث حذف محتوا نمی‌شود و به مقدار قبلی fallback می‌کند. پوشش متن‌های عمومی، کالاها، مقالات و داده‌های نمایشی روسی در آزمون‌ها کنترل می‌شود تا صفحات `/ru` به فارسی برنگردند.
 
 `/api/content` با `no-store` پاسخ می‌دهد. در هر ناوبری، محتوای تازه و chunk واقعی مسیر باید آماده شوند؛ تنها در صورت انتظار واقعی، نشانگر بارگذاری نمایش داده می‌شود.
 

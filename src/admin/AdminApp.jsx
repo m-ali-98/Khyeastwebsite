@@ -26,9 +26,8 @@ import {
 import './admin.scss';
 
 /* `base: true` = tab edits the Persian source content. When the admin is
-   editing English or Arabic, those tabs are replaced by the translation
-   editor, while the language-neutral tabs (images, links, orders, messages)
-   stay available. */
+   editing English, Arabic or Russian, those tabs are replaced by the
+   translation editor, while language-neutral tabs remain available. */
 const CONTENT_WRITE_TABS = new Set([
   'products', 'posts', 'gallery', 'shop', 'texts', 'translations', 'media', 'links', 'trust', 'contact',
   'representatives',
@@ -54,6 +53,8 @@ const TABS = [
   { id: 'sms', label: 'پیامک', icon: 'send', faOnly: true, group: 'communications' },
   { id: 'security', label: 'امنیت و محدودیت‌ها', icon: 'shield', faOnly: true, group: 'system' },
 ];
+
+const ADMIN_LANGUAGE_NAME = { en: 'English', ar: 'العربية', ru: 'Русский' };
 
 const NAV_GROUPS = [
   { id: 'content', label: 'محتوا' },
@@ -601,7 +602,7 @@ function GalleryTranslationsTab() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState({ type: '', text: '' });
   const shipped = getPack(locale)?.gallery || {};
-  const direction = locale === 'en' ? 'ltr' : 'rtl';
+  const direction = locale === 'ar' ? 'rtl' : 'ltr';
 
   useEffect(() => {
     setDraft(stripGalleryMediaOverrides(state.i18n?.[locale]?.gallery));
@@ -644,7 +645,7 @@ function GalleryTranslationsTab() {
     <div className="admin__panel admin-gallery admin-gallery--translations" data-testid="admin-gallery-translations">
       <div className="admin__head">
         <div>
-          <h1>ترجمه گالری — {locale === 'en' ? 'English' : 'العربية'}</h1>
+          <h1>ترجمه گالری — {ADMIN_LANGUAGE_NAME[locale] || 'English'}</h1>
           <p>عنوان کارت و متن زیر رسانه را ترجمه کنید. فایل، نوع و ترتیب رسانه‌ها از نسخه فارسی مشترک است.</p>
         </div>
       </div>
@@ -658,7 +659,7 @@ function GalleryTranslationsTab() {
               <section className="admin-gallery__translation" key={item.id}>
                 <GalleryPreview item={item} caption={row.caption || fallback.caption} />
                 <div className="admin-gallery__translation-fields" dir={direction}>
-                  <b>{Number(index + 1).toLocaleString('fa-IR')}. {item.caption}</b>
+                  <b>{Number(index + 1).toLocaleString(locale)}. {item.caption}</b>
                   <label className="admin-gallery__field">
                     <span>عنوان ترجمه‌شده</span>
                     <input dir={direction} value={row.caption || ''} maxLength={GALLERY_CAPTION_MAX} placeholder={fallback.caption || item.caption} onChange={(event) => update(item.id, 'caption', event.target.value)} disabled={saving} />
@@ -836,8 +837,8 @@ function AdminShell() {
   if (authed === null || !packsReady) return <AdminLoading />;
   if (!authed) return <div className="admin">{<Login onDone={() => setAuthed(true)} />}</div>;
 
-  /* Products and Blog exist in all three languages, but the Persian tabs edit
-     the base content while the other languages edit the translation layer. */
+  /* Products and Blog exist in all four languages; Persian edits the base
+     content while English, Arabic and Russian edit the translation layer. */
   const Tab = {
     products: isBase ? ProductsTab : ProductsTransTab,
     posts: isBase ? PostsTab : PostsTransTab,
@@ -1039,7 +1040,7 @@ function AdminShell() {
           )}
           {!isBase && (
             <p className="admin__locale-note">
-              در حال ویرایش نسخه {locale === 'en' ? 'انگلیسی' : 'عربی'} سایت. محتوای فارسی پایه است و از تب‌های
+              در حال ویرایش نسخه {locale === 'en' ? 'انگلیسی' : locale === 'ar' ? 'عربی' : 'روسی'} سایت. محتوای فارسی پایه است و از تب‌های
               معمولی ویرایش می‌شود؛ در این بخش فقط ترجمه‌ها را وارد یا اصلاح می‌کنید.
             </p>
           )}

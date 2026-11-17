@@ -39,7 +39,7 @@ export const pruneValue = (value, shipped) => {
 
 /* ----------------------------------------------------------------- fields */
 
-export function TransField({ label, base, value, onChange, textarea, rows = 3, dir, hint, type = 'text' }) {
+export function TransField({ label, base, value, onChange, textarea, rows = 3, dir = 'auto', hint, type = 'text' }) {
   return (
     <div className="admin__tf">
       <div className="admin__tf-head">
