@@ -1,0 +1,191 @@
+name: Replace main with production files
+
+# Install this workflow on main first. Then run:
+# gh workflow run promote-production.yml --ref main -f confirm_main=main
+#
+# This deliberately replaces main's current file tree with the production
+# allowlist from the tested Arena branch. All other tracked main files are
+# deleted. The promotion workflow itself is retained so it can run again.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_main:
+        description: Type main to authorize replacing the main tree
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-production-main
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Test the fixed source branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.capture.outputs.source_sha }}
+    steps:
+      - name: Validate explicit main replacement request
+        shell: bash
+        env:
+          CONFIRM_MAIN: ${{ inputs.confirm_main }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Run this workflow from main with --ref main." >&2
+            exit 1
+          fi
+          if [[ "$CONFIRM_MAIN" != "main" ]]; then
+            echo 'Set confirm_main=main to authorize replacing main.' >&2
+            exit 1
+          fi
+
+      # Source-branch code runs only in this read-only job. The job that can
+      # push to main never executes npm scripts from the source branch.
+      - name: Check out the selected source branch
+        uses: actions/checkout@v5
+        with:
+          ref: arena/01a07ff9-khyeastwebsite
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record the exact commit being tested
+        id: capture
+        shell: bash
+        run: echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      # npm test runs the production build and the project's non-E2E suite.
+      - name: Run production build and non-E2E tests
+        run: npm test
+
+  promote:
+    name: Replace main tree with production files
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Replace tracked main files with the production allowlist
+        id: replace
+        shell: bash
+        env:
+          SOURCE_REF: arena/01a07ff9-khyeastwebsite
+          TESTED_SHA: ${{ needs.verify.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            "refs/heads/${SOURCE_REF}:refs/remotes/origin/production-source"
+          FETCHED_SHA="$(git rev-parse refs/remotes/origin/production-source)"
+          if [[ "$FETCHED_SHA" != "$TESTED_SHA" ]]; then
+            echo 'The source branch moved after testing; rerun the workflow.' >&2
+            exit 1
+          fi
+
+          # Keep any main commit that landed while verification was running.
+          # The final push remains a normal, non-forced fast-forward update.
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          git merge --ff-only refs/remotes/origin/main
+
+          # Complete Node application, production assets, build inputs, and
+          # operational scripts. Keep .gitignore for secret/runtime-data safety
+          # and this workflow so the replacement can be invoked again.
+          # Tests, other workflows, docs, generated dist/, assets-src/, local
+          # dependencies, and .arena/ are intentionally excluded.
+          PRODUCTION_PATHS=(
+            .gitattributes
+            .gitignore
+            .github/workflows/promote-production.yml
+            index.html
+            package.json
+            package-lock.json
+            vite.config.js
+            src
+            shared
+            server
+            public
+            ops
+            scripts/generate-seo.mjs
+            scripts/migrate-database.mjs
+            scripts/purge-upload-quarantine.mjs
+          )
+
+          # Start from an empty index/worktree, then restore only the allowlist
+          # from the exact source commit tested by the read-only job.
+          git rm -r -f --ignore-unmatch -- .
+          git checkout "$TESTED_SHA" -- "${PRODUCTION_PATHS[@]}"
+
+          for REQUIRED_PATH in \
+            .gitattributes .gitignore \
+            .github/workflows/promote-production.yml \
+            index.html package.json package-lock.json vite.config.js \
+            src/main.jsx server/index.js; do
+            git ls-files --error-unmatch "$REQUIRED_PATH" >/dev/null
+          done
+
+          # Fail closed if any non-allowlisted tracked file entered the result.
+          while IFS= read -r -d '' PATHNAME; do
+            case "$PATHNAME" in
+              .gitattributes|.gitignore|.github/workflows/promote-production.yml|\
+              index.html|package.json|package-lock.json|vite.config.js|\
+              src/*|shared/*|server/*|public/*|ops/*|\
+              scripts/generate-seo.mjs|scripts/migrate-database.mjs|\
+              scripts/purge-upload-quarantine.mjs)
+                ;;
+              *)
+                echo "Unexpected file in replacement tree: $PATHNAME" >&2
+                exit 1
+                ;;
+            esac
+          done < <(git ls-files -z)
+
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'main already matches the production allowlist.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+          {
+            echo '### Replacement tree on main'
+            echo 'All prior tracked files outside the production allowlist are removed.'
+            echo 'The existing Git history is preserved; this is not a force push.'
+            echo
+            git ls-files | sed 's/^/- `/; s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and push the replacement tree to main
+        if: steps.replace.outputs.changed == 'true'
+        shell: bash
+        env:
+          TESTED_SHA: ${{ needs.verify.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "chore(prod): replace main tree from ${TESTED_SHA:0:12}"
+          git push origin HEAD:refs/heads/main
