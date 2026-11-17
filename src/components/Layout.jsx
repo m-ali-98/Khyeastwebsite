@@ -7,7 +7,10 @@ import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
 import { useLocale } from '../i18n/LocaleContext';
 import { activeTrustSeals } from '../../shared/trustSeals.js';
+import { DEFAULT_STATE } from '../../shared/contentDefaults.js';
+import { localizeState } from '../../shared/i18n/index.js';
 import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
+import { internationalPhoneDisplay, iranPhoneE164 } from '../lib/phone';
 
 export const NAV_LINKS = [
   { to: '/', key: 'nav.home', end: true },
@@ -691,6 +694,11 @@ function Footer() {
   const { shopEnabled, locale } = useLocale();
   const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
   const socials = col('socials');
+  const offices = col('offices');
+  const defaultOffices = localizeState(DEFAULT_STATE, locale)?.collections?.offices ?? [];
+  const secondPlant = offices.find((office) => office.id === 'kermanshah')
+    || defaultOffices.find((office) => office.id === 'kermanshah');
+  const SecondPlantIcon = Icons[secondPlant?.icon] || Icons.factory;
   const trustSeals = activeTrustSeals(col('trustSeals'));
   return (
     <footer className="footer">
@@ -777,6 +785,32 @@ function Footer() {
                 <Icons.factory size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginInlineEnd: 8 }} />
                 {t('footer.address2')}
               </li>
+              {secondPlant && (
+                <li style={{ lineHeight: 1.9 }}>
+                  <SecondPlantIcon size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginInlineEnd: 8 }} />
+                  <span>
+                    <strong>{secondPlant.title}</strong>
+                    <br />
+                    {secondPlant.address}
+                    {(secondPlant.phones || []).map((phone, index) => {
+                      const phoneNumber = iranPhoneE164(phone.tel) || iranPhoneE164(phone.fa);
+                      const hrefNumber = phoneNumber || phone.tel || phone.fa;
+                      if (!hrefNumber) return null;
+                      const display = locale === 'fa'
+                        ? phone.fa
+                        : internationalPhoneDisplay(phoneNumber, locale);
+                      return (
+                        <span key={phone.tel || phone.fa || index} style={{ display: 'block' }}>
+                          <a href={`tel:${hrefNumber}`}>
+                            <Icons.phone size={13} />
+                            <bdi dir="ltr">{display || phone.fa || phone.tel}</bdi>
+                          </a>
+                        </span>
+                      );
+                    })}
+                  </span>
+                </li>
+              )}
             </ul>
           </div>
         </div>
