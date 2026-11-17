@@ -10,7 +10,6 @@ import { activeTrustSeals } from '../../shared/trustSeals.js';
 import { DEFAULT_STATE } from '../../shared/contentDefaults.js';
 import { localizeState } from '../../shared/i18n/index.js';
 import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
-import { internationalPhoneDisplay, iranPhoneE164 } from '../lib/phone';
 
 export const NAV_LINKS = [
   { to: '/', key: 'nav.home', end: true },
@@ -788,27 +787,7 @@ function Footer() {
               {secondPlant && (
                 <li style={{ lineHeight: 1.9 }}>
                   <SecondPlantIcon size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginInlineEnd: 8 }} />
-                  <span>
-                    <strong>{secondPlant.title}</strong>
-                    <br />
-                    {secondPlant.address}
-                    {(secondPlant.phones || []).map((phone, index) => {
-                      const phoneNumber = iranPhoneE164(phone.tel) || iranPhoneE164(phone.fa);
-                      const hrefNumber = phoneNumber || phone.tel || phone.fa;
-                      if (!hrefNumber) return null;
-                      const display = locale === 'fa'
-                        ? phone.fa
-                        : internationalPhoneDisplay(phoneNumber, locale);
-                      return (
-                        <span key={phone.tel || phone.fa || index} style={{ display: 'block' }}>
-                          <a href={`tel:${hrefNumber}`}>
-                            <Icons.phone size={13} />
-                            <bdi dir="ltr">{display || phone.fa || phone.tel}</bdi>
-                          </a>
-                        </span>
-                      );
-                    })}
-                  </span>
+                  <span>{secondPlant.address}</span>
                 </li>
               )}
             </ul>
