@@ -57,10 +57,10 @@ test('product and article pages publish truthful structured data', async ({ requ
   expect(product.offers.availability).toContain('InStock');
   expect(productGraph.some((entry) => entry['@type'] === 'BreadcrumbList')).toBeTruthy();
 
-  const postHtml = await (await request.get('/blog/reduce-bread-production-costs')).text();
+  const postHtml = await (await request.get('/blog/yeast-types-for-baking')).text();
   const article = jsonLd(postHtml)['@graph'].find((entry) => entry['@type'] === 'BlogPosting');
-  expect(article.headline).toContain('هزینه‌های تولید نان');
-  expect(article.datePublished).toBe('2026-08-16');
+  expect(article.headline).toContain('انواع خمیرمایه');
+  expect(article.datePublished).toBe('2026-09-08');
   expect(article.publisher['@id']).toContain('#organization');
 });
 

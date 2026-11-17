@@ -26,11 +26,11 @@ const ROUTES = [
   '/', '/about', '/products', '/products/dezmaye-gold-80', '/products/shetab-90',
   '/products/xpower-70', '/products/nanmaye-500', '/shop', '/shop/cart',
   '/shop/checkout', '/shop/dezmaye-gold-80', '/export', '/quality', '/blog',
-  '/blog/reduce-bread-production-costs', '/gallery', '/sales-representatives', '/contact', '/shop/login', '/shop/account',
-  '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/gallery', '/en/contact', '/en/sales-representatives', '/en/shop',
-  '/ar', '/ar/about', '/ar/products', '/ar/products/dezmaye-gold-80', '/ar/gallery', '/ar/contact', '/ar/shop',
+  '/blog/yeast-types-for-baking', '/gallery', '/sales-representatives', '/contact', '/shop/login', '/shop/account',
+  '/en', '/en/about', '/en/products', '/en/products/dezmaye-gold-80', '/en/blog', '/en/blog/yeast-types-for-baking', '/en/gallery', '/en/contact', '/en/sales-representatives', '/en/shop',
+  '/ar', '/ar/about', '/ar/products', '/ar/products/dezmaye-gold-80', '/ar/blog/yeast-types-for-baking', '/ar/gallery', '/ar/contact', '/ar/shop',
   '/ru', '/ru/about', '/ru/products', '/ru/products/dezmaye-gold-80', '/ru/products/dezmaye-gold-10kg',
-  '/ru/blog', '/ru/blog/reduce-bread-production-costs', '/ru/gallery', '/ru/contact', '/ru/shop', '/ru/sales-representatives',
+  '/ru/blog', '/ru/blog/yeast-types-for-baking', '/ru/gallery', '/ru/contact', '/ru/shop', '/ru/sales-representatives',
   '/dezmaye', '/shetab', '/nonexistent-page',
 ];
 
@@ -171,6 +171,9 @@ await reportSuite('assets.mjs', 30000, 'asset checks');
 
 console.log('\nSEO — every public route must be crawlable, canonical and safe');
 await reportSuite('seo.mjs', 40000, 'crawl, metadata, schema and sitemap checks');
+
+console.log('\nArticles — the six imported guides and their local media stay complete and safe');
+await reportSuite('articles.mjs', 30000, 'content, localized entries, rich tables and WebP/video paths');
 
 console.log('\nRussian locale — complete public translations and no Persian fallback');
 await reportSuite('russian-i18n.mjs', 30000, 'translation coverage, product/blog data, metadata and accessible UI');

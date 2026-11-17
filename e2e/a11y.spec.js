@@ -106,7 +106,7 @@ const PAGES = [
   '/export',
   '/quality',
   '/blog',
-  '/blog/reduce-bread-production-costs',
+  '/blog/yeast-types-for-baking',
   '/gallery',
   '/contact',
   '/shop',

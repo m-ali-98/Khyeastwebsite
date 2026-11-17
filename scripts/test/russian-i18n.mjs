@@ -124,7 +124,7 @@ for (const route of russianRoutes) {
     metadataGaps.push(route);
   }
 }
-check(russianRoutes.length === 41, 'Russian version has every public static, product and blog URL', String(russianRoutes.length));
+check(russianRoutes.length === 44, 'Russian version has every public static, product and imported blog URL', String(russianRoutes.length));
 check(metadataGaps.length === 0, 'all Russian route metadata, crawlable links and body snippets avoid Persian fallback', metadataGaps.join(', '));
 check(
   !listIndexablePaths(DEFAULT_STATE).includes('/ru/shop') && !listIndexablePaths(DEFAULT_STATE).includes('/ru/sales-representatives'),

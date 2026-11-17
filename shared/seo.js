@@ -30,6 +30,17 @@ const ALIASES = {
   '/shetab': '/products/shetab-90',
   '/xpower': '/products/xpower-70',
   '/nanmaye': '/products/nanmaye-500',
+  /* Preserve the three former placeholder URLs and the six imported WordPress
+     permalinks while sending visitors to the new canonical blog routes. */
+  '/blog/reduce-bread-production-costs': '/blog/yeast-buying-guide',
+  '/blog/yeast-quality-and-bread-shelf-life': '/blog/how-to-identify-quality-yeast',
+  '/blog/comparing-yeast-types-in-baking': '/blog/yeast-types-for-baking',
+  '/انواع-خمیرمایه-و-تفاوت-آنها؛-کدام-خم': '/blog/yeast-types-for-baking',
+  '/تفاوت-خمیرمایه-تازه-و-خشک': '/blog/fresh-vs-dry-yeast',
+  '/تفاوت-خمیرمایه-فوری-و-فعال-خشک-کدام-برا': '/blog/instant-vs-active-dry-yeast',
+  '/چگونه-خمیرمایه-باکیفیت-را-تشخیص-دهیم؟': '/blog/how-to-identify-quality-yeast',
+  '/خرید-خمیرمایه-از-کارخانه': '/blog/buy-yeast-direct-from-factory',
+  '/راهنمای-خرید-خمیرمایه-انواع،-قیمت-و-نک': '/blog/yeast-buying-guide',
 };
 
 const STATIC_ROUTES = {
@@ -216,7 +227,9 @@ export function redirectPath(pathname = '/') {
   if (target === '/en/admin' || target.startsWith('/en/admin/')) target = normalizePathname(target.slice(3));
   else if (target === '/ar/admin' || target.startsWith('/ar/admin/')) target = normalizePathname(target.slice(3));
 
-  const { locale, relative } = localeRoute(target);
+  let aliasPath = target;
+  try { aliasPath = decodeURI(target); } catch { /* malformed escapes remain unmatched */ }
+  const { locale, relative } = localeRoute(aliasPath);
   if (ALIASES[relative]) target = localePath(locale, ALIASES[relative]);
   return target !== original ? target : null;
 }

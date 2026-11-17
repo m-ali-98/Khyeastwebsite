@@ -430,7 +430,7 @@ test('the cleaned inner pages keep their primary layout inside narrow screens @m
     ['/contact', '.contact-layout'],
     ['/products/dezmaye-gold-80', '.catalog-detail__layout'],
     ['/shop/dezmaye-gold-80', '.shop-product-page .sp-detail'],
-    ['/blog/reduce-bread-production-costs', '.article-body'],
+    ['/blog/yeast-types-for-baking', '.article-body'],
   ];
 
   for (const [url, selector] of cases) {

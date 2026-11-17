@@ -34,8 +34,8 @@ const arQuality = resolveSeo('/ar/quality', DEFAULT_STATE, ORIGIN);
 const ruAbout = resolveSeo('/ru/about', DEFAULT_STATE, ORIGIN);
 const product = resolveSeo('/products/dezmaye-gold-80', DEFAULT_STATE, ORIGIN);
 const ruProduct = resolveSeo('/ru/products/dezmaye-gold-80', DEFAULT_STATE, ORIGIN);
-const article = resolveSeo('/blog/reduce-bread-production-costs', DEFAULT_STATE, ORIGIN);
-const ruArticle = resolveSeo('/ru/blog/reduce-bread-production-costs', DEFAULT_STATE, ORIGIN);
+const article = resolveSeo('/blog/yeast-types-for-baking', DEFAULT_STATE, ORIGIN);
+const ruArticle = resolveSeo('/ru/blog/yeast-types-for-baking', DEFAULT_STATE, ORIGIN);
 const gallery = resolveSeo('/en/gallery', DEFAULT_STATE, ORIGIN);
 const salesRepresentatives = resolveSeo('/sales-representatives', DEFAULT_STATE, ORIGIN);
 const invalidLocaleSalesRepresentatives = resolveSeo('/en/sales-representatives', DEFAULT_STATE, ORIGIN);
@@ -87,7 +87,7 @@ for (const [stock, availability] of [
 }
 check(article.schema?.['@graph']?.some((item) => item['@type'] === 'BlogPosting'), 'BlogPosting JSON-LD');
 check(article.schema?.['@graph']?.some((item) => item['@type'] === 'WebPage'), 'article is attached to a valid WebPage schema type');
-check(article.schema?.['@graph']?.some((item) => item['@type'] === 'BlogPosting' && item.datePublished === '2026-08-16'), 'article ISO publication date');
+check(article.schema?.['@graph']?.some((item) => item['@type'] === 'BlogPosting' && item.datePublished === '2026-09-08'), 'article ISO publication date');
 const catalogueGraph = resolveSeo('/products', DEFAULT_STATE, ORIGIN).schema?.['@graph'] || [];
 check(catalogueGraph.some((item) => item['@type'] === 'CollectionPage'), 'catalogue CollectionPage JSON-LD');
 check(catalogueGraph.some((item) => item['@type'] === 'ItemList'), 'catalogue ItemList JSON-LD');
@@ -161,18 +161,21 @@ check(redirectPath('/ar/nanmaye') === '/ar/products/nanmaye-500', 'localized Nan
 check(redirectPath('/about/') === '/about', 'trailing slash canonical target');
 check(redirectPath('/fa/products') === '/products', 'default locale prefix target');
 check(redirectPath('/index.html') === '/', 'index file canonical target');
+check(redirectPath('/blog/reduce-bread-production-costs') === '/blog/yeast-buying-guide', 'former cost article permanently redirects to the imported buying guide');
+check(redirectPath('/ru/blog/yeast-quality-and-bread-shelf-life') === '/ru/blog/how-to-identify-quality-yeast', 'localized former quality article permanently redirects to the imported quality guide');
+check(redirectPath('/en/%d8%aa%d9%81%d8%a7%d9%88%d8%aa-%d8%ae%d9%85%db%8c%d8%b1%d9%85%d8%a7%db%8c%d9%87-%d8%aa%d8%a7%d8%b2%d9%87-%d9%88-%d8%ae%d8%b4%da%a9/') === '/en/blog/fresh-vs-dry-yeast', 'percent-encoded legacy WordPress article path redirects to its localized blog route');
 
 const paths = listIndexablePaths(DEFAULT_STATE);
-check(paths.length === 167, 'all current public locale routes enumerated', String(paths.length));
+check(paths.length === 179, 'all current public locale routes enumerated', String(paths.length));
 check(new Set(paths).size === paths.length, 'route enumeration has no duplicates');
 check(
   paths.filter((entry) => entry.startsWith('/shop/')).join(',') === '/shop/nanmaye-10',
   'catalogue duplicates stay excluded while the standalone Nan Maye shop SKU is indexable',
 );
 check(paths.includes('/shop') && !paths.includes('/en/shop') && !paths.includes('/ar/shop') && !paths.includes('/ru/shop'), 'shop listed in Persian only');
-check(!paths.includes('/ru/sales-representatives') && paths.includes('/ru/products/dezmaye-gold-80') && paths.includes('/ru/blog/reduce-bread-production-costs'), 'Russian catalogue and blog routes are indexed while Iran-only representatives are not');
+check(!paths.includes('/ru/sales-representatives') && paths.includes('/ru/products/dezmaye-gold-80') && paths.includes('/ru/blog/yeast-types-for-baking') && paths.includes('/ru/blog/yeast-buying-guide'), 'Russian catalogue and imported blog routes are indexed while Iran-only representatives are not');
 const routable = listRoutablePaths(DEFAULT_STATE);
-check(routable.length === 173, 'four-locale public catalogue/blog plus Persian-only representatives and shop routes are rendered');
+check(routable.length === 185, 'four-locale public catalogue/blog plus Persian-only representatives and shop routes are rendered');
 check(routable.includes('/shop/dezmaye-gold-80'), 'canonicalized shop product remains routable');
 const allMeta = paths.map((route) => resolveSeo(route, DEFAULT_STATE, ORIGIN));
 check(new Set(allMeta.map((meta) => meta.title)).size === allMeta.length, 'every sitemap page has a unique title');
@@ -191,7 +194,7 @@ const sitemap = renderSitemap(DEFAULT_STATE, ORIGIN);
 check(sitemap.startsWith('<?xml version="1.0"'), 'sitemap XML declaration');
 check((sitemap.match(/<url>/g) || []).length === paths.length, 'one sitemap entry per route');
 check(sitemap.includes('xmlns:xhtml=') && sitemap.includes('hreflang="x-default"'), 'sitemap hreflang namespace and x-default');
-check(sitemap.includes('<lastmod>2026-08-16</lastmod>'), 'sitemap article lastmod');
+check(sitemap.includes('<lastmod>2026-09-08</lastmod>'), 'sitemap imported article lastmod');
 check(sitemap.includes('<image:image>'), 'image sitemap entries');
 check(!sitemap.includes('/shop/account') && !sitemap.includes('/admin'), 'sitemap excludes private routes');
 check(!sitemap.includes('/en/shop'), 'sitemap excludes invalid locale shop');
