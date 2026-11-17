@@ -192,6 +192,7 @@ check(malformedSafe, 'malformed nested CMS lists cannot crash SEO rendering');
 
 const sitemap = renderSitemap(DEFAULT_STATE, ORIGIN);
 check(sitemap.startsWith('<?xml version="1.0"'), 'sitemap XML declaration');
+check(sitemap.includes('<?xml-stylesheet type="text/xsl" href="/sitemap.xsl"?>'), 'sitemap links an optional browser-only visual stylesheet');
 check((sitemap.match(/<url>/g) || []).length === paths.length, 'one sitemap entry per route');
 check(sitemap.includes('xmlns:xhtml=') && sitemap.includes('hreflang="x-default"'), 'sitemap hreflang namespace and x-default');
 check(sitemap.includes('<lastmod>2026-09-08</lastmod>'), 'sitemap imported article lastmod');
@@ -214,6 +215,7 @@ const builtProduct = fs.readFileSync(path.join(DIST, 'seo-pages', 'products--dez
 const builtPrivate = fs.readFileSync(path.join(DIST, 'seo-pages', '_private.html'), 'utf8');
 const built404 = fs.readFileSync(path.join(DIST, '404.html'), 'utf8');
 const builtHtaccess = fs.readFileSync(path.join(DIST, '.htaccess'), 'utf8');
+const builtSitemapStylesheet = fs.readFileSync(path.join(DIST, 'sitemap.xsl'), 'utf8');
 check(builtIndex.includes('<main class="seo-fallback">'), 'root has crawlable fallback content');
 check(builtIndex.includes('application/ld+json'), 'root has structured data before JavaScript');
 check(builtEnAbout.includes('<html lang="en" dir="ltr"'), 'built English document language');
@@ -231,6 +233,11 @@ check(builtPrivate.includes('content="noindex, nofollow, noarchive"'), 'static p
 check(built404.includes('content="noindex, nofollow, noarchive"'), 'static 404 shell noindex');
 check(fs.readFileSync(path.join(DIST, 'robots.txt'), 'utf8') === robots, 'built robots matches resolver');
 check(fs.readFileSync(path.join(DIST, 'sitemap.xml'), 'utf8') === sitemap, 'built sitemap matches resolver');
+check(
+  builtSitemapStylesheet.includes('<xsl:stylesheet') && builtSitemapStylesheet.includes('doctype-system="about:legacy-compat"') && builtSitemapStylesheet.includes('Public canonical pages') && builtSitemapStylesheet.includes('@media (max-width: 740px)') && builtSitemapStylesheet.includes('prefers-color-scheme: dark'),
+  'built sitemap stylesheet provides responsive, accessible light/dark presentation',
+);
+check(builtHtaccess.includes('AddType text/xsl .xsl') && builtHtaccess.includes('FilesMatch "\\.xsl$"'), 'Apache serves and revalidates the sitemap stylesheet');
 check(builtHtaccess.includes('RewriteRule ^en/about$ /seo-pages/en--about.html [L]'), 'Apache maps localized route to prerender');
 check(builtHtaccess.includes('RewriteRule . - [R=404,L]'), 'Apache returns genuine unknown-route 404');
 check(builtHtaccess.includes('X-Robots-Tag "noindex, nofollow, noarchive"'), 'Apache sends noindex header for private and 404 shells');
