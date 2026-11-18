@@ -156,6 +156,7 @@ for (const [file, description] of [
   ['graceful-shutdown.mjs', 'bounded HTTP request drain'],
   ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],
+  ['deploy-script.mjs', 'Ubuntu release safeguards, guarded code rollback and explicit migration gate'],
 ]) {
   await reportSuite(file, 30000, description);
 }

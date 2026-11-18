@@ -408,7 +408,7 @@ Baselineهای تصویری فعلی platform-specific هستند. `npm run test
 │   ├── sms.js              اتصال sms.ir
 │   └── data/               دیتابیس محلی runtime (ignored؛ نه محتوای tracked)
 ├── scripts/                build SEO، purge قرنطینه، پردازش تصویر و تست‌ها
-├── ops/                    backup معتبر، replication append-only، maintenance و retry پرداخت
+├── ops/                    backup معتبر، deploy تک‌سرور Ubuntu، replication append-only، maintenance و retry پرداخت
 ├── e2e/                    Playwright، axe و visual regression
 ├── vite.config.js
 └── playwright.config.js
@@ -471,18 +471,29 @@ UPLOAD_DIR/.incoming/    # بدنهٔ موقت و هنوز منتشرنشدهٔ 
 
 اگر metadata یا یکی از ۹ بخش محتوای SQLite گم، خراب یا از نوع نادرست باشد، public GET برای در دسترس‌ماندن سایت defaultهای بسته را با header برابر `X-Khyeast-Content-Status: fallback` نشان می‌دهد؛ اما همهٔ ذخیره‌های محتوایی Admin، ذخیرهٔ مستقیم محصول/نمایش فروشگاه و عملیات حذف upload با `503 content-unavailable` متوقف می‌شوند. startup و ذخیرهٔ عادی هرگز defaultها را روی state established ثبت نمی‌کنند. سرویس را متوقف، دیتابیس و sidecarهای خراب را برای بررسی نگه‌داری، و **کل** `khyeast.db` تأییدشده را از یک archive format 2 بازیابی کنید؛ sectionها را از backupهای متفاوت ترکیب نکنید. سپس ownership را اصلاح، سرویس را اجرا و `integrity_check`، health، header `persisted`، سفارش‌های pending و reconciliation پرداخت را بررسی کنید.
 
-هنگام انتشار نسخهٔ جدید:
+برای **به‌روزرسانی عادی روی یک Ubuntu VPS**، ابتدا commit باید طبق فرایند production به `main` رسیده باشد؛ سپس از release فعلی اجرا کنید:
 
-1. backup آنلاین معتبر و نسخهٔ offsite رمزگذاری‌شده را تأیید کنید.
-2. نسخهٔ جدید را در یک release directory جداگانه `npm ci`، test و build کنید؛ روی checkout در حال اجرا `npm ci` نزنید.
-3. از داخل release جدید و در حالی که نسخهٔ قدیمی هنوز آنلاین است، `npm run db:migrate -- --database /var/lib/khyeast/data/khyeast.db --dry-run` را اجرا کنید. schema ناشناخته، مسیر ناقص یا دیتابیس جدیدتر باید deployment را متوقف کند.
-4. اگر plan خالی است، بدون write ادامه دهید. اگر همهٔ گام‌ها صریحاً rolling-compatible هستند، فرمان واقعی می‌تواند با backup/fence آنلاین اجرا شود. برای هر گام offline، ابتدا همهٔ workerها را drain/stop کنید و سپس همان فرمان را با `--app-stopped` اجرا کنید؛ startup هرگز migration را به‌جای اپراتور انجام نمی‌دهد.
-5. symlink نسخه را اتمیک جابه‌جا کنید و سرویس را restart کنید؛ اگر برای migration متوقف شده بود، پس از cutover آن را start کنید.
-6. `server/data/`، `server/uploads/` و `migration-backups/` را جایگزین یا پاک نکنید؛ state تولید باید بیرون checkout باشد.
-7. SIGTERM ابتدا پذیرش request جدید را می‌بندد و تا ۹۰ ثانیه به callbackهای فعال فرصت پایان می‌دهد؛ unit تولید باید `TimeoutStopSec=120s` داشته باشد.
-8. برای مسیر دقیق callback زرین‌پال، صفحهٔ 503 موجود در `ops/payment-callback-unavailable.html` را در Nginx فعال کنید تا قطع کوتاه proxy یا timeout قابل‌تکرارِ verification همان authority را حداکثر شش بار خودکار دوباره بررسی کند و سپس با اقدام دستی متوقف شود؛ مشتری نباید دوباره پرداخت کند. درخواست‌های SDK حداکثر ۲۰ ثانیه منتظر می‌مانند.
-9. health، ورود Admin، header محتوای `persisted` و یک callback تکراری پرداخت را بررسی کنید.
-10. پس از schema migration، rollback کد تنها وقتی مجاز است که migration صریحاً سازگاری نسخهٔ قبلی را حفظ کرده باشد. در غیر این صورت restore snapshot پیش از migration نیازمند توقف سرویس و reconciliation همهٔ سفارش‌ها و پرداخت‌های بعد از snapshot است.
+```sh
+cd /srv/khyeast/current
+./ops/deploy-khyeast-ubuntu.sh --dry-run
+./ops/deploy-khyeast-ubuntu.sh
+```
+
+`--dry-run` موقتاً `main` را clone می‌کند، `npm ci` و `npm test` را اجرا می‌کند و build را با `PUBLIC_ORIGIN` واقعی می‌سازد. سپس ابزارهای build/test را با `npm prune --omit=dev` از release قابل‌اجرا حذف می‌کند و فقط dependencyهای production را با `npm audit --omit=dev --audit-level=high` ممیزی می‌کند. آسیب‌پذیری high/critical در dependencyهای production، release را متوقف می‌کند؛ ممیزی کامل ابزارهای development همچنان بررسی جداگانهٔ ارتقای toolchain است. دو preflight فقط‌خواندنی `npm run db:migrate -- --dry-run` اجرا می‌شوند: یکی برای candidate و دیگری برای اطمینان از اینکه کد فعلی هنوز schema دیتابیس را می‌پذیرد و rollback کد ممکن است. هیچ migration واقعی اجرا نمی‌شود. E2E در deploy script اجرا نمی‌شود. dry-run هیچ backup، cutover یا restart زنده‌ای انجام نمی‌دهد. در اجرای عادی، پس از نمایش SHA کامل و تأیید تعاملی اپراتور، backup محلی معتبر و offsite append-only باید هر دو موفق شوند؛ سپس script symlink را اتمیک جابه‌جا، سرویس را restart و health، وضعیت `persisted`، sitemap و robots را بررسی می‌کند.
+
+برای اجرای غیرتعاملی، فقط SHA کامل ۴۰رقمی‌ای را تأیید کنید که در dry-run بررسی شده است؛ اگر `main` از آن زمان عوض شده باشد script متوقف می‌شود:
+
+```sh
+./ops/deploy-khyeast-ubuntu.sh --confirm-commit FULL_40_CHARACTER_SHA
+```
+
+این updater فقط برای **سرور از قبل نصب‌شده و سالم** است؛ provisioning، DNS/TLS، تنظیم درگاه/پیامک و نصب اولیه همچنان دستی‌اند. Script باید به‌عنوان کاربر deployment اجرا شود، نه root؛ `PUBLIC_ORIGIN` از فایل root-owned با permission امن خوانده می‌شود. اگر repo خصوصی است از deploy key فقط‌خواندنی و `KHYEAST_REPO_URL` استفاده کنید، نه token در command line.
+
+شرط‌های ایمنی پیش از cutover شامل سلامت سرویس فعلی و Nginx، content status برابر `persisted`، حداقل فضای آزاد، اجرای service user روی Node/npm، absolute بودن مسیرهای `DB_FILE`، `DATA_DIR`، `UPLOAD_DIR` و `MIGRATION_BACKUP_DIR` و resolve شدن همهٔ آن‌ها بیرون از `releases/`، دسترسی read/write سرویس به دیتابیس و پوشه‌های state، برابری نسخهٔ فایل‌های root-owned backup/systemd و صفحهٔ callback با نسخهٔ release، و read-only migration preflight است. backup و offsite قبل از switch اجرا می‌شوند. فایل‌های SQLite، uploads، secrets، Nginx، unitها و scriptهای root-owned هرگز توسط deploy script جایگزین نمی‌شوند؛ releaseهای قبلی نیز خودکار پاک نمی‌شوند. در صورت اختلاف operations files، کمبود backup یا migration plan، deployment متوقف می‌شود تا اپراتور آن را جداگانه بررسی کند.
+
+اگر dry-run candidate یک migration plan نشان داد (exit code 3)، cutover انجام نشده است. پس از بررسی سازگاری و گرفتن backup، migration واقعی فقط با اقدام صریح اپراتور از طریق `npm run db:migrate` و طبق راهنمای PDF اجرا می‌شود؛ در migration offline، ابتدا همهٔ workerها drain و متوقف شوند و `--app-stopped` فقط پس از توقف واقعی استفاده شود. بعد از migration، دوباره dry-run و deploy را اجرا کنید. پیش از cutover و دوباره هنگام rollback، اسکریپت با migration dry-run فقط‌خواندنی بررسی می‌کند که release قبلی schema فعلی را بپذیرد. اگر این guard موفق نباشد، cutover/rollback خودکار انجام نمی‌شود و باید از rollout دستیِ بررسی‌شدهٔ فصل ۱۳ استفاده کنید؛ guard را دور نزنید. اگر health یا post-cutover check شکست بخورد و `current` هنوز دقیقاً به candidate اشاره کند، release قبلی در مسیر مجاز باشد و schema check آن موفق شود، اسکریپت فقط symlink کد را اتمیک برمی‌گرداند، سرویس قبلی را restart می‌کند و health و `persisted` را دوباره می‌سنجد. هیچ database، upload یا persistent dataای rollback نمی‌شود؛ سفارش/پرداخت و هر write پذیرفته‌شده توسط candidate باقی می‌ماند و باید reconcile شود. اگر rollback خودش health check را نگذرد، logها و داده را بررسی کنید و rollback دستی فصل ۱۳ را فقط پس از بررسی سازگاری انجام دهید. فضای دیسک و releaseهای قدیمی را هم جداگانه بازبینی و پاکسازی کنید؛ اسکریپت آن‌ها را خودکار حذف نمی‌کند.
+
+برای اولین نصب، تغییرات Nginx/systemd یا به‌روزرسانی root-owned operations files از مسیر دستی فصل ۱۳ راهنما استفاده کنید. `ops/deploy-khyeast-ubuntu.sh` و راهنمای کامل PDF در کنار همین README قرار دارند.
 
 جزئیات نصب timerها، backup آنلاین/متوقف، restore و انتشار اتمیک در `docs/Khyeast-Linux-Deployment-Guide.pdf` آمده است. archive محلی به‌تنهایی backup کامل نیست. `ops/replicate-khyeast-restic` روی VPS فقط checksum محلی را دوباره بررسی و snapshot جدید را اضافه می‌کند. Restic upstream گزینهٔ سراسری `--no-lock` را برای `backup` می‌پذیرد ولی اجرا نمی‌کند ([issue #1544](https://github.com/restic/restic/issues/1544))؛ backup همچنان lock می‌سازد و در پایان حذف می‌کند. بنابراین endpoint محدود باید حذف history را منع کند ولی فقط حذف `locks/*` را مجاز بداند (مانند `rest-server --append-only`). اگر provider چنین scopeی ندارد، credential آن را مستقیم به Restic ندهید و یک endpoint واقعاً append-only سازگار با lock جلوی آن قرار دهید. پیش از production، همان credential محدود را یک بار روی مخزن disposable آزمایش کنید: backup عادی باید همراه cleanup lock موفق و `forget` باید ناموفق باشد؛ سپس با credential کامل ماشین نگهداری تأیید کنید snapshot آزمایشی هنوز وجود دارد، قابل restore است و lock باقیمانده‌ای ندارد. `RESTIC_APPEND_ONLY=true` و تست mock جای این آزمون provider-side را نمی‌گیرند. `restic check` و retention فقط با `ops/maintain-khyeast-restic` و credential کامل روی یک ماشین مورداعتماد جدا اجرا می‌شوند. URL و credentialهای VPS فقط در `/etc/khyeast/restic.env` می‌مانند و credential نگهداری هرگز روی VPS قرار نمی‌گیرد. یک restore واقعی را تمرین کنید.
 

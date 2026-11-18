@@ -138,7 +138,7 @@
   <div>
     <div class="kicker">Production Operations Manual</div>
     <h1>Linux Deployment<br>from Zero to Launch</h1>
-    <p class="subtitle">A complete, project-specific guide for deploying the Khuzestan Yeast website on an Ubuntu/Debian server with Node.js, systemd, Nginx, HTTPS, SQLite backups, secure proxy handling, and a repeatable update process.</p>
+    <p class="subtitle">A complete, project-specific guide for deploying the Khuzestan Yeast website on an Ubuntu/Debian server with Node.js, systemd, Nginx, HTTPS, SQLite backups, secure proxy handling, and a safeguarded single-server release script.</p>
     <div class="cover-grid">
       <div class="cover-chip"><b>Application</b><span>React 19 · Vite 8 · Express 5</span></div>
       <div class="cover-chip"><b>Runtime</b><span>Node.js 22+ · SQLite WAL</span></div>
@@ -148,7 +148,7 @@
   </div>
   <div class="cover-meta">
     <span>Repository: m-ali-98/Khyeastwebsite</span>
-    <span>Edition 1.1 · 7 November 2026</span>
+    <span>Edition 1.3 · 8 September 2026</span>
   </div>
 </section>
 
@@ -169,7 +169,7 @@
     <a class="toc-item" href="#ch10"><b>10</b> Verify proxy, cookies, IP, and security<small>Real-host Admin test and trust-proxy rules</small></a>
     <a class="toc-item" href="#ch11"><b>11</b> Configure the application and go live<small>Admin, payment, SMS, stock, and launch tests</small></a>
     <a class="toc-item" href="#ch12"><b>12</b> Back up, expire quarantine, and restore<small>Active/stopped SQLite, append-only offsite, reconciliation</small></a>
-    <a class="toc-item" href="#ch13"><b>13</b> Deploy with a bounded cutover<small>Versioned releases, graceful drain, rollback</small></a>
+    <a class="toc-item" href="#ch13"><b>13</b> Deploy with a bounded cutover<small>Guarded release script, backups, graceful drain</small></a>
     <a class="toc-item" href="#ch14"><b>14</b> Monitor and maintain the service<small>Logs, disk, health, certificates, alerts</small></a>
     <a class="toc-item" href="#ch15"><b>15</b> Troubleshooting guide<small>502, 426, cookies, uploads, SQLite, callbacks</small></a>
     <a class="toc-item" href="#ch16"><b>16</b> cPanel / Apache / Passenger appendix<small>Shared-host deployment and protocol headers</small></a>
@@ -467,7 +467,7 @@ npm audit</pre>
 
   <h3>Run the scripted validation</h3>
   <pre>npm test</pre>
-  <p>This builds the project and exercises routes, malformed content, sanitizer, payment, SMS, authentication, uploads, accounts, inventory, SEO, and API behavior. Run browser tests in CI or staging when Chromium is available:</p>
+  <p>This builds the project and exercises routes, malformed content, sanitizer, payment, SMS, authentication, uploads, accounts, inventory, SEO, and API behavior. Browser E2E is deliberately excluded from the Ubuntu release script. If separately approved, run it manually against isolated staging only—never against production data, and never through a GitHub workflow:</p>
   <pre>npx playwright install chromium
 npx playwright test \
   e2e/public.spec.js \
@@ -1209,11 +1209,26 @@ sudo systemctl start khyeast &amp;&amp; curl -fsS https://example.com/api/health
   <h2>Deploy with a bounded cutover</h2>
   <p class="lead">Never run <code>npm ci</code>, tests, or a build inside the release serving customers. Prepare a complete versioned directory while the old process stays online; the only single-instance interruption is the final graceful restart.</p>
 
+  <h3>Normal update path: the guarded release script</h3>
+  <p>The first server installation and business configuration remain deliberate manual steps. After Chapters 1–12 are complete and the existing Node/Nginx service is healthy, run the updater from the current release as the human deployment account—not as root. It deploys only the current, already-promoted <code>main</code> branch; it never deploys an Arena working branch.</p>
+  <pre>cd /srv/khyeast/current
+./ops/deploy-khyeast-ubuntu.sh --dry-run
+./ops/deploy-khyeast-ubuntu.sh</pre>
+  <p>The dry run fetches a temporary shallow clone of <code>main</code>, installs lockfile-pinned dependencies, runs <code>npm test</code>, builds against the root-owned <code>PUBLIC_ORIGIN</code>, and validates the sitemap and schema. It then removes build/test-only packages with <code>npm prune --omit=dev</code> and gates the deployable release on <code>npm audit --omit=dev --audit-level=high</code>; high/critical production dependency findings stop the release. Development-tool dependencies are not shipped, and their full audit remains a separate toolchain-review task. The script runs read-only <code>npm run db:migrate -- --dry-run</code> checks against both candidate code and the current release to prove the database schema remains safe for a code-only fallback. E2E/browser tests are not run by this script. The temporary release is removed afterward; no backup, live symlink, service restart, or database write occurs.</p>
+  <p>For a live update, the script repeats those checks and displays the full fetched SHA before asking you to type its first 12 characters. A non-interactive caller must first review the SHA from a dry run, then pass that exact full value:</p>
+  <pre>./ops/deploy-khyeast-ubuntu.sh --confirm-commit FULL_40_CHARACTER_SHA</pre>
+  <p>If the remote <code>main</code> changes after review, the full-SHA check fails closed. For a private repository, configure a read-only deploy key and set <code>KHYEAST_REPO_URL=git@github.com:m-ali-98/Khyeastwebsite.git</code>; never put a token in the script, command history, or remote URL.</p>
+
+  <div class="callout success"><b class="label">What a normal update automates</b>The script checks the clean current release, protected root-owned environment permissions, current service/Nginx health, persisted content, free disk, and that absolute database/data/upload/migration-backup paths resolve outside managed releases with the service account able to access persistent state. It also checks that installed operations files match the reviewed release. After explicit commit confirmation it requires successful validated local and append-only offsite backups, publishes the tested release with an atomic symlink swap, restarts systemd, and checks HTTPS health, persisted content, sitemap, and robots. If any post-cutover gate fails, it can perform a guarded code-only rollback as described below. It retains old releases and never prunes data automatically.</div>
+  <div class="callout warning"><b class="label">Migrations remain operator-controlled</b>The updater runs read-only dry-runs only against candidate and previous code. A pending candidate plan exits with status 3 before any live backup or cutover. Review and run the real <code>npm run db:migrate</code> manually using the documented backup, compatibility, and app-stop procedure; then retry deployment. Startup and the deploy script never apply a schema change.</div>
+  <div class="callout danger"><b class="label">Guarded code-only rollback</b>If a post-cutover check fails, the updater rolls <code>current</code> back only when it still points exactly at this candidate, the previous release remains a valid directory under <code>releases/</code>, and that release's read-only schema check still passes against the current database. It atomically restores the old code symlink, restarts the service, then checks local and public health plus persisted content. If a guard fails, it leaves the active target untouched and reports that manual recovery is required. This changes code and restarts the service only: it never restores the database, uploads, orders, payments, or other persistent data. Any writes accepted by the candidate remain and must be reconciled. Changed backup units, privileged operations scripts, or the CSP-bound callback page also stop the updater for separate review; the script never overwrites those root-owned files or Nginx configuration.</div>
+
   <h3>What not to do</h3>
   <p>Stopping Node before dependency installation and tests creates minutes of avoidable downtime. Running those commands without stopping is also unsafe: <code>npm ci</code> removes <code>node_modules</code> and the build replaces <code>dist</code> beneath the live process. Versioned releases avoid both failures.</p>
   <p>Deploy with <code>git clone</code>, not a Windows ZIP or files copied from a CRLF checkout. The repository's <code>.gitattributes</code> pins <code>ops/**</code>, shell scripts, systemd services and timers to LF so Git preserves executable Linux syntax even when a contributor works on Windows.</p>
 
-  <h3>Prepare, validate, and switch one release</h3>
+  <h3>Manual staged-release reference (exceptional path only)</h3>
+  <p>The following commands document the equivalent manual sequence for first-time bootstrap or a reviewed operations-file change. Do not use them to bypass a failed health, backup, origin, schema, or compatibility gate from the updater. Keep an operator-recorded commit SHA and follow the same explicit approval and recovery rules.</p>
   <pre>set -Eeuo pipefail
 release="/srv/khyeast/releases/$(date -u +%Y%m%dT%H%M%SZ)"
 previous=$(readlink -f /srv/khyeast/current)
@@ -1226,9 +1241,9 @@ git checkout main
 git status --short
 git log -1 --oneline
 npm ci
-npm audit
-npm test
-PUBLIC_ORIGIN=https://example.com npm run build
+PUBLIC_ORIGIN=https://example.com npm test
+npm prune --omit=dev
+npm audit --omit=dev --audit-level=high
 
 test -f dist/index.html
 test -f dist/sitemap.xml
@@ -1297,7 +1312,7 @@ rm -f /srv/khyeast/current.next
 ln -s "$release" /srv/khyeast/current.next
 sudo mv -Tf /srv/khyeast/current.next /srv/khyeast/current
 sudo systemctl start khyeast</pre>
-  <div class="callout danger"><b class="label">No blind code rollback after migration</b>The pre-migration snapshot is deliberately not restored automatically. Returning to old code is safe only when every applied migration explicitly preserves old-code compatibility. Otherwise preserve the failed state, assess orders/payments created after the snapshot, and use the documented restore and reconciliation procedure.</div>
+  <div class="callout danger"><b class="label">A schema check is not a data rollback</b>The updater refuses automated cutover if the previous release cannot validate the current schema, and repeats that read-only check before code fallback. This is a schema-compatibility guard, not proof that application-level data changes are reversible. The pre-migration snapshot is never restored automatically, and code fallback never erases writes, orders, or payments made by the candidate. For a migration that makes old code incompatible, use the reviewed manual rollout path rather than bypassing the updater's guard; preserve the failed state, reconcile activity since the backup, and restore only a coherent whole-database backup when the recovery plan is explicit.</div>
 
   <p>SIGTERM first closes the Node listener and drains active requests for up to 90 seconds before SQLite closes. A callback already being verified can therefore finish. A callback arriving during the remaining restart gap receives the dedicated Nginx 503 page and automatically retries the same authority URL instead of inviting a second payment.</p>
 
@@ -1311,8 +1326,8 @@ sudo systemctl start khyeast</pre>
     <li>Application, Nginx, backup and quarantine-timer logs contain no new error.</li>
   </ul>
 
-  <h3>Rollback</h3>
-  <p>If smoke tests fail, inspect logs, then atomically return the symlink to the previously printed directory:</p>
+  <h3>Manual rollback for exceptional recovery</h3>
+  <p>The updater attempts the guarded code-only fallback automatically when a post-cutover gate fails. If it reports that a guard prevented rollback, or that the previous release did not pass its health checks, preserve the current state and inspect service/database/payment logs before taking further action. The following commands are for a deliberately reviewed manual recovery only; first verify schema and data compatibility, and record the exact current and previous commit IDs:</p>
   <pre>previous=/srv/khyeast/releases/REPLACE-WITH-PREVIOUS-RELEASE
 test -d "$previous"
 rm -f /srv/khyeast/current.rollback
@@ -1586,7 +1601,9 @@ https://example.com/admin</pre>
       <tr><td>Quarantine timer</td><td><code>systemctl list-timers khyeast-quarantine-purge.timer</code></td></tr>
       <tr><td>Content state</td><td><code>curl -fsSI https://example.com/api/content | grep -i x-khyeast-content-status</code></td></tr>
       <tr><td>Current release</td><td><code>cd /srv/khyeast/current &amp;&amp; git log -1 --oneline</code></td></tr>
-      <tr><td>Scripted tests</td><td><code>cd /srv/khyeast/current &amp;&amp; npm test</code></td></tr>
+      <tr><td>Updater preflight</td><td><code>cd /srv/khyeast/current &amp;&amp; ./ops/deploy-khyeast-ubuntu.sh --dry-run</code></td></tr>
+      <tr><td>Guarded update</td><td><code>cd /srv/khyeast/current &amp;&amp; ./ops/deploy-khyeast-ubuntu.sh</code></td></tr>
+      <tr><td>Scripted tests</td><td><code>cd /srv/khyeast/current &amp;&amp; npm test</code> (E2E excluded)</td></tr>
       <tr><td>Production build</td><td><code>PUBLIC_ORIGIN=https://example.com npm run build</code></td></tr>
     </tbody>
   </table>
@@ -1608,7 +1625,7 @@ https://example.com/admin</pre>
     </div>
   </div>
 
-  <p class="footer-note">Project-specific guide for <code>m-ali-98/Khyeastwebsite</code>, prepared against the application architecture current on 7 November 2026. Recheck the repository README and <code>.env.example</code> after future upgrades because runtime requirements and environment variables may evolve.</p>
+  <p class="footer-note">Project-specific guide for <code>m-ali-98/Khyeastwebsite</code>, prepared against the application architecture current on 8 September 2026. Recheck the repository README and <code>.env.example</code> after future upgrades because runtime requirements and environment variables may evolve.</p>
 </section>
 
 </div>
