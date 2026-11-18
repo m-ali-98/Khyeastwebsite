@@ -7,6 +7,8 @@ import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
 import { useLocale } from '../i18n/LocaleContext';
 import { activeTrustSeals } from '../../shared/trustSeals.js';
+import { DEFAULT_STATE } from '../../shared/contentDefaults.js';
+import { localizeState } from '../../shared/i18n/index.js';
 import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
 
 export const NAV_LINKS = [
@@ -691,6 +693,11 @@ function Footer() {
   const { shopEnabled, locale } = useLocale();
   const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
   const socials = col('socials');
+  const offices = col('offices');
+  const defaultOffices = localizeState(DEFAULT_STATE, locale)?.collections?.offices ?? [];
+  const secondPlant = offices.find((office) => office.id === 'kermanshah')
+    || defaultOffices.find((office) => office.id === 'kermanshah');
+  const SecondPlantIcon = Icons[secondPlant?.icon] || Icons.factory;
   const trustSeals = activeTrustSeals(col('trustSeals'));
   return (
     <footer className="footer">
@@ -777,6 +784,12 @@ function Footer() {
                 <Icons.factory size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginInlineEnd: 8 }} />
                 {t('footer.address2')}
               </li>
+              {secondPlant && (
+                <li style={{ lineHeight: 1.9 }}>
+                  <SecondPlantIcon size={15} style={{ display: 'inline-block', verticalAlign: 'middle', marginInlineEnd: 8 }} />
+                  <span>{secondPlant.address}</span>
+                </li>
+              )}
             </ul>
           </div>
         </div>

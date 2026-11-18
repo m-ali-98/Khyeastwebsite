@@ -7,10 +7,14 @@ deployed; this folder holds only what the browser downloads.
 
 | File | Size | Used for |
 | --- | --- | --- |
-| `logo.webp` | 268x256, ~12 KB | the mark itself, everywhere on the site |
-| `apple-touch-icon.png` | 188x180 | iOS home screen |
-| `favicon-64.png` | 67x64 | browser tab |
-| `favicon-32.png` | 33x32 | browser tab, smaller displays |
+| `logo.webp` | 268x256, ~12 KB | the transparent mark used throughout the site |
+| `apple-touch-icon.png` | 180x180 | iOS home screen |
+| `favicon-64.png` | 64x64 | browser tabs and high-density displays |
+| `favicon-32.png` | 32x32 | browser tabs and smaller displays |
+
+The favicon variants use a crimson gradient tile with the official mark knocked out
+in white, keeping the logo legible at small sizes. The iOS icon is square and
+full-bleed so the platform can apply its own mask.
 
 Masters, kept out of `public/` so they are never shipped:
 
@@ -23,8 +27,10 @@ The mark is never drawn larger than 72 px (the boot splash), so the 256px WebP
 is already 3x oversampled; the 152 KB master was being downloaded in full to
 paint a 46 px navbar logo.
 
-All are transparent RGBA, trimmed so there is no padding baked in around the
-mark.
+`logo.webp` is transparent RGBA and trimmed so there is no padding baked in
+around the mark. The favicon PNGs are square RGBA canvases with subtly rounded,
+transparent corners; the Apple touch icon is a full-bleed square. Each centers
+the white mark over the brand gradient.
 
 ## Colour
 
@@ -53,14 +59,16 @@ file if the original palette is ever wanted back.
 | Admin login card (`src/admin/AdminApp.jsx`) | full colour |
 | Admin sidebar (`src/admin/AdminApp.jsx`) | white |
 | Boot splash (`index.html`) | full colour, white in dark mode |
-| Browser tab / iOS (`index.html`) | full colour |
+| Browser tab / iOS (`index.html`) | white mark on the crimson gradient for high contrast |
 
 ## Replacing the logo
 
-Drop a new PNG at `assets-src/brand/logo.png`, then run:
+Drop a new PNG at `assets-src/brand/logo.png`, then regenerate the deployed
+logo and icons:
 
 ```bash
 node scripts/logo-webp.mjs
+node scripts/favicon.mjs
 ```
 
 Two requirements:
@@ -76,4 +84,5 @@ If the new artwork has a different aspect ratio, update `RATIO` at the top of
 navbar does not reflow while the image decodes; `object-fit: contain` prevents
 any stretching regardless.
 
-Regenerate the icon files from the new artwork at the sizes in the table above.
+The favicon generator keeps the source mark's alpha as a white knockout and
+renders the favicon and Apple touch icon at the dimensions listed above.

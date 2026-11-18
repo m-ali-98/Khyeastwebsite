@@ -68,7 +68,7 @@ ErrorDocument 404 /404.html
 
 # --- Compression (biggest win on slow links: ~70% off HTML/CSS/JS/JSON) ---
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/xsl text/css
   AddOutputFilterByType DEFLATE application/javascript application/x-javascript
   AddOutputFilterByType DEFLATE application/json application/xml
   AddOutputFilterByType DEFLATE image/svg+xml application/rss+xml
@@ -89,6 +89,7 @@ ErrorDocument 404 /404.html
 <IfModule mod_mime.c>
   AddType image/webp .webp
   AddType image/avif .avif
+  AddType text/xsl .xsl
 </IfModule>
 
 <IfModule mod_expires.c>
@@ -123,6 +124,9 @@ ErrorDocument 404 /404.html
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
   <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "\.xsl$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
   # Internal shells for private routes and ErrorDocument 404 carry the same

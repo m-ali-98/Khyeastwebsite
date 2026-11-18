@@ -1664,7 +1664,10 @@ if (fs.existsSync(DIST)) {
       setHeaders: (res, filePath) => {
         if (/[.-][0-9a-zA-Z_-]{8,}\.(js|css|woff2?|png|jpe?g|webp|svg|avif)$/.test(filePath))
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        else if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+        else if (filePath.endsWith('.xsl')) {
+          res.setHeader('Content-Type', 'text/xsl; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-cache');
+        } else if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
         /* Brand and product artwork in /assets keeps a stable, unhashed name,
            so it cannot be marked immutable — a redesign would be invisible to
            anyone holding the old copy. A week with stale-while-revalidate lets
