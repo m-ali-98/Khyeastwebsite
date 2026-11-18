@@ -59,6 +59,11 @@ check(source.includes('set -Eeuo pipefail') && source.includes('umask 077'), 'sh
 check(source.includes('flock -n 9') && source.includes('current.next') && source.includes('assert_current_unchanged'), 'concurrent deployments are locked, state is rechecked, and symlink publication is atomic');
 check(source.includes('--depth 1 --single-branch --branch main'), 'only the approved main branch is fetched as a shallow release');
 check(
+  source.includes('must already point to a validated release') && source.includes('Initial server provisioning is manual') &&
+    guide.includes('First deployment is manual') && guide.includes('refuses to create the first release'),
+  'first deployment stays manual and the updater requires an existing validated current release',
+);
+check(
   source.includes('do not embed repository credentials') && source.includes('repository URL is not echoed'),
   'private-repository credentials are not accepted in the clone URL or echoed in logs',
 );

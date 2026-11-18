@@ -458,16 +458,18 @@ git status --short
 git log -1 --oneline
 readlink -f /srv/khyeast/current</pre>
   <p>If the repository is private, use a read-only GitHub deploy key and the SSH URL instead. Never paste a personal access token into a command, remote URL, shell history, or environment file.</p>
+  <div class="callout warning"><b class="label">First deployment is manual</b>This clone establishes the initial release and <code>current</code> link. Finish the one-time provisioning and configuration in Chapters 1–12, start and verify the app/Nginx services, and configure working backup units before using the updater. It deliberately refuses to create the first release or initialize production state.</div>
 
   <h3>Install exactly what the lockfile declares</h3>
   <pre>cd /srv/khyeast/current
-npm ci
-npm audit</pre>
-  <p><code>npm ci</code> is intentionally used instead of <code>npm install</code>: it reproduces <code>package-lock.json</code> and fails if the manifest and lockfile disagree.</p>
+npm ci</pre>
+  <p><code>npm ci</code> is intentionally used instead of <code>npm install</code>: it reproduces <code>package-lock.json</code> and fails if the manifest and lockfile disagree. Keep this initial release under the deployment user's ownership; do not install dependencies as root.</p>
 
-  <h3>Run the scripted validation</h3>
-  <pre>npm test</pre>
-  <p>This builds the project and exercises routes, malformed content, sanitizer, payment, SMS, authentication, uploads, accounts, inventory, SEO, and API behavior. Browser E2E is deliberately excluded from the Ubuntu release script. If separately approved, run it manually against isolated staging only—never against production data, and never through a GitHub workflow:</p>
+  <h3>Run the scripted validation and prepare runtime dependencies</h3>
+  <pre>PUBLIC_ORIGIN=https://example.com npm test
+npm prune --omit=dev
+npm audit --omit=dev --audit-level=high</pre>
+  <p>This builds the project and exercises routes, malformed content, sanitizer, payment, SMS, authentication, uploads, accounts, inventory, SEO, and API behavior. After tests/build, dev-only tooling is removed and the production dependency tree is audited; run the full development-tool audit separately when reviewing the build toolchain. Browser E2E is deliberately excluded from the Ubuntu release script. If separately approved, run it manually against isolated staging only—never against production data, and never through a GitHub workflow:</p>
   <pre>npx playwright install chromium
 npx playwright test \
   e2e/public.spec.js \
@@ -1228,7 +1230,7 @@ sudo systemctl start khyeast &amp;&amp; curl -fsS https://example.com/api/health
   <p>Deploy with <code>git clone</code>, not a Windows ZIP or files copied from a CRLF checkout. The repository's <code>.gitattributes</code> pins <code>ops/**</code>, shell scripts, systemd services and timers to LF so Git preserves executable Linux syntax even when a contributor works on Windows.</p>
 
   <h3>Manual staged-release reference (exceptional path only)</h3>
-  <p>The following commands document the equivalent manual sequence for first-time bootstrap or a reviewed operations-file change. Do not use them to bypass a failed health, backup, origin, schema, or compatibility gate from the updater. Keep an operator-recorded commit SHA and follow the same explicit approval and recovery rules.</p>
+  <p>The following commands document an exceptional manual rollout for a reviewed operations-file change or recovery. They assume the Chapters 1–12 first-deployment procedure has already established <code>/srv/khyeast/current</code>, a healthy service, persistent state, and working backups; they are not a substitute for that bootstrap. Do not use them to bypass a failed health, backup, origin, schema, or compatibility gate from the updater. Keep an operator-recorded commit SHA and follow the same explicit approval and recovery rules.</p>
   <pre>set -Eeuo pipefail
 release="/srv/khyeast/releases/$(date -u +%Y%m%dT%H%M%SZ)"
 previous=$(readlink -f /srv/khyeast/current)
