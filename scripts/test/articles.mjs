@@ -19,6 +19,27 @@ const expectedSlugs = [
   'buy-yeast-direct-from-factory',
   'yeast-buying-guide',
 ];
+const PERSIAN_SPECIFIC_LETTERS = /[\u067e\u0686\u0698\u06af\u06a9\u06cc]/u;
+const VIDEO_UI_ARTIFACT = /نمایشگر\s*ویدیو|00:0000:0000:05|برای افزایش یا کاهش صدا از کلیدهای بالا و پایین استفاده کنید/u;
+const parseArticleBody = (html) => new DOMParser()
+  .parseFromString(`<html><body>${html}</body></html>`, 'text/html')
+  .querySelector('body');
+const articleBodyShape = (html) => {
+  const body = parseArticleBody(html);
+  return {
+    headings: [...body.querySelectorAll('h2, h3, h4')].map(({ tagName }) => tagName.toLowerCase()),
+    tables: [...body.querySelectorAll('table')].map((table) =>
+      [...table.querySelectorAll('tr')].map((row) => [...row.children].map(({ tagName }) => tagName.toLowerCase()).join(',')),
+    ),
+    media: [...body.querySelectorAll('img, video')].map((element) => {
+      if (element.tagName.toLowerCase() === 'img') return `img:${element.getAttribute('src')}`;
+      const sources = [...element.querySelectorAll('source')].map((source) =>
+        `${source.getAttribute('type') || ''}:${source.getAttribute('src') || ''}`,
+      );
+      return `video:${element.getAttribute('src') || ''}:${sources.join('|')}:${element.hasAttribute('controls')}:${element.getAttribute('preload') || ''}`;
+    }),
+  };
+};
 let passed = 0;
 let failed = 0;
 const check = (condition, label, detail = '') => {
@@ -77,6 +98,10 @@ check(mediaErrors.length === 0, 'all article bodies, WebP images and available v
 check(tableCount === 5, 'all five source comparison and packaging tables are retained in the safe rich-table format', String(tableCount));
 check(videoCount === 1, 'the one video included in the archive is linked locally; unavailable video media is omitted', String(videoCount));
 check(
+  DEFAULT_STATE.posts.every(({ body }) => !VIDEO_UI_ARTIFACT.test(body)),
+  'imported native-player labels, timestamps, and keyboard-help text are removed from article copy',
+);
+check(
   articleStyles.includes('.post-body figure:has(> video)') &&
     articleStyles.includes('width: min(100%, 720px)') &&
     articleStyles.includes('object-position: center') &&
@@ -101,16 +126,38 @@ check(
 await loadAllPacks();
 for (const locale of ['en', 'ar', 'ru']) {
   const localized = localizeState(DEFAULT_STATE, locale);
-  const gaps = [];
+  const failures = [];
   for (const source of DEFAULT_STATE.posts) {
     const post = localized.posts.find(({ slug }) => slug === source.slug);
-    for (const field of ['title', 'excerpt', 'date', 'category', 'readTime', 'body']) {
-      if (!post?.[field]) gaps.push(`${source.slug}.${field}`);
+    if (!post) {
+      failures.push(`${source.slug}: missing article`);
+      continue;
     }
+    for (const field of ['title', 'excerpt', 'date', 'category', 'readTime', 'body']) {
+      if (!post[field]) failures.push(`${source.slug}.${field}: missing translation`);
+      else if (PERSIAN_SPECIFIC_LETTERS.test(post[field])) failures.push(`${source.slug}.${field}: Persian text remains`);
+    }
+    if (post.image !== source.image) failures.push(`${source.slug}: cover image differs from Persian source`);
+    if (VIDEO_UI_ARTIFACT.test(post.body)) failures.push(`${source.slug}: imported player-help text remains`);
+    if (JSON.stringify(articleBodyShape(post.body)) !== JSON.stringify(articleBodyShape(source.body))) {
+      failures.push(`${source.slug}: headings, tables, image/video paths, or video controls do not match Persian source`);
+    }
+    const body = parseArticleBody(post.body);
+    for (const image of body.querySelectorAll('img')) {
+      const alt = image.getAttribute('alt') || '';
+      if (!alt || PERSIAN_SPECIFIC_LETTERS.test(alt)) failures.push(`${source.slug}: image alt text is missing or untranslated`);
+    }
+    for (const anchor of body.querySelectorAll('a[href^="/"]')) {
+      if (!anchor.getAttribute('href').startsWith(`/${locale}`)) failures.push(`${source.slug}: internal link is not localized`);
+    }
+    const safe = sanitizeHtmlResultWithParser(post.body, DOMParser);
+    if (!safe.ok) failures.push(`${source.slug}: translated body is not safe rich text`);
   }
-  const noPersianFallback = locale !== 'ru' || localized.posts.every((post) =>
-    !/[\u0600-\u06ff]/u.test(`${post.title} ${post.excerpt} ${post.date} ${post.category} ${post.body}`));
-  check(gaps.length === 0 && noPersianFallback, `${locale} has complete localized entries for all six articles`, gaps.join(', '));
+  check(
+    failures.length === 0,
+    `${locale} has complete translated articles synchronized with Persian text structure and media`,
+    failures.slice(0, 8).join('; '),
+  );
 }
 
 console.log(`${passed}/${passed + failed}`);

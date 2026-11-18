@@ -1,5 +1,5 @@
 import { buildCatalogProductTranslations } from '../catalogProducts.js';
-import { RU_POSTS } from './blogPosts.js';
+import { RU_POSTS } from './blogPostPacks/ru.js';
 
 /* ========================================================================
    Russian translation pack.
