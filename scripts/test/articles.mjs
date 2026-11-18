@@ -81,13 +81,21 @@ check(
     articleStyles.includes('width: min(100%, 720px)') &&
     articleStyles.includes('object-position: center') &&
     articleStyles.includes('color-scheme: dark'),
-  'uploaded article players are capped, centered, framed, and visibly distinct from embedded iframes',
+  'uploaded article players are capped, centered, and retain polished native controls',
+);
+check(
+  articleStyles.includes('.post-body figure:has(> video),\n.post-body figure:has(> iframe)') &&
+    articleStyles.includes('.post-body figure:has(> iframe) figcaption') &&
+    articleStyles.includes('aspect-ratio: 16 / 9') &&
+    articleStyles.includes('border-radius: 16px'),
+  'article embeds share the same centered frame, responsive ratio, and caption treatment as uploaded videos',
 );
 check(
   adminStyles.includes('figure:has(> video) video') &&
+    adminStyles.includes('figure:has(> iframe) iframe') &&
     adminStyles.includes('.rte-dialog__media-preview') &&
     galleryStyles.includes('.gallery-lightbox__stage video'),
-  'admin previews and gallery lightboxes share polished native-video styling',
+  'admin previews and gallery lightboxes share polished native and embedded-video styling',
 );
 
 await loadAllPacks();
