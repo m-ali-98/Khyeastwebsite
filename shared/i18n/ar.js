@@ -1,5 +1,5 @@
 import { buildCatalogProductTranslations } from '../catalogProducts.js';
-import { AR_POSTS } from './blogPosts.js';
+import { AR_POSTS } from './blogPostPacks/ar.js';
 
 /* ==========================================================================
    Arabic content overrides.

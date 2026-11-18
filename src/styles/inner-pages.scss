@@ -1065,6 +1065,11 @@
   object-fit: contain;
   object-position: 50% 50%;
 }
+.gallery-lightbox__stage video {
+  color-scheme: dark;
+  accent-color: var(--crimson);
+  background: #080708;
+}
 .gallery-lightbox__nav {
   position: absolute;
   z-index: 1;

@@ -1,5 +1,5 @@
 import { buildCatalogProductTranslations } from '../catalogProducts.js';
-import { EN_POSTS } from './blogPosts.js';
+import { EN_POSTS } from './blogPostPacks/en.js';
 
 /* ==========================================================================
    English content overrides.

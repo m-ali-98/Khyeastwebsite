@@ -1579,6 +1579,45 @@
     object-fit: contain;
     box-shadow: 0 7px 24px rgb(0 0 0 / 0.09);
   }
+  figure:has(> video),
+  figure:has(> iframe) {
+    display: grid;
+    justify-items: center;
+    gap: 9px;
+    width: min(100%, 760px);
+    max-width: 100%;
+    margin: 24px auto;
+    padding: 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 17px;
+    background: linear-gradient(145deg, var(--surface-raised), var(--surface-tint));
+    box-shadow: var(--shadow-sm);
+  }
+  figure:has(> video) video {
+    width: 100%;
+    max-width: 700px;
+    max-height: 430px;
+    margin: 0 auto;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    background: #09090b;
+    box-shadow: 0 13px 30px -20px rgb(0 0 0 / 0.7);
+    color-scheme: dark;
+    accent-color: var(--crimson);
+  }
+  figure:has(> iframe) iframe {
+    width: 100%;
+    max-width: 700px;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    margin: 0 auto;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    background: #09090b;
+    box-shadow: 0 13px 30px -20px rgb(0 0 0 / 0.7);
+  }
+  figure:has(> video) figcaption,
+  figure:has(> iframe) figcaption { width: 100%; margin: 0; padding: 0 7px 2px; text-align: center; }
   iframe {
     display: block;
     width: 100%;
@@ -1776,14 +1815,25 @@
   background: var(--bg-soft);
 
   img, video { max-width: 100%; max-height: 250px; border-radius: 9px; object-fit: contain; }
+  video {
+    width: min(100%, 420px);
+    max-height: 250px;
+    border: 1px solid var(--line-strong);
+    background: #09090b;
+    box-shadow: 0 12px 28px -18px rgb(0 0 0 / 0.68);
+    color-scheme: dark;
+    accent-color: var(--crimson);
+  }
   iframe {
-    width: 100%;
-    max-width: 390px;
+    display: block;
+    width: min(100%, 420px);
+    max-width: 100%;
     aspect-ratio: 16 / 9;
     height: auto;
-    border: 0;
+    border: 1px solid var(--line-strong);
     border-radius: 9px;
-    background: #000;
+    background: #09090b;
+    box-shadow: 0 12px 28px -18px rgb(0 0 0 / 0.68);
   }
   small { color: var(--muted); }
 }
