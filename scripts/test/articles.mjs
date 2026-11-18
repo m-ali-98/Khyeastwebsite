@@ -8,6 +8,9 @@ import { loadAllPacks, localizeState } from '../../shared/i18n/index.js';
 import { sanitizeHtmlResultWithParser } from '../../shared/sanitizeHtml.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const articleStyles = fs.readFileSync(path.join(ROOT, 'src', 'styles', 'global.scss'), 'utf8');
+const galleryStyles = fs.readFileSync(path.join(ROOT, 'src', 'styles', 'inner-pages.scss'), 'utf8');
+const adminStyles = fs.readFileSync(path.join(ROOT, 'src', 'admin', 'admin.scss'), 'utf8');
 const expectedSlugs = [
   'yeast-types-for-baking',
   'fresh-vs-dry-yeast',
@@ -73,6 +76,19 @@ for (const post of DEFAULT_STATE.posts) {
 check(mediaErrors.length === 0, 'all article bodies, WebP images and available videos are safe and local', mediaErrors.slice(0, 8).join('; '));
 check(tableCount === 5, 'all five source comparison and packaging tables are retained in the safe rich-table format', String(tableCount));
 check(videoCount === 1, 'the one video included in the archive is linked locally; unavailable video media is omitted', String(videoCount));
+check(
+  articleStyles.includes('.post-body figure:has(> video)') &&
+    articleStyles.includes('width: min(100%, 720px)') &&
+    articleStyles.includes('object-position: center') &&
+    articleStyles.includes('color-scheme: dark'),
+  'uploaded article players are capped, centered, framed, and visibly distinct from embedded iframes',
+);
+check(
+  adminStyles.includes('figure:has(> video) video') &&
+    adminStyles.includes('.rte-dialog__media-preview') &&
+    galleryStyles.includes('.gallery-lightbox__stage video'),
+  'admin previews and gallery lightboxes share polished native-video styling',
+);
 
 await loadAllPacks();
 for (const locale of ['en', 'ar', 'ru']) {
