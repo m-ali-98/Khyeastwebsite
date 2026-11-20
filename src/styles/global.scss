@@ -310,7 +310,9 @@ input, select, textarea { font-family: inherit; }
   font-style: normal;
   color: var(--crimson-ink);
   position: relative;
-  white-space: nowrap;
+  /* Highlighted phrases must wrap in long translations and narrow columns. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .section-sub {
   color: var(--muted);
@@ -1389,10 +1391,14 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 /* ---------- Split section ---------- */
 .split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Translated headings can be wider than a track's intrinsic minimum.
+     Keep the image and copy columns balanced instead of letting that copy
+     squeeze the image into a narrow strip. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--split-gap);
   align-items: center;
 }
+.split > * { min-width: 0; }
 .split__media { position: relative; }
 .split__media .img-main {
   border-radius: var(--radius-lg);
