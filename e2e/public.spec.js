@@ -462,6 +462,60 @@ test('the cleaned inner pages keep their primary layout inside narrow screens @m
   }
 });
 
+test('translated split sections keep images and copy inside balanced columns @mobile', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const widths = testInfo.project.name === 'mobile' ? [320, 412] : [1024, 1366, 1920];
+  const sections = [
+    ['', '.home-intro .split'],
+    ['/about', '.about-story .split'],
+    ['/about', '.about-factory .split'],
+    ['/quality', '.quality-lab .split'],
+  ];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const locale of ['/ru', '', '/en', '/ar']) {
+      for (const [route, selector] of sections) {
+        const url = `${locale}${route}` || '/';
+        await gotoReady(page, url);
+        const section = page.locator(selector);
+        await section.scrollIntoViewIfNeeded();
+        const image = section.locator('.img-main img');
+        await expect(image).toBeVisible();
+        await expect.poll(() => image.evaluate((el) => el.complete && el.naturalWidth > 0)).toBe(true);
+        const geometry = await section.evaluate((el) => {
+          const grid = el.getBoundingClientRect();
+          const media = el.querySelector('.split__media').getBoundingClientRect();
+          const copy = el.querySelector('.section-copy').getBoundingClientRect();
+          const heading = el.querySelector('.section-title').getBoundingClientRect();
+          const highlighted = [...el.querySelectorAll('.section-title em')].flatMap((node) => [...node.getClientRects()]);
+          return { grid: { left: grid.left, right: grid.right, width: grid.width },
+            media: { left: media.left, right: media.right, width: media.width },
+            copy: { left: copy.left, right: copy.right, width: copy.width },
+            heading: { left: heading.left, right: heading.right },
+            highlighted: highlighted.map(({ left, right }) => ({ left, right })),
+            overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+        });
+        const label = `${url} ${selector} at ${width}px`;
+        expect(geometry.overflow, label).toBeLessThanOrEqual(1);
+        expect(geometry.media.left, label).toBeGreaterThanOrEqual(geometry.grid.left - 1);
+        expect(geometry.media.right, label).toBeLessThanOrEqual(geometry.grid.right + 1);
+        if (width > 900) {
+          expect(geometry.media.width / geometry.copy.width, label).toBeGreaterThan(0.95);
+          expect(geometry.media.width / geometry.copy.width, label).toBeLessThan(1.05);
+        } else {
+          expect(geometry.media.width / geometry.copy.width, label).toBeGreaterThan(0.95);
+          expect(geometry.media.width / geometry.copy.width, label).toBeLessThan(1.05);
+        }
+        for (const rect of geometry.highlighted) {
+          expect(rect.left, label).toBeGreaterThanOrEqual(geometry.heading.left - 1);
+          expect(rect.right, label).toBeLessThanOrEqual(geometry.heading.right + 1);
+        }
+      }
+    }
+  }
+});
+
 test('every catalogue and shop product uses the cleaned detail shell @mobile', async ({ page }) => {
   // This test cold-loads every catalogue and shop product (37+ navigations).
   test.setTimeout(120_000);
