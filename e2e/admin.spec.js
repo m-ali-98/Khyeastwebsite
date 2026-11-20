@@ -104,7 +104,14 @@ test('sales representatives can be added in Admin, located in Gorgan, published 
 
     await gotoReady(page, '/sales-representatives');
     await expect(page.locator('.sales-reps__card', { hasText: name })).toBeVisible();
-    await expect(page.locator('.sales-map__marker').filter({ has: page.locator('title', { hasText: 'گرگان' }) })).toHaveCount(1);
+    const marker = page.getByRole('button', { name: /گرگان، استان گلستان/ });
+    await expect(marker).toHaveCount(1);
+    // Keyboard activation avoids overlapping SVG hit targets while exercising
+    // the map's accessible selection behavior, not just marker rendering.
+    await marker.focus();
+    await marker.press('Enter');
+    await expect(marker).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.sales-reps__card', { hasText: name })).toBeVisible();
 
     await loginAdmin(page);
     await openAdminTab(page, 'نمایندگان فروش');
@@ -262,7 +269,7 @@ test('fallback content makes only content-authoring tabs read-only', async ({ pa
   });
 
   await loginAdmin(page);
-  await expect(page.getByText(/محتوای SQLite گم‌شده، خراب یا ناقص است/)).toBeVisible();
+  await expect(page.getByText(/محتوای SQLite گم‌شده، خراب، ناقص یا بدون شناسه نسخه معتبر است/)).toBeVisible();
   const boundary = page.locator('.admin__content-boundary');
   await expect(boundary).toHaveAttribute('disabled', '');
   await expect(boundary).toHaveAttribute('inert', '');
@@ -1072,7 +1079,7 @@ test('shop galleries persist, select a primary picture, and render publicly', as
 test('product editors refuse gallery URLs that the image CSP cannot render', async ({ page }) => {
   await loginAdmin(page);
   await adminTab(page, 'محصولات').first().click();
-  await page.locator('.admin__item').first().locator('[title="ویرایش"]').click();
+  await page.locator('.admin-products__item').first().locator('[title="ویرایش"]').click();
 
   const gallery = page.locator('.admin-product-gallery');
   const addInput = gallery.getByLabel('یا نشانی تصویر');

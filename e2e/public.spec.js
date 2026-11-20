@@ -39,6 +39,16 @@ const ROUTES = [
   ['/ar', 'main'],
   ['/ar/products', '.product-card'],
   ['/ar/gallery', '.gallery-grid'],
+  ...[
+    ['/ru', 'main'], ['/ru/about', 'main'], ['/ru/products', '.product-card'],
+    ['/ru/products/dezmaye-gold-80', 'main'], ['/ru/export', 'main'],
+    ['/ru/quality', 'main'], ['/ru/blog', '.post-card'], ['/ru/gallery', '.gallery-grid'],
+    ['/ru/contact', 'form'],
+    ...[
+      'yeast-types-for-baking', 'fresh-vs-dry-yeast', 'instant-vs-active-dry-yeast',
+      'how-to-identify-quality-yeast', 'buy-yeast-direct-from-factory', 'yeast-buying-guide',
+    ].map((slug) => [`/ru/blog/${slug}`, 'main']),
+  ],
   ['/nonexistent-page', 'main'],
 ];
 
@@ -53,6 +63,15 @@ test.describe('public routes', () => {
       await expect(page.locator(selector).first()).toBeVisible();
       const text = await page.locator('main').innerText();
       expect(text.trim().length, `${route} rendered almost nothing`).toBeGreaterThan(minChars);
+      if (route.startsWith('/ru')) {
+        expect(response?.status()).toBe(200);
+        await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
+        await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+        expect(text, `${route} should render Russian content`).toMatch(/[А-Яа-яЁё]/);
+        if (route.startsWith('/ru/blog/')) {
+          await expect(page.locator('main h1')).toContainText(/[А-Яа-яЁё]/);
+        }
+      }
 
       /* No navigation cover or boot splash may still be on screen once settled. */
       await expect(page.locator('.navigation-loader, .boot-splash')).toHaveCount(0);
@@ -444,6 +463,8 @@ test('the cleaned inner pages keep their primary layout inside narrow screens @m
 });
 
 test('every catalogue and shop product uses the cleaned detail shell @mobile', async ({ page }) => {
+  // This test cold-loads every catalogue and shop product (37+ navigations).
+  test.setTimeout(120_000);
   await page.setViewportSize({ width: 320, height: 844 });
   const listings = [
     ['/products', '.product-card__media', '.catalog-detail__layout'],
@@ -762,11 +783,61 @@ test('html lang and dir follow the locale @mobile', async ({ page }) => {
     ['/', 'fa', 'rtl'],
     ['/en', 'en', 'ltr'],
     ['/ar', 'ar', 'rtl'],
+    ['/ru', 'ru', 'ltr'],
   ];
   for (const [url, lang, dir] of cases) {
     await gotoReady(page, url);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(page.locator('html')).toHaveAttribute('dir', dir);
+  }
+});
+
+test('Russian public content is localized and domestic shop routes stay unavailable @mobile', async ({ page }) => {
+  const errors = watchConsole(page);
+  await gotoReady(page, '/ru/products');
+  const productTitles = page.locator('.product-card h2');
+  await expect(productTitles).toHaveCount(30);
+  for (const title of await productTitles.allTextContents()) expect(title).toMatch(/[А-Яа-яЁё]/);
+  await expect(page.locator('a[href^="/shop"], a[href^="/ru/shop"]')).toHaveCount(0);
+
+  await gotoReady(page, '/ru/blog');
+  const articleTitles = page.locator('.featured-post__title, .post-card h2');
+  await expect(articleTitles).toHaveCount(6);
+  for (const title of await articleTitles.allTextContents()) expect(title).toMatch(/[А-Яа-яЁё]/);
+  await expect(page.locator('a[href^="/shop"], a[href^="/ru/shop"]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+
+  for (const url of ['/ru/shop', '/ru/shop/dezmaye-gold-80', '/ru/shop/cart', '/ru/shop/checkout', '/ru/shop/login', '/ru/shop/account']) {
+    errors.length = 0;
+    const response = await gotoReady(page, url);
+    expect(response.status(), url).toBe(404);
+    await expect(page.locator('.sp-buy, .auth-card, .cart-layout')).toHaveCount(0);
+    // Chromium may report the intentionally missing document once. A second
+    // 404 could be a missing asset and must not be silently accepted.
+    expect(errors.length, url).toBeLessThanOrEqual(1);
+    expect(errors.filter((message) => !/^Failed to load resource:.*404 \(Not Found\)$/.test(message)), url).toEqual([]);
+  }
+});
+
+test('desktop language picker shows the active native name and switches all four locales', async ({ page }) => {
+  await gotoReady(page, '/');
+  const picker = page.locator('.lang-switch--desktop');
+  const trigger = picker.locator('.lang-switch__trigger');
+  const options = picker.locator('.lang-switch__option');
+  for (const [current, next, url] of [
+    ['فارسی', 'English', /\/en\/?$/],
+    ['English', 'Русский', /\/ru\/?$/],
+    ['Русский', 'العربية', /\/ar\/?$/],
+    ['العربية', 'فارسی', /\/$/],
+  ]) {
+    await expect(trigger.locator('.lang-switch__current')).toHaveText(current);
+    await trigger.click();
+    await expect(options).toHaveCount(4);
+    const active = options.filter({ hasText: current });
+    await expect(active).toHaveAttribute('aria-current', 'true');
+    await expect(active.locator('.lang-switch__option-check')).toHaveCount(1);
+    await options.filter({ hasText: next }).click();
+    await routeSettled(page, url);
   }
 });
 
@@ -1157,14 +1228,6 @@ test('dark mode applies and survives a reload', async ({ page }) => {
   /* The palette must really change, not just the attribute. */
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   expect(bg).toBeTruthy();
-});
-
-test('the language switch navigates between the three sites', async ({ page }) => {
-  await gotoReady(page, '/');
-  const sw = page.locator('.lang-switch').first();
-  await sw.getByRole('button', { name: /en/i }).click();
-  await expect(page).toHaveURL(/\/en(\/|$)/);
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });
 
 test('client-side navigation works without a full reload', async ({ page }) => {
