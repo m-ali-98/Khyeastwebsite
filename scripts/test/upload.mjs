@@ -59,7 +59,9 @@ const start = async () => {
     /* DATA_DIR too, not just DB_FILE: without it the server falls back to the
        real server/data and this suite would be opening the production SQLite
        database. */
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: TMP, DB_FILE: DB, UPLOAD_DIR: UPLOADS, NODE_ENV: 'development' },
+    // Pin the isolated server to its own origin, not the caller's live site.
+    // CSRF validation remains enabled and exercises the real request origin.
+    env: { ...process.env, PORT: String(PORT), DATA_DIR: TMP, DB_FILE: DB, UPLOAD_DIR: UPLOADS, NODE_ENV: 'development', PUBLIC_ORIGIN: BASE, TRUSTED_HOSTS: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stdout.on('data', (d) => { serverLog += d; });

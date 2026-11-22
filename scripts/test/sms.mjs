@@ -158,6 +158,13 @@ const {
 
 /* ------------------------------------- 5. only after successful payment */
 {
+  // The HTTP listener is local, but customer links must use a pinned HTTPS
+  // origin. Never inherit a real deployment's origin or trusted-host list.
+  const savedEnvironment = Object.fromEntries(['NODE_ENV', 'PUBLIC_ORIGIN', 'TRUSTED_HOSTS'].map((key) => [key, process.env[key]]));
+  const publicOrigin = 'https://sms.example.test';
+  process.env.NODE_ENV = 'production';
+  process.env.PUBLIC_ORIGIN = publicOrigin;
+  process.env.TRUSTED_HOSTS = '';
   const dbStore = await import(pathToFileURL(path.join(ROOT, 'server/db.js')).href);
   const { createShopRouter } = await import(pathToFileURL(path.join(ROOT, 'server/shop.js')).href);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-paid-sms-test-'));
@@ -199,7 +206,7 @@ const {
   });
   const address = server.address();
   const origin = `http://127.0.0.1:${address.port}`;
-  dbStore.setSetting(database, 'shop.payment', { provider: 'zarinpal', callbackBase: origin });
+  dbStore.setSetting(database, 'shop.payment', { provider: 'zarinpal', callbackBase: publicOrigin });
 
   const insertPendingOrder = (label) => {
     const order = {
@@ -262,7 +269,7 @@ const {
     check(paidLogs.length === 1, 'successful gateway payment sends one order-registered SMS', `got ${paidLogs.length}`);
     check(paidLogs[0]?.phone === account.phone, 'payment SMS uses the verified account phone');
     check(
-      paidLogs[0]?.text.includes(`/shop/order/${callbackOrder.code}`) &&
+      paidLogs[0]?.text.includes(`${publicOrigin}/shop/order/${callbackOrder.code}`) &&
         !paidLogs[0]?.text.includes(callbackOrder.token) &&
         !paidLogs[0]?.text.includes('token='),
       'payment SMS links to the session-owned order page without a bearer token',
@@ -319,6 +326,10 @@ const {
     await new Promise((resolve) => server.close(resolve));
     database.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(savedEnvironment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
 

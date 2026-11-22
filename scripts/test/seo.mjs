@@ -7,6 +7,7 @@ import { loadAllPacks } from '../../shared/i18n/index.js';
 import {
   listIndexablePaths,
   listRoutablePaths,
+  normalizeOrigin,
   redirectPath,
   renderRobots,
   renderSeoDocument,
@@ -17,6 +18,9 @@ import {
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const DIST = path.join(ROOT, 'dist');
 const ORIGIN = 'https://khuzestanyeast-co.com';
+// The build can deliberately use a different public origin, as the updater
+// does. Pure resolver checks remain pinned to the stable fixture above.
+const BUILD_ORIGIN = normalizeOrigin(process.env.SEO_ORIGIN || process.env.PUBLIC_ORIGIN || ORIGIN);
 let pass = 0;
 let total = 0;
 const leaks = [];
@@ -220,9 +224,9 @@ check(builtIndex.includes('<main class="seo-fallback">'), 'root has crawlable fa
 check(builtIndex.includes('application/ld+json'), 'root has structured data before JavaScript');
 check(builtEnAbout.includes('<html lang="en" dir="ltr"'), 'built English document language');
 check(builtEnAbout.includes('<h1>About Khuzestan Yeast Co.</h1>'), 'built route-specific fallback heading');
-check(builtEnAbout.includes(`rel="canonical" href="${ORIGIN}/en/about"`), 'built route-specific canonical');
+check(builtEnAbout.includes(`rel="canonical" href="${BUILD_ORIGIN}/en/about"`), 'built route-specific canonical');
 check(builtRuAbout.includes('<html lang="ru" dir="ltr"') && builtRuAbout.includes('<h1>О компании «Хузестан Йист»</h1>'), 'built Russian document has Cyrillic content and LTR metadata');
-check(builtRuProduct.includes('Инстантные сухие дрожжи') && builtRuProduct.includes(`hreflang="ru" href="${ORIGIN}/ru/products/dezmaye-gold-80"`), 'built Russian product page and metadata alternate render');
+check(builtRuProduct.includes('Инстантные сухие дрожжи') && builtRuProduct.includes(`hreflang="ru" href="${BUILD_ORIGIN}/ru/products/dezmaye-gold-80"`), 'built Russian product page and metadata alternate render');
 check(builtEnGallery.includes('A Look at Khuzestan Yeast Products') && builtEnGallery.includes('gallery#product-range'), 'built gallery exposes localized crawlable item links');
 check(
   builtSalesRepresentatives.includes('نمایندگان فروش خمیرمایه خوزستان') && builtSalesRepresentatives.includes('sales-representatives#sales-rep-001'),
@@ -231,8 +235,8 @@ check(
 check(builtProduct.includes('"@type":"Product"') && builtProduct.includes('"@type":"Offer"'), 'built product schema and offer');
 check(builtPrivate.includes('content="noindex, nofollow, noarchive"'), 'static private shell noindex');
 check(built404.includes('content="noindex, nofollow, noarchive"'), 'static 404 shell noindex');
-check(fs.readFileSync(path.join(DIST, 'robots.txt'), 'utf8') === robots, 'built robots matches resolver');
-check(fs.readFileSync(path.join(DIST, 'sitemap.xml'), 'utf8') === sitemap, 'built sitemap matches resolver');
+check(fs.readFileSync(path.join(DIST, 'robots.txt'), 'utf8') === renderRobots(BUILD_ORIGIN), 'built robots matches resolver');
+check(fs.readFileSync(path.join(DIST, 'sitemap.xml'), 'utf8') === renderSitemap(DEFAULT_STATE, BUILD_ORIGIN), 'built sitemap matches resolver');
 check(
   builtSitemapStylesheet.includes('<xsl:stylesheet') && builtSitemapStylesheet.includes('doctype-system="about:legacy-compat"') && builtSitemapStylesheet.includes('Public canonical pages') && builtSitemapStylesheet.includes('@media (max-width: 740px)') && builtSitemapStylesheet.includes('prefers-color-scheme: dark'),
   'built sitemap stylesheet provides responsive, accessible light/dark presentation',
