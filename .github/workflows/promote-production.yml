@@ -118,7 +118,10 @@ jobs:
           printf 'khyeast-production-tree-v1\n' > "$target/scripts/test/.production-tree"
           cd "$target"
           npm ci
-          npm test
+          # Match the updater's production-origin environment, using a safe
+          # reserved test origin rather than a real deployment domain.
+          PUBLIC_ORIGIN=https://release.example.test npm test
+          grep -Fq '<loc>https://release.example.test/' dist/sitemap.xml
 
   promote:
     name: Replace main tree with production files

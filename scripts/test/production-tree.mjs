@@ -39,6 +39,9 @@ check(workflow.includes('git add -- scripts/test/.production-tree') &&
   workflow.includes('> "$target/scripts/test/.production-tree"'), 'both production trees include the explicit release profile marker');
 check(workflow.includes('scripts/test/run.mjs scripts/test/.production-tree') &&
   workflow.includes('scripts/purge-upload-quarantine.mjs|scripts/test/*'), 'both the required-file check and allowed-path guard recognize the test suite');
+check(workflow.includes('PUBLIC_ORIGIN=https://release.example.test npm test') &&
+  workflow.includes("grep -Fq '<loc>https://release.example.test/' dist/sitemap.xml"),
+  'the production candidate is tested and built with an explicit HTTPS origin');
 check(!/npx playwright test|npm run test:e2e/.test(workflow), 'promotion does not run browser E2E');
 check(workflow.includes('refs/heads/arena/01a07ff9-khyeastwebsite') &&
   workflow.includes('git show "$GITHUB_SHA:.github/workflows/promote-production.yml" | cmp -s - .github/workflows/promote-production.yml'),
