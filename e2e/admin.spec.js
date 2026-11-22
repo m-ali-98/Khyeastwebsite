@@ -682,6 +682,39 @@ test('Admin brand changes flow through homepage, catalogue filters and the shop'
   }
 });
 
+test('article editor toolbar stays available while scrolling @mobile', async ({ page }) => {
+  await loginAdmin(page);
+  await openAdminTab(page, 'وبلاگ');
+  await page.getByRole('button', { name: /مقاله جدید/ }).first().click();
+
+  const editor = page.getByRole('region', { name: 'ویرایشگر متن مقاله' });
+  const area = editor.getByRole('textbox', { name: 'ویرایشگر متن مقاله' });
+  const toolbar = editor.getByRole('toolbar');
+  await area.fill(Array.from({ length: 120 }, (_, i) => `خط مقاله شماره ${i}`).join('\n'));
+  await area.evaluate((element) => {
+    const target = element.getBoundingClientRect().top + window.scrollY + 1000;
+    window.scrollTo(0, target);
+  });
+  await expect.poll(async () => toolbar.evaluate((element) => {
+    const mobileBar = document.querySelector('.admin__mobilebar');
+    const mobileBottom = mobileBar && getComputedStyle(mobileBar).display !== 'none'
+      ? mobileBar.getBoundingClientRect().bottom : 0;
+    return Math.abs(element.getBoundingClientRect().top - mobileBottom);
+  })).toBeLessThanOrEqual(2);
+  await editor.getByRole('button', { name: 'افزودن تصویر' }).click();
+  await expect(page.getByRole('dialog', { name: 'افزودن تصویر' })).toBeVisible();
+  // The article's start remains above the viewport while the dialog opens.
+  expect(await editor.evaluate((element) => element.getBoundingClientRect().top)).toBeLessThan(-100);
+  await page.getByRole('button', { name: 'بستن پنجره' }).click();
+
+  await editor.getByRole('button', { name: 'ویرایش تمام‌صفحه' }).click();
+  await expect(editor).toHaveClass(/is-fullscreen/);
+  await editor.locator('.rte__canvas').evaluate((element) => { element.scrollTop = 500; });
+  await expect(editor.getByRole('button', { name: 'افزودن ویدیو' })).toBeVisible();
+  await editor.getByRole('button', { name: 'افزودن ویدیو' }).click();
+  await expect(page.getByRole('dialog', { name: 'افزودن ویدیو' })).toBeVisible();
+});
+
 test('the article editor formats safe rich content without exposing code controls', async ({ page }) => {
   await loginAdmin(page);
   await adminTab(page, 'وبلاگ').first().click();

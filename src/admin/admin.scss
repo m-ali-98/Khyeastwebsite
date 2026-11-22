@@ -1375,7 +1375,8 @@
 .rte {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
+  /* The toolbar sticks to the page viewport; an overflow-clipping editor
+     would create a scroll container and prevent that from working. */
   border: 1.5px solid var(--line);
   border-radius: 14px;
   background: var(--surface);
@@ -1392,11 +1393,17 @@
     inset: 12px;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     border-radius: 16px;
     box-shadow: 0 24px 80px rgb(0 0 0 / 0.28);
   }
 }
 .rte__bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  flex: none;
+  border-radius: 12px 12px 0 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1638,6 +1645,9 @@
   > div { max-width: 920px; margin-inline: auto; }
   &-empty { color: var(--muted); text-align: center; }
 }
+/* Fullscreen scrolls the canvas instead of the page; its toolbar is already
+   a fixed flex sibling and must not use the mobile page-header offset. */
+.rte.is-fullscreen .rte__bar { position: relative; top: auto; }
 .rte.is-fullscreen .rte__canvas { overflow: auto; }
 .rte.is-fullscreen .rte__area {
   min-height: 100%;
@@ -1838,6 +1848,21 @@
   small { color: var(--muted); }
 }
 
+/* On smaller screens keep the tools in one scrollable row instead of letting
+   a multi-row sticky toolbar cover most of the writing area. */
+@media (max-width: 1024px) {
+  .rte__bar {
+    top: 64px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+  }
+  .rte__group { flex: none; }
+}
+@media (max-width: 540px) {
+  .rte__bar { top: 60px; }
+}
 @media (max-width: 640px) {
   .rte.is-fullscreen { inset: 0; border-width: 0; border-radius: 0; }
   .rte__bar { gap: 5px; padding: 6px; }
