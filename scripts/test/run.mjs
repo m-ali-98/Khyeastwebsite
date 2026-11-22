@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { runNodeSuite, summarizeNodeSuite } from './suite-harness.mjs';
+import { productionTree } from './release-profile.mjs';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,9 @@ async function child(script, ...args) {
   return JSON.parse(stdout.trim().split('\n').pop());
 }
 
+if (productionTree) {
+  console.log('Production-tree profile: runtime tests run normally; source-only documentation and original-image checks run before promotion.');
+}
 console.log('\nTest harness — child failures must retain their diagnostics');
 await reportSuite('runner-harness.mjs', 10000, 'exit-code and diagnostic checks');
 
@@ -157,6 +161,7 @@ for (const [file, description] of [
   ['backup-script.mjs', 'validated staged backup and quarantine/incoming exclusion'],
   ['offsite-script.mjs', 'checksum-gated encrypted offsite replication'],
   ['deploy-script.mjs', 'Ubuntu release safeguards, guarded code rollback and explicit migration gate'],
+  ['production-tree.mjs', 'production allowlist and release test profile'],
 ]) {
   await reportSuite(file, 30000, description);
 }

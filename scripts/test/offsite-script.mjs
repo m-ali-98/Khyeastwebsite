@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { productionTree } from './release-profile.mjs';
 
 let pass = 0;
 let fail = 0;
@@ -79,13 +80,15 @@ try {
     'the VPS job has no destructive operation and does not rely on backup ignoring its repository lock',
     calls.join(' | '),
   );
-  const guide = fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
-  check(
-    guide.includes('One-time proof of the append-only credential')
-      && guide.includes('A mock command or an environment variable claiming “append only” is not evidence.')
-      && guide.includes('confirm that the supposedly denied probe snapshot still exists'),
-    'the runbook requires a real provider denial test and independent full-access verification',
-  );
+  if (!productionTree) {
+    const guide = fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
+    check(
+      guide.includes('One-time proof of the append-only credential')
+        && guide.includes('A mock command or an environment variable claiming “append only” is not evidence.')
+        && guide.includes('confirm that the supposedly denied probe snapshot still exists'),
+      'the runbook requires a real provider denial test and independent full-access verification',
+    );
+  }
 
   fs.writeFileSync(log, '');
   const unconfirmed = run({ RESTIC_APPEND_ONLY: 'false' });

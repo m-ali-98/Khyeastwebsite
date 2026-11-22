@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { productionTree } from './release-profile.mjs';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = path.join(ROOT, 'ops', 'deploy-khyeast-ubuntu.sh');
 const source = fs.readFileSync(SCRIPT, 'utf8');
-const guide = fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
-const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
-const renderer = fs.readFileSync(path.join(ROOT, 'scripts', 'render-deployment-pdf.mjs'), 'utf8');
+const guide = productionTree ? '' : fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
+const readme = productionTree ? '' : fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+const renderer = productionTree ? '' : fs.readFileSync(path.join(ROOT, 'scripts', 'render-deployment-pdf.mjs'), 'utf8');
 let pass = 0;
 let total = 0;
 const failures = [];
@@ -60,7 +61,7 @@ check(source.includes('flock -n 9') && source.includes('current.next') && source
 check(source.includes('--depth 1 --single-branch --branch main'), 'only the approved main branch is fetched as a shallow release');
 check(
   source.includes('must already point to a validated release') && source.includes('Initial server provisioning is manual') &&
-    guide.includes('First deployment is manual') && guide.includes('refuses to create the first release'),
+    (productionTree || (guide.includes('First deployment is manual') && guide.includes('refuses to create the first release'))),
   'first deployment stays manual and the updater requires an existing validated current release',
 );
 check(
@@ -143,6 +144,7 @@ check(
 );
 check(!/test:e2e|playwright test/.test(source), 'the deploy script does not run E2E tests');
 
+if (!productionTree) {
 check(
   guide.includes('ops/deploy-khyeast-ubuntu.sh --dry-run') &&
     guide.includes('--confirm-commit FULL_40_CHARACTER_SHA') &&
@@ -160,6 +162,9 @@ check(
   guide.includes('8 September 2026') && renderer.includes('8 Sep 2026') && !guide.includes('18 November 2026'),
   'HTML/PDF renderer edition dates match 8 September 2026',
 );
+} else {
+  console.log('Source-only documentation checks run before promotion');
+}
 
 for (const failure of failures) console.log(failure);
 console.log(`${pass}/${total}`);

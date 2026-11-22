@@ -17,6 +17,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
+import { productionTree } from './release-profile.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -399,7 +400,7 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
   const fallbackHtml = fs.readFileSync(path.join(ROOT, 'ops', 'payment-callback-unavailable.html'), 'utf8');
   const fallbackScript = fallbackHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
   const fallbackHash = `sha256-${crypto.createHash('sha256').update(fallbackScript).digest('base64')}`;
-  const deploymentGuide = fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
+  const deploymentGuide = productionTree ? '' : fs.readFileSync(path.join(ROOT, 'docs', 'khyeast-linux-deployment-guide.html'), 'utf8');
   check(
     !fallbackHtml.includes('http-equiv="refresh"') &&
       fallbackScript.includes('const limit = 6') &&
@@ -448,11 +449,13 @@ for (const [name, amount, shouldSettle] of ZARINPAL_CASES) {
     fallbackNoStorage.timers.length === 0 && fallbackNoStorage.retryLink.hidden === false,
     'callback: unavailable session storage fails safe to the manual action',
   );
-  check(
-    deploymentGuide.includes(fallbackHash),
-    'callback: the deployment CSP permits only the exact reviewed fallback script hash',
-    fallbackHash,
-  );
+  if (!productionTree) {
+    check(
+      deploymentGuide.includes(fallbackHash),
+      'callback: the deployment CSP permits only the exact reviewed fallback script hash',
+      fallbackHash,
+    );
+  }
 }
 
 /* ---- 1c. the rest of the gateway: inquiry, unverified, reverse, fee ---- */

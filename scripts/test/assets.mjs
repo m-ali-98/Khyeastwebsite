@@ -12,6 +12,7 @@ import path from 'node:path';
 import { UPLOAD_LADDER } from '../../shared/uploadSizes.js';
 import { createDatabase } from '../../server/sqlite.js';
 import { fileURLToPath } from 'node:url';
+import { productionTree } from './release-profile.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DIST = path.join(ROOT, 'dist');
@@ -82,7 +83,8 @@ check(heavyImages.length === 0, 'no oversized image ships in the build', heavyIm
 /* Guard the archive itself: if someone deletes it, the masters are gone and a
    future re-crop would have to be done from the lossy webp. */
 const SRC = path.join(ROOT, 'assets-src');
-check(fs.existsSync(SRC), 'assets-src/ archive of originals still present');
+if (!productionTree) check(fs.existsSync(SRC), 'assets-src/ archive of originals still present');
+else console.log('  source-only original-image archive check runs before promotion');
 
 /* ---- product photography must stay square --------------------------------
    /products and the product detail page render these in a 1:1 frame. The
