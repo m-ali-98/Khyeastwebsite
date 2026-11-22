@@ -502,6 +502,11 @@ input, select, textarea { font-family: inherit; }
      hidden by the background fading in over it. */
   transition: background 0.4s, box-shadow 0.4s;
 }
+/* One continuous scrim protects white navigation text over hero imagery without
+   giving the utility strip and main navigation separate opaque backgrounds. */
+.nav:not(.is-scrolled) {
+  background: linear-gradient(to bottom, rgba(16, 12, 16, 0.72), rgba(16, 12, 16, 0.35) 55%, transparent);
+}
 .nav__topbar {
   background:
     linear-gradient(90deg, rgba(220, 20, 60, 0.2), transparent 34%),
@@ -519,6 +524,10 @@ input, select, textarea { font-family: inherit; }
      the user is scrolling, which is exactly when there is no budget for it.
      It changes once; the eye follows the scaleY and the fade. */
   transition: transform 0.38s var(--ease-soft), opacity 0.28s var(--ease-soft);
+}
+.nav:not(.is-scrolled) .nav__topbar {
+  background: transparent;
+  box-shadow: inset 0 -1px rgba(255, 255, 255, 0.14);
 }
 .nav__topbar-inner {
   height: 40px;
