@@ -41,7 +41,10 @@ executable('sqlite3', `#!/usr/bin/env bash
 set -euo pipefail
 if [[ -n \${SQLITE_TEST_LOG:-} ]]; then printf '%s\\n' "$*" >>"$SQLITE_TEST_LOG"; fi
 case "$*" in
-  *"PRAGMA integrity_check"*) printf 'ok\\n'; exit 0 ;;
+  *"PRAGMA integrity_check"*)
+    if [[ \${MUTATE_SOURCE_ON_INTEGRITY:-0} == 1 ]]; then printf x >> "$DB_FILE"; fi
+    if [[ -n \${RESTART_APP_ON_INTEGRITY:-} ]]; then printf 'active' > "$RESTART_APP_ON_INTEGRITY"; fi
+    printf 'ok\\n'; exit 0 ;;
   *"PRAGMA foreign_key_check"*) exit 0 ;;
 esac
 source_db=
@@ -50,6 +53,9 @@ for argument in "$@"; do
 done
 input=$(cat)
 if [[ $input == *"FROM content_meta"* ]]; then
+  if [[ \${FAIL_SOURCE_CONTENT_READ:-0} == 1 && $source_db == "$DB_FILE" ]]; then
+    printf 'attempt to write a readonly database\\n' >&2; exit 8
+  fi
   if [[ \${INVALID_SQLITE_CONTENT:-0} == 1 ]]; then exit 0; fi
   printf '%s\\n' "\${SQLITE_CONTENT_REVISION:-7}"
   exit 0
@@ -66,6 +72,7 @@ executable('systemctl', `#!/usr/bin/env bash
 set -euo pipefail
 [[ \${1:-} == is-active ]]
 state=\${APP_SERVICE_STATE:-active}
+if [[ -n \${TEST_SERVICE_STATE_FILE:-} && -f $TEST_SERVICE_STATE_FILE ]]; then state=$(cat "$TEST_SERVICE_STATE_FILE"); fi
 printf '%s\\n' "$state"
 [[ $state == active ]]
 `);
@@ -163,6 +170,7 @@ try {
     BACKUP_DEST: offlineDestination,
     APP_SERVICE_STATE: 'inactive',
     FAIL_READONLY_SQLITE_BACKUP: '1',
+    FAIL_SOURCE_CONTENT_READ: '1',
   });
   fs.chmodSync(data, 0o755);
   fs.chmodSync(path.join(data, 'khyeast.db'), 0o644);
@@ -184,6 +192,57 @@ try {
     offlineSqliteCalls.includes('PRAGMA integrity_check') && offlineSqliteCalls.includes('PRAGMA foreign_key_check'),
     'the stopped-service snapshot passes SQLite integrity and foreign-key checks',
     offlineSqliteCalls,
+  );
+
+  const invalidOfflineDestination = path.join(temp, 'invalid-offline-backups');
+  const invalidOffline = run({
+    BACKUP_DEST: invalidOfflineDestination,
+    APP_SERVICE_STATE: 'inactive',
+    FAIL_SOURCE_CONTENT_READ: '1',
+    INVALID_SQLITE_CONTENT: '1',
+  });
+  const invalidOfflineArchives = fs.existsSync(invalidOfflineDestination)
+    ? fs.readdirSync(invalidOfflineDestination).filter((name) => /^khyeast-.*\\.tar$/.test(name))
+    : [];
+  check(
+    invalidOffline.status !== 0 && invalidOfflineArchives.length === 0 && invalidOffline.stderr.includes('copied editorial content failed'),
+    'invalid staged offline content is not published',
+    `${invalidOffline.status} ${invalidOffline.stderr}`,
+  );
+
+  const unstableDestination = path.join(temp, 'unstable-offline-backups');
+  const unstable = run({
+    BACKUP_DEST: unstableDestination,
+    APP_SERVICE_STATE: 'inactive',
+    FAIL_SOURCE_CONTENT_READ: '1',
+    MUTATE_SOURCE_ON_INTEGRITY: '1',
+  });
+  const unstableArchives = fs.existsSync(unstableDestination)
+    ? fs.readdirSync(unstableDestination).filter((name) => /^khyeast-.*\\.tar$/.test(name))
+    : [];
+  check(
+    unstable.status !== 0 && unstableArchives.length === 0 && unstable.stderr.includes('database or service state changed'),
+    'an offline database changing during validation is never published',
+    `${unstable.status} ${unstable.stderr}`,
+  );
+  fs.writeFileSync(path.join(data, 'khyeast.db'), 'test sqlite snapshot bytes');
+
+  const stateFile = path.join(temp, 'service-state');
+  fs.writeFileSync(stateFile, 'inactive');
+  const restartedDestination = path.join(temp, 'restarted-offline-backups');
+  const restarted = run({
+    BACKUP_DEST: restartedDestination,
+    TEST_SERVICE_STATE_FILE: stateFile,
+    FAIL_SOURCE_CONTENT_READ: '1',
+    RESTART_APP_ON_INTEGRITY: stateFile,
+  });
+  const restartedArchives = fs.existsSync(restartedDestination)
+    ? fs.readdirSync(restartedDestination).filter((name) => /^khyeast-.*\\.tar$/.test(name))
+    : [];
+  check(
+    restarted.status !== 0 && restartedArchives.length === 0 && restarted.stderr.includes('database or service state changed'),
+    'a stopped-service snapshot is not published if the app restarts while it is validated',
+    `${restarted.status} ${restarted.stderr}`,
   );
 
   const noSpaceDestination = path.join(temp, 'no-space-backups');

@@ -52,16 +52,16 @@ exec 9>"$DEST/.backup.lock"
 flock -n 9 || fail 'another backup is already running'
 [[ ! -e $ARCHIVE && ! -e $CHECKSUM ]] || fail "archive already exists for timestamp $STAMP"
 
-# Staging and the uncompressed tar coexist on BACKUP_DEST, so budget roughly
-# twice the current live payload plus a fixed reserve. This is a preflight—not
-# a quota—and later write errors still fail closed without publishing a name.
+# The stage and uncompressed tar coexist; a stopped database also needs an
+# untouched reference, a working copy and a snapshot. Budget for the larger
+# of those cases plus reserve. This is a preflight, not a filesystem quota.
 upload_bytes=$(du -sb --exclude='.quarantine' --exclude='.incoming' -- "$UPLOAD_DIR" | awk 'NR == 1 { print $1 }')
 [[ $upload_bytes =~ ^[0-9]+$ ]] || fail 'could not measure live upload size'
-source_bytes=$(( $(stat -c %s "$DB_FILE") + upload_bytes ))
+database_bytes=$(stat -c %s "$DB_FILE")
 for sidecar in "$DB_FILE-wal" "$DB_FILE-shm"; do
-  if [[ -f $sidecar ]]; then source_bytes=$(( source_bytes + $(stat -c %s "$sidecar") )); fi
+  if [[ -f $sidecar ]]; then database_bytes=$(( database_bytes + $(stat -c %s "$sidecar") )); fi
 done
-required_free=$(( source_bytes * 2 + BACKUP_MIN_FREE_BYTES ))
+required_free=$(( upload_bytes * 2 + database_bytes * 3 + BACKUP_MIN_FREE_BYTES ))
 available_free=$(df -PB1 "$DEST" | awk 'NR == 2 { print $4 }')
 [[ $available_free =~ ^[0-9]+$ ]] || fail "could not read free space for $DEST"
 (( available_free >= required_free )) || fail \
@@ -139,23 +139,43 @@ app_service_state() {
   esac
 }
 
+# Compare the untouched reference copy with the source both before and after
+# validating a stopped-service snapshot. A service restart, changed sidecar,
+# or changed database must fail closed; never open the read-only source with
+# SQLite when the service is stopped.
+offline_source_is_stable() {
+  local reference=$1 suffix source_file copied_file
+  [[ $(app_service_state) == inactive ]] || return 1
+  for suffix in '' '-wal' '-shm'; do
+    source_file=$DB_FILE$suffix
+    copied_file=$reference/khyeast.db$suffix
+    if [[ -f $source_file || -f $copied_file ]]; then
+      [[ -f $source_file && -f $copied_file ]] || return 1
+      cmp -s -- "$source_file" "$copied_file" || return 1
+    fi
+  done
+}
+
 snapshot_ok=0
 database_snapshot_mode=
 for attempt in 1 2 3; do
   database=$STAGE/khyeast.db.pending
   offline_source=$STAGE/offline-db-source
-  rm -rf -- "$database" "$offline_source"
-
-  before_revision=$(content_revision "$DB_FILE" 2>/dev/null || true)
-  if [[ ! $before_revision =~ ^[1-9][0-9]*$ ]]; then
-    printf 'backup-khyeast: authoritative SQLite content was unreadable on attempt %s; retrying\n' "$attempt" >&2
-    sleep 1
-    continue
-  fi
+  offline_reference=$STAGE/offline-db-reference
+  rm -rf -- "$database" "$offline_source" "$offline_reference"
 
   database_copied=0
   candidate_mode=
+  before_revision=
   service_state=$(app_service_state)
+  if [[ $service_state == active ]]; then
+    before_revision=$(content_revision "$DB_FILE" 2>/dev/null || true)
+    if [[ ! $before_revision =~ ^[1-9][0-9]*$ ]]; then
+      printf 'backup-khyeast: authoritative SQLite content was unreadable on attempt %s; retrying\n' "$attempt" >&2
+      sleep 1
+      continue
+    fi
+  fi
   if [[ $service_state == active ]]; then
     if sqlite3 -readonly "$DB_FILE" <<SQL
 .bail on
@@ -170,27 +190,16 @@ SQL
     # The read-only systemd sandbox prevents SQLite from creating journal
     # sidecars beside a clean, stopped database. Copy the stable source first;
     # if a WAL survived an unclean stop, consolidate that copied set in staging.
-    install -d -m 0700 "$offline_source"
+    install -d -m 0700 "$offline_source" "$offline_reference"
     for suffix in '' '-wal' '-shm'; do
       source_file=$DB_FILE$suffix
       if [[ -f $source_file ]]; then
-        install -m 0600 -- "$source_file" "$offline_source/khyeast.db$suffix"
+        install -m 0600 -- "$source_file" "$offline_reference/khyeast.db$suffix"
+        cp -- "$offline_reference/khyeast.db$suffix" "$offline_source/khyeast.db$suffix"
       fi
     done
 
-    stable_offline=1
-    [[ $(app_service_state) == inactive ]] || stable_offline=0
-    for suffix in '' '-wal' '-shm'; do
-      source_file=$DB_FILE$suffix
-      copied_file=$offline_source/khyeast.db$suffix
-      if [[ -f $source_file || -f $copied_file ]]; then
-        if [[ ! -f $source_file || ! -f $copied_file ]] || ! cmp -s -- "$source_file" "$copied_file"; then
-          stable_offline=0
-        fi
-      fi
-    done
-
-    if [[ $stable_offline -eq 1 ]]; then
+    if offline_source_is_stable "$offline_reference"; then
       if [[ -f $offline_source/khyeast.db-wal ]]; then
         if sqlite3 "$offline_source/khyeast.db" <<SQL
 .bail on
@@ -227,14 +236,20 @@ SQL
   fi
 
   snapshot_revision=$(content_revision "$database" 2>/dev/null || true)
-  after_revision=$(content_revision "$DB_FILE" 2>/dev/null || true)
-  if [[ ! $snapshot_revision =~ ^[1-9][0-9]*$ || ! $after_revision =~ ^[1-9][0-9]*$ ]]; then
-    printf 'backup-khyeast: copied or live editorial content failed strict validation; retrying\n' >&2
+  if [[ ! $snapshot_revision =~ ^[1-9][0-9]*$ ]]; then
+    printf 'backup-khyeast: copied editorial content failed strict validation; retrying\n' >&2
     sleep 1
     continue
   fi
-  if [[ $before_revision != "$snapshot_revision" || $snapshot_revision != "$after_revision" ]]; then
-    printf 'backup-khyeast: editorial revision changed during snapshot attempt %s; retrying\n' "$attempt" >&2
+  if [[ $service_state == active ]]; then
+    after_revision=$(content_revision "$DB_FILE" 2>/dev/null || true)
+    if [[ ! $after_revision =~ ^[1-9][0-9]*$ || $before_revision != "$snapshot_revision" || $snapshot_revision != "$after_revision" ]]; then
+      printf 'backup-khyeast: live editorial content changed or failed validation during snapshot attempt %s; retrying\n' "$attempt" >&2
+      sleep 1
+      continue
+    fi
+  elif ! offline_source_is_stable "$offline_reference"; then
+    printf 'backup-khyeast: stopped-service database or service state changed during snapshot attempt %s; retrying\n' "$attempt" >&2
     sleep 1
     continue
   fi
@@ -246,6 +261,9 @@ SQL
   break
 done
 [[ $snapshot_ok -eq 1 ]] || fail 'could not obtain a stable validated SQLite snapshot after three attempts'
+# The offline reference and work copy have served their stability check; only
+# the validated snapshot belongs in the archive and must coexist with the tar.
+rm -rf -- "$offline_source" "$offline_reference"
 
 # Second pass captures uploads completed while content and SQLite were copied.
 # Any rsync warning is a failed backup, not a partial success.

@@ -956,7 +956,7 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
   <table>
     <thead><tr><th>Item</th><th>Policy</th><th>Reason</th></tr></thead>
     <tbody>
-      <tr><td>SQLite format 2 snapshot</td><td>Required; active: <code>.backup</code>; stopped: stable staged copy; integrity, foreign-key, exact schema-contract, nine-section and revision-fence checks</td><td>CMS revisions plus orders, payment attempts, stock, accounts and settings</td></tr>
+      <tr><td>SQLite format 2 snapshot</td><td>Required; active: revision-fenced <code>.backup</code>; stopped: byte-verified stable staged copy; both: integrity, foreign-key, exact schema-contract and nine-section checks</td><td>CMS revisions plus orders, payment attempts, stock, accounts and settings</td></tr>
       <tr><td>Live <code>uploads/</code></td><td>Required; copy into staging twice</td><td>Files referenced by content and products</td></tr>
       <tr><td><code>uploads/.incoming/</code></td><td><strong>Exclude locally and offsite</strong></td><td>Incomplete multipart staging; never live recovery state</td></tr>
       <tr><td><code>uploads/.quarantine/</code></td><td><strong>Exclude locally and offsite</strong></td><td>30-day local recycle bin, not production state</td></tr>
@@ -968,11 +968,11 @@ curl -sSI http://example.com/ | grep -Ei 'HTTP/|location:'</pre>
 
   <h3>Why active and stopped-service snapshots are conservative</h3>
   <ol class="steps">
-    <li>Measure the live payload and require room for staging, an uncompressed archive, and a 1 GiB post-estimate reserve before copying.</li>
+    <li>Measure the live payload and require room for staging, an uncompressed archive, the additional stopped-database reference, and a 1 GiB post-estimate reserve before copying.</li>
     <li>Copy live uploads into a fresh stage, excluding <code>.quarantine</code> and transient <code>.incoming</code> bodies.</li>
-    <li>Validate the live SQLite application id, schema version, content metadata and all nine section types; record its monotonic revision.</li>
-    <li>If <code>khyeast.service</code> is active, run SQLite <code>.backup</code>. If systemd confirms it is inactive, copy the stable main file; if WAL survived an unclean stop, copy the main/WAL/SHM set and consolidate only that writable staged copy.</li>
-    <li>Run integrity, foreign-key, exact schema-contract and strict content checks on the snapshot. Read the live revision again and retry unless pre-snapshot, snapshot and post-snapshot revisions are identical.</li>
+    <li>When the service is active, validate the live SQLite application id, schema version, content metadata and all nine section types; record its monotonic revision, and run SQLite <code>.backup</code>.</li>
+    <li>When systemd confirms the service is inactive, copy the main/WAL/SHM set to a protected reference and working stage without opening the read-only source in SQLite. Verify the source bytes and service state remain unchanged. If WAL survived an unclean stop, consolidate only the writable working copy.</li>
+    <li>Run integrity, foreign-key, exact schema-contract and strict content checks on the snapshot. For active snapshots, retry unless pre-snapshot, snapshot and post-snapshot revisions are identical. For stopped snapshots, retry if the source bytes or service state changed during validation.</li>
     <li>Run a second upload copy without <code>--delete</code> and with both private exclusions. Accepted videos and untouched images appear by atomic rename, optimized masters publish only after their variants, and an in-progress multipart body never enters the archive.</li>
     <li>Archive only the stable stage, write manifest format 2 with database hash, content revision and snapshot mode, verify its listing, hash and flush it, then publish the final name atomically.</li>
   </ol>
