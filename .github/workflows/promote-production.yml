@@ -1,7 +1,8 @@
 name: Replace main with production files
 
-# Install this workflow on main first. Then run:
-# gh workflow run promote-production.yml --ref main -f confirm_main=main
+# Run the reviewed workflow from the fixed source branch (not main):
+# gh workflow run promote-production.yml --ref arena/01a07ff9-khyeastwebsite -f confirm_main=main
+# This also bootstraps the upgraded workflow when main has an older copy.
 #
 # This deliberately replaces main's current file tree with the production
 # allowlist from the tested Arena branch. All other tracked main files are
@@ -17,6 +18,28 @@ on:
 
 permissions:
   contents: read
+
+# Shared by both jobs so verification runs against the exact production tree
+# that promotion will publish. Browser E2E, visual baselines, original image
+# archives and documentation are deliberately not shipped.
+env:
+  PRODUCTION_PATHS: |-
+    .gitattributes
+    .gitignore
+    .github/workflows/promote-production.yml
+    index.html
+    package.json
+    package-lock.json
+    vite.config.js
+    src
+    shared
+    server
+    public
+    ops
+    scripts/generate-seo.mjs
+    scripts/migrate-database.mjs
+    scripts/purge-upload-quarantine.mjs
+    scripts/test
 
 concurrency:
   group: promote-production-main
@@ -38,8 +61,8 @@ jobs:
           CONFIRM_MAIN: ${{ inputs.confirm_main }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Run this workflow from main with --ref main." >&2
+          if [[ "$GITHUB_REF" != "refs/heads/arena/01a07ff9-khyeastwebsite" ]]; then
+            echo "Run this workflow from the fixed Arena source branch." >&2
             exit 1
           fi
           if [[ "$CONFIRM_MAIN" != "main" ]]; then
@@ -59,7 +82,15 @@ jobs:
       - name: Record the exact commit being tested
         id: capture
         shell: bash
-        run: echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          # Do not execute a stale workflow while publishing a newer workflow
+          # or using a different allowlist from the one under test.
+          if ! git show "$GITHUB_SHA:.github/workflows/promote-production.yml" | cmp -s - .github/workflows/promote-production.yml; then
+            echo 'The source workflow changed after dispatch; rerun it.' >&2
+            exit 1
+          fi
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -73,6 +104,21 @@ jobs:
       # npm test runs the production build and the project's non-E2E suite.
       - name: Run production build and non-E2E tests
         run: npm test
+
+      # The updater tests the promoted tree, not this full source checkout.
+      # Test that precise allowlist separately with the release-only marker.
+      - name: Test the exact production tree without E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t paths <<< "$PRODUCTION_PATHS"
+          target="$RUNNER_TEMP/khyeast-production-candidate"
+          mkdir -p "$target"
+          git archive HEAD -- "${paths[@]}" | tar -x -C "$target"
+          printf 'khyeast-production-tree-v1\n' > "$target/scripts/test/.production-tree"
+          cd "$target"
+          npm ci
+          npm test
 
   promote:
     name: Replace main tree with production files
@@ -110,39 +156,22 @@ jobs:
           git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           git merge --ff-only refs/remotes/origin/main
 
-          # Complete Node application, production assets, build inputs, and
-          # operational scripts. Keep .gitignore for secret/runtime-data safety
-          # and this workflow so the replacement can be invoked again.
-          # Tests, other workflows, docs, generated dist/, assets-src/, local
-          # dependencies, and .arena/ are intentionally excluded.
-          PRODUCTION_PATHS=(
-            .gitattributes
-            .gitignore
-            .github/workflows/promote-production.yml
-            index.html
-            package.json
-            package-lock.json
-            vite.config.js
-            src
-            shared
-            server
-            public
-            ops
-            scripts/generate-seo.mjs
-            scripts/migrate-database.mjs
-            scripts/purge-upload-quarantine.mjs
-          )
+          # Keep the non-E2E suite required by the updater. Browser tests,
+          # visual baselines, docs and original images remain excluded.
+          mapfile -t PRODUCTION_FILES <<< "$PRODUCTION_PATHS"
 
           # Start from an empty index/worktree, then restore only the allowlist
           # from the exact source commit tested by the read-only job.
           git rm -r -f --ignore-unmatch -- .
-          git checkout "$TESTED_SHA" -- "${PRODUCTION_PATHS[@]}"
+          git checkout "$TESTED_SHA" -- "${PRODUCTION_FILES[@]}"
+          printf 'khyeast-production-tree-v1\n' > scripts/test/.production-tree
+          git add -- scripts/test/.production-tree
 
           for REQUIRED_PATH in \
             .gitattributes .gitignore \
             .github/workflows/promote-production.yml \
             index.html package.json package-lock.json vite.config.js \
-            src/main.jsx server/index.js; do
+            src/main.jsx server/index.js scripts/test/run.mjs scripts/test/.production-tree; do
             git ls-files --error-unmatch "$REQUIRED_PATH" >/dev/null
           done
 
@@ -153,7 +182,7 @@ jobs:
               index.html|package.json|package-lock.json|vite.config.js|\
               src/*|shared/*|server/*|public/*|ops/*|\
               scripts/generate-seo.mjs|scripts/migrate-database.mjs|\
-              scripts/purge-upload-quarantine.mjs)
+              scripts/purge-upload-quarantine.mjs|scripts/test/*)
                 ;;
               *)
                 echo "Unexpected file in replacement tree: $PATHNAME" >&2
