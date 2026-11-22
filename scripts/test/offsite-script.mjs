@@ -22,10 +22,28 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ky-restic-script-'));
 const bin = path.join(temp, 'bin');
 const backups = path.join(temp, 'backups');
+const locks = path.join(temp, 'locks');
 const log = path.join(temp, 'restic.log');
 const password = path.join(temp, 'password');
 fs.mkdirSync(bin, { recursive: true });
 fs.mkdirSync(backups, { recursive: true });
+fs.mkdirSync(locks, { recursive: true });
+
+// Never execute test fixtures against the host's real production lock files.
+// Copy each actual script and redirect only its single lock open into the test
+// directory. Fail closed if the source changes or any /run/lock path remains.
+function isolatedScript(name, lockName) {
+  const source = fs.readFileSync(path.join(ROOT, 'ops', name), 'utf8');
+  const lockOpen = `exec 9>/run/lock/${lockName}`;
+  if (source.split(lockOpen).length !== 2) throw new Error(`unexpected lock statement in ${name}`);
+  const isolated = source.replace(lockOpen, `exec 9>"$KHYEAST_TEST_LOCK_DIR/${lockName}"`);
+  if (isolated.includes('/run/lock/')) throw new Error(`unisolated host lock in ${name}`);
+  const file = path.join(temp, name);
+  fs.writeFileSync(file, isolated, { mode: 0o700 });
+  return file;
+}
+let replicateFixture;
+let maintenanceFixture;
 fs.writeFileSync(password, 'test-only-password', { mode: 0o600 });
 
 const restic = path.join(bin, 'restic');
@@ -51,23 +69,27 @@ const envFor = (extra = {}) => ({
   RESTIC_PASSWORD_FILE: password,
   RESTIC_TEST_LOG: log,
   RESTIC_APPEND_ONLY: 'true',
+  KHYEAST_TEST_LOCK_DIR: locks,
   ...extra,
 });
-const run = (extra = {}) => spawnSync('bash', [path.join(ROOT, 'ops', 'replicate-khyeast-restic')], {
+const run = (extra = {}) => spawnSync('bash', [replicateFixture], {
   cwd: ROOT,
   encoding: 'utf8',
   env: envFor(extra),
 });
-const maintain = () => spawnSync('bash', [path.join(ROOT, 'ops', 'maintain-khyeast-restic')], {
+const maintain = () => spawnSync('bash', [maintenanceFixture], {
   cwd: ROOT,
   encoding: 'utf8',
   env: envFor(),
 });
 
 try {
+  replicateFixture = isolatedScript('replicate-khyeast-restic', 'khyeast-offsite.lock');
+  maintenanceFixture = isolatedScript('maintain-khyeast-restic', 'khyeast-offsite-maintenance.lock');
   const result = run();
   const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [];
   check(result.status === 0, 'a verified local archive reaches the offsite workflow', `${result.status} ${result.stderr}`);
+  check(fs.existsSync(path.join(locks, 'khyeast-offsite.lock')), 'replication uses a disposable test lock');
   check(
     calls[0]?.startsWith('backup --tag khyeast-validated-archive -- '),
     'the append-only upload receives only the completed archive and checksum',
@@ -102,6 +124,7 @@ try {
   const maintained = maintain();
   const maintenanceCalls = fs.readFileSync(log, 'utf8').trim().split('\n');
   check(maintained.status === 0, 'the trusted maintenance workflow completes', `${maintained.status} ${maintained.stderr}`);
+  check(fs.existsSync(path.join(locks, 'khyeast-offsite-maintenance.lock')), 'maintenance uses a disposable test lock');
   check(
     maintenanceCalls[0] === 'check' &&
       maintenanceCalls[1]?.includes('forget') &&
@@ -112,6 +135,30 @@ try {
       maintenanceCalls[3] === 'cache --cleanup',
     'only the separate maintenance workflow checks and prunes retention',
     maintenanceCalls.join(' | '),
+  );
+
+  // Exercise the actual flock gate with the isolated lock already held; no
+  // mocked Restic command may run while another replication is active.
+  fs.writeFileSync(log, '');
+  const contention = spawnSync('flock', [
+    '-n', path.join(locks, 'khyeast-offsite.lock'), 'bash', replicateFixture,
+  ], { cwd: ROOT, encoding: 'utf8', env: envFor() });
+  check(
+    contention.status !== 0 && contention.stderr.includes('another offsite replication is already running') &&
+      fs.readFileSync(log, 'utf8') === '',
+    'replication refuses concurrent work using the disposable flock',
+    `${contention.status} ${contention.stderr}`,
+  );
+
+  fs.writeFileSync(log, '');
+  const maintenanceContention = spawnSync('flock', [
+    '-n', path.join(locks, 'khyeast-offsite-maintenance.lock'), 'bash', maintenanceFixture,
+  ], { cwd: ROOT, encoding: 'utf8', env: envFor() });
+  check(
+    maintenanceContention.status !== 0 && maintenanceContention.stderr.includes('another offsite maintenance run is already active') &&
+      fs.readFileSync(log, 'utf8') === '',
+    'maintenance refuses concurrent work using the disposable flock',
+    `${maintenanceContention.status} ${maintenanceContention.stderr}`,
   );
 
   fs.writeFileSync(`${archive}.sha256`, `${'0'.repeat(64)}  ${path.basename(archive)}\n`);
