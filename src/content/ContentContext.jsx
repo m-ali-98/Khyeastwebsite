@@ -4,6 +4,7 @@ import { mergeContentState } from '../../shared/contentState.js';
 import { CONTENT_REVISION_HEADER, parseContentRevision } from '../../shared/contentRevision.js';
 import { localizeState } from '../../shared/i18n/index.js';
 import { safeSocialLinks } from '../../shared/socialLinks.js';
+import { normalizePublicView } from '../../shared/persianCopy.js';
 import { useLocale } from '../i18n/LocaleContext';
 
 const Ctx = createContext(null);
@@ -339,8 +340,8 @@ export function ContentProvider({ children }) {
   /* Persian is the base language; English, Arabic and Russian are overlays
      applied on top of it (shipped translation first, Admin overrides second).
      Public locale packs are coverage-tested so their visible copy is complete. */
-  const view = useMemo(() => localizeState(state, locale), [state, locale]);
-  const fallback = useMemo(() => localizeState(DEFAULT_STATE, locale), [locale]);
+  const view = useMemo(() => normalizePublicView(localizeState(state, locale)), [state, locale]);
+  const fallback = useMemo(() => normalizePublicView(localizeState(DEFAULT_STATE, locale)), [locale]);
 
   const value = useMemo(
     () => ({

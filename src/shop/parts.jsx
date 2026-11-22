@@ -21,7 +21,7 @@ export function QtyStepper({ value, onChange, max = 999, min = 1 }) {
 }
 
 /* ---------------- shop product card ---------------- */
-export function ShopCard({ p, index = 0 }) {
+export function ShopCard({ p, index = 0, showDetailsAction = false, showStock = false }) {
   const { t, brands } = useContent();
   const { add, money } = useShop();
   const [added, setAdded] = useState(false);
@@ -51,40 +51,36 @@ export function ShopCard({ p, index = 0 }) {
       }}
     >
       <div className="shop-card__img">
-        <Link to={`/shop/${p.slug}`} aria-label={p.title}>
-          <img src={p.image} alt={p.title} loading="lazy" />
-        </Link>
-        <div className="shop-card__badges">
-          {off > 0 && <span className="badge-off">{faNum(off)}٪ {t('shop.card.off')}</span>}
-          {p.featured && (
-            <span className="badge-featured">
-              <Icons.star size={12} />
-              {t('shop.card.featured')}
-            </span>
-          )}
-        </div>
-        <span className={`shop-card__stock ${out ? 'is-out' : low ? 'is-low' : ''}`}>
-          {out ? t('shop.card.outOfStock') : low ? t('shop.card.lowStock') : t('shop.card.inStock')}
-        </span>
+        <img src={p.image} alt="" loading="lazy" />
+        {out || low ? (
+          <span className={`shop-card__stock ${out ? 'is-out' : 'is-low'}`}>
+            {out ? t('shop.card.outOfStock') : t('shop.card.lowStock')}
+          </span>
+        ) : (off > 0 || p.featured) && (
+          <div className="shop-card__badges">
+            {off > 0 ? <span className="badge-off">{faNum(off)}٪ {t('shop.card.off')}</span> : (
+              <span className="badge-featured"><Icons.star size={12} />{t('shop.card.featured')}</span>
+            )}
+          </div>
+        )}
       </div>
       <div className="shop-card__body">
         <div className="shop-card__meta">
-          {brand && <span className="shop-card__brand">{brand.en}</span>}
+          {brand && <bdi dir="ltr" className="shop-card__brand">{brand.en}</bdi>}
+          {brand && p.unit && ' '}
           {p.unit && <span className="shop-card__unit">{p.unit}</span>}
         </div>
         <h3 className="shop-card__title">
           <Link to={`/shop/${p.slug}`}>{p.title}</Link>
         </h3>
         <div className="shop-card__spacer" />
+        {showStock && <span className="shop-card__availability">{out ? t('shop.card.outOfStock') : low ? t('shop.card.lowStock') : t('shop.card.inStock')}</span>}
         <div className="shop-card__price">
           <span className="now">{money(p.price)}</span>
           {off > 0 && <span className="was">{money(p.oldPrice)}</span>}
         </div>
         <div className="shop-card__actions">
-          <Link to={`/shop/${p.slug}`} className="btn btn--outline btn--sm">
-            {t('shop.card.view')}
-            <Icons.arrow size={15} />
-          </Link>
+          {showDetailsAction && <Link to={`/shop/${p.slug}`} className="btn btn--outline btn--sm">{t('product.view')}</Link>}
           <button
             type="button"
             className={`btn btn--primary btn--sm${added ? ' is-added' : ''}`}

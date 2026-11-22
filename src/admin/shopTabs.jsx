@@ -579,7 +579,7 @@ export function ShopProductsTab() {
             <div>
               <b>{p.title}</b>
               <small>
-                {formatMoney(p.price, display.displayUnit === 'toman' ? 'toman' : 'rial')} · موجودی:{' '}
+                {formatMoney(p.price, 'rial')} · موجودی:{' '}
                 {Number(p.stock) < 0 ? 'نامحدود' : new Intl.NumberFormat('fa-IR').format(p.stock)} ·{' '}
                 {p.active ? 'فعال' : 'غیرفعال'}
                 {p.commentsLocked ? ' · دیدگاه‌ها بسته' : ''}
@@ -609,19 +609,7 @@ export function ShopProductsTab() {
       </div>
 
       <h3 style={{ margin: '28px 0 12px' }}>تنظیمات فروشگاه</h3>
-      <div className="admin__grid2">
-        <Field
-          label="واحد نمایش قیمت"
-          value={display.displayUnit || 'rial'}
-          onChange={(v) => commitShop({ display: { ...display, displayUnit: v } })}
-          type="select"
-          options={[
-            { value: 'rial', label: 'ریال' },
-            { value: 'toman', label: 'تومان' },
-          ]}
-        />
-        <Field label="عنوان واحد پول" value={display.currencyLabel || 'ریال'} onChange={(v) => commitShop({ display: { ...display, currencyLabel: v } })} />
-      </div>
+      <p className="admin__hint">قیمت‌ها در فروشگاه به تومان نمایش داده می‌شوند؛ مبالغ ثبت‌شده و تنظیمات زیر همچنان به ریال هستند.</p>
       <div className="admin__grid2" style={{ marginTop: 12 }}>
         <Field label="هزینه ارسال (ریال)" type="number" dir="ltr" value={display.shippingCost ?? 0} onChange={(v) => commitShop({ display: { ...display, shippingCost: num(v) } })} />
         <Field label="ارسال رایگان برای خریدهای بالای (ریال — صفر یعنی غیرفعال)" type="number" dir="ltr" value={display.freeShippingOver ?? 0} onChange={(v) => commitShop({ display: { ...display, freeShippingOver: num(v) } })} />

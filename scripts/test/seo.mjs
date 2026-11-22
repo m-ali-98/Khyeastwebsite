@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import { mergeContentState } from '../../shared/contentState.js';
 import { loadAllPacks } from '../../shared/i18n/index.js';
+import { normalizePublicView } from '../../shared/persianCopy.js';
 import {
   listIndexablePaths,
   listRoutablePaths,
@@ -51,6 +52,14 @@ const missing = resolveSeo('/does-not-exist', DEFAULT_STATE, ORIGIN);
 const invalidLocaleShop = resolveSeo('/en/shop', DEFAULT_STATE, ORIGIN);
 
 check(home.indexable && home.status === 200, 'home indexable');
+check(home.homeStats.length === 4 && home.homeStats[0].value === '۳۰' && home.homeStats[3].value === '۵۰', 'homepage fallback exposes actual statistics without JavaScript');
+const legacyCopy = structuredClone(DEFAULT_STATE);
+legacyCopy.texts['global.company.name'] = 'شرکت خمیر مایه خوزستان';
+legacyCopy.texts['seo.home.title'] = 'خمیر مایه خوزستان';
+check(!resolveSeo('/', legacyCopy, ORIGIN).title.includes('خمیر مایه'), 'legacy saved SEO copy uses consistent Persian spelling');
+const authored = { products: [{ slug: 'خمیر مایه', title: 'خمیر مایه', description: '<a href="/خمیر مایه">خمیر مایه</a>' }] };
+const normalized = normalizePublicView(authored);
+check(normalized.products[0].title === 'خمیرمایه' && normalized.products[0].description === '<a href="/خمیر مایه">خمیرمایه</a>' && normalized.products[0].slug === 'خمیر مایه' && authored.products[0].title === 'خمیر مایه', 'public copy normalization preserves authored URLs, IDs and stored state');
 check(home.canonical === `${ORIGIN}/`, 'home canonical');
 check(home.alternates.length === 5, 'home has 4 locales plus x-default');
 check(home.alternates.some((alternate) => alternate.hreflang === 'ru' && alternate.href === `${ORIGIN}/ru`), 'Russian homepage is in hreflang alternates');
@@ -221,6 +230,7 @@ const built404 = fs.readFileSync(path.join(DIST, '404.html'), 'utf8');
 const builtHtaccess = fs.readFileSync(path.join(DIST, '.htaccess'), 'utf8');
 const builtSitemapStylesheet = fs.readFileSync(path.join(DIST, 'sitemap.xsl'), 'utf8');
 check(builtIndex.includes('<main class="seo-fallback">'), 'root has crawlable fallback content');
+check(builtIndex.includes('۳۰+ سال سابقه') && builtIndex.includes('۵۰+ کشور صادراتی'), 'initial HTML includes actual homepage statistics');
 check(builtIndex.includes('application/ld+json'), 'root has structured data before JavaScript');
 check(builtEnAbout.includes('<html lang="en" dir="ltr"'), 'built English document language');
 check(builtEnAbout.includes('<h1>About Khuzestan Yeast Co.</h1>'), 'built route-specific fallback heading');

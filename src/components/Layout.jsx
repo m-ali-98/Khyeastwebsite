@@ -28,7 +28,6 @@ export const NAV_LINKS = [
    overview. Export remains top-level: international buyers should not have to
    guess that a commercial destination is hidden beneath “About us”. */
 const HEADER_NAV_ITEMS = [
-  { to: '/', key: 'nav.home', end: true },
   {
     key: 'nav.about',
     children: [
@@ -420,8 +419,8 @@ function Navbar() {
           <Link to="/" className="nav__logo" aria-label={t('global.company.name')}>
             <Logo variant="solid" />
             <span className="nav__logo-text">
-              <strong>{t('global.company.short')}</strong>
-              <small>{t('global.company.en')}</small>
+              <strong>{t('global.company.short')}</strong>{' '}
+              <small dir="ltr">{t('global.company.en')}</small>
             </span>
           </Link>
 
@@ -707,8 +706,8 @@ function Footer() {
             <Link to="/" className="nav__logo" style={{ marginBottom: 8 }}>
               <Logo size={44} variant="solid" />
               <span className="nav__logo-text">
-                <strong style={{ color: '#fff' }}>{t('global.company.short')}</strong>
-                <small>{t('global.company.en')}</small>
+                <strong style={{ color: '#fff' }}>{t('global.company.short')}</strong>{' '}
+                <small dir="ltr">{t('global.company.en')}</small>
               </span>
             </Link>
             <p className="footer__slogan">«{t('global.slogan')}»</p>

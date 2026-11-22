@@ -5,6 +5,7 @@ import { Icons, Reveal, faNum } from '../components/ui';
 import PagePending from '../components/PagePending';
 import { useContent } from '../content/ContentContext';
 import { useShop } from '../shop/ShopContext';
+import { normalizePersianCopy } from '../../shared/persianCopy.js';
 
 const FLOW = ['pending_payment', 'paid', 'shipped', 'delivered'];
 
@@ -212,7 +213,7 @@ export default function ShopOrder() {
                   {order.items.map((it) => (
                     <div className="order-card__row" key={it.slug}>
                       <span>
-                        {it.title} × {faNum(it.qty)}
+                        {normalizePersianCopy(it.title)} × {faNum(it.qty)}
                       </span>
                       <span>{money(it.sum)}</span>
                     </div>

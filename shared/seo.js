@@ -14,6 +14,8 @@ import {
   shopEnabled,
 } from './i18n/index.js';
 import { safeSocialLinks } from './socialLinks.js';
+import { resolveHomeStats } from './homeStats.js';
+import { normalizePublicView } from './persianCopy.js';
 
 export const DEFAULT_SITE_ORIGIN = 'https://khuzestanyeast-co.com';
 export const SEO_HEAD_START = '<!-- seo:head:start -->';
@@ -267,7 +269,7 @@ function titleWithSite(page, site, home = false) {
 }
 
 function localizedView(state, locale) {
-  return localizeState(state, locale) || state || {};
+  return normalizePublicView(localizeState(state, locale) || state || {});
 }
 
 function routeAlternates(relative, locales, origin) {
@@ -693,6 +695,9 @@ export function resolveSeo(pathname, state, requestedOrigin = DEFAULT_SITE_ORIGI
     breadcrumbs,
     body: route.body,
     links: route.links,
+    homeStats: relative === '/' ? resolveHomeStats(view.collections?.homeStats, view.products, view.brands)
+      .filter((stat) => Number.isFinite(Number(stat?.value)))
+      .map((stat) => ({ value: new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : locale).format(Number(stat.value)), suffix: plainText(stat.suffix), label: plainText(stat.label) })) : [],
     entity,
     shopOffer,
   };
@@ -810,6 +815,7 @@ export function renderSeoFallback(meta) {
     `<h1>${escapeHtml(meta.pageTitle || meta.title)}</h1>`,
     `<p>${escapeHtml(meta.description)}</p>`,
     body,
+    meta.homeStats?.length ? `<ul>${meta.homeStats.map((stat) => `<li>${escapeHtml(stat.value)}${escapeHtml(stat.suffix)} ${escapeHtml(stat.label)}</li>`).join('')}</ul>` : '',
     links,
     '</article>',
     '</main>',

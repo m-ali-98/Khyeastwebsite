@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useContent } from '../content/ContentContext';
 import { productOrderLimit, reconcileCart } from '../../shared/cartAvailability.js';
+import { normalizePublicCopy } from '../../shared/persianCopy.js';
 
 const Ctx = createContext(null);
 const CART_KEY = 'ky_shop_cart_v1';
@@ -35,7 +36,7 @@ const writeLS = (key, value) => {
 };
 
 /* ---------------- money helpers (prices stored in RIAL) ---------------- */
-export const rialToUnit = (rial, unit) => (unit === 'toman' ? Math.round(Number(rial) / 10) : Math.round(Number(rial)));
+export const rialToUnit = (rial, unit) => (unit === 'toman' ? Math.round(Number(rial)) / 10 : Math.round(Number(rial)));
 export const formatMoney = (rial, unit = 'rial', withLabel = true) => {
   const value = rialToUnit(rial, unit).toLocaleString('fa-IR');
   return withLabel ? `${value} ${unit === 'toman' ? 'تومان' : 'ریال'}` : value;
@@ -57,9 +58,10 @@ export function ShopProvider({ children }) {
   const contentProducts = Array.isArray(state.shop?.products) ? state.shop.products : [];
   const display = state.shop?.display || {};
   const [inventorySnapshot, setInventorySnapshot] = useState(null);
-  const products = inventorySnapshot?.base === contentProducts
+  const inventoryProducts = inventorySnapshot?.base === contentProducts
     ? inventorySnapshot.products
     : contentProducts;
+  const products = useMemo(() => normalizePublicCopy(inventoryProducts), [inventoryProducts]);
   const [cart, setCart] = useState({});
   const [cartHydrated, setCartHydrated] = useState(false);
   const [cartStorageRevision, setCartStorageRevision] = useState(0);
@@ -311,7 +313,9 @@ export function ShopProvider({ children }) {
     ? Math.max(0, Math.round(Number(display.shippingCost) || 0))
     : 0;
   const total = subtotal + shipping;
-  const unit = display.displayUnit === 'toman' ? 'toman' : 'rial';
+  // Storefront display is always toman; all stored amounts and payment requests
+  // remain in rial. Preserve fractional toman for amounts not divisible by 10.
+  const unit = 'toman';
   const money = useCallback((rial, withLabel = true) => formatMoney(rial, unit, withLabel), [unit]);
 
   const value = useMemo(() => ({
