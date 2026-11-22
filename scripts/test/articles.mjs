@@ -6,6 +6,7 @@ import { DOMParser } from 'linkedom';
 import DEFAULT_STATE from '../../shared/contentDefaults.js';
 import { loadAllPacks, localizeState } from '../../shared/i18n/index.js';
 import { sanitizeHtmlResultWithParser } from '../../shared/sanitizeHtml.js';
+import { wordBoundaryExcerpt } from '../../shared/excerpt.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const articleStyles = fs.readFileSync(path.join(ROOT, 'src', 'styles', 'global.scss'), 'utf8');
@@ -51,6 +52,10 @@ const check = (condition, label, detail = '') => {
     console.log(`LEAK ${label}${detail ? ` — ${detail}` : ''}`);
   }
 };
+
+check(wordBoundaryExcerpt('بازار روبه رو ش…') === 'بازار روبه رو…', 'legacy excerpts end at a word boundary');
+check(wordBoundaryExcerpt('متن کامل.') === 'متن کامل.', 'complete editorial excerpts remain unchanged');
+check(wordBoundaryExcerpt('متن کامل …') === 'متن کامل …', 'an explicitly separated ellipsis remains unchanged');
 
 check(
   DEFAULT_STATE.posts.length === expectedSlugs.length &&

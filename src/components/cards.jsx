@@ -83,7 +83,7 @@ export function BrandCard({ brand, index = 0 }) {
         <img {...imgProps(brand.image, SIZES.card)} alt={brand.fa} loading="lazy" />
       </div>
       <h2>{brand.fa}</h2>
-      <p>{[brand.en, brand.tagline].filter(Boolean).join(' · ')}</p>
+      <p>{brand.en && <bdi dir="ltr">{brand.en}</bdi>}{brand.en && brand.tagline && ' · '}{brand.tagline}</p>
       <span className="brand-card__cta">
         {t('home.brands.cardLink')}
         <Icons.arrow size={15} />

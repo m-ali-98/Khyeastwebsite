@@ -208,6 +208,52 @@ test('storefront presents clear prices and a single-action clickable card @mobil
   await expect(page.locator('.sp-buy')).toContainText('تومان');
 });
 
+test('homepage has one locale-aware product showcase and clean excerpts @mobile', async ({ page }) => {
+  test.setTimeout(120_000);
+  let paused = false;
+  await page.route('**/api/content', async (route) => {
+    const response = await route.fetch();
+    const content = await response.json();
+    content.shop.display.enabled = !paused;
+    await route.fulfill({ response, json: content });
+  });
+  await gotoReady(page, '/');
+  const showcase = page.locator('.home-products');
+  await expect(showcase).toHaveCount(1);
+  await expect(page.locator('.home-shop-shelf')).toHaveCount(0);
+  const purchaseCard = showcase.locator('.shop-card').first();
+  await expect(purchaseCard.locator('.shop-card__price')).toContainText('تومان');
+  await expect(purchaseCard.locator('.shop-card__availability')).not.toBeEmpty();
+  await expect(purchaseCard.locator('.shop-card__actions a')).toHaveText('مشاهده محصول');
+  const addButton = purchaseCard.locator('.shop-card__actions button');
+  await expect(addButton).toBeVisible();
+  await addButton.click();
+  await expect(addButton).toContainText('اضافه شد');
+  await expect(page).toHaveURL(/\/$/);
+  const detailsPath = await purchaseCard.locator('.shop-card__actions a').getAttribute('href');
+  await purchaseCard.locator('.shop-card__actions a').click();
+  await expect(page).toHaveURL(new RegExp(`${detailsPath}$`));
+  await gotoReady(page, '/');
+  await expect(showcase.locator('.product-card')).not.toHaveCount(0); // no implicit SKU matching
+  await expect(page.locator('.nav .nav__logo-text small')).toHaveAttribute('dir', 'ltr');
+  await expect(purchaseCard.locator('.shop-card__brand')).toHaveAttribute('dir', 'ltr');
+  const excerpt = await page.locator('.home-blog .post-card__body p').first().textContent();
+  expect(excerpt).not.toMatch(/\sش…$/);
+
+  paused = true;
+  await gotoReady(page, '/');
+  await expect(showcase.locator('.shop-card')).toHaveCount(0);
+  await expect(showcase.locator('.product-card')).not.toHaveCount(0);
+  for (const locale of ['en', 'ar', 'ru']) {
+    paused = false;
+    await gotoReady(page, `/${locale}`);
+    await expect(showcase).toHaveCount(1);
+    await expect(showcase.locator('.shop-card, .shop-card__price, .shop-card__actions button')).toHaveCount(0);
+    await expect(showcase.locator('.product-card')).not.toHaveCount(0);
+    await expect(showcase.locator('.product-card__foot a').first()).toHaveAttribute('href', new RegExp(`^/${locale}/products/`));
+  }
+});
+
 test('catalogue purchase links follow explicit shop relationships and disappear with a disabled shop @mobile', async ({ page }) => {
   await gotoReady(page, '/products/dezmaye-gold-80');
   const relatedPurchase = page.locator('.catalog-detail__actions').getByRole('link', { name: 'خرید آنلاین' });

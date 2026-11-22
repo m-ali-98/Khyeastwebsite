@@ -6,6 +6,7 @@ import { ProductCard, PostCard, BrandCard } from '../components/cards';
 import { useContent } from '../content/ContentContext';
 import { resolveHomeStats } from '../../shared/homeStats.js';
 import { isStorefrontEnabled } from '../../shared/shopAvailability.js';
+import { findCatalogueShopProduct } from '../../shared/shopLinks.js';
 import { useLocale } from '../i18n/LocaleContext';
 import { useShop } from '../shop/ShopContext';
 import { ShopCard } from '../shop/parts';
@@ -103,71 +104,6 @@ function Hero() {
   );
 }
 
-/* A purchase-ready shelf belongs immediately after the brand hero, but only
-   while the Persian storefront itself is available. The existing "featured"
-   product switch in Admin is the merchandising control, so administrators
-   choose exactly which active products earn this high-visibility placement. */
-function HomeShopShelf() {
-  const { t } = useContent();
-  const { shopEnabled } = useLocale();
-  const { display, products } = useShop();
-  const shelfProducts = products
-    .filter((product) => product.active && product.featured)
-    .slice(0, 3);
-  const storefrontEnabled = isStorefrontEnabled(shopEnabled, display);
-
-  if (!storefrontEnabled || shelfProducts.length === 0) return null;
-
-  const trustItems = [
-    { icon: Icons.shield, text: t('home.shop.trust1') },
-    { icon: Icons.shipping, text: t('home.shop.trust2') },
-    { icon: Icons.payment, text: t('home.shop.trust3') },
-  ];
-
-  return (
-    <section className="home-shop-shelf" aria-labelledby="home-shop-shelf-title">
-      <div className="container">
-        <div className="home-shop-shelf__head">
-          <Reveal className="home-shop-shelf__copy">
-            <span className="overline">{t('home.shop.overline')}</span>
-            <h2 className="section-title" id="home-shop-shelf-title">
-              {hl(t('home.shop.title'))}
-            </h2>
-            <p>{t('home.shop.sub')}</p>
-          </Reveal>
-
-          <Reveal className="home-shop-shelf__aside" delay={0.08}>
-            <ul className="home-shop-shelf__trust" aria-label={t('home.shop.overline')}>
-              {trustItems.map(({ icon: Icon, text }) => (
-                <li key={text}>
-                  <Icon size={17} aria-hidden="true" />
-                  <span>{text}</span>
-                </li>
-              ))}
-            </ul>
-            <Link to="/shop" className="btn btn--outline home-shop-shelf__desktop-action">
-              {t('home.shop.btnAll')}
-              <Icons.arrow size={18} />
-            </Link>
-          </Reveal>
-        </div>
-
-        <div className="shop-grid home-shop-shelf__grid">
-          {shelfProducts.map((product, index) => (
-            <ShopCard key={product.slug} p={product} index={index} />
-          ))}
-        </div>
-
-        <Reveal className="home-shop-shelf__mobile-action">
-          <Link to="/shop" className="btn btn--outline">
-            {t('home.shop.btnAll')}
-            <Icons.arrow size={18} />
-          </Link>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
 
 function Intro() {
   const { t, m, l } = useContent();
@@ -231,8 +167,11 @@ function Brands() {
   );
 }
 
-function FeaturedProducts() {
+function ProductShowcase() {
   const { t, products } = useContent();
+  const { locale, shopEnabled } = useLocale();
+  const { display, products: shopProducts } = useShop();
+  const canShop = locale === 'fa' && isStorefrontEnabled(shopEnabled, display);
   const featured = products.filter((p) => p.featured).slice(0, 4);
   return (
     <section className="section home-products">
@@ -244,9 +183,14 @@ function FeaturedProducts() {
           align="start"
         />
         <div className="products-grid">
-          {featured.map((p, i) => (
-            <ProductCard key={p.slug} product={p} index={i} />
-          ))}
+          {featured.map((p, i) => {
+            // Only explicit, active relationships can expose a purchase. Never
+            // infer a match from slugs or sell an unrelated catalogue item.
+            const shopProduct = canShop && findCatalogueShopProduct(p.slug, shopProducts);
+            return shopProduct
+              ? <ShopCard key={p.slug} p={shopProduct} index={i} showDetailsAction showStock />
+              : <ProductCard key={p.slug} product={p} index={i} />;
+          })}
         </div>
         <Reveal className="section-action">
           <Link to="/products" className="btn btn--outline">
@@ -416,10 +360,9 @@ export default function Home() {
   return (
     <>
       <Hero />
-      <HomeShopShelf />
       <Intro />
       <Brands />
-      <FeaturedProducts />
+      <ProductShowcase />
       <Process />
       <BreadBanner />
       <Features />

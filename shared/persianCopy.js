@@ -1,3 +1,5 @@
+import { wordBoundaryExcerpt } from './excerpt.js';
+
 // Normalize public-facing copy without changing stored CMS data, URLs or IDs.
 export function normalizePersianCopy(value) {
   return String(value ?? '').replace(/خمیر[\s\u200c]+مایه/g, 'خمیرمایه');
@@ -25,7 +27,10 @@ export function normalizePublicView(view) {
     texts: normalizePublicCopy(view.texts),
     collections: normalizePublicCopy(view.collections),
     products: normalizePublicCopy(view.products),
-    posts: normalizePublicCopy(view.posts),
+    posts: Array.isArray(view.posts) ? normalizePublicCopy(view.posts).map((post) => (
+      post && typeof post === 'object' && typeof post.excerpt === 'string'
+        ? { ...post, excerpt: wordBoundaryExcerpt(post.excerpt) } : post
+    )) : view.posts,
     brands: normalizePublicCopy(view.brands),
     gallery: normalizePublicCopy(view.gallery),
     shop: view.shop ? { ...view.shop, products: normalizePublicCopy(view.shop.products) } : view.shop,

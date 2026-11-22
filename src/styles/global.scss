@@ -598,6 +598,7 @@ input, select, textarea { font-family: inherit; }
 }
 .nav__logo-text small {
   display: block;
+  margin-block-start: 2px;
   /* The corporate subtitle is Latin in every locale. Isolating its direction
      keeps the closing full stop after “CO” inside RTL Persian/Arabic chrome. */
   direction: ltr;
@@ -1666,7 +1667,15 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
 .post-card__body h2 a { transition: color 0.24s var(--ease-soft); }
 .post-card:hover .post-card__body h2 a,
 .post-card:focus-within .post-card__body h2 a { color: var(--crimson-ink); }
-.post-card__body p { margin: 0; color: var(--muted); font-size: 14px; }
+.post-card__body p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
 .post-card__foot { margin-top: auto; padding-top: 10px; }
 
 /* Sanitized rich text stores only these semantic colour names. Never style an
@@ -2631,6 +2640,7 @@ a.brand-card:focus-visible .brand-card__cta { opacity: 1; }
   .home-products .products-grid::-webkit-scrollbar,
   .home-blog .posts-grid::-webkit-scrollbar { display: none; }
   .home-products .product-card,
+  .home-products .shop-card,
   .home-blog .post-card {
     flex: 0 0 min(80vw, 310px);
     scroll-snap-align: start;
