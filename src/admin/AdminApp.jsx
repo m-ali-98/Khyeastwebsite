@@ -347,7 +347,7 @@ function Login({ onDone }) {
         </div>
         <span className="admin__login-kicker">مدیریت امن وب‌سایت</span>
         <h1>پنل مدیریت محتوا</h1>
-        <p className="admin__login-intro">شرکت خمیر مایه خوزستان — دسترسی مخصوص مدیر محتوا</p>
+        <p className="admin__login-intro">شرکت خمیرمایه خوزستان — دسترسی مخصوص مدیر محتوا</p>
         <div className="admin__login-fields">
           <label className="field">
             <span>نام کاربری</span>

@@ -28,7 +28,6 @@ export const NAV_LINKS = [
    overview. Export remains top-level: international buyers should not have to
    guess that a commercial destination is hidden beneath “About us”. */
 const HEADER_NAV_ITEMS = [
-  { to: '/', key: 'nav.home', end: true },
   {
     key: 'nav.about',
     children: [

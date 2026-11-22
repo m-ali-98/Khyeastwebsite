@@ -79,10 +79,6 @@ function Hero() {
                   {t('home.hero.btnProducts')}
                   <Icons.arrow size={18} />
                 </Link>
-                <Link to="/contact" className="hero__wholesale-link">
-                  {t('home.hero.btnWholesale')}
-                  <Icons.arrow size={16} />
-                </Link>
               </>
             ) : (
               <>

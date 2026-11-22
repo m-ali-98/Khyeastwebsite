@@ -736,17 +736,6 @@
       radial-gradient(circle at 50% 44%, var(--crimson-soft), transparent 44%),
       linear-gradient(155deg, var(--surface-tint), var(--bg-soft));
 
-    > a {
-      display: block;
-      width: 100%;
-      height: 100%;
-    }
-
-    > a:focus-visible {
-      outline: 3px solid var(--crimson);
-      outline-offset: -5px;
-    }
-
     img {
       width: 100%;
       height: 100%;
@@ -807,6 +796,7 @@
     font-weight: 850;
     line-height: 1.4;
     backdrop-filter: blur(5px);
+    pointer-events: none;
 
     &.is-out {
       color: #c01034;
@@ -868,6 +858,9 @@
       color: inherit;
       transition: color 200ms ease;
     }
+    /* Expand the real product link over the card without nesting interactive
+       controls; the add-to-cart button remains independently clickable. */
+    a::after { content: ''; position: absolute; inset: 0; z-index: 1; }
 
     .shop-card:hover & a,
     .shop-card:focus-within & a { color: var(--crimson-ink); }
@@ -898,6 +891,8 @@
   }
 
   &__actions {
+    position: relative;
+    z-index: 2;
     display: flex;
     gap: 7px;
 

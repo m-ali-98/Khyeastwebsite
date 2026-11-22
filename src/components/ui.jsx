@@ -301,7 +301,7 @@ export function SectionHead({ overline, title, sub, light = false, align = 'cent
 /* ------------------------------------------------------------------ */
 export function Counter({ to, suffix = '', duration = 2.2 }) {
   const ref = useRef(null);
-  const [val, setVal] = useState(0);
+  const [val, setVal] = useState(to);
   const num = useNum();
 
   /* Counting from 0 to a number is four lines of requestAnimationFrame. Doing
@@ -311,13 +311,15 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
     const el = ref.current;
     if (!el) return undefined;
 
+    setVal(to);
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
     let raf = 0;
     const ease = (t) => 1 - Math.pow(1 - t, 3); // the [0.22,1,0.36,1] feel
     const run = () => {
       const started = performance.now();
       const tick = (now) => {
         const p = Math.min(1, (now - started) / (duration * 1000));
-        setVal(Math.round(ease(p) * to));
+        setVal(Math.round(to * (0.8 + 0.2 * ease(p))));
         if (p < 1) raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
@@ -343,9 +345,8 @@ export function Counter({ to, suffix = '', duration = 2.2 }) {
   }, [to, duration]);
 
   return (
-    <span ref={ref}>
-      {num(val)}
-      {suffix}
+    <span ref={ref} aria-label={`${num(to)}${suffix}`}>
+      <span aria-hidden="true">{num(val)}{suffix}</span>
     </span>
   );
 }

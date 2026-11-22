@@ -175,6 +175,39 @@ test('homepage catalogue and brand counters follow the live product and brand li
   await expect(page.locator('.brands-grid .brand-card')).toHaveCount(expectedBrandCount);
 });
 
+test('storefront presents clear prices and a single-action clickable card @mobile', async ({ page }) => {
+  // An odd rial amount must not be silently rounded up or down in toman.
+  for (const pattern of ['**/api/content', '**/api/shop-products']) {
+    await page.route(pattern, async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      const items = pattern.endsWith('/content') ? payload.shop?.products : payload.products;
+      const product = items?.find((item) => item.slug === 'dezmaye-gold-80');
+      if (product) { product.price = 460001; product.stock = 50; }
+      await route.fulfill({ response, json: payload });
+    });
+  }
+  await gotoReady(page, '/');
+  await expect(page.locator('.hero__actions a[href="/contact"]')).toHaveCount(0);
+  await expect(page.locator('.nav__links a[href="/"]')).toHaveCount(0);
+  await expect(page.locator('.stats-band .stat').first().locator('.stat__value')).toHaveText('۳۰+');
+  await gotoReady(page, '/shop');
+  const card = page.locator('.shop-card').filter({ has: page.locator('a[href="/shop/dezmaye-gold-80"]') }).first();
+  await expect(card.locator('.shop-card__price .now')).toHaveText('۴۶٬۰۰۰٫۱ تومان');
+  await expect(card.locator('.shop-card__actions button')).toHaveCount(1);
+  await expect(card.locator('.shop-card__actions a')).toHaveCount(0);
+  expect(await card.locator('.shop-card__badges span, .shop-card__stock').count()).toBeLessThanOrEqual(1);
+  await card.locator('.shop-card__actions button').click();
+  await expect(card.locator('.shop-card__actions button')).toContainText('اضافه شد');
+  await expect(page).toHaveURL(/\/shop$/);
+  const target = await card.locator('.shop-card__title a').getAttribute('href');
+  await card.locator('.shop-card__img').scrollIntoViewIfNeeded();
+  const imageBox = await card.locator('.shop-card__img').boundingBox();
+  await page.mouse.click(imageBox.x + imageBox.width / 2, imageBox.y + imageBox.height / 2);
+  await expect(page).toHaveURL(new RegExp(`${target}$`));
+  await expect(page.locator('.sp-buy')).toContainText('تومان');
+});
+
 test('catalogue purchase links follow explicit shop relationships and disappear with a disabled shop @mobile', async ({ page }) => {
   await gotoReady(page, '/products/dezmaye-gold-80');
   const relatedPurchase = page.locator('.catalog-detail__actions').getByRole('link', { name: 'خرید آنلاین' });
@@ -522,7 +555,7 @@ test('every catalogue and shop product uses the cleaned detail shell @mobile', a
   await page.setViewportSize({ width: 320, height: 844 });
   const listings = [
     ['/products', '.product-card__media', '.catalog-detail__layout'],
-    ['/shop', '.shop-card__img a', '.shop-product-page .sp-detail'],
+    ['/shop', '.shop-card__title a', '.shop-product-page .sp-detail'],
   ];
 
   for (const [listing, linkSelector, detailSelector] of listings) {
@@ -1098,7 +1131,9 @@ test('shop search, sale and brand filters compose without hiding their controls 
   await expect(page.locator('.shop-card')).toHaveCount(1);
   await expect(page.locator('.shop-card')).toContainText('ایکس پاور');
   const cardActions = page.locator('.shop-card__actions').first();
-  await expect(cardActions.getByRole('link', { name: /مشاهده و خرید/ })).toBeVisible();
+  await expect(cardActions.getByRole('link')).toHaveCount(0);
+  await expect(page.locator('.shop-card__title a').first()).toHaveAttribute('href', /\/shop\//);
+  expect(await page.locator('.shop-card__badges span, .shop-card__stock').count()).toBeLessThanOrEqual(1);
   const addButton = cardActions.getByRole('button');
   await expect(addButton).toBeVisible();
   await expect(addButton).toHaveAccessibleName(/افزودن به سبد خرید/);

@@ -92,10 +92,10 @@ const ruPlural = (value, one, few, many) => {
 const COPY = Object.freeze({
   fa: {
     title: {
-      dezmaye: (weight) => `خمیر مایه خشک فوری دزمایه گلد ${weight}`,
-      shetab: (weight) => `خمیر مایه خشک فوری شتاب مایه ${weight}`,
-      xpower: (weight) => `خمیر مایه خشک فوری ایکس پاور ${weight}`,
-      nanmaye: (weight) => `خمیر مایه نان مایه ${weight}`,
+      dezmaye: (weight) => `خمیرمایه خشک فوری دزمایه گلد ${weight}`,
+      shetab: (weight) => `خمیرمایه خشک فوری شتاب مایه ${weight}`,
+      xpower: (weight) => `خمیرمایه خشک فوری ایکس پاور ${weight}`,
+      nanmaye: (weight) => `خمیرمایه نان مایه ${weight}`,
     },
     short: {
       dezmaye: 'خمیرمایه خشک فوری دزمایه گلد، تولیدشده با استانداردهای کیفی اروپایی و تکنولوژی پیشرفته فرینگز (Frings) اتریش؛ با فعالیت تخمیری بالا و بدون نیاز به پیش‌تخمیر.',
