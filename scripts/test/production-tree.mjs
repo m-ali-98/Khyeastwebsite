@@ -9,8 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/promote-production.yml'), 'utf8');
 const npm = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const match = workflow.match(/  PRODUCTION_PATHS: \|\n((?:    .+\n)+)/);
-const paths = match ? match[1].trim().split('\n').map((line) => line.trim()) : [];
+const match = workflow.match(/  PRODUCTION_PATHS: \|(-?)\n((?:    .+\n)+)/);
+const paths = match ? match[2].trim().split('\n').map((line) => line.trim()) : [];
 let passed = 0;
 let total = 0;
 function check(value, name) {
@@ -19,6 +19,15 @@ function check(value, name) {
   else console.log(`LEAK ${name}`);
 }
 
+// A YAML literal block with | keeps its last newline; combined with Bash's
+// here-string that yields an extra empty array entry and an invalid pathspec.
+check(match?.[1] === '-', 'production allowlist strips its trailing YAML newline');
+const yamlValue = paths.join('\n') + (match?.[1] === '-' ? '' : '\n');
+const parsed = spawnSync('bash', ['-c', 'mapfile -t paths <<< "$PRODUCTION_PATHS"; printf "<%s>\\n" "${paths[@]}"'], {
+  encoding: 'utf8', env: { ...process.env, PRODUCTION_PATHS: yamlValue },
+});
+check(parsed.status === 0 && parsed.stdout === paths.map((entry) => `<${entry}>\n`).join(''),
+  'Bash receives exactly the allowlisted paths without an empty entry');
 check(paths.includes('scripts/test'), 'promotion includes the suite needed by npm test');
 check(!paths.some((entry) => /^(e2e|assets-src|docs)(\/|$)/.test(entry)), 'production tree excludes E2E, documentation and source images');
 check(npm.scripts.test.includes('scripts/test/run.mjs'), 'npm test invokes the included non-browser suite');

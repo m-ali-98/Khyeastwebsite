@@ -23,7 +23,7 @@ permissions:
 # that promotion will publish. Browser E2E, visual baselines, original image
 # archives and documentation are deliberately not shipped.
 env:
-  PRODUCTION_PATHS: |
+  PRODUCTION_PATHS: |-
     .gitattributes
     .gitignore
     .github/workflows/promote-production.yml
