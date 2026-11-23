@@ -1299,6 +1299,27 @@ test('a cold client-side route stays behind the navigation screen until it commi
   await expect(page.locator('form')).toBeVisible();
 });
 
+test('home logo returns to the top without remounting the current homepage @mobile', async ({ page }) => {
+  test.setTimeout(120_000);
+  for (const path of ['/', '/en', '/ar', '/ru']) {
+    await gotoReady(page, path);
+    await page.evaluate(() => {
+      window.__homepageBeforeLogo = document.querySelector('main');
+      window.scrollTo({ top: Math.min(1800, document.documentElement.scrollHeight / 2), behavior: 'instant' });
+    });
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+    await page.locator('nav.nav .nav__logo').click();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await page.evaluate(() => document.querySelector('main') === window.__homepageBeforeLogo)).toBe(true);
+    await expect(page).toHaveURL(new RegExp(`${path === '/' ? '/' : path}/?$`));
+  }
+  await gotoReady(page, '/products');
+  await page.locator('nav.nav .nav__logo').click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator('.hero')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
 test('a cached route revisit does not force a navigation screen', async ({ page }) => {
   /* A direct visit puts the Products module into React.lazy and the browser
      cache. Smart feedback should cover genuine loading (tested above), not
