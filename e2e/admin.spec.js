@@ -280,6 +280,32 @@ test('fallback content makes only content-authoring tabs read-only', async ({ pa
   await expect(boundary).not.toHaveAttribute('inert', '');
 });
 
+test('Google tag settings validate, save, disable, and survive reopening', async ({ page }) => {
+  await loginAdmin(page);
+  const original = (await (await page.request.get('/api/admin/google-tag')).json()).id;
+  try {
+    await adminTab(page, 'تگ گوگل').click();
+    const panel = page.getByTestId('admin-google-tag');
+    const field = panel.getByLabel('شناسه کانتینر');
+    await expect(field).toHaveValue(original);
+    await field.fill('G-8V5VTCJC5S');
+    await panel.getByRole('button', { name: 'ذخیره تگ گوگل' }).click();
+    await expect(panel.getByRole('alert')).toBeVisible();
+    await field.fill('GTM-TEST123');
+    await panel.getByRole('button', { name: 'ذخیره تگ گوگل' }).click();
+    await expect(panel.getByRole('status')).toBeVisible();
+    await adminTab(page, 'امنیت و محدودیت‌ها').click();
+    await adminTab(page, 'تگ گوگل').click();
+    await expect(field).toHaveValue('GTM-TEST123');
+    await field.fill('');
+    await panel.getByRole('button', { name: 'ذخیره تگ گوگل' }).click();
+    await expect(panel.getByRole('status')).toBeVisible();
+    expect((await (await page.request.get('/api/admin/google-tag')).json()).id).toBe('');
+  } finally {
+    await page.request.put('/api/admin/google-tag', { data: { id: original } });
+  }
+});
+
 test('security settings show the effective IP and can disable all rate limits', async ({ page }) => {
   await loginAdmin(page);
   await adminTab(page, 'امنیت و محدودیت‌ها').click();

@@ -49,6 +49,7 @@ import { salesRepresentativeProblem } from '../shared/salesRepresentatives.js';
 import { CONTENT_REVISION_HEADER, parseContentRevision } from '../shared/contentRevision.js';
 import { socialLinkOverridesProblem, socialLinksProblem } from '../shared/socialLinks.js';
 import { VIDEO_EMBED_FRAME_SOURCES } from '../shared/videoEmbeds.js';
+import { DEFAULT_GOOGLE_TAG_ID, validGoogleTagId, googleTagHead } from '../shared/googleTag.js';
 import * as store from './db.js';
 import { createRateLimiter, rateLimitResponse } from './rateLimits.js';
 import { originAllowed, readCookie } from './accounts.js';
@@ -788,9 +789,9 @@ app.use(
 );
 
 /* ---------------- security headers ----------------
-   Defence in depth for the whole surface. The site loads nothing from a third
-   party — no CDN fonts, no analytics, no embeds — so the policy can be strict:
-   everything comes from our own origin and nothing else.
+   Defence in depth for the whole surface. Public documents with the Google
+   tag enabled permit the reviewed Google tag/measurement origins; admin and
+   other responses keep the default strict policy.
 
    script-src is hash-based rather than 'unsafe-inline'. index.html carries one
    inline bootstrap script (it sets lang/dir/theme before first paint so the
@@ -828,15 +829,14 @@ const scriptHashes = () => {
    hash because each page carries different JSON-LD. */
 const INLINE_SCRIPTS = scriptHashes();
 
-const makeCsp = (inlineScripts = INLINE_SCRIPTS, trustedImageOrigins = []) => [
+const makeCsp = (inlineScripts = INLINE_SCRIPTS, trustedImageOrigins = [], googleTagEnabled = false) => [
   "default-src 'self'",
-  `script-src 'self' ${inlineScripts}`.trim(),
+  `script-src 'self' ${inlineScripts}${googleTagEnabled ? ' https://www.googletagmanager.com https://www.google-analytics.com' : ''}`.trim(),
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob:${trustedImageOrigins.length ? ` ${trustedImageOrigins.join(' ')}` : ''}`,
+  `img-src 'self' data: blob:${trustedImageOrigins.length ? ` ${trustedImageOrigins.join(' ')}` : ''}${googleTagEnabled ? ' https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://www.google.com https://*.doubleclick.net' : ''}`,
   "media-src 'self'",
   "font-src 'self'",
-  /* The admin panel talks to this origin only. */
-  "connect-src 'self'",
+  `connect-src 'self'${googleTagEnabled ? ' https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://www.google.com https://*.doubleclick.net' : ''}`,
   /* Only provider-specific video player origins are frameable. The shared
      parser emits canonical URLs on precisely these three origins. */
   `frame-src ${VIDEO_EMBED_FRAME_SOURCES.join(' ')}`,
@@ -1067,6 +1067,20 @@ app.get('/api/admin/security', requireAuth, (req, res) => res.json(securitySnaps
 app.put('/api/admin/security', requireAuth, (req, res) => {
   rateLimiter.update(req.body?.rateLimits || req.body || {});
   res.json({ ok: true, ...securitySnapshot(req) });
+});
+
+/* A missing setting uses the requested initial container. An explicitly empty
+   setting disables it, and malformed stored data fails closed. */
+const googleTagId = () => {
+  const value = store.getSetting(db, 'site.googleTagId', DEFAULT_GOOGLE_TAG_ID);
+  return validGoogleTagId(value) ? value : '';
+};
+app.get('/api/admin/google-tag', requireAuth, (_req, res) => res.json({ id: googleTagId() }));
+app.put('/api/admin/google-tag', requireAuth, (req, res) => {
+  const id = typeof req.body?.id === 'string' ? req.body.id.trim() : null;
+  if (!validGoogleTagId(id)) return res.status(400).json({ error: 'invalid GTM container ID' });
+  store.setSetting(db, 'site.googleTagId', id);
+  return res.json({ ok: true, id });
 });
 
 /* ---------------- admin: content ---------------- */
@@ -1700,11 +1714,21 @@ if (fs.existsSync(DIST)) {
       return res.status(500).type('text/plain').send('internal error');
     }
 
-    /* JSON-LD differs by route and is an inline script element. Hash this
-       exact response so the strict CSP permits it without unsafe-inline. */
+    // Never load third-party tags in the privileged admin document. Read on
+    // every document request so edits propagate to all workers without restart.
+    let tagId = '';
+    if (!/^\/(?:en\/|ar\/|ru\/)?admin(?:\/|$)/i.test(req.path)) {
+      try { tagId = googleTagId(); } catch (error) {
+        console.error('[google-tag] could not read setting:', error.message);
+      }
+    }
+    if (tagId) html = html.replace(/<head([^>]*)>/i, (head) => `${head}\n${googleTagHead(tagId)}`);
+
+    /* Hash the exact response, including the tag bootstrap and route JSON-LD,
+       so neither requires unsafe-inline. */
     res.setHeader(
       'Content-Security-Policy',
-      makeCsp(scriptHashesFromHtml(html), trustSealImageOrigins(state.collections?.trustSeals)),
+      makeCsp(scriptHashesFromHtml(html), trustSealImageOrigins(state.collections?.trustSeals), Boolean(tagId)),
     );
     res.setHeader('Content-Language', meta.lang);
     res.setHeader('Cache-Control', meta.indexable ? 'no-cache' : 'private, no-store');

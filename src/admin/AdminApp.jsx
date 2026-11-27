@@ -6,6 +6,7 @@ import { Icons, PasswordInput } from '../components/ui';
 import { api, useContent } from '../content/ContentContext';
 import { ProductsTab, PostsTab, TextsTab, MediaTab, LinksTab, TrustSealsTab, ContactTab, MessagesTab } from './tabs';
 import SalesRepresentativesTab from './SalesRepresentativesTab';
+import GoogleTagTab from './GoogleTagTab';
 import { UploadButton } from './editors';
 import { ShopProductsTab, ShopOrdersTab, ShopCommentsTab, ShopPaymentTab, ShopSmsTab, ShopCustomersTab, AdminSecurityTab } from './shopTabs';
 import { TranslationsTab } from './i18nTab';
@@ -52,6 +53,7 @@ const TABS = [
   { id: 'messages', label: 'پیام‌های مردم', icon: 'inbox', group: 'communications' },
   { id: 'sms', label: 'پیامک', icon: 'send', faOnly: true, group: 'communications' },
   { id: 'security', label: 'امنیت و محدودیت‌ها', icon: 'shield', faOnly: true, group: 'system' },
+  { id: 'google-tag', label: 'تگ گوگل', icon: 'link', faOnly: true, group: 'system' },
 ];
 
 const ADMIN_LANGUAGE_NAME = { en: 'English', ar: 'العربية', ru: 'Русский' };
@@ -851,6 +853,7 @@ function AdminShell() {
     customers: ShopCustomersTab,
     sms: ShopSmsTab,
     security: AdminSecurityTab,
+    'google-tag': GoogleTagTab,
     texts: TextsTab,
     media: MediaTab,
     links: LinksTab,

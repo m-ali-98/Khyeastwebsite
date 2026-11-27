@@ -8,6 +8,22 @@
 import { test, expect } from '@playwright/test';
 import { gotoReady, routeSettled, one, watchConsole, faNum, signUpCustomer, addAddress, uniquePhone } from './helpers.js';
 
+test('Google tag bootstrap runs once on a public document @mobile', async ({ page }) => {
+  let loads = 0;
+  await page.route('https://www.googletagmanager.com/gtm.js**', async (route) => {
+    loads += 1;
+    await route.fulfill({ contentType: 'application/javascript', body: 'window.__googleTagLoaded = true;' });
+  });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => loads).toBe(1);
+  await expect.poll(() => page.evaluate(() => Boolean(window.__googleTagLoaded))).toBe(true);
+  expect(await page.evaluate(() => window.dataLayer?.[0]?.[0])).toBe('js');
+  expect(await page.locator('script[src*="googletagmanager.com/gtm.js"]').count()).toBe(1);
+  await page.goto('/admin', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('script[src*="googletagmanager.com/gtm.js"]')).toHaveCount(0);
+  expect(loads).toBe(1);
+});
+
 /* Every route, with a selector that must be present and the minimum amount of
    text the page must render. The minimum matters: asserting "the page loaded"
    passes on an empty shell, which is the failure mode we are trying to catch.
