@@ -201,6 +201,15 @@ function ThemeToggle() {
   );
 }
 
+// A same-home logo click should not create a new route entry and unmount the
+// long homepage at its current scroll position. Preserve normal modified clicks
+// and clear an existing query/hash through ordinary router navigation.
+function handleHomeLogoClick(event, location) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || location.pathname !== '/') return;
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  if (!location.search && !location.hash) event.preventDefault();
+}
+
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
@@ -416,7 +425,7 @@ function Navbar() {
         </div>
 
         <div className="container nav__bar">
-          <Link to="/" className="nav__logo" aria-label={t('global.company.name')}>
+          <Link to="/" className="nav__logo" aria-label={t('global.company.name')} onClick={(event) => handleHomeLogoClick(event, location)}>
             <Logo variant="solid" />
             <span className="nav__logo-text">
               <strong>{t('global.company.short')}</strong>{' '}
@@ -688,6 +697,7 @@ function TrustSealLink({ seal }) {
 }
 
 function Footer() {
+  const location = useLocation();
   const { t, l, col, brands, state } = useContent();
   const { shopEnabled, locale } = useLocale();
   const storefrontEnabled = isStorefrontEnabled(shopEnabled, state.shop?.display);
@@ -703,7 +713,7 @@ function Footer() {
       <div className="container">
         <div className="footer__grid">
           <div>
-            <Link to="/" className="nav__logo" style={{ marginBottom: 8 }}>
+            <Link to="/" className="nav__logo" style={{ marginBottom: 8 }} onClick={(event) => handleHomeLogoClick(event, location)}>
               <Logo size={44} variant="solid" />
               <span className="nav__logo-text">
                 <strong style={{ color: '#fff' }}>{t('global.company.short')}</strong>{' '}

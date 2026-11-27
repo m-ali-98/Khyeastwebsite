@@ -167,16 +167,15 @@ try {
     }
   }
 
-  /* Fetchable page resources must stay on-origin. SEO canonicals, hreflang
-     alternates and ordinary anchors are intentionally absolute URLs but CSP
-     does not fetch them, so they are not resource-policy violations. */
+  /* Only the explicitly configured Google tag may be a third-party fetched
+     resource. Canonicals and ordinary anchors do not fetch resources. */
   const linked = [
     ...[...html.matchAll(/<(?:script|img|source|video|audio)\b[^>]*\bsrc="([^"]+)"/gi)].map((m) => m[1]),
     ...[...html.matchAll(/<link\b(?=[^>]*\brel="(?:stylesheet|icon|preload|modulepreload)")[^>]*\bhref="([^"]+)"/gi)].map((m) => m[1]),
   ].filter((url) => !url.startsWith('data:'));
   check(
-    linked.every((url) => !/^(https?:)?\/\//.test(url)),
-    'every fetched resource is same-origin',
+    linked.every((url) => !/^(https?:)?\/\//.test(url) || url === 'https://www.googletagmanager.com/gtm.js?id=GTM-NFTZ2BZ2'),
+    'fetched resources are same-origin except the configured Google tag',
     linked.filter((url) => /^(https?:)?\/\//.test(url)).join(' '),
   );
 
@@ -211,6 +210,27 @@ try {
     body: JSON.stringify({ user: HARDEN_ADMIN_USER, pass: HARDEN_ADMIN_PASS }),
   });
   const largeAdminCookie = (adminLogin.headers.get('set-cookie') || '').split(';')[0];
+
+  const tagUrl = `${BASE}/api/admin/google-tag`;
+  const tagHeaders = { Cookie: largeAdminCookie, Origin: BASE, 'Content-Type': 'application/json' };
+  const tagWrite = (id, headers = tagHeaders) => fetch(tagUrl, { method: 'PUT', headers, body: JSON.stringify({ id }) });
+  check((await fetch(tagUrl)).status === 401 && (await tagWrite('GTM-ABCD', { 'Content-Type': 'application/json' })).status === 401, 'Google tag settings require admin authentication');
+  check((await tagWrite('GTM-ABCD', { ...tagHeaders, Origin: 'https://evil.example' })).status === 403, 'Google tag settings reject cross-origin writes');
+  check((await (await fetch(tagUrl, { headers: tagHeaders })).json()).id === 'GTM-NFTZ2BZ2', 'Google tag uses the requested default on an existing database');
+  check((await tagWrite('GTM-ABCD<script>')).status === 400 && (await tagWrite('G-8V5VTCJC5S')).status === 400 && (await tagWrite(null)).status === 400, 'Google tag setting rejects markup, measurement IDs, and non-strings');
+  check((await tagWrite('GTM-TEST123')).ok, 'admin can change the container ID');
+  const taggedPage = await fetch(`${BASE}/en/blog`);
+  const taggedHtml = await taggedPage.text();
+  const taggedCsp = taggedPage.headers.get('content-security-policy') || '';
+  check((taggedHtml.match(/https:\/\/www\.googletagmanager\.com\/gtm\.js\?id=GTM-TEST123/g) || []).length === 1 && !taggedHtml.includes('GTM-NFTZ2BZ2'), 'updated tag is emitted once on localized public documents');
+  check(taggedCsp.includes('https://www.googletagmanager.com') && !/script-src[^;]*'unsafe-inline'/.test(taggedCsp), 'tagged document CSP allows Google without unsafe-inline');
+  const adminPage = await fetch(`${BASE}/admin`);
+  check(!(await adminPage.text()).includes('googletagmanager.com/gtm.js') && !(adminPage.headers.get('content-security-policy') || '').includes('googletagmanager.com'), 'admin document does not load or permit the Google tag');
+  check((await tagWrite('')).ok, 'admin can disable the Google tag');
+  const disabledPage = await fetch(`${BASE}/blog`);
+  check(!(await disabledPage.text()).includes('googletagmanager.com/gtm.js') && !(disabledPage.headers.get('content-security-policy') || '').includes('googletagmanager.com'), 'disabled tag is absent from public HTML and CSP');
+  check((await tagWrite('GTM-NFTZ2BZ2')).ok, 'default tag can be restored');
+
   const contentSnapshot = await fetch(`${BASE}/api/content`);
   const largeContentRevision = contentSnapshot.headers.get(CONTENT_REVISION_HEADER);
   const largeAdminBody = JSON.stringify({ changes: { texts: { largeReviewFixture: 'x'.repeat(120 * 1024) } } });
